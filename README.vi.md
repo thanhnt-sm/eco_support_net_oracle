@@ -67,7 +67,7 @@ graph LR
 
 ```bash
 # Clone repository
-git clone https://github.com/thannt/eco_support_net_oracle.git
+git clone https://github.com/thanhnt-sm/eco_support_net_oracle.git
 cd eco_support_net_oracle
 
 # Biên dịch Native Rust CLI (eco-support)

@@ -124,8 +124,8 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
    - Commit đầu tiên: `874cea9 chore: initial commit (fresh repository)` — **123 file**, 0 file rác (đã kiểm tra `target/`, `.venv/`, cache... không bị track).
    - Working tree sạch, pre-commit hooks pass.
 6. ✅ **Chuyển sang tên repo mới `eco_support_net_oracle`**:
-   - Thêm remote: `origin → https://github.com/thannt/eco_support_net_oracle.git`.
-   - Thay toàn bộ URL repo cũ `thannt/eco_support` → `thannt/eco_support_net_oracle` trong: `Cargo.toml`, `README.md`, `README.vi.md`, `CONTRIBUTING.md`, `CONTRIBUTING.vi.md`, `grants/written_explanation.md` (kèm `cd eco_support` → `cd eco_support_net_oracle`).
+   - Thêm remote: `origin → https://github.com/thanhnt-sm/eco_support_net_oracle.git` (account thật `thanhnt-sm`, phát hiện từ remote gốc của bản clone cũ).
+   - Thay toàn bộ URL repo cũ `thanhnt-sm/eco_support` → `thanhnt-sm/eco_support_net_oracle` trong: `Cargo.toml`, `README.md`, `README.vi.md`, `CONTRIBUTING.md`, `CONTRIBUTING.vi.md`, `grants/written_explanation.md` (kèm `cd eco_support` → `cd eco_support_net_oracle`).
    - Giữ nguyên tên package Python nội bộ `eco_support`, các `file:///.../eco_support/...` và thư mục clone cũ `/Volumes/Data/101.AI/GitHub/eco_support` (chúng là tham chiếu tới bản clone cũ, không ảnh hưởng repo mới).
 
 ---
