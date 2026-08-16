@@ -17,8 +17,8 @@ Thank you for your interest in contributing to **EcoSupport**! We are committed 
 
 1. **Fork and Clone** the repository:
    ```bash
-   git clone https://github.com/thannt/eco_support.git
-   cd eco_support
+   git clone https://github.com/thannt/eco_support_net_oracle.git
+   cd eco_support_net_oracle
    ```
 2. **Compile and Test (Rust Native Engine)**:
    ```bash

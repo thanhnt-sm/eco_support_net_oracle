@@ -85,7 +85,14 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
              ~/eco_support_net_oracle_old_git_backup_20260817-022803.tar.gz
            → 123 files: full Rust workspace + research + docs + rules
              + grants/SUBMISSION_CHECKLIST.md + research/muc_tieu/ + scripts/demo_scan.sh
-           → Chưa có remote (đang chờ URL repo mới)
+
+[Commit 2] ea41340 docs(session-register): record fresh repository creation and new remote push steps
+           → Ghi log session-1 vào register.
+
+[Commit 3] (nút này được điền sau commit rename repo — xem bên dưới)
+           → Đổi toàn bộ URL repo `thannt/eco_support` → `thannt/eco_support_net_oracle`
+             (Cargo.toml, README.md, README.vi.md, CONTRIBUTING.md, CONTRIBUTING.vi.md,
+              grants/written_explanation.md) + `git remote add origin ...eco_support_net_oracle.git`
 ```
 
 ---
@@ -111,17 +118,22 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
    - `./scripts/verify_docs_sync.sh` → **100% PASS** (30/30 artifacts)
    - `./scripts/demo_scan.sh` → **100% PASS**
 5. ✅ **Khởi tạo Git mới (Fresh Repository)**:
-   - Workspace vốn được clone từ git cũ nhưng không còn remote → đã **xóa hẳn `.git` cũ** và `git init -b main` tạo repo mới sạch lịch sử.
+   - Workspace vốn được clone từ clone-ngoài nhưng không còn remote → đã **xóa hẳn `.git` cũ** và `git init -b main` tạo repo mới sạch lịch sử.
    - Backup history cũ: `~/eco_support_net_oracle_old_git_backup_20260817-022803.tar.gz` (421K).
    - Commit đầu tiên: `874cea9 chore: initial commit (fresh repository)` — **123 file**, 0 file rác (đã kiểm tra `target/`, `.venv/`, cache... không bị track).
    - Working tree sạch, pre-commit hooks pass.
+6. ✅ **Chuyển sang tên repo mới `eco_support_net_oracle`**:
+   - Thêm remote: `origin → https://github.com/thannt/eco_support_net_oracle.git`.
+   - Thay toàn bộ URL repo cũ `thannt/eco_support` → `thannt/eco_support_net_oracle` trong: `Cargo.toml`, `README.md`, `README.vi.md`, `CONTRIBUTING.md`, `CONTRIBUTING.vi.md`, `grants/written_explanation.md` (kèm `cd eco_support` → `cd eco_support_net_oracle`).
+   - Giữ nguyên tên package Python nội bộ `eco_support`, các `file:///.../eco_support/...` và thư mục clone cũ `/Volumes/Data/101.AI/GitHub/eco_support` (chúng là tham chiếu tới bản clone cũ, không ảnh hưởng repo mới).
 
 ---
 
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO (Theo thứ tự ưu tiên)
 
-### Ưu tiên 1 — Git Remote & Push (Chờ User)
-- [ ] Cung cấp URL GitHub remote repo mới → `git remote add origin <url>` + `git push -u origin main` (repo mới chưa có remote)
+### Ưu tiên 1 — Tạo repo trên GitHub & Push (Chờ User)
+- [ ] Repo `thannt/eco_support_net_oracle` **chưa tồn tại** trên GitHub. Cần User tạo repo thủ công hoặc `gh auth login` để AI tạo giúp.
+- [ ] Sau khi repo tồn tại: `git push -u origin main`.
 
 ### Ưu tiên 2 — .NET Oracle Drift Contract Engine (Kiến trúc v2 trong research/muc_tieu/2.md)
 - [ ] Triển khai kiến trúc v2 cho .NET Oracle: Tách IDE analyzer syntax nhẹ và CI diff-engine nặng.

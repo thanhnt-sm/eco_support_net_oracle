@@ -13,7 +13,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Than Nguyen <thannt@ecosupport.dev>"]
 license = "PolyForm-Noncommercial-1.0.0"
-repository = "https://github.com/thannt/eco_support"
+repository = "https://github.com/thannt/eco_support_net_oracle"
 rust-version = "1.75.0"
 
 [workspace.dependencies]

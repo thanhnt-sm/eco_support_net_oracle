@@ -2,7 +2,7 @@
 ## Ecosystem Impact Track: Official Written Explanation (Max 500 Words)
 
 **Project Name**: EcoSupport Native (`eco-support-rs` / Autonomous Open Source Niche Ecosystem Radar & Support Engine)  
-**Repository**: `https://github.com/thannt/eco_support` (Source-Available / PolyForm Noncommercial 1.0.0)  
+**Repository**: `https://github.com/thannt/eco_support_net_oracle` (Source-Available / PolyForm Noncommercial 1.0.0)  
 **Primary Contact / Maintainer**: Than Nguyen  
 **Track**: Ecosystem Impact Track (Foundational Infrastructure & High-Performance MCP Enablement)
 
