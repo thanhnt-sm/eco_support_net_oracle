@@ -90,10 +90,15 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
            → Ghi log session-1 vào register.
 
 [Commit 3] e68f165 chore(repo): rename to eco_support_net_oracle across metadata and docs
-           → Đổi toàn bộ URL repo `thannt/eco_support` → `thannt/eco_support_net_oracle`
-             (Cargo.toml, README.md, README.vi.md, CONTRIBUTING.md, CONTRIBUTING.vi.md,
-              grants/written_explanation.md) + `git remote add origin ...eco_support_net_oracle.git`
-             + thêm research/muc_tieu/5.md
+           → Đổi URL repo → `eco_support_net_oracle` (tạm dùng account `thannt`)
+             + `git remote add origin ...eco_support_net_oracle.git` + thêm research/muc_tieu/5.md
+
+[Commit 4] 9400772 fix(repo): correct GitHub account to thanhnt-sm in repo metadata
+           → Phát hiện account GitHub thật là `thanhnt-sm` (từ remote bản clone cũ):
+             sửa toàn bộ URL `thannt/…` → `thanhnt-sm/…`.
+
+[Commit 5] 🚀 PUSH THÀNH CÔNG lên https://github.com/thanhnt-sm/eco_support_net_oracle
+           → `main` → `origin/main`, tracking set. Repo mới ONLINE.
 ```
 
 ---
@@ -127,14 +132,19 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
    - Thêm remote: `origin → https://github.com/thanhnt-sm/eco_support_net_oracle.git` (account thật `thanhnt-sm`, phát hiện từ remote gốc của bản clone cũ).
    - Thay toàn bộ URL repo cũ `thanhnt-sm/eco_support` → `thanhnt-sm/eco_support_net_oracle` trong: `Cargo.toml`, `README.md`, `README.vi.md`, `CONTRIBUTING.md`, `CONTRIBUTING.vi.md`, `grants/written_explanation.md` (kèm `cd eco_support` → `cd eco_support_net_oracle`).
    - Giữ nguyên tên package Python nội bộ `eco_support`, các `file:///.../eco_support/...` và thư mục clone cũ `/Volumes/Data/101.AI/GitHub/eco_support` (chúng là tham chiếu tới bản clone cũ, không ảnh hưởng repo mới).
+7. ✅ **Đính chính account GitHub & Push lên remote**:
+   - Phát hiện account GitHub thật là **`thanhnt-sm`** (không phải `thannt`) nhờ đọc `remote.origin.url` trong 2 bản clone cũ.
+   - Sửa remote: `origin → https://github.com/thanhnt-sm/eco_support_net_oracle.git`.
+   - **`git push -u origin main` THÀNH CÔNG** → repo mới online tại `https://github.com/thanhnt-sm/eco_support_net_oracle`.
 
 ---
 
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO (Theo thứ tự ưu tiên)
 
-### Ưu tiên 1 — Tạo repo trên GitHub & Push (Chờ User)
-- [ ] Repo `thannt/eco_support_net_oracle` **chưa tồn tại** trên GitHub. Cần User tạo repo thủ công hoặc `gh auth login` để AI tạo giúp.
-- [ ] Sau khi repo tồn tại: `git push -u origin main`.
+### Ưu tiên 1 — ✅ ĐÃ HOÀN THÀNH: Tạo repo & Push
+- [x] Repo `thanhnt-sm/eco_support_net_oracle` (private, mới) → đã tồn tại + push thành công.
+- [x] `git push -u origin main` → tracking `origin/main` set.
+- [ ] (Tuỳ chọn) Set visibility **public** nếu muốn hồ sơ grant được review công khai.
 
 ### Ưu tiên 2 — .NET Oracle Drift Contract Engine (Kiến trúc v2 trong research/muc_tieu/2.md)
 - [ ] Triển khai kiến trúc v2 cho .NET Oracle: Tách IDE analyzer syntax nhẹ và CI diff-engine nặng.
