@@ -89,10 +89,11 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 [Commit 2] ea41340 docs(session-register): record fresh repository creation and new remote push steps
            → Ghi log session-1 vào register.
 
-[Commit 3] (nút này được điền sau commit rename repo — xem bên dưới)
+[Commit 3] e68f165 chore(repo): rename to eco_support_net_oracle across metadata and docs
            → Đổi toàn bộ URL repo `thannt/eco_support` → `thannt/eco_support_net_oracle`
              (Cargo.toml, README.md, README.vi.md, CONTRIBUTING.md, CONTRIBUTING.vi.md,
               grants/written_explanation.md) + `git remote add origin ...eco_support_net_oracle.git`
+             + thêm research/muc_tieu/5.md
 ```
 
 ---
