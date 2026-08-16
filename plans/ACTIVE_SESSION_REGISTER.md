@@ -80,18 +80,12 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 
 ### Commit History
 ```
-[Commit 1] feat(core): initial rust native workspace architecture and governance rules
-           → 91 files, full Rust workspace + research + docs + rules
-
-[Commit 2] docs(governance): add universal AI constitution, multi-perspective docs suite
-           → .cursorrules, .windsurfrules, .geminirules, docs/ full suite
-
-[Commit 3] chore(governance): add universal AI session register, anti-garbage guard,
-           Devin/agent rules, and multi-provider rule files
-           → ACTIVE_SESSION_REGISTER.md, anti_garbage_guard.sh, .agentrules, devin_instructions.md
-
-[Commit 4] chore(sync): automated workspace synchronization [2026-08-15T18:42:42Z]
-           → cleanup grant_application/ (moved to grants/), misc fixes
+[Commit 1] chore: initial commit (fresh repository) [2026-08-17]
+           → FRESH GIT. History cũ (4 commits) đã bị xóa; backup tại
+             ~/eco_support_net_oracle_old_git_backup_20260817-022803.tar.gz
+           → 123 files: full Rust workspace + research + docs + rules
+             + grants/SUBMISSION_CHECKLIST.md + research/muc_tieu/ + scripts/demo_scan.sh
+           → Chưa có remote (đang chờ URL repo mới)
 ```
 
 ---
@@ -116,13 +110,18 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
    - `./scripts/preflight_agent_check.sh` → **100% PASS**
    - `./scripts/verify_docs_sync.sh` → **100% PASS** (30/30 artifacts)
    - `./scripts/demo_scan.sh` → **100% PASS**
+5. ✅ **Khởi tạo Git mới (Fresh Repository)**:
+   - Workspace vốn được clone từ git cũ nhưng không còn remote → đã **xóa hẳn `.git` cũ** và `git init -b main` tạo repo mới sạch lịch sử.
+   - Backup history cũ: `~/eco_support_net_oracle_old_git_backup_20260817-022803.tar.gz` (421K).
+   - Commit đầu tiên: `874cea9 chore: initial commit (fresh repository)` — **123 file**, 0 file rác (đã kiểm tra `target/`, `.venv/`, cache... không bị track).
+   - Working tree sạch, pre-commit hooks pass.
 
 ---
 
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO (Theo thứ tự ưu tiên)
 
-### Ưu tiên 1 — Git Remote & Final Push (Chờ User)
-- [ ] Cung cấp URL GitHub remote repo và chạy `./scripts/git_sync.sh "feat(radar): complete github api integration and grant submission checklist"`
+### Ưu tiên 1 — Git Remote & Push (Chờ User)
+- [ ] Cung cấp URL GitHub remote repo mới → `git remote add origin <url>` + `git push -u origin main` (repo mới chưa có remote)
 
 ### Ưu tiên 2 — .NET Oracle Drift Contract Engine (Kiến trúc v2 trong research/muc_tieu/2.md)
 - [ ] Triển khai kiến trúc v2 cho .NET Oracle: Tách IDE analyzer syntax nhẹ và CI diff-engine nặng.
