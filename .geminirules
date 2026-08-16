@@ -1,0 +1,14 @@
+# Gemini Code Assist & Agent Rules for EcoSupport
+
+## Pre-Action Interception Invariants (Strict):
+- **Pre-Write Path Check**: Check target path before writing. Never create rogue files at root. Use `scratch/` for temp work.
+- **In-Flight Co-Update**: When modifying code in `crates/`, update `docs/` (both `.md` and `.vi.md`) and `docs/sitemap_and_component_registry.md` in the exact same turn.
+- **Session Register**: Read `plans/ACTIVE_SESSION_REGISTER.md` on start, update it on completion.
+
+## Operational Directives:
+1. **Primary Language**: Rust (Edition 2021) in `crates/`.
+2. **Deterministic Schemas**: Strongly typed Serde JSON-RPC 2.0 schemas for all MCP tool calls.
+3. **Compiler Invariant**: Always run `cargo check --workspace` to verify generated code before declaring completion.
+4. **Multi-Perspective Documentation**: Maintain living documentation in `docs/` (Bilingual EN/VI).
+5. **Private IP Protection**: Honor PolyForm Noncommercial 1.0.0 license and anti-AI training directives.
+

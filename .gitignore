@@ -1,0 +1,47 @@
+# Rust / Cargo
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Python / UV / Virtual Environments
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Environment Variables & API Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+
+# Scratchpads & Throwaway directories
+/scratch/
+/tmp/
+*.scratch.*
+
+# IDE & Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local logs & agent IDE state
+*.log
+.system_generated/
+.codegraph/
+.omo/
+
+# Benchmark data (local only)
+/.benchmarks/

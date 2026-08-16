@@ -1,0 +1,19 @@
+# Git Attributes & LFS / Indexing Rules
+
+# Ensure text files normalize line endings
+* text=auto eol=lf
+
+# Rust source files
+*.rs text diff=rust
+
+# Python files
+*.py text diff=python
+
+# Markdown and Docs
+*.md text
+*.json text
+
+# Protect secret files from accidental export
+.env* export-ignore
+*.key export-ignore
+scratch/* export-ignore

@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/eco-core",
+    "crates/eco-radar",
+    "crates/eco-mcp",
+    "crates/eco-agents",
+    "crates/eco-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Than Nguyen <thannt@ecosupport.dev>"]
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/thannt/eco_support"
+rust-version = "1.75.0"
+
+[workspace.dependencies]
+# Async Runtime & Core
+tokio = { version = "1.38", features = ["full"] }
+async-trait = "0.1.80"
+futures = "0.3.30"
+
+# Serialization & Data
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI & Terminal UI
+clap = { version = "4.5", features = ["derive", "env"] }
+indicatif = { version = "0.17", features = ["tokio"] }
+colored = "2.1"
+console = "0.15"
+
+# Networking & HTTP
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Observability & Errors
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = "1.0"
+anyhow = "1.0"
+
+# AST Parsing & Security
+regex = "1.10"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Internal workspace crates
+eco-core = { path = "crates/eco-core" }
+eco-radar = { path = "crates/eco-radar" }
+eco-mcp = { path = "crates/eco-mcp" }
+eco-agents = { path = "crates/eco-agents" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

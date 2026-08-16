@@ -1,0 +1,57 @@
+{
+  "version": "2026.1",
+  "description": "Curated seed registry of high-criticality, single-maintainer open source packages in AI/Scientific ecosystems",
+  "last_updated": "2026-08-16T00:00:00Z",
+  "repositories": [
+    {
+      "repo": "cffi-team/cffi-tensor-tools",
+      "ecosystem": "pypi",
+      "category": "c-ffi",
+      "downstream_dependents": 4320,
+      "maintainer_count": 1,
+      "stale_issues_count": 48,
+      "has_mcp_server": false,
+      "risk_level": "CRITICAL"
+    },
+    {
+      "repo": "geo-open/raster-simd-convert",
+      "ecosystem": "pypi",
+      "category": "geospatial",
+      "downstream_dependents": 1850,
+      "maintainer_count": 1,
+      "stale_issues_count": 29,
+      "has_mcp_server": false,
+      "risk_level": "HIGH"
+    },
+    {
+      "repo": "bio-ai/fast-alignment-kernel",
+      "ecosystem": "github",
+      "category": "bio-ml",
+      "downstream_dependents": 940,
+      "maintainer_count": 1,
+      "stale_issues_count": 17,
+      "has_mcp_server": false,
+      "risk_level": "HIGH"
+    },
+    {
+      "repo": "community-mcp/sqlite-spatial-mcp",
+      "ecosystem": "mcp",
+      "category": "mcp-connectors",
+      "downstream_dependents": 620,
+      "maintainer_count": 1,
+      "stale_issues_count": 11,
+      "has_mcp_server": true,
+      "risk_level": "MEDIUM"
+    },
+    {
+      "repo": "typing-community/c-extension-stubs",
+      "ecosystem": "pypi",
+      "category": "typing-infrastructure",
+      "downstream_dependents": 12400,
+      "maintainer_count": 2,
+      "stale_issues_count": 64,
+      "has_mcp_server": false,
+      "risk_level": "CRITICAL"
+    }
+  ]
+}

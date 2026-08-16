@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# EcoSupport Pre-commit Hook: Formatting and Safety Check
+
+set -e
+
+export PATH="$HOME/.cargo/bin:$PATH"
+
+echo "🦀 Running Rust format check..."
+if command -v cargo >/dev/null 2>&1; then
+    cargo fmt --check || {
+        echo "❌ cargo fmt failed. Formatting files automatically..."
+        cargo fmt
+    }
+fi
+
+echo "🐍 Running Ruff check..."
+if [ -d ".venv" ]; then
+    .venv/bin/ruff format --check . 2>/dev/null || .venv/bin/ruff format .
+fi
+
+echo "🛡️ Running Anti-Garbage Guard (Workspace Structure Validator)..."
+chmod +x ./scripts/anti_garbage_guard.sh
+./scripts/anti_garbage_guard.sh
+
+echo "📚 Running Document Synchronization Validator..."
+./scripts/verify_docs_sync.sh
+
+echo "✅ All pre-commit checks passed."

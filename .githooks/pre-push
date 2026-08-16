@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# EcoSupport Pre-push Hook: Compilation & Static Type Verification
+
+set -e
+
+export PATH="$HOME/.cargo/bin:$PATH"
+
+echo "🦀 Running Cargo Check across workspace..."
+if command -v cargo >/dev/null 2>&1; then
+    cargo check --workspace --quiet
+fi
+
+echo "✅ Pre-push verification passed."
