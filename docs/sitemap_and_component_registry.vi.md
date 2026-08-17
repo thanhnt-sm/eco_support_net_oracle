@@ -40,6 +40,7 @@
 | **`docs/overview/vibe_coder_guide.md`** / **`.vi.md`** | Sổ tay trực quan cho Vibe Coder (sơ đồ tư duy, phép ẩn dụ, cheatsheet). | Tài liệu | Markdown |
 | **`docs/architecture/system_architecture.md`** / **`.vi.md`** | Bản thiết kế kiến trúc hệ thống chính thức với 6 sơ đồ Mermaid. | Tài liệu | Markdown |
 | **`docs/architecture/tech_stack_evaluation.md`** / **`.vi.md`** | Đánh giá công nghệ & benchmark ngôn ngữ (Rust vs Zig vs Go vs C++ vs Mojo). | Tài liệu | Markdown |
+| **`docs/architecture/agent-config.md`** / **`.vi.md`** | Cấu hình agent model miễn phí opencode zen, quy tắc routing, tích hợp Rust. | Tài liệu | Markdown |
 | **`docs/operations/playbook_and_runbook.md`** / **`.vi.md`** | Cẩm nang SRE, ma trận khắc phục sự cố, diễn tập khôi phục thảm họa. | Tài liệu | Markdown |
 | **`docs/testing/qa_test_strategy.md`** / **`.vi.md`** | Triết lý kiểm thử QA, kim tự tháp test, lệnh thực thi tự động. | Tài liệu | Markdown |
 | **`docs/developers/contributor_deep_dive.md`** / **`.vi.md`** | Cẩm nang chuyên sâu cho Developer, API crate, cách tạo FastMCP tool mới. | Tài liệu | Markdown |

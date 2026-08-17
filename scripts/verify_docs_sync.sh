@@ -26,6 +26,8 @@ REQUIRED_DOCS=(
     "docs/architecture/system_architecture.vi.md"
     "docs/architecture/tech_stack_evaluation.md"
     "docs/architecture/tech_stack_evaluation.vi.md"
+    "docs/architecture/agent-config.md"
+    "docs/architecture/agent-config.vi.md"
     "docs/operations/playbook_and_runbook.md"
     "docs/operations/playbook_and_runbook.vi.md"
     "docs/testing/qa_test_strategy.md"

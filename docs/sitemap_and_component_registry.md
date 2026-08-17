@@ -40,6 +40,7 @@
 | **`docs/overview/vibe_coder_guide.md`** / **`.vi.md`** | Intuitive visual guide for vibe coders (flowcharts, mindmaps, metaphors). | Documentation | Markdown |
 | **`docs/architecture/system_architecture.md`** / **`.vi.md`** | Formal system architecture blueprints with 6 Mermaid diagrams. | Documentation | Markdown |
 | **`docs/architecture/tech_stack_evaluation.md`** / **`.vi.md`** | Comparative language benchmark (Rust vs Zig vs Go vs C++ vs Mojo). | Documentation | Markdown |
+| **`docs/architecture/agent-config.md`** / **`.vi.md`** | opencode zen free model agent configuration, routing rules, Rust integration. | Documentation | Markdown |
 | **`docs/operations/playbook_and_runbook.md`** / **`.vi.md`** | SRE runbook, incident troubleshooting matrix, disaster recovery. | Documentation | Markdown |
 | **`docs/testing/qa_test_strategy.md`** / **`.vi.md`** | QA testing philosophy, test pyramid, verification commands. | Documentation | Markdown |
 | **`docs/developers/contributor_deep_dive.md`** / **`.vi.md`** | Developer manual, crate APIs, adding new MCP tools. | Documentation | Markdown |

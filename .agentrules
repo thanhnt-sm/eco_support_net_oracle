@@ -49,3 +49,9 @@ cargo build --release                            # Build optimized binary
 ./scripts/git_sync.sh "your commit message"      # Commit and push
 cargo run -p eco-cli -- scan --category c-ffi    # Demo scan command
 ```
+## NEW: opencode zen Integration (2026-08-18)
+Agent config files: `.omo/agents.toml`, `.omo/config.toml`
+Routing rules defined in `.omo/agents.toml` routing → map task types → agent names
+Default agent configured in `.omo/config.toml` default_agent
+Always verify agent availability before spawning; implement fallback to local/ollama models per `.omo/agents.toml` fallback entries
+
