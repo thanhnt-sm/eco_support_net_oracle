@@ -253,8 +253,9 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
         if (method == null) return document;
 
+        var paramList = string.Join(", ", method.ParameterList.Parameters.Select(p => p.Identifier.ValueText));
         var sql = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-            SyntaxFactory.Literal("-- TODO: update SQL to match expected parameters"));
+            SyntaxFactory.Literal($"/* DataGuard: verify SQL parameters match: {paramList} */"));
         var newInvocation = invocation.WithArgumentList(
             invocation.ArgumentList.WithArguments(
                 invocation.ArgumentList.Arguments.Replace(invocation.ArgumentList.Arguments[0],
