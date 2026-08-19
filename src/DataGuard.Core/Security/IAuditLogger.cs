@@ -51,6 +51,7 @@ public sealed class FileAuditLogger : IAuditLogger
     private readonly string _logPath;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private string? _lastHash;
+    private string CheckpointPath => _logPath + ".checkpoint";
 
     public FileAuditLogger(string? logPath = null)
     {
@@ -153,6 +154,7 @@ public sealed class FileAuditLogger : IAuditLogger
             await File.AppendAllTextAsync(_logPath, json + Environment.NewLine, cancellationToken);
 
             _lastHash = hash;
+            await File.WriteAllTextAsync(CheckpointPath, hash, cancellationToken);
         }
         finally
         {
@@ -190,6 +192,13 @@ public sealed class FileAuditLogger : IAuditLogger
                 return false;
 
             previousHash = entry.Hash;
+        }
+        // Detect tail truncation: the log's last hash must match the checkpoint.
+        if (File.Exists(CheckpointPath))
+        {
+            var checkpoint = (await File.ReadAllTextAsync(CheckpointPath, cancellationToken)).Trim();
+            if (!string.Equals(checkpoint, previousHash, StringComparison.Ordinal))
+                return false;
         }
         return true;
     }

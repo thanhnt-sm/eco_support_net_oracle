@@ -172,6 +172,8 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 
     private async Task<string> GetFromKeyVaultAsync(string credentialName, CancellationToken cancellationToken)
     {
+        if (!IsAzureKeyVaultUri(_config.KeyVaultUri))
+            return string.Empty;
         try
         {
             using var client = new HttpClient();
@@ -226,6 +228,8 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 
     private async Task<string> GetFromHashiCorpVaultAsync(string credentialName, CancellationToken cancellationToken)
     {
+        if (!IsHttpsUri(_config.VaultAddress))
+            return string.Empty;
         var token = Environment.GetEnvironmentVariable("VAULT_TOKEN");
         if (string.IsNullOrEmpty(token))
             return string.Empty;
@@ -261,6 +265,19 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     {
         // Log credential source for audit (without the actual value)
         Console.Error.WriteLine($"[Security] Credential '{credentialName}' resolved from: {source}");
+    }
+
+    private static bool IsAzureKeyVaultUri(string? uri)
+    {
+        return Uri.TryCreate(uri, UriKind.Absolute, out var u) &&
+               u.Scheme == Uri.UriSchemeHttps &&
+               u.Host.EndsWith("vault.azure.net", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsHttpsUri(string? uri)
+    {
+        return Uri.TryCreate(uri, UriKind.Absolute, out var u) &&
+               u.Scheme == Uri.UriSchemeHttps;
     }
 
     private static string ComputeHash(string input)

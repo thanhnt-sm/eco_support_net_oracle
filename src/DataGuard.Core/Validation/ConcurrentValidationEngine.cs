@@ -27,6 +27,7 @@ public sealed class ConcurrentValidationEngine
         CancellationToken cancellationToken = default)
     {
         var results = new ConcurrentBag<ContractViolation>();
+        var addedCount = 0;
 
         var jobs = from rule in rules
                    from contract in contracts
@@ -44,8 +45,8 @@ public sealed class ConcurrentValidationEngine
                 var violations = await job.rule.ValidateAsync(job.contract, contracts, ct);
                 foreach (var violation in violations)
                 {
-                    if (results.Count >= _maxViolationQueueSize)
-                        return; // Drop oldest (backpressure): stop adding beyond the bound.
+                    if (Interlocked.Increment(ref addedCount) > _maxViolationQueueSize)
+                        return; // Backpressure: stop adding beyond the bound (atomic).
                     results.Add(violation);
                 }
             });
