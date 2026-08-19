@@ -4,6 +4,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Models;
+using System.Net.Http;
+using System.Text.Json;
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
+using Amazon;
+using Amazon.SecretsManager;
+using Amazon.SecretsManager.Model;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -115,19 +122,25 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         }
 
         // Priority 3: AWS Secrets Manager
-        var awsValue = await GetFromAwsSecretsManagerAsync(credentialName, cancellationToken);
-        if (!string.IsNullOrEmpty(awsValue))
+        if (!string.IsNullOrEmpty(_config.AwsRegion))
         {
-            await LogSourceAsync("AwsSecretsManager", credentialName);
-            return awsValue;
+            var awsValue = await GetFromAwsSecretsManagerAsync(credentialName, cancellationToken);
+            if (!string.IsNullOrEmpty(awsValue))
+            {
+                await LogSourceAsync("AwsSecretsManager", credentialName);
+                return awsValue;
+            }
         }
 
         // Priority 4: HashiCorp Vault
-        var vaultValue = await GetFromHashiCorpVaultAsync(credentialName, cancellationToken);
-        if (!string.IsNullOrEmpty(vaultValue))
+        if (!string.IsNullOrEmpty(_config.VaultAddress))
         {
-            await LogSourceAsync("HashiCorpVault", credentialName);
-            return vaultValue;
+            var vaultValue = await GetFromHashiCorpVaultAsync(credentialName, cancellationToken);
+            if (!string.IsNullOrEmpty(vaultValue))
+            {
+                await LogSourceAsync("HashiCorpVault", credentialName);
+                return vaultValue;
+            }
         }
 
         // Priority 5: Local encrypted credential store
@@ -160,26 +173,65 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 
     private async Task<string> GetFromKeyVaultAsync(string credentialName, CancellationToken cancellationToken)
     {
-        // Placeholder for Azure Key Vault integration
-        // Would use Azure.Security.KeyVault.Secrets.SecretClient
-        await Task.CompletedTask;
-        return string.Empty;
+        try
+        {
+            var client = new SecretClient(new Uri(_config.KeyVaultUri!), new DefaultAzureCredential());
+            var response = await client.GetSecretAsync(credentialName, cancellationToken: cancellationToken);
+            return response.Value.Value;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "Azure Key Vault lookup failed for '{CredentialName}'", credentialName);
+            return string.Empty;
+        }
     }
 
     private async Task<string> GetFromAwsSecretsManagerAsync(string credentialName, CancellationToken cancellationToken)
     {
-        // Placeholder for AWS Secrets Manager integration
-        // Would use Amazon.SecretsManager.AmazonSecretsManagerClient
-        await Task.CompletedTask;
-        return string.Empty;
+        try
+        {
+            using var client = new AmazonSecretsManagerClient(RegionEndpoint.GetBySystemName(_config.AwsRegion!));
+            var response = await client.GetSecretValueAsync(new GetSecretValueRequest { SecretId = credentialName }, cancellationToken);
+            return response.SecretString ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "AWS Secrets Manager lookup failed for '{CredentialName}'", credentialName);
+            return string.Empty;
+        }
     }
 
     private async Task<string> GetFromHashiCorpVaultAsync(string credentialName, CancellationToken cancellationToken)
     {
-        // Placeholder for HashiCorp Vault integration
-        // Would use VaultSharp or HTTP API
-        await Task.CompletedTask;
-        return string.Empty;
+        var token = Environment.GetEnvironmentVariable("VAULT_TOKEN");
+        if (string.IsNullOrEmpty(token))
+            return string.Empty;
+
+        try
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("X-Vault-Token", token);
+
+            var url = $"{_config.VaultAddress!.TrimEnd('/')}/v1/secret/data/{Uri.EscapeDataString(credentialName)}";
+            var response = await client.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return string.Empty;
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("data", out var data) &&
+                data.TryGetProperty("data", out var secretData) &&
+                secretData.TryGetProperty("value", out var value))
+            {
+                return value.GetString() ?? string.Empty;
+            }
+            return string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "HashiCorp Vault lookup failed for '{CredentialName}'", credentialName);
+            return string.Empty;
+        }
     }
 
     private async Task LogSourceAsync(string source, string credentialName)

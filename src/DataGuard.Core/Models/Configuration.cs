@@ -23,6 +23,8 @@ public record DataGuardConfiguration(
     int CredentialRotationWarningDays = 30,
     bool EncryptConnectionStringAtRest = false,
     string? KeyVaultUri = null,
+    string? AwsRegion = null,
+    string? VaultAddress = null,
     bool EnableAuditLogging = true,
     string? AuditLogPath = null,
     
