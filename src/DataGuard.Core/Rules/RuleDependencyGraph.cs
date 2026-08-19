@@ -337,6 +337,8 @@ public static class BuiltInRuleDependencies
         // Level 5: Naming convention (depends on parameter/column names)
         graph.AddRule(new NamingConventionRule(), "ParameterCountRule", "ColumnShapeMatchRule");
 
+        // Level 6: Phantom identifiers (schema ground truth)
+        graph.AddRule(new PhantomIdentifierRule());
         return graph;
     }
 }

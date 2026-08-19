@@ -202,38 +202,21 @@ public class OracleDialectChecker
     {
         var violations = new List<ContractViolation>();
 
-        if (isOracleContext)
+        if (!isOracleContext)
+            return violations; // Non-Oracle context detection is not wired yet - no false positives.
+
+        // SQL Server types that Oracle EF Core does not map
+        string[] sqlServerTypes = { "UNIQUEIDENTIFIER", "MONEY", "SMALLMONEY", "DATETIME2", "DATETIMEOFFSET", "GEOGRAPHY", "GEOMETRY", "HIERARCHYID", "SQL_VARIANT" };
+        foreach (var type in sqlServerTypes)
         {
-            // SQL Server types that Oracle EF Core does not map
-            string[] sqlServerTypes = { "UNIQUEIDENTIFIER", "MONEY", "SMALLMONEY", "DATETIME2", "DATETIMEOFFSET", "GEOGRAPHY", "GEOMETRY", "HIERARCHYID", "SQL_VARIANT" };
-            foreach (var type in sqlServerTypes)
+            if (ContainsKeyword(sqlText, type))
             {
-                if (ContainsKeyword(sqlText, type))
-                {
-                    violations.Add(new ContractViolation(
-                        "DG014",
-                        $"Type '{type}' used with Oracle EF Core raw SQL but not mapped by provider",
-                        DiagnosticSeverity.Warning,
-                        location,
-                        new Dictionary<string, object?> { { "type", type } }));
-                }
-            }
-        }
-        else
-        {
-            // Oracle types that SQL Server does not map
-            string[] oracleTypes = { "VARCHAR2", "NVARCHAR2", "NUMBER", "CLOB", "NCLOB", "BLOB", "RAW", "ROWID", "UROWID", "BINARY_FLOAT", "BINARY_DOUBLE" };
-            foreach (var type in oracleTypes)
-            {
-                if (ContainsKeyword(sqlText, type))
-                {
-                    violations.Add(new ContractViolation(
-                        "DG014",
-                        $"Type '{type}' used with SQL Server raw SQL but not mapped by provider",
-                        DiagnosticSeverity.Warning,
-                        location,
-                        new Dictionary<string, object?> { { "type", type } }));
-                }
+                violations.Add(new ContractViolation(
+                    "DG014",
+                    $"Type '{type}' used with Oracle EF Core raw SQL but not mapped by provider",
+                    DiagnosticSeverity.Warning,
+                    location,
+                    new Dictionary<string, object?> { { "type", type } }));
             }
         }
 

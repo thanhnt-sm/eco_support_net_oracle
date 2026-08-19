@@ -16,6 +16,8 @@
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
     <ProjectReference Include="..\DataGuard.SqlServer.Adapter\DataGuard.SqlServer.Adapter.csproj" />
     <ProjectReference Include="..\DataGuard.Oracle.Adapter\DataGuard.Oracle.Adapter.csproj" />
+    <ProjectReference Include="..\DataGuard.MySql.Adapter\DataGuard.MySql.Adapter.csproj" />
+    <ProjectReference Include="..\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj" />
     <ProjectReference Include="..\DataGuard.Analyzers\DataGuard.Analyzers.csproj" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
       </ItemGroup>

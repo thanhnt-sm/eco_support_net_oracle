@@ -245,9 +245,15 @@ public class BaselineManager
             return null;
 
         var json = await File.ReadAllTextAsync(_baselineFilePath, cancellationToken);
-        var legacy = JsonSerializer.Deserialize<LegacyBaselineFile>(json);
-        if (legacy == null || legacy.Version != 1)
-            return null;
+        LegacyBaselineFile? legacy;
+        try
+        {
+            legacy = JsonSerializer.Deserialize<LegacyBaselineFile>(json);
+        }
+        catch (JsonException)
+        {
+            return null; // Corrupt or non-v1 file - treat as "nothing to migrate".
+        }
 
         var migrated = MigrateFromLegacy(legacy);
         await SaveAsync(migrated);

@@ -51,6 +51,9 @@ public sealed class ConcurrentValidationEngine
                 }
             });
 
-        return results.Take(_maxViolationQueueSize).ToList();
+        return results.Take(_maxViolationQueueSize)
+            .OrderBy(v => v.RuleId, StringComparer.Ordinal)
+            .ThenBy(v => v.Message, StringComparer.Ordinal)
+            .ToList();
     }
 }

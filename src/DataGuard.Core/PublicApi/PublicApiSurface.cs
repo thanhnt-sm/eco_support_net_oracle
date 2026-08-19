@@ -111,9 +111,8 @@ public sealed class ValidationPipeline : IDisposable
         {
             foreach (var contract in contracts)
             {
-                var violations = new List<ContractViolation>();
-                await rule.ValidateAsync(contract, contracts, cancellationToken);
-                allViolations.AddRange(violations);
+                var ruleViolations = await rule.ValidateAsync(contract, contracts, cancellationToken);
+                allViolations.AddRange(ruleViolations);
             }
         }
 
@@ -128,8 +127,7 @@ public sealed class ValidationPipeline : IDisposable
             }
         }
 
-        var duration = Stopwatch.GetTimestamp() - Stopwatch.GetTimestamp();
-        var timeSpan = TimeSpan.FromSeconds((double)duration / Stopwatch.Frequency);
+        var timeSpan = stopwatch.Elapsed;
 
         // Record telemetry
         _telemetry?.RecordValidationSummary(

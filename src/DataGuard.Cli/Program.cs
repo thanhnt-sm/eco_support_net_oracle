@@ -10,6 +10,8 @@ using DataGuard.Core.Models;
 using DataGuard.Core.Reporting;
 using DataGuard.Core.Sources;
 using DataGuard.Oracle.Adapter;
+using DataGuard.MySql.Adapter;
+using DataGuard.PostgreSql.Adapter;
 using Microsoft.CodeAnalysis;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Validation;
@@ -31,6 +33,7 @@ var verboseOption = new Option<bool>("--verbose", "Enable verbose output");
 var providerOption = new Option<string>("--provider", () => "sqlserver", "Database provider: sqlserver, oracle");
 var schemaOption = new Option<string>("--schema", "Database schema/owner name");
 var packageOption = new Option<string>("--package", "Oracle package name");
+var baselinePathOption = new Option<string>("--baseline", () => ".dataguard-baseline.json", "Path to the baseline file to migrate");
 
 #endregion
 
@@ -267,6 +270,15 @@ snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider,
         return;
     }
 
+    // Warn (not fail) when the live database version differs from the snapshot's version.
+    var currentVersion = await GetDatabaseVersionAsync(config, provider, console);
+    if (!string.IsNullOrEmpty(baseline.DatabaseVersion) &&
+        currentVersion != "unknown" &&
+        !string.Equals(baseline.DatabaseVersion, currentVersion, StringComparison.OrdinalIgnoreCase))
+    {
+        console.Out.WriteLine($"Warning: snapshot was taken against database '{baseline.DatabaseVersion}' but the live database reports '{currentVersion}'.");
+        console.Out.WriteLine("Validation results are only guaranteed for the database version the snapshot was taken from.");
+    }
     var currentViolations = await RunValidationAsync(config, provider, verbose, console);
     var currentHash = ComputeSchemaHash(currentViolations);
 
@@ -443,13 +455,13 @@ versionCommand.SetHandler(() =>
 
 var migrateCommand = new Command("migrate", "Migrate a legacy baseline file (v1) to v2")
 {
-    configOption, outputOption
+    baselinePathOption
 };
 
-migrateCommand.SetHandler(async (configPath, output) =>
+migrateCommand.SetHandler(async (baselinePath) =>
 {
     var console = new SystemConsole();
-    var path = output ?? configPath ?? ".dataguard-baseline.json";
+    var path = baselinePath ?? ".dataguard-baseline.json";
 
     if (!File.Exists(path))
     {
@@ -468,7 +480,7 @@ migrateCommand.SetHandler(async (configPath, output) =>
     }
 
     console.Out.WriteLine($"Migrated baseline to v2: {migrated.Violations.Count} violations, schema hash {migrated.SchemaHash}");
-}, configOption, outputOption);
+}, baselinePathOption);
 
 #region Add Commands to Root
 
@@ -531,6 +543,15 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
             "SnapshotFilePath" => config with { SnapshotFilePath = value },
             "BaselineFilePath" => config with { BaselineFilePath = value },
             "ConnectionString" => config with { ConnectionString = value },
+            "EnableConcurrentValidation" => config with { EnableConcurrentValidation = bool.Parse(value) },
+            "MaxDegreeOfParallelism" => config with { MaxDegreeOfParallelism = int.Parse(value) },
+            "MaxViolationQueueSize" => config with { MaxViolationQueueSize = int.Parse(value) },
+            "EncryptConnectionStringAtRest" => config with { EncryptConnectionStringAtRest = bool.Parse(value) },
+            "KeyVaultUri" => config with { KeyVaultUri = value },
+            "AwsRegion" => config with { AwsRegion = value },
+            "VaultAddress" => config with { VaultAddress = value },
+            "EnableAuditLogging" => config with { EnableAuditLogging = bool.Parse(value) },
+            "AuditLogPath" => config with { AuditLogPath = value },
             _ => config
         };
     }
@@ -548,6 +569,15 @@ DefaultSchema: {config.DefaultSchema ?? ""}
 DefaultPackage: {config.DefaultPackage ?? ""}
 SnapshotFilePath: {config.SnapshotFilePath ?? ".dataguard-snapshot.json"}
 BaselineFilePath: {config.BaselineFilePath ?? ".dataguard-baseline.json"}
+EnableConcurrentValidation: {config.EnableConcurrentValidation}
+MaxDegreeOfParallelism: {config.MaxDegreeOfParallelism}
+MaxViolationQueueSize: {config.MaxViolationQueueSize}
+EncryptConnectionStringAtRest: {config.EncryptConnectionStringAtRest}
+KeyVaultUri: {config.KeyVaultUri ?? ""}
+AwsRegion: {config.AwsRegion ?? ""}
+VaultAddress: {config.VaultAddress ?? ""}
+EnableAuditLogging: {config.EnableAuditLogging}
+AuditLogPath: {config.AuditLogPath ?? ""}
 ";
 }
 
@@ -655,15 +685,43 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
 
 static List<IContractRule> GetRulesForProvider(string provider)
 {
-    return new List<IContractRule>
+    var rules = new List<IContractRule>
     {
         new ParameterCountRule(),
         new ParameterTypeMatchRule(),
         new ParameterDirectionRule(),
         new ColumnShapeMatchRule(),
         new NullableMismatchRule(),
-        new NamingConventionRule()
+        new NamingConventionRule(),
+        new PhantomIdentifierRule()
     };
+
+    if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
+    {
+        rules.Add(new OracleSyntaxInNonOracleContextRule());
+        rules.Add(new NonOracleFunctionInOracleContextRule());
+        rules.Add(new ProviderOptionMismatchRule());
+        rules.Add(new SqlServerSyntaxLeakRule());
+        rules.Add(new RawSqlUnmappedTypeUsageRule());
+        rules.Add(new LengthExceedsColumnRule());
+        rules.Add(new ByteLengthOverflowRiskRule());
+        rules.Add(new InferredSizeFallbackRule());
+    }
+    else if (provider.Equals("mysql", StringComparison.OrdinalIgnoreCase))
+    {
+        rules.Add(new MySqlSyntaxRule());
+        rules.Add(new NonMySqlSyntaxRule());
+        rules.Add(new MySqlLengthExceedsColumnRule());
+    }
+    else if (provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase) ||
+             provider.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+    {
+        rules.Add(new PostgreSqlSyntaxRule());
+        rules.Add(new NonPostgreSqlSyntaxRule());
+        rules.Add(new PostgreSqlLengthExceedsColumnRule());
+    }
+
+    return rules;
 }
 
 static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config, string provider, IConsole console)
@@ -701,7 +759,7 @@ static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config,
 
 static string ComputeSchemaHash(IReadOnlyList<ContractViolation> violations)
 {
-    var data = string.Join("|", violations.OrderBy(v => v.RuleId).Select(v => $"{v.RuleId}:{v.Message}"));
+    var data = string.Join("|", violations.OrderBy(v => v.RuleId, StringComparer.Ordinal).ThenBy(v => v.Message, StringComparer.Ordinal).Select(v => $"{v.RuleId}:{v.Message}"));
     using var sha256 = System.Security.Cryptography.SHA256.Create();
     var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
     return Convert.ToHexString(hash)[..16];

@@ -9,8 +9,8 @@ namespace DataGuard.MySql.Adapter;
 /// </summary>
 public sealed class MySqlDialectChecker
 {
-    private static readonly string[] MySqlOnly = { "LIMIT", "ON DUPLICATE KEY", "REPLACE INTO", "`", "ENGINE=InnoDB", "AUTO_INCREMENT" };
-    private static readonly string[] NonMySql = { "NVL", "ISNULL", "TOP ", "ROWNUM", "GETDATE", "FETCH FIRST", "SEQUENCE" };
+    private static readonly string[] MySqlOnly = { "ON DUPLICATE KEY", "REPLACE INTO", "`", "ENGINE=InnoDB", "AUTO_INCREMENT" };
+    private static readonly string[] NonMySql = { "NVL", "TOP ", "ROWNUM", "GETDATE", "FETCH FIRST", "SEQUENCE" };
 
     public IReadOnlyList<ContractViolation> CheckMySqlSyntaxInNonMySqlContext(string sqlText, bool isMySqlContext, Location? location = null)
     {

@@ -219,8 +219,31 @@ public class AuditLoggerTests
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
     }
-}
 
+    [Fact]
+    public async Task AuditLog_TailTruncation_FailsVerification()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"audit-{Guid.NewGuid():N}.log");
+        try
+        {
+            var logger = new FileAuditLogger(tempFile);
+            for (var i = 0; i < 10; i++)
+                await logger.LogCredentialAccessAsync("test", "provider", $"hash{i}");
+
+            // Tail truncation attack: drop the last entry so the chain no longer
+            // reaches the checkpoint written after each append.
+            var lines = File.ReadAllLines(tempFile).ToList();
+            lines.RemoveAt(lines.Count - 1);
+            File.WriteAllLines(tempFile, lines);
+
+            (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+}
 public class ConcurrentValidationEngineTests
 {
     [Fact]
@@ -242,6 +265,8 @@ public class ConcurrentValidationEngineTests
         foreach (var rule in rules)
             sequential.AddRange(await rule.ValidateAsync(entity, contracts));
 
-        concurrent.Count.Should().Be(sequential.Count);
+        var concurrentSet = concurrent.Select(v => $"{v.RuleId}|{v.Message}").OrderBy(s => s, StringComparer.Ordinal).ToList();
+        var sequentialSet = sequential.Select(v => $"{v.RuleId}|{v.Message}").OrderBy(s => s, StringComparer.Ordinal).ToList();
+        concurrentSet.Should().Equal(sequentialSet);
     }
 }

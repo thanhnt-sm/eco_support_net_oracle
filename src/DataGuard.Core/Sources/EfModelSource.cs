@@ -136,32 +136,39 @@ public class EfModelSource : IContractSource
         return null;
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> SourceFileCache = new(StringComparer.Ordinal);
+
     private static Task<Microsoft.CodeAnalysis.SyntaxTree?> GetSyntaxTreeForTypeAsync(Type type, CancellationToken cancellationToken)
     {
         // Best-effort location resolution: locate the type's source file relative to its
         // assembly and parse it with Roslyn. Returns null when source is unavailable
-        // (location is optional metadata).
-        var assemblyDir = Path.GetDirectoryName(type.Assembly.Location);
-        if (string.IsNullOrEmpty(assemblyDir))
+        // (location is optional metadata). Lookup is cached; bin/obj are excluded.
+        var fileName = $"{type.Name}.cs";
+        var sourceFile = SourceFileCache.GetOrAdd(fileName, _ => LocateSourceFile(type, fileName));
+        if (sourceFile == null)
             return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(null);
 
-        for (var depth = 0; depth < 6; depth++)
-        {
-            var dir = assemblyDir;
-            for (var i = 0; i < depth; i++)
-                dir = Path.GetDirectoryName(dir);
-            if (string.IsNullOrEmpty(dir))
-                break;
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(sourceFile));
+        return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(tree);
+    }
 
-            var sourceFile = Directory.EnumerateFiles(dir, $"{type.Name}.cs", SearchOption.AllDirectories).FirstOrDefault();
-            if (sourceFile != null)
-            {
-                var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(sourceFile));
-                return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(tree);
-            }
-        }
+    private static string? LocateSourceFile(Type type, string fileName)
+    {
+        var assemblyDir = Path.GetDirectoryName(type.Assembly.Location);
+        if (string.IsNullOrEmpty(assemblyDir))
+            return null;
 
-        return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(null);
+        // Walk up out of bin/obj to the project root, then scan source files once.
+        var dir = assemblyDir;
+        while (dir != null && new DirectoryInfo(dir).Name is "bin" or "obj")
+            dir = Path.GetDirectoryName(dir);
+        if (dir == null)
+            return null;
+
+        return Directory.EnumerateFiles(dir, fileName, SearchOption.AllDirectories)
+            .FirstOrDefault(f =>
+                !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+                !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -485,7 +492,10 @@ public class EfModelSource : IContractSource
         var snapshotPath = FindModelSnapshot(projectPath, contextTypeName);
         if (snapshotPath != null)
         {
-            return await ExtractFromModelSnapshotAsync(snapshotPath, config, cancellationToken);
+            var entities = await ExtractFromModelSnapshotAsync(snapshotPath, config, cancellationToken);
+            if (entities.Count > 0)
+                return entities;
+            // Snapshot parsing produced no entities - fall through to the built assembly.
         }
 
         // 2. Fallback: read the EF model from an already-built assembly.

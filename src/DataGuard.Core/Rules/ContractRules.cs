@@ -80,13 +80,6 @@ public class ParameterCountRule : ContractRuleBase
                         "Stored procedure call appears to have no parameters detected",
                         Severity));
                 }
-                else if (detectedCount < 1)
-                {
-                    violations.Add(CreateViolation(
-                        RuleId,
-                        $"Stored procedure expected parameters but only {detectedCount} were found",
-                        Severity));
-                }
             }
         }
     }
@@ -143,7 +136,7 @@ public class ParameterTypeMatchRule : ContractRuleBase
         if (contract is RawSqlDescriptor sqlDesc)
         {
             var isOracle = sqlDesc.Parameters?.Any(p => p.DataType?.Contains("NUMBER", StringComparison.OrdinalIgnoreCase) == true) == true;
-            var typeMap = isOracle ? OracleTypeMap : SqlServerTypeMap;
+
 
             foreach (var param in sqlDesc.Parameters)
             {
@@ -244,7 +237,8 @@ public class ColumnShapeMatchRule : ContractRuleBase
         if (contract is EntityDescriptor entityDesc)
         {
             var entityPropertyNames = entityDesc.Properties
-                .Select(p => p.Name)
+                .SelectMany(p => new[] { p.Name, p.ColumnName ?? string.Empty })
+                .Where(n => n.Length > 0)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             // Handle RawSqlDescriptor for column extraction
@@ -455,6 +449,7 @@ public class NamingConventionRule : ContractRuleBase
     public static string ToPascalCase(string snakeCase)
     {
         return string.Concat(snakeCase.Split('_', '-', '.')
+            .Where(s => s.Length > 0)
             .Select(s => char.ToUpperInvariant(s[0]) + s[1..].ToLowerInvariant()));
     }
 }

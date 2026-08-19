@@ -61,9 +61,10 @@ public sealed class RulePluginManager : IDisposable
         var config = new ContainerConfiguration()
             .WithDefaultConventions(new ConventionBuilder());
 
-        // Scan directory for assemblies
-        var dir = pluginDirectory ?? GetDefaultPluginDirectory();
-        if (Directory.Exists(dir))
+        // Scan directory for assemblies. Only an explicitly provided plugin directory is
+        // scanned: the default location is user-writable and must never auto-load code.
+        var dir = pluginDirectory;
+        if (dir != null && Directory.Exists(dir))
         {
             foreach (var assemblyFile in Directory.GetFiles(dir, "*.dll"))
             {
@@ -72,9 +73,9 @@ public sealed class RulePluginManager : IDisposable
                     var assembly = Assembly.LoadFrom(assemblyFile);
                     config = config.WithAssembly(assembly);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore load errors
+                    _logger?.LogWarning(ex, "Skipping plugin assembly {AssemblyFile}: {Message}", assemblyFile, ex.Message);
                 }
             }
         }

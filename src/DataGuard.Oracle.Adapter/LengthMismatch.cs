@@ -192,7 +192,7 @@ public class LengthMismatchDetector
                 property.MaxLength.HasValue &&
                 column.MaxLength.HasValue)
             {
-                var maxBytesPerChar = IsUnicodeType(property.ClrTypeName) ? 3 : 1;
+                var maxBytesPerChar = IsUnicodeType(property.ClrTypeName) ? 4 : 1; // AL32UTF8 worst case (supplementary chars = 4 bytes)
                 var entityMaxBytes = property.MaxLength.Value * maxBytesPerChar;
 
                 if (entityMaxBytes > column.MaxLength.Value)

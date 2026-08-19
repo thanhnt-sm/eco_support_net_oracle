@@ -257,15 +257,19 @@ public sealed class AutoDetectionEngine
     /// </summary>
     private async Task<string?> DetectConnectionStringAsync(CancellationToken cancellationToken)
     {
-        // 1. Environment variable (highest priority)
-        var envConn = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING");
+        // 1. Environment variables (highest priority)
+        var envConn = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")
+            ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
+            ?? Environment.GetEnvironmentVariable("ConnectionStrings__Default");
         if (!string.IsNullOrEmpty(envConn))
             return envConn;
 
-        // 2. appsettings.json
-        var appSettingsPath = FindFile("appsettings.json");
-        if (appSettingsPath != null)
+        // 2. appsettings.json + appsettings.Development.json
+        foreach (var fileName in new[] { "appsettings.json", "appsettings.Development.json" })
         {
+            var appSettingsPath = FindFile(fileName);
+            if (appSettingsPath == null)
+                continue;
             var content = await File.ReadAllTextAsync(appSettingsPath, cancellationToken);
             var connStr = ExtractConnectionStringFromJson(content);
             if (!string.IsNullOrEmpty(connStr))
@@ -320,7 +324,8 @@ public sealed class AutoDetectionEngine
                 var trimmed = line.Trim();
                 if (trimmed.StartsWith("connectionString:", StringComparison.OrdinalIgnoreCase))
                 {
-                    return trimmed.Split(':')[1].Trim();
+                    var value = trimmed.Split(':', 2)[1].Trim().Trim('"', '\'');
+                    return string.IsNullOrEmpty(value) ? null : value;
                 }
             }
         }

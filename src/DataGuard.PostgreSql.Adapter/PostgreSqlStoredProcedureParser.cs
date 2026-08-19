@@ -42,7 +42,9 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
         while (await reader.ReadAsync(cancellationToken))
         {
             var name = reader.IsDBNull(0) ? "" : reader.GetString(0);
-            var paramName = reader.IsDBNull(1) ? "" : reader.GetString(1);
+            if (reader.IsDBNull(1))
+                continue; // LEFT JOIN filler row for a procedure without parameters - skip.
+            var paramName = reader.GetString(1);
             var dataType = reader.IsDBNull(2) ? "" : reader.GetString(2);
             var mode = reader.IsDBNull(3) ? "IN" : reader.GetString(3);
             var ordinal = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);

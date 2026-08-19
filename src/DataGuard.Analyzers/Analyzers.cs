@@ -660,11 +660,9 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             // Check for EXEC or EXECUTE prefix
             if (sqlLower.StartsWith("exec ") || sqlLower.StartsWith("execute "))
             {
-                // Extract parameter count from the SQL
-                var paramCount = ExtractParameterCount(sqlText);
-                
                 // Basic validation: if we can't determine the expected parameter count from metadata,
                 // at least verify the SQL structure is valid
+
                 if (string.IsNullOrWhiteSpace(sqlText.Trim()))
                 {
                     violations.Add(new ContractViolation(
@@ -755,16 +753,11 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
                     DiagnosticSeverity.Warning,
                     Location.None));
             }
-            
-            // Check for minimum SQL structure
-            if (string.IsNullOrWhiteSpace(sqlText.Trim()))
-            {
-                // Already handled above, but add additional check
-            }
+            // Minimum SQL structure is already validated above.
         }
         
         // Check for common raw SQL patterns
-        if (sqlText.Contains("SELECT") || sqlText.Contains("SELECT "))
+        if (sqlText.Contains("SELECT", StringComparison.OrdinalIgnoreCase))
         {
             // For SELECT queries, verify they reference valid entities
             var hasFromClause = sqlText.IndexOf("FROM", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -800,17 +793,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         return sqlLower.StartsWith("exec ") || sqlLower.StartsWith("execute ");
     }
 
-    private int ExtractParameterCount(string sqlText)
-    {
-        // Simple parameter count extraction
-        var sqlLower = sqlText.ToLowerInvariant();
-        if (sqlLower.StartsWith("exec ") || sqlLower.StartsWith("execute "))
-        {
-            var parts = sqlLower.Split([' ', ',', '(', ')'], StringSplitOptions.RemoveEmptyEntries);
-            return Math.Max(0, parts.Length - 1); // Rough estimate
-        }
-        return 0;
-    }
+
 
     private static string ExtractSqlFromArguments(ImmutableArray<IArgumentOperation> arguments)
     {

@@ -39,7 +39,9 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _credentialManager = credentialManager ?? throw new ArgumentNullException(nameof(credentialManager));
-        _auditLogger = new FileAuditLogger(config.AuditLogPath);
+        _auditLogger = config.EnableAuditLogging
+            ? (auditLogger ?? new FileAuditLogger(config.AuditLogPath))
+            : new NullAuditLogger();
         _logger = logger;
     }
 

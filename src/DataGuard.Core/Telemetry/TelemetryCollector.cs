@@ -32,7 +32,8 @@ public sealed class TelemetryCollector : IDisposable
 
         if (_config.Enabled)
         {
-            _flushTimer = new Timer(FlushEvents, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            var flushInterval = TimeSpan.FromSeconds(Math.Max(1, _config.FlushIntervalSeconds));
+            _flushTimer = new Timer(FlushEvents, null, flushInterval, flushInterval);
         }
     }
 
@@ -99,13 +100,13 @@ public sealed class TelemetryCollector : IDisposable
         IncrementCounter("rule.executions", 1, new[]
         {
             new KeyValuePair<string, object?>("rule", ruleId),
-            new KeyValuePair<string, object?>("success", true.ToString())
+            new KeyValuePair<string, object?>("success", success.ToString())
         });
 
         RecordHistogram("rule.duration", duration.TotalMilliseconds, new[]
         {
             new KeyValuePair<string, object?>("rule", ruleId),
-            new KeyValuePair<string, object?>("success", true.ToString())
+            new KeyValuePair<string, object?>("success", success.ToString())
         });
     }
 

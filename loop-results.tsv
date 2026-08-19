@@ -1,9 +1,0 @@
-iter	timestamp	metric	delta	kept	description
-1	2026-08-20	24	-24	yes	Fix 24 compile errors in DataGuard.Core (WIP API drift: CredentialManager/ZeroTrust/HealthChecks/RulePluginManager/RuleDependencyGraph/DiagnosticEmitter/IAuditLogger)
-2	2026-08-20	8	-16	yes	Fix sln to SDK-style GUIDs; fix 8 hidden errors in Analyzers/OracleReaders/UnitTests
-3	2026-08-20	23	+15	yes	Reveal 23 Analyzers errors; implement missing ExtractSqlFromArguments/GetEntityTypeFromDbSet, fix dup SqlCallSite/ContainsSqlInjectionPatterns
-4	2026-08-20	1	-22	yes	Fix CreateEntityContractDescriptor return type; Analyzers compiles
-5	2026-08-20	4	-1	yes	Fix PreCommitHookInstaller record/factory collision + stale using SqlServer.Adapter
-6	2026-08-20	59	+55	yes	Reveal 59 CLI/test errors (Program.cs written vs old DataGuardConfiguration API)
-7	2026-08-20	0	-59	yes	Migrate Program.cs to DefaultSchema/DefaultPackage, fix System.CommandLine, sink, rules, config parse, OutputType Exe, golden-corpus test compile
-8	2026-08-20	-	-	yes	Fix IsTypeCompatible map lookup + baseline v2 test expectation (Core.Tests 26/26 green)

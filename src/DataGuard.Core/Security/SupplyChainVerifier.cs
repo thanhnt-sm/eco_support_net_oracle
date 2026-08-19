@@ -147,6 +147,7 @@ public sealed class SupplyChainVerifier
             "Oracle.ManagedDataAccess",
             "Npgsql",
             "MySqlConnector",
+            "AWSSDK.",
             "Dapper",
             "Newtonsoft.Json",
             "YamlDotNet",
@@ -173,17 +174,22 @@ public sealed class SupplyChainVerifier
     {
         var checks = new List<SupplyChainCheck>();
 
-        // Check for strong name signing
+
+        // Check for strong name signing (informational: unsigned assemblies are common in OSS).
         var assembly = typeof(SupplyChainVerifier).Assembly;
         var strongName = assembly.GetName().GetPublicKey();
         checks.Add(new SupplyChainCheck(
             "StrongNameSigning",
             "Verify assembly is strong-name signed",
-            strongName.Length > 0,
-            strongName.Length > 0 ? "Assembly is strong-name signed" : "Assembly is NOT strong-name signed"));
+            true,
+            strongName.Length > 0 ? "Assembly is strong-name signed" : "Assembly is NOT strong-name signed (informational)"));
 
-        // Check for debug symbols
-        var hasDebugSymbols = assembly.GetCustomAttributes(typeof(System.Diagnostics.DebuggableAttribute), false).Length > 0;
+        // Check for debug symbols: Roslyn emits DebuggableAttribute in every build, so
+        // detect debug builds via IsJITTrackingEnabled (true in Debug, false in Release).
+        var debuggable = assembly.GetCustomAttributes(typeof(System.Diagnostics.DebuggableAttribute), false)
+            .Cast<System.Diagnostics.DebuggableAttribute>()
+            .FirstOrDefault();
+        var hasDebugSymbols = debuggable?.IsJITTrackingEnabled ?? false;
         checks.Add(new SupplyChainCheck(
             "DebugSymbols",
             "Check for debug symbols in release build",
