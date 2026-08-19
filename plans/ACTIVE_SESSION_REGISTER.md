@@ -219,8 +219,31 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
    - Re-verify: actionlint + YAML clean sau fixes.
 
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
-- [ ] **Chưa push** — local ahead origin/main: 11 commit cũ + toàn bộ thay đổi CI/CD. Cần user confirm trước khi push (theo quy tắc không tự push).
+- [x] **Đã push** — origin/main: c773b62 → 372fcdf (21 commit), ngày 2026-08-20.
 - [ ] **User action bắt buộc**: tạo secret `NUGET_USER` (Trusted Publishing trên nuget.org, hạn chót migrate 01/11/2026) + tùy chọn `NUGET_API_KEY` fallback. Thiếu secrets → release workflow fail có chủ đích (fail-loud).
 - [ ] Test thật trên GitHub: push → CI chạy (docker smoke cần daemon runner); tạo tag `v0.1.0` để test release pipeline end-to-end.
 - [ ] Verify CodeQL custom queries lần chạy đầu (finding 15 debatable — pack layout `./.github/codeql` đã fix, cần xác nhận trên runner thật).
 - [ ] (Tuỳ chọn, ngoài scope) README/register còn mô tả sản phẩm npm/Rust cũ (`@eco-support/*`, `crates/`) — lỗi thời so với repo .NET DataGuard; cần rewrite riêng khi có yêu cầu.
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên này — Ship: Review + 16 Critical Fixes + Push main)
+
+1. ✅ **Ship pipeline**: tạo branch `chore/ci-cd-upgrade`, merge origin/main (up-to-date), tests 37/37 PASS, review 2-pass.
+2. ✅ **Pre-landing review**: 16 CRITICAL + 27 informational, toàn bộ nằm trong 19 commit cũ (không phải thay đổi CI/CD): `oracle-check` exit 0 khi fail; 5 lỗi quick-fix sinh code hỏng (CS1729/CS1503/CS7036, SQL bị thay bằng comment); 10 lỗi rule logic (DG001-005 false positive, dbo.Users/COUNT(*), DG098/099 thiếu descriptor, LONGTEXT tràn Int32, DG007 so byte vs char).
+3. ✅ **Fix 16/16 critical**:
+   - `oracle-check`: throw thay vì nuốt → exit 1 khi thiếu connection/fail.
+   - CodeFixProviders: attribute đúng signature (`[SkipContractCheck(Reason=...)]`, `[ExpectedSpParameter(name,dbType,direction)]`, `[MaxLength(int)]`); dialect/SQL quick-fix → comment note (không phá SQL); rename dùng `Renamer.RenameSymbolAsync`; AddUseOracle rename `UseSqlServer` giữ connection string.
+   - Analyzers: descriptor DG098/DG099 (Warning) đăng ký `AllDescriptors` — hết fallback DG002 Error.
+   - ContractRules: bỏ nhánh EntityDescriptor DG001 giả; `InferClrType` case-insensitive + bổ sung money/image/timestamp/smalldatetime; DG003 dùng `Direction` enum; DG004 bỏ qua `SELECT *`/biểu thức; DG005 dùng schema ground-truth `IsNullable`.
+   - PhantomIdentifierRule: schema qualifier (`dbo.Users`), CTE name, keyword-alias, lọc biểu thức.
+   - MySQL: `CHARACTER_MAXIMUM_LENGTH` đọc `GetInt64` + clamp (>int.MaxValue → null).
+   - Oracle DG007: so chars với `CharLength` (fallback `MaxLength` cho cột BYTE).
+4. ✅ **Verify**: build 0 errors; Core.Tests 29/29 + GoldenCorpus 8/8 PASS; scratch harness (ngoài repo) 12/12 assertion PASS cho fixes 8-14; smoke `oracle-check` không connection → EXIT=1.
+5. ✅ **Commit + push origin/main** (user chọn push thẳng, không PR — gh CLI chưa login):
+   - `f316e24 fix(analyzers): resolve 16 critical pre-landing review findings`
+   - `372fcdf chore(ci): upgrade CI/CD pipeline for net9 (Trusted Publishing, multi-arch)`
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
+- [ ] **User action bắt buộc**: tạo secret `NUGET_USER` (Trusted Publishing trên nuget.org, hạn chót migrate 01/11/2026) + tùy chọn `NUGET_API_KEY` fallback.
+- [ ] Theo dõi CI run đầu tiên trên GitHub (docker smoke cần daemon runner); tạo tag `v0.1.0` để test release pipeline end-to-end.
+- [ ] 27 informational findings còn lại — ưu tiên: release.yml thiếu build-arg `VERSION` (image bake `0.1.0-ci`), ZeroTrustCredentialProvider bỏ qua `EnableAuditLogging`, TelemetryCollector `success` luôn true, DeserializeConfig bỏ field mới.
+- [ ] gh CLI chưa login → phiên này chưa tạo được issue/PR (push thẳng main).
