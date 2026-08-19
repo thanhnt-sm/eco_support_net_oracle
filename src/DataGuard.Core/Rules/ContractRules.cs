@@ -203,9 +203,9 @@ public class ParameterTypeMatchRule : ContractRuleBase
     public static bool IsTypeCompatible(string clrType, string dbType, bool isOracle)
     {
         var map = isOracle ? OracleTypeMap : SqlServerTypeMap;
-        var clrKey = map.Keys.FirstOrDefault(k => dbType.Contains(k, StringComparison.OrdinalIgnoreCase));
-        if (clrKey == null) return false;
-        return map[clrKey].Any(t => dbType.Contains(t, StringComparison.OrdinalIgnoreCase));
+        if (!map.TryGetValue(clrType, out var compatibleDbTypes))
+            return false;
+        return compatibleDbTypes.Any(t => dbType.Contains(t, StringComparison.OrdinalIgnoreCase));
     }
 }
 

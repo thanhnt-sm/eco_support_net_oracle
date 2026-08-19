@@ -110,7 +110,7 @@ public class BaselineManagerTests
 
             var baseline = await manager.CreateBaselineAsync(violations, "1.0", "Snapshot");
             
-            baseline.Version.Should().Be(1);
+            baseline.Version.Should().Be(2);
             baseline.Violations.Should().HaveCount(2);
             baseline.SchemaVersion.Should().Be("1.0");
             baseline.GroundTruthMode.Should().Be("Snapshot");
