@@ -580,6 +580,23 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
         return violations;
     }
 
+    try
+    {
+        // Read NLS length semantics (CHAR vs BYTE) to drive byte-overflow detection.
+        var semanticsResolver = new LengthSemanticsResolver(config.ConnectionString);
+        var semantics = await semanticsResolver.ResolveAsync();
+
+        if (verbose)
+        {
+            console.Out.WriteLine($"Oracle NLS length semantics: {semantics}");
+        }
+    }
+    catch (Exception ex)
+    {
+        console.Error.WriteLine($"Oracle check failed: {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+
     return violations;
 }
 
