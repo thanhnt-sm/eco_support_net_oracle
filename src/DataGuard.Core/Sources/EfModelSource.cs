@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -137,8 +138,29 @@ public class EfModelSource : IContractSource
 
     private static Task<Microsoft.CodeAnalysis.SyntaxTree?> GetSyntaxTreeForTypeAsync(Type type, CancellationToken cancellationToken)
     {
-        // In a real implementation, this would use the compilation to find the syntax tree
-        // For now, return null - location is optional
+        // Best-effort location resolution: locate the type's source file relative to its
+        // assembly and parse it with Roslyn. Returns null when source is unavailable
+        // (location is optional metadata).
+        var assemblyDir = Path.GetDirectoryName(type.Assembly.Location);
+        if (string.IsNullOrEmpty(assemblyDir))
+            return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(null);
+
+        for (var depth = 0; depth < 6; depth++)
+        {
+            var dir = assemblyDir;
+            for (var i = 0; i < depth; i++)
+                dir = Path.GetDirectoryName(dir);
+            if (string.IsNullOrEmpty(dir))
+                break;
+
+            var sourceFile = Directory.EnumerateFiles(dir, $"{type.Name}.cs", SearchOption.AllDirectories).FirstOrDefault();
+            if (sourceFile != null)
+            {
+                var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(sourceFile));
+                return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(tree);
+            }
+        }
+
         return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(null);
     }
 
@@ -459,14 +481,52 @@ public class EfModelSource : IContractSource
         DataGuardConfiguration? config = null,
         CancellationToken cancellationToken = default)
     {
-        // This would use IDesignTimeServices to build the model at design-time
-        // Requires MSBuild API or dotnet ef integration
-        // For now, delegate to ModelSnapshot parsing
+        // 1. ModelSnapshot parsing (fast, no build required).
         var snapshotPath = FindModelSnapshot(projectPath, contextTypeName);
         if (snapshotPath != null)
         {
             return await ExtractFromModelSnapshotAsync(snapshotPath, config, cancellationToken);
         }
+
+        // 2. Fallback: read the EF model from an already-built assembly.
+        return await ExtractFromBuiltAssemblyAsync(projectPath, contextTypeName, config, cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<EntityDescriptor>> ExtractFromBuiltAssemblyAsync(
+        string projectPath,
+        string contextTypeName,
+        DataGuardConfiguration? config,
+        CancellationToken cancellationToken)
+    {
+        var outputDir = Path.Combine(projectPath, "bin");
+        if (!Directory.Exists(outputDir))
+            return new List<EntityDescriptor>();
+
+        foreach (var dll in Directory.GetFiles(outputDir, "*.dll", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var assembly = Assembly.LoadFrom(dll);
+                var contextType = assembly.GetTypes()
+                    .FirstOrDefault(t => t.Name == contextTypeName && typeof(DbContext).IsAssignableFrom(t));
+                if (contextType == null) continue;
+
+                var context = (DbContext?)Activator.CreateInstance(contextType);
+                if (context == null) continue;
+
+                using (context)
+                {
+                    var source = new EfModelSource(context, config ?? new DataGuardConfiguration());
+                    var contracts = await source.ExtractContractsAsync(cancellationToken);
+                    return contracts.OfType<EntityDescriptor>().ToList();
+                }
+            }
+            catch
+            {
+                // Skip assemblies that fail to load or instantiate.
+            }
+        }
+
         return new List<EntityDescriptor>();
     }
 

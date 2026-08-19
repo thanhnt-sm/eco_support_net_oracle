@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 
 namespace DataGuard.Core.Telemetry;
 
@@ -133,11 +134,30 @@ public sealed class TelemetryCollector : IDisposable
             events.Add(evt);
         }
 
-        // In a real implementation, this would export to OpenTelemetry, Prometheus, etc.
-        // For now, we just log summary locally if debug logging is enabled
-        if (events.Count > 0)
+        var exportEndpoint = _config.ExportEndpoint;
+        if (!string.IsNullOrEmpty(exportEndpoint))
+        {
+            ExportEvents(events, exportEndpoint);
+        }
+        else
         {
             System.Diagnostics.Debug.WriteLine($"[Telemetry] Flushed {events.Count} events");
+        }
+    }
+
+    private static void ExportEvents(List<TelemetryEvent> events, string endpoint)
+    {
+        // NDJSON export - one JSON object per line, compatible with OTLP/HTTP collectors.
+        var ndjson = string.Join(Environment.NewLine, events.Select(e => JsonSerializer.Serialize(e)));
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            using var content = new StringContent(ndjson, System.Text.Encoding.UTF8, "application/x-ndjson");
+            client.PostAsync(endpoint, content).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Export is best-effort; never throw from a timer callback.
         }
     }
 
