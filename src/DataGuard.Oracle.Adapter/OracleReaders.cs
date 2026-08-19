@@ -515,36 +515,124 @@ public class RefCursorDescriber
         IReadOnlyDictionary<string, object> sampleParameters,
         CancellationToken cancellationToken = default)
     {
-        var columns = new List<ColumnDescriptor>();
-
-        // Build PL/SQL block to describe ref cursor
         var paramNames = string.Join(", ", sampleParameters.Keys.Select(k => $":{k}"));
-        var paramDeclarations = string.Join(", ", sampleParameters.Keys.Select((k, i) => $"{k} IN OUT SYS_REFCURSOR"));
-        
+
+        // PL/SQL block: call the function/procedure that returns a SYS_REFCURSOR,
+        // then describe the result set with DBMS_SQL.DESCRIBE_COLUMNS3.
         var plsql = $@"
-            DECLARE
-                v_cursor SYS_REFCURSOR;
-                v_col_cnt INTEGER;
-                v_desc DBMS_SQL.DESC_TAB;
-                v_sql VARCHAR2(32767);
-            BEGIN
-                v_sql := 'BEGIN {packageName}.{procedureName}({paramNames}); END;';
-                EXECUTE IMMEDIATE v_sql USING {paramNames};
-                -- In practice, would use DBMS_SQL.TO_CURSOR_NUMBER and DBMS_SQL.DESCRIBE_COLUMNS
-                -- This is a placeholder for the actual implementation
-            END;";
+DECLARE
+    v_cursor SYS_REFCURSOR;
+    v_cursor_id INTEGER;
+    v_col_cnt INTEGER;
+    v_desc DBMS_SQL.DESC_TAB3;
+BEGIN
+    v_cursor := {packageName}.{procedureName}({paramNames});
+    v_cursor_id := DBMS_SQL.TO_CURSOR_NUMBER(v_cursor);
+    DBMS_SQL.DESCRIBE_COLUMNS3(v_cursor_id, v_col_cnt, v_desc);
+    :cnt := v_col_cnt;
+    FOR i IN 1..v_col_cnt LOOP
+        :names(i) := v_desc(i).col_name;
+        :types(i) := v_desc(i).col_type;
+        :maxlens(i) := v_desc(i).col_max_len;
+        :precisions(i) := v_desc(i).col_precision;
+        :scales(i) := v_desc(i).col_scale;
+        :nullables(i) := CASE WHEN v_desc(i).col_null_ok THEN 1 ELSE 0 END;
+        :charused(i) := NVL(v_desc(i).col_char_used, 'N');
+        :charlens(i) := NVL(v_desc(i).col_char_length, 0);
+    END LOOP;
+    DBMS_SQL.CLOSE_CURSOR(v_cursor_id);
+END;";
 
         await using var connection = new OracleConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Actual implementation would:
-        // 1. Open a cursor with DBMS_SQL.OPEN_CURSOR
-        // 2. Parse the PL/SQL block
-        // 3. Bind variables
-        // 4. Execute
-        // 5. Use DBMS_SQL.DESCRIBE_COLUMNS to get column metadata
-        // 6. Convert to ColumnDescriptor list
+        await using var command = connection.CreateCommand();
+        command.CommandText = plsql;
+        command.CommandType = CommandType.Text;
+
+        foreach (var param in sampleParameters)
+        {
+            command.Parameters.Add(new OracleParameter(param.Key, param.Value));
+        }
+
+        const int MaxColumns = 1000;
+
+        var cntParam = new OracleParameter("cnt", OracleDbType.Int32) { Direction = System.Data.ParameterDirection.Output };
+        command.Parameters.Add(cntParam);
+
+        OracleParameter NewArrayParam(string name, OracleDbType dbType, int bindSize)
+        {
+            return new OracleParameter(name, dbType)
+            {
+                Direction = System.Data.ParameterDirection.Output,
+                CollectionType = OracleCollectionType.PLSQLAssociativeArray,
+                Size = MaxColumns,
+                ArrayBindSize = Enumerable.Repeat(bindSize, MaxColumns).ToArray()
+            };
+        }
+
+        command.Parameters.Add(NewArrayParam("names", OracleDbType.Varchar2, 32767));
+        command.Parameters.Add(NewArrayParam("types", OracleDbType.Int32, sizeof(int)));
+        command.Parameters.Add(NewArrayParam("maxlens", OracleDbType.Int32, sizeof(int)));
+        command.Parameters.Add(NewArrayParam("precisions", OracleDbType.Int32, sizeof(int)));
+        command.Parameters.Add(NewArrayParam("scales", OracleDbType.Int32, sizeof(int)));
+        command.Parameters.Add(NewArrayParam("nullables", OracleDbType.Int32, sizeof(int)));
+        command.Parameters.Add(NewArrayParam("charused", OracleDbType.Char, 1));
+        command.Parameters.Add(NewArrayParam("charlens", OracleDbType.Int32, sizeof(int)));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+
+        var colCount = Convert.ToInt32(cntParam.Value);
+        var names = (string[])command.Parameters["names"].Value;
+        var types = (int[])command.Parameters["types"].Value;
+        var maxlens = (int[])command.Parameters["maxlens"].Value;
+        var precisions = (int[])command.Parameters["precisions"].Value;
+        var scales = (int[])command.Parameters["scales"].Value;
+        var nullables = (int[])command.Parameters["nullables"].Value;
+        var charused = (string[])command.Parameters["charused"].Value;
+        var charlens = (int[])command.Parameters["charlens"].Value;
+
+        var columns = new List<ColumnDescriptor>(colCount);
+        for (var i = 0; i < colCount; i++)
+        {
+            columns.Add(new ColumnDescriptor(
+                names[i],
+                MapOracleDbType(types[i]),
+                maxlens[i] > 0 ? maxlens[i] : null,
+                precisions[i] > 0 ? precisions[i] : null,
+                scales[i] >= 0 ? scales[i] : null,
+                nullables[i] == 1,
+                charused[i],
+                charlens[i] > 0 ? charlens[i] : null
+            ));
+        }
 
         return columns;
+    }
+
+    private static string MapOracleDbType(int dbmsSqlType)
+    {
+        // DBMS_SQL col_type codes -> Oracle type names.
+        return dbmsSqlType switch
+        {
+            1 => "VARCHAR2",
+            2 => "NUMBER",
+            8 => "LONG",
+            12 => "DATE",
+            23 => "RAW",
+            24 => "LONG RAW",
+            96 => "CHAR",
+            100 => "BINARY_FLOAT",
+            101 => "BINARY_DOUBLE",
+            112 => "CLOB",
+            113 => "BLOB",
+            114 => "BFILE",
+            180 => "TIMESTAMP",
+            181 => "TIMESTAMP WITH TIME ZONE",
+            182 => "INTERVAL YEAR TO MONTH",
+            183 => "INTERVAL DAY TO SECOND",
+            231 => "TIMESTAMP WITH LOCAL TIME ZONE",
+            _ => "UNKNOWN"
+        };
     }
 }
