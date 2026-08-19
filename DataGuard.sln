@@ -19,9 +19,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataGuard.GoldenCorpus.Test
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataGuard.PostgreSql.Adapter", "src\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj", "{F12A1622-BF32-4771-A8C8-197E0291E1F2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataGuard.PostgreSql.Adapter", "src\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj", "{F12A1622-BF32-4771-A8C8-197E0291E1F2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataGuard.MySql.Adapter", "src\DataGuard.MySql.Adapter\DataGuard.MySql.Adapter.csproj", "{323C49E7-C1B8-486D-8CE5-48E7194A1ED1}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataGuard.MySql.Adapter", "src\DataGuard.MySql.Adapter\DataGuard.MySql.Adapter.csproj", "{323C49E7-C1B8-486D-8CE5-48E7194A1ED1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

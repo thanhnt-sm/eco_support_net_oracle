@@ -66,8 +66,10 @@ async function runValidation(): Promise<void> {
         shell: false,
     });
 
-    child.stdout?.on("data", (chunk: Buffer) => channel.append(chunk.toString()));
-    child.stderr?.on("data", (chunk: Buffer) => channel.append(chunk.toString()));
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => channel.append(chunk));
+    child.stderr?.on("data", (chunk: string) => channel.append(chunk));
 
     child.on("error", (error: NodeJS.ErrnoException) => {
         if (statusBarItem) {

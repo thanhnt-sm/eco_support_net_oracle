@@ -13,9 +13,16 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:csharp"
+    "onLanguage:csharp",
+    "onStartupFinished"
   ],
   "contributes": {
+    "commands": [
+      {
+        "command": "dataguard.runValidation",
+        "title": "DataGuard: Run Validation"
+      }
+    ],
     "configuration": {
       "title": "DataGuard",
       "properties": {

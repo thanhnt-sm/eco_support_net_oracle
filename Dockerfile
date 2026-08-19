@@ -2,14 +2,14 @@
 # Pattern follows the official dotnet-docker samples:
 #   https://github.com/dotnet/dotnet-docker/blob/main/samples/aspnetapp/Dockerfile
 #
-# The build stage runs natively on the builder platform (BUILDPLATFORM) and
-# cross-compiles the app for TARGETARCH via `dotnet publish -a $TARGETARCH`.
-# The final stage contains no RUN steps, so per-platform images are assembled
-# from the multi-arch runtime base without emulation.
+# The build stage cross-compiles the app for TARGETARCH via
+# `dotnet publish -a $TARGETARCH`. The final stage contains no RUN steps,
+# so per-platform images are assembled from the multi-arch runtime base
+# without emulation.
 
 # ---------- Build stage ----------
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-ARG BUILDPLATFORM
+
 # Release version to bake into the binary (e.g. 1.2.3); the csproj files
 # hardcode 0.1.0-alpha.1 which would otherwise end up in the image.
 ARG VERSION=0.1.0-ci
@@ -54,7 +54,8 @@ USER $APP_UID
 
 COPY --link --from=build /app/publish .
 
-LABEL org.opencontainers.image.source="https://github.com/thanhnt-sm/eco_support_net_oracle"
+ARG ORG_SOURCE="thanhnt-sm/eco_support_net_oracle"
+LABEL org.opencontainers.image.source="https://github.com/${ORG_SOURCE}"
 LABEL org.opencontainers.image.description="DataGuard CLI — contract validation for Entity to Stored Procedure/Raw SQL"
 
 ENTRYPOINT ["dotnet", "DataGuard.Cli.dll"]
