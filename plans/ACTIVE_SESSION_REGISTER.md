@@ -245,5 +245,26 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
 - [ ] **User action bắt buộc**: tạo secret `NUGET_USER` (Trusted Publishing trên nuget.org, hạn chót migrate 01/11/2026) + tùy chọn `NUGET_API_KEY` fallback.
 - [ ] Theo dõi CI run đầu tiên trên GitHub (docker smoke cần daemon runner); tạo tag `v0.1.0` để test release pipeline end-to-end.
-- [ ] 27 informational findings còn lại — ưu tiên: release.yml thiếu build-arg `VERSION` (image bake `0.1.0-ci`), ZeroTrustCredentialProvider bỏ qua `EnableAuditLogging`, TelemetryCollector `success` luôn true, DeserializeConfig bỏ field mới.
+- [x] 27 informational findings — **đã fix 24/27** ở phiên sau (xem mục "Audit Plan + 27 Informational Fixes"); 3 còn lại cần DB thật.
 - [ ] gh CLI chưa login → phiên này chưa tạo được issue/PR (push thẳng main).
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên này — Audit Plan + 27 Informational Fixes)
+
+1. ✅ **Audit toàn bộ tài liệu plan/giải pháp**:
+   - `plans/2026-08-20-ci-cd-upgrade.md`: D1-D16 + toàn bộ file thay đổi **đã implement đầy đủ** (spot-check: SDK 9.0.x, Trusted Publishing, cosign v3.1.3, attest v4, TruffleHog pin SHA, image `ghcr.io/…`, RepositoryUrl đã sửa). `.github/.DS_Store` không track, đã xóa khỏi đĩa.
+   - `research/muc_tieu/2.md` (kiến trúc v2): tách IDE-light/CI-heavy ✓ (`UnvalidatedSqlCallGenerator` incremental + CLI); 3 mode Full/Snapshot(default)/Manual ✓ (`GroundTruthMode` enum, default Snapshot); Manual attribute ✓ (`ExpectedColumnAttribute`); snapshot gắn `DatabaseVersion` + **bổ sung cảnh báo lệch DB version** trong `snapshot diff` (yêu cầu chuyên gia 5).
+   - `plans/implementation-plan.md`: Dapper analyzer ✓ (AnalyzeDapperQuery); rule set đầy đủ — **đã wire DG007-016 + MY001-003 + PG001-003 vào CLI `GetRulesForProvider`** (trước chỉ có DG001-006 chạy production); CLI reference thêm MySql/PostgreSql adapters.
+2. ✅ **Fix 24/27 informational findings**:
+   - Core: PublicApiSurface thu violation thật + duration thật; ConcurrentValidationEngine + schema hash sắp thứ tự deterministic; TelemetryCollector dùng `FlushIntervalSeconds` + tag `success` đúng tham số; ZeroTrustCredentialProvider tôn trọng `EnableAuditLogging` + injected logger; SupplyChainVerifier (JIT-tracking debug check, AWSSDK trusted, unsigned = informational); BaselineManager migrate chịu file hỏng; RulePluginManager chỉ nạp dir tường minh + log skip; EfModelSource cache scan + loại bin/obj + fallback design-time thật sự; AutoDetection khôi phục env var fallback + appsettings.Development.json + split YAML an toàn; ContractRules (DG004 so cả ColumnName, ToPascalCase lọc segment rỗng, bỏ nhánh chết).
+   - Adapters: MySql/Pg dialect bỏ false positive ISNULL/LIMIT; SP parsers skip filler row (proc không tham số) + key schema.name (MySQL); DG008 worst-case 4 byte (AL32UTF8); bỏ nhánh DG014 chết.
+   - CLI: `migrate` dùng option `--baseline` riêng; Deserialize/Serialize round-trip 10 field mới; snapshot diff cảnh báo drift DB version.
+   - CI/tooling: release.yml truyền `VERSION` build-arg; Dockerfile bỏ ARG chết + label parameterize; dependabot thêm nuget; sln GUID SDK-style cho 2 adapter; VSCode command palette + UTF-8 decode; xóa `loop-results.tsv`; test tail-truncation audit + assert deterministic concurrent.
+3. ✅ **Verify**: build 0 errors; Core.Tests 30/30 + GoldenCorpus 8/8 PASS.
+4. ✅ **Push origin/main**: `9abdf18 → f8adbc3` (2 commit: `7a72b5c` code fixes + `f8adbc3` ci/config fixes).
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
+- [ ] **User action bắt buộc**: tạo secret `NUGET_USER` (Trusted Publishing, hạn chót 01/11/2026) + tùy chọn `NUGET_API_KEY` fallback.
+- [ ] Theo dõi CI run đầu tiên trên GitHub; tạo tag `v0.1.0` test release pipeline end-to-end; verify CodeQL custom queries trên runner thật.
+- [ ] 3 informational còn lại (cần DB thật/integration test): OracleReaders col_charsetform (NCHAR/NVARCHAR2); wire RefCursorDescriber vào đường Oracle validation (đã implement, chưa gọi); GoldenCorpusTests assert `unexpectedErrors` (cần align fixture H1_002 — entity PhoneNumber↔schema PHONE không khớp).
+- [ ] NuGet publish 5 packages — cần NUGET_USER + tag release (không làm được local).
+- [ ] gh CLI chưa login → chưa tạo được issue/PR.
