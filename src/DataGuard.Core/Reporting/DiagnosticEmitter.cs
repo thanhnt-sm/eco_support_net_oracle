@@ -323,6 +323,7 @@ public class StreamingSarifSink : ISarifSink
         writer.WritePropertyName("results");
         writer.WriteStartArray();
 
+        var flushCounter = 0;
         foreach (var violation in violations)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -371,6 +372,8 @@ public class StreamingSarifSink : ISarifSink
             }
 
             writer.WriteEndObject();
+            if (++flushCounter % 1000 == 0)
+                await writer.FlushAsync(cancellationToken);
         }
 
         writer.WriteEndArray();
