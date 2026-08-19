@@ -440,6 +440,35 @@ versionCommand.SetHandler(() =>
 
 #endregion
 
+var migrateCommand = new Command("migrate", "Migrate a legacy baseline file (v1) to v2")
+{
+    configOption, outputOption
+};
+
+migrateCommand.SetHandler(async (configPath, output) =>
+{
+    var console = new SystemConsole();
+    var path = output ?? configPath ?? ".dataguard-baseline.json";
+
+    if (!File.Exists(path))
+    {
+        console.Error.WriteLine($"Baseline file not found: {path}");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    var manager = new BaselineManager(path);
+    var migrated = await manager.MigrateBaselineAsync();
+
+    if (migrated == null)
+    {
+        console.Out.WriteLine($"Baseline '{path}' is already v2 or not a legacy v1 baseline");
+        return;
+    }
+
+    console.Out.WriteLine($"Migrated baseline to v2: {migrated.Violations.Count} violations, schema hash {migrated.SchemaHash}");
+}, configOption, outputOption);
+
 #region Add Commands to Root
 
 rootCommand.AddCommand(validateCommand);
@@ -448,8 +477,8 @@ rootCommand.AddCommand(snapshotCommand);
 rootCommand.AddCommand(initCommand);
 rootCommand.AddCommand(configCommand);
 rootCommand.AddCommand(oracleCheckCommand);
+rootCommand.AddCommand(migrateCommand);
 rootCommand.AddCommand(versionCommand);
-
 #endregion
 
 await rootCommand.InvokeAsync(args);

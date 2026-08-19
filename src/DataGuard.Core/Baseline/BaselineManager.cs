@@ -235,6 +235,25 @@ public class BaselineManager
         );
     }
 
+    /// <summary>
+    /// Migrates a legacy (v1) baseline file to v2 in-place. Returns the migrated baseline,
+    /// or null when the file is missing or already v2.
+    /// </summary>
+    public async Task<BaselineFile?> MigrateBaselineAsync(CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(_baselineFilePath))
+            return null;
+
+        var json = await File.ReadAllTextAsync(_baselineFilePath, cancellationToken);
+        var legacy = JsonSerializer.Deserialize<LegacyBaselineFile>(json);
+        if (legacy == null || legacy.Version != 1)
+            return null;
+
+        var migrated = MigrateFromLegacy(legacy);
+        await SaveAsync(migrated);
+        return migrated;
+    }
+
     private static string ComputeSchemaHashFromLegacy(LegacyBaselineFile legacy)
     {
         var data = string.Join("|", legacy.Violations
