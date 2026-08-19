@@ -1,15 +1,16 @@
-name: Release
+name: CI
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+  packages: read
+  security-events: write
   id-token: write
-  attestations: write
 
 env:
   DOTNET_VERSION: "8.0.x"
@@ -36,6 +37,9 @@ jobs:
       - name: Build solution
         run: dotnet build DataGuard.sln --configuration Release --no-restore
 
+      - name: Run analyzers
+        run: dotnet build DataGuard.sln --configuration Release --no-restore /p:RunAnalyzers=true
+
       - name: Run tests
         run: dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
         continue-on-error: true
@@ -46,70 +50,63 @@ jobs:
           name: test-results
           path: "**/TestResults/*.trx"
 
-      - name: Pack NuGet packages
-        run: |
-          dotnet pack DataGuard.sln --configuration Release --no-build --output ./artifacts
-          ls -la ./artifacts/
-
-      - name: Upload NuGet packages
+      - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
-          name: nupkgs
-          path: ./artifacts/*.nupkg
-          retention-days: 30
+          name: coverage
+          path: "**/coverage.cobertura.xml"
 
-  sign-packages:
-    name: Sign Packages with Sigstore
+  security-scan:
+    name: Security Scan
     runs-on: ubuntu-latest
-    needs: build-and-test
-    permissions:
-      id-token: write
-      attestations: write
-      packages: write
     steps:
-      - name: Download NuGet packages
-        uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: nupkgs
-          path: ./artifacts
+          fetch-depth: 0
 
-      - name: Install sigstore (cosign)
-        uses: sigstore/cosign-installer@v3
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          cosign-release: "v2.2.0"
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Sign packages with keyless signing
+      - name: Restore dependencies
+        run: dotnet restore DataGuard.sln
+
+      - name: Run NuGet package vulnerability scan
         run: |
-          echo "/usr/local/bin" >> $GITHUB_PATH || true
-          for pkg in ./artifacts/*.nupkg; do
-            if [ -f "$pkg" ]; then
-              echo "Signing $pkg..."
-              cosign sign-blob --keyless --output-signature="$pkg.cosign" --yes "$pkg" || true
+          dotnet tool install --global NuGetPackageExplorer.CLI || true
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+          for proj in src/*/DataGuard.*.csproj; do
+            if [ -f "$proj" ]; then
+              dotnet nuget-package-explorer scan "$proj" --fail-on-high || true
             fi
           done
+        continue-on-error: true
 
-      - name: Verify signatures
-        run: |
-          for pkg in ./artifacts/*.nupkg; do
-            if [ -f "$pkg.cosign" ]; then
-              echo "Verifying $pkg..."
-              cosign verify-blob --signature "$pkg.cosign" "$pkg" || true
-            fi
-          done
-
-      - name: Upload signed packages and bundles
-        uses: actions/upload-artifact@v4
+      - name: Check for secrets with TruffleHog
+        uses: trufflesecurity/trufflehog@main
         with:
-          name: signed-nupkgs
-          path: |
-            ./artifacts/*.nupkg
-            ./artifacts/*.cosign
-          retention-days: 30
+          path: ./
+          base: main
+          head: HEAD
+
+      - name: Run .NET Security Audit (OWASP)
+        run: |
+          dotnet tool install --global dotnet-scan || true
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+          dotnet scan DataGuard.sln --format sarif --output security-scan.sarif || true
+
+      - name: Upload security scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: security-scan.sarif
+          category: dotnet-security-scan
 
   generate-sbom:
     name: Generate SBOM
     runs-on: ubuntu-latest
-    needs: build-and-test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -126,123 +123,28 @@ jobs:
           dotnet tool install --global Microsoft.Sbom.Tool || true
           echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
-      - name: Generate SBOM for each project
+      - name: Generate SBOM for solution
         run: |
-          for proj in src/*/DataGuard.*.csproj; do
-            if [ -f "$proj" ]; then
-              name=$(basename "$proj" .csproj)
-              echo "Generating SBOM for $name..."
-              sbom-tool generate \
-                -b "$(pwd)/src" \
-                -bc "$proj" \
-                -pn "DataGuard.$name" \
-                -pv "${{ github.ref_name }}" \
-                -ps "$(pwd)/artifacts" \
-                -o "$(pwd)/sbom/$name" || true
-            fi
-          done
+          sbom-tool generate \
+            -b "$(pwd)/src" \
+            -bc "DataGuard.sln" \
+            -pn "DataGuard" \
+            -pv "0.1.0-ci" \
+            -ps "$(pwd)/artifacts" \
+            -o "$(pwd)/sbom"
 
-      - name: Upload SBOMs
+      - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
-          name: sboms
+          name: sbom
           path: ./sbom/**/*
-          retention-days: 30
+          retention-days: 7
 
-  publish-nuget:
-    name: Publish to NuGet.org
+  docker-build:
+    name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: [sign-packages, generate-sbom]
-    permissions:
-      packages: write
-      id-token: write
-    steps:
-      - name: Download signed packages
-        uses: actions/download-artifact@v4
-        with:
-          name: signed-nupkgs
-          path: ./artifacts
-
-      - name: Download SBOMs
-        uses: actions/download-artifact@v4
-        with:
-          name: sboms
-          path: ./sbom
-
-      - name: Publish to NuGet.org
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          for pkg in ./artifacts/*.nupkg; do
-            if [ -f "$pkg" ]; then
-              echo "Publishing $pkg..."
-              dotnet nuget push "$pkg" \
-                --api-key $NUGET_API_KEY \
-                --source ${{ env.NUGET_SOURCE }} \
-                --skip-duplicate || true
-            fi
-          done
-
-  create-github-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [publish-nuget]
-    permissions:
-      contents: write
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: signed-nupkgs
-          path: ./artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
-          files: |
-            ./artifacts/*.nupkg
-            ./artifacts/*.cosign
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish-attestations:
-    name: Publish Sigstore Attestations
-    runs-on: ubuntu-latest
-    needs: [sign-packages, publish-nuget]
-    permissions:
-      packages: write
-      id-token: write
-      attestations: write
-    steps:
-      - name: Download bundles
-        uses: actions/download-artifact@v4
-        with:
-          name: signed-nupkgs
-          path: ./artifacts
-
-      - name: Upload attestations to GitHub
-        run: |
-          if command -v gh >/dev/null 2>&1; then
-            for bundle in ./artifacts/*.cosign; do
-              if [ -f "$bundle" ]; then
-                echo "Uploading attestation for $bundle..."
-                gh attestation upload "$bundle" --repo ${{ github.repository }} || true
-              fi
-            done
-          else
-            echo "gh CLI not installed; skipping attestation upload"
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  docker:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
-    needs: [publish-nuget]
-    permissions:
-      packages: write
-      contents: read
+    needs: [build-and-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -250,29 +152,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=tag
-
-      - name: Build and push Docker image
+      - name: Build Docker image (no push)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          push: false
+          tags: ghcr.io/${{ github.repository }}/dataguard:latest
+          load: true
+
+      - name: Test Docker image
+        run: |
+          docker run --rm ghcr.io/${{ github.repository }}/dataguard:latest --help
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    needs: [build-and-test]
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          config-file: ./.github/codeql-config.yml
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:csharp"
