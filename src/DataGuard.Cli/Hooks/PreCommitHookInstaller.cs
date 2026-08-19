@@ -101,7 +101,7 @@ public static class PreCommitHookInstaller
             results.Add("Removed lefthook.yml");
         }
 
-        return UninstallResult.Success($"Uninstalled: {string.Join(", ", results)}");
+        return UninstallResult.Succeeded($"Uninstalled: {string.Join(", ", results)}");
     }
 
     /// <summary>
@@ -115,26 +115,24 @@ public static class PreCommitHookInstaller
             return new HookStatus { IsGitRepo = false };
         }
 
-        var status = new HookStatus { IsGitRepo = true };
-        
         var hookPath = Path.Combine(root, ".git", "hooks", "pre-commit");
-        status.NativeGitHook = File.Exists(hookPath);
-
         var huskyPath = Path.Combine(root, ".husky", "pre-commit");
-        status.Husky = File.Exists(huskyPath);
-
         var lefthookPath = Path.Combine(root, "lefthook.yml");
-        status.Lefthook = File.Exists(lefthookPath);
 
-        status.AnyInstalled = status.NativeGitHook || status.Husky || status.Lefthook;
+        var nativeGitHook = File.Exists(hookPath);
+        var husky = File.Exists(huskyPath);
+        var lefthook = File.Exists(lefthookPath);
+        var dataGuardManaged = nativeGitHook && File.ReadAllText(hookPath).Contains("DataGuard");
 
-        if (status.NativeGitHook)
+        return new HookStatus
         {
-            var content = File.ReadAllText(hookPath);
-            status.DataGuardManaged = content.Contains("DataGuard");
-        }
-
-        return status;
+            IsGitRepo = true,
+            NativeGitHook = nativeGitHook,
+            Husky = husky,
+            Lefthook = lefthook,
+            AnyInstalled = nativeGitHook || husky || lefthook,
+            DataGuardManaged = dataGuardManaged
+        };
     }
 
     private static string? FindGitRoot()
@@ -181,7 +179,7 @@ public static class PreCommitHookInstaller
             // Make executable
             File.SetAttributes(hookPath, File.GetAttributes(hookPath) | FileAttributes.ReadOnly);
             
-            return InstallResult.Success("Husky pre-commit hook installed at .husky/pre-commit");
+            return InstallResult.Succeeded("Husky pre-commit hook installed at .husky/pre-commit");
         }
         catch (Exception ex)
         {
@@ -202,7 +200,7 @@ public static class PreCommitHookInstaller
             var config = GenerateLefthookConfig();
             await File.WriteAllTextAsync(lefthookPath, config, cancellationToken);
             
-            return InstallResult.Success("Lefthook configuration installed at lefthook.yml");
+            return InstallResult.Succeeded("Lefthook configuration installed at lefthook.yml");
         }
         catch (Exception ex)
         {
@@ -231,7 +229,7 @@ public static class PreCommitHookInstaller
             fileInfo.IsReadOnly = false;
             fileInfo.Attributes |= FileAttributes.ReadOnly;
             
-            return InstallResult.Success("Native git pre-commit hook installed at .git/hooks/pre-commit");
+            return InstallResult.Succeeded("Native git pre-commit hook installed at .git/hooks/pre-commit");
         }
         catch (Exception ex)
         {
@@ -325,7 +323,7 @@ public sealed record InstallResult(
     string Message,
     HookType InstalledType = HookType.None)
 {
-    public static InstallResult Success(string message, HookType type = HookType.NativeGit)
+    public static InstallResult Succeeded(string message, HookType type = HookType.NativeGit)
         => new(true, message, type);
 
     public static InstallResult Failed(string message)
@@ -339,7 +337,7 @@ public sealed record UninstallResult(
     bool Success,
     string Message)
 {
-    public static UninstallResult Success(string message)
+    public static UninstallResult Succeeded(string message)
         => new(true, message);
 
     public static UninstallResult Failed(string message)

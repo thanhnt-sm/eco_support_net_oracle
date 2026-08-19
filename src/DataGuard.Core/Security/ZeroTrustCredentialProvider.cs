@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Models;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -67,7 +68,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         }
         catch (Exception ex)
         {
-            await LogFailureAsync(credentialName, ex, CancellationToken.None);
+            _logger?.LogError(ex, "Credential resolution failed for '{CredentialName}'", credentialName);
             throw;
         }
     }
@@ -130,16 +131,11 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         }
 
         // Priority 5: Local encrypted credential store
-        if (File.Exists(GetCredentialStorePath()))
+        var storedConnection = await _credentialManager.GetStoredConnectionStringAsync(cancellationToken);
+        if (!string.IsNullOrEmpty(storedConnection))
         {
-            var stored = await _credentialManager.LoadFromCredentialStoreAsync(cancellationToken);
-            if (stored != null && !string.IsNullOrEmpty(stored.ConnectionString))
-            {
-                await LogSourceAsync("LocalEncryptedStore", credentialName);
-                return stored.IsEncrypted 
-                    ? _config.EncryptConnectionStringAtRest ? DecryptCredential(stored.ConnectionString) : stored.ConnectionString
-                    : stored.ConnectionString;
-            }
+            await LogSourceAsync("LocalEncryptedStore", credentialName);
+            return storedConnection;
         }
 
         // Priority 6: Configuration file (dev only, with warning)
@@ -199,26 +195,6 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         return Convert.ToHexString(hash)[..16];
     }
 
-    private static string GetCredentialStorePath()
-    {
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DataGuard",
-            "credentials.json");
-    }
-
-    private string DecryptCredential(string encrypted)
-    {
-        if (encrypted.StartsWith("ENC:"))
-        {
-            var encryptedBytes = Convert.FromBase64String(encrypted[4..]);
-            var decrypted = ProtectedData.Unprotect(encryptedBytes, 
-                "DataGuard.Credential.Protection"u8.ToArray(), 
-                DataProtectionScope.CurrentUser);
-            return System.Text.Encoding.UTF8.GetString(decrypted);
-        }
-        return encrypted;
-    }
 }
 
 /// <summary>

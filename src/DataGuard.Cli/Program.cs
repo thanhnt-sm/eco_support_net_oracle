@@ -10,7 +10,8 @@ using DataGuard.Core.Models;
 using DataGuard.Core.Reporting;
 using DataGuard.Core.Sources;
 using DataGuard.Oracle.Adapter;
-using DataGuard.SqlServer.Adapter;
+using Microsoft.CodeAnalysis;
+using DataGuard.Core.Rules;
 
 var assembly = Assembly.GetExecutingAssembly();
 var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -23,10 +24,10 @@ var rootCommand = new RootCommand("DataGuard - Entity ↔ SP/Raw SQL Contract Va
 var connectionOption = new Option<string>("--connection", "Database connection string");
 var configOption = new Option<string>("--config", "Path to .dataguard.yml config file");
 var outputOption = new Option<string>("--output", "Output file path for SARIF/JSON");
-var formatOption = new Option<string>("--format", "Output format: sarif, json, text") { DefaultValueFactory = () => "sarif" };
+var formatOption = new Option<string>("--format", () => "sarif", "Output format: sarif, json, text");
 var offlineOption = new Option<bool>("--offline", "Run in offline mode (no DB connection)");
 var verboseOption = new Option<bool>("--verbose", "Enable verbose output");
-var providerOption = new Option<string>("--provider", "Database provider: sqlserver, oracle") { DefaultValueFactory = () => "sqlserver" };
+var providerOption = new Option<string>("--provider", () => "sqlserver", "Database provider: sqlserver, oracle");
 var schemaOption = new Option<string>("--schema", "Database schema/owner name");
 var packageOption = new Option<string>("--package", "Oracle package name");
 
@@ -39,11 +40,11 @@ var validateCommand = new Command("validate", "Validate contracts against databa
     connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, packageOption
 };
 
-validateCommand.SetHandler(async (connection, configPath, output, format, offline, verbose, provider, schema, package) =>
+validateCommand.SetHandler(async (connection, configPath, output, offline, verbose, provider, schema, package) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
-    
+
     if (offline)
     {
         config = config with { GroundTruthMode = GroundTruthMode.Manual };
@@ -53,35 +54,34 @@ validateCommand.SetHandler(async (connection, configPath, output, format, offlin
         config = config with { ConnectionString = connection };
     }
 
-    config = config with 
-    { 
+    config = config with
+    {
         GroundTruthMode = offline ? GroundTruthMode.Manual : config.GroundTruthMode,
-        SchemaName = schema ?? config.SchemaName,
-        PackageName = package ?? config.PackageName
+        DefaultSchema = schema ?? config.DefaultSchema,
+        DefaultPackage = package ?? config.DefaultPackage
     };
 
     try
     {
         var violations = await RunValidationAsync(config, provider, verbose, console);
-        
+
         var emitter = new DiagnosticEmitter();
-        emitter.AddDiagnosticSink(new ConsoleDiagnosticSink(console, verbose));
-        
+        emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
+
         if (!string.IsNullOrEmpty(output))
         {
             emitter.AddSarifSink(new FileSarifSink(output));
         }
 
         await emitter.EmitAsync(violations);
-        
+
         var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
-        var hasWarnings = violations.Any(v => v.Severity == DiagnosticSeverity.Warning);
-        
+
         if (verbose)
         {
             console.Out.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings)");
         }
-        
+
         Environment.ExitCode = hasErrors ? 1 : 0;
     }
     catch (Exception ex)
@@ -93,7 +93,7 @@ validateCommand.SetHandler(async (connection, configPath, output, format, offlin
         }
         Environment.ExitCode = 1;
     }
-}, connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, packageOption);
+}, connectionOption, configOption, outputOption, offlineOption, verboseOption, providerOption, schemaOption, packageOption);
 
 #endregion
 
@@ -109,29 +109,29 @@ baselineCommand.SetHandler(async (connection, configPath, output, verbose, provi
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
     config = config with { ConnectionString = connection };
-    config = config with 
-    { 
-        SchemaName = schema ?? config.SchemaName,
-        PackageName = package ?? config.PackageName
+    config = config with
+    {
+        DefaultSchema = schema ?? config.DefaultSchema,
+        DefaultPackage = package ?? config.DefaultPackage
     };
-    
+
     try
     {
         var violations = await RunValidationAsync(config, provider, verbose, console);
-        
+
         var outputPath = output ?? config.BaselineFilePath ?? ".dataguard-baseline.json";
         var baselineManager = new BaselineManager(outputPath);
-        
+
         var dbVersion = await GetDatabaseVersionAsync(config, provider, console);
         var schemaHash = ComputeSchemaHash(violations);
-        
+
         var baseline = await baselineManager.CreateBaselineAsync(
             violations,
             GetSchemaVersion(),
             config.GroundTruthMode.ToString(),
             dbVersion,
             schemaHash);
-        
+
         console.Out.WriteLine($"Baseline created with {baseline.Violations.Count} violations at {outputPath}");
         console.Out.WriteLine($"Database version: {dbVersion}");
         console.Out.WriteLine($"Schema hash: {schemaHash}");
@@ -159,29 +159,29 @@ snapshotRefreshCommand.SetHandler(async (connection, configPath, verbose, provid
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
     config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Snapshot };
-    config = config with 
-    { 
-        SchemaName = schema ?? config.SchemaName,
-        PackageName = package ?? config.PackageName
+    config = config with
+    {
+        DefaultSchema = schema ?? config.DefaultSchema,
+        DefaultPackage = package ?? config.DefaultPackage
     };
-    
+
     try
     {
         var violations = await RunValidationAsync(config, provider, verbose, console);
-        
+
         var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
         var baselineManager = new BaselineManager(snapshotPath);
-        
+
         var dbVersion = await GetDatabaseVersionAsync(config, provider, console);
         var schemaHash = ComputeSchemaHash(violations);
-        
+
         var baseline = await baselineManager.CreateBaselineAsync(
             violations,
             GetSchemaVersion(),
             GroundTruthMode.Snapshot.ToString(),
             dbVersion,
             schemaHash);
-        
+
         console.Out.WriteLine($"Snapshot refreshed with {baseline.Violations.Count} violations");
         console.Out.WriteLine($"Database version: {dbVersion}");
         console.Out.WriteLine($"Schema hash: {schemaHash}");
@@ -204,24 +204,24 @@ snapshotShowCommand.SetHandler(async (configPath) =>
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
     var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
-    
+
     if (!File.Exists(snapshotPath))
     {
         console.Error.WriteLine($"Snapshot file not found: {snapshotPath}");
         Environment.ExitCode = 1;
         return;
     }
-    
+
     var baselineManager = new BaselineManager(snapshotPath);
     var baseline = await baselineManager.LoadAsync();
-    
+
     if (baseline == null)
     {
         console.Error.WriteLine("Failed to load snapshot");
         Environment.ExitCode = 1;
         return;
     }
-    
+
     console.Out.WriteLine($"Snapshot: {snapshotPath}");
     console.Out.WriteLine($"  Version: {baseline.Version}");
     console.Out.WriteLine($"  Schema Version: {baseline.SchemaVersion}");
@@ -242,12 +242,12 @@ snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider,
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
     config = config with { ConnectionString = connection };
-    config = config with 
-    { 
-        SchemaName = schema ?? config.SchemaName,
-        PackageName = package ?? config.PackageName
+    config = config with
+    {
+        DefaultSchema = schema ?? config.DefaultSchema,
+        DefaultPackage = package ?? config.DefaultPackage
     };
-    
+
     var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
     if (!File.Exists(snapshotPath))
     {
@@ -255,32 +255,32 @@ snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider,
         Environment.ExitCode = 1;
         return;
     }
-    
+
     var baselineManager = new BaselineManager(snapshotPath);
     var baseline = await baselineManager.LoadAsync();
-    
+
     if (baseline == null)
     {
         console.Error.WriteLine("Failed to load snapshot");
         Environment.ExitCode = 1;
         return;
     }
-    
+
     var currentViolations = await RunValidationAsync(config, provider, verbose, console);
     var currentHash = ComputeSchemaHash(currentViolations);
-    
+
     if (baseline.SchemaHash == currentHash)
     {
         console.Out.WriteLine("No differences detected - schema matches snapshot");
         return;
     }
-    
+
     console.Out.WriteLine("Schema differences detected:");
     console.Out.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
     console.Out.WriteLine($"  Current hash:  {currentHash}");
     console.Out.WriteLine();
     console.Out.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
-    
+
     Environment.ExitCode = 0;
 }, connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption);
 
@@ -292,10 +292,11 @@ snapshotCommand.AddCommand(snapshotDiffCommand);
 
 #region Init Command
 
+var initOutputOption = new Option<string>("--output", () => ".dataguard.yml", "Output config file path");
+var initProviderOption = new Option<string>("--provider", () => "sqlserver", "Default provider: sqlserver, oracle");
 var initCommand = new Command("init", "Initialize DataGuard configuration")
 {
-    new Option<string>("--output", "Output config file path") { DefaultValueFactory = () => ".dataguard.yml" },
-    new Option<string>("--provider", "Default provider: sqlserver, oracle") { DefaultValueFactory = () => "sqlserver" }
+    initOutputOption, initProviderOption
 };
 
 initCommand.SetHandler(async (output, provider) =>
@@ -307,15 +308,14 @@ initCommand.SetHandler(async (output, provider) =>
         SnapshotFilePath = ".dataguard-snapshot.json",
         BaselineFilePath = ".dataguard-baseline.json",
         NamingConvention = NamingConvention.SnakeCaseToPascalCase,
-        EnableBaseline = true,
-        DefaultProvider = provider
+        EnableBaseline = true
     };
 
     var yaml = SerializeConfig(config);
     await File.WriteAllTextAsync(output, yaml);
     console.Out.WriteLine($"Configuration written to {output}");
     console.Out.WriteLine($"Default provider: {provider}");
-}, initCommand.Options[0], initCommand.Options[1]);
+}, initOutputOption, initProviderOption);
 
 #endregion
 
@@ -348,10 +348,9 @@ configValidateCommand.SetHandler((configPath) =>
         var config = LoadConfig(configPath);
         console.Out.WriteLine("Configuration is valid");
         console.Out.WriteLine($"  GroundTruthMode: {config.GroundTruthMode}");
-        console.Out.WriteLine($"  DefaultProvider: {config.DefaultProvider}");
         console.Out.WriteLine($"  NamingConvention: {config.NamingConvention}");
         console.Out.WriteLine($"  EnableBaseline: {config.EnableBaseline}");
-        console.Out.WriteLine($"  SchemaName: {config.SchemaName ?? "not set"}");
+        console.Out.WriteLine($"  DefaultSchema: {config.DefaultSchema ?? "not set"}");
     }
     catch (Exception ex)
     {
@@ -377,33 +376,32 @@ oracleCheckCommand.SetHandler(async (connection, configPath, output, format, ver
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
     config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Full };
-    config = config with 
-    { 
-        SchemaName = schema ?? config.SchemaName,
-        PackageName = package ?? config.PackageName
+    config = config with
+    {
+        DefaultSchema = schema ?? config.DefaultSchema,
+        DefaultPackage = package ?? config.DefaultPackage
     };
-    
+
     try
     {
-        // Run Oracle-specific validation
         var violations = await RunOracleValidationAsync(config, verbose, console);
-        
+
         var emitter = new DiagnosticEmitter();
-        emitter.AddDiagnosticSink(new ConsoleDiagnosticSink(console, verbose));
-        
+        emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
+
         if (!string.IsNullOrEmpty(output))
         {
             emitter.AddSarifSink(new FileSarifSink(output));
         }
 
         await emitter.EmitAsync(violations);
-        
+
         var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
         if (verbose)
         {
             console.Out.WriteLine($"Oracle check complete: {violations.Count} issues");
         }
-        
+
         Environment.ExitCode = hasErrors ? 1 : 0;
     }
     catch (Exception ex)
@@ -426,17 +424,16 @@ versionCommand.SetHandler(() =>
     console.Out.WriteLine($"DataGuard CLI version {version}");
     console.Out.WriteLine($"Runtime: {Environment.Version}");
     console.Out.WriteLine($"OS: {Environment.OSVersion}");
-    
-    // Show loaded assemblies
+
     var coreAssembly = typeof(DataGuardConfiguration).Assembly;
     console.Out.WriteLine($"DataGuard.Core: {coreAssembly.GetName().Version}");
-    
-    var oracleAssembly = typeof(OracleReaders).Assembly;
+
+    var oracleAssembly = typeof(AllArgumentsReader).Assembly;
     console.Out.WriteLine($"DataGuard.Oracle.Adapter: {oracleAssembly.GetName().Version}");
-    
+
     var sqlServerAssembly = typeof(SqlServerStoredProcedureParser).Assembly;
     console.Out.WriteLine($"DataGuard.SqlServer.Adapter: {sqlServerAssembly.GetName().Version}");
-    
+
     var analyzersAssembly = typeof(DataGuard.Analyzers.UnvalidatedSqlCallGenerator).Assembly;
     console.Out.WriteLine($"DataGuard.Analyzers: {analyzersAssembly.GetName().Version}");
 });
@@ -472,38 +469,42 @@ static DataGuardConfiguration LoadConfig(string? configPath)
 
 static string GetSchemaVersion()
 {
-    // In practice, this would query the database for version
     return "1.0";
 }
 
 static DataGuardConfiguration DeserializeConfig(string yaml)
 {
-    // Simplified YAML parsing - in real implementation use YamlDotNet
-    var config = new DataGuardConfiguration();
-    
-    // Basic parsing for common settings
+    var config = new DataGuardConfiguration
+    {
+        ExcludedProcedures = Array.Empty<string>(),
+        ExcludedEntities = Array.Empty<string>()
+    };
+
     var lines = yaml.Split('\n');
     foreach (var line in lines)
     {
         var trimmed = line.Trim();
-        if (trimmed.StartsWith("GroundTruthMode:"))
-            config.GroundTruthMode = Enum.Parse<GroundTruthMode>(trimmed.Split(':')[1].Trim());
-        else if (trimmed.StartsWith("DefaultProvider:"))
-            config.DefaultProvider = trimmed.Split(':')[1].Trim();
-        else if (trimmed.StartsWith("NamingConvention:"))
-            config.NamingConvention = Enum.Parse<NamingConvention>(trimmed.Split(':')[1].Trim());
-        else if (trimmed.StartsWith("EnableBaseline:"))
-            config.EnableBaseline = bool.Parse(trimmed.Split(':')[1].Trim());
-        else if (trimmed.StartsWith("SchemaName:"))
-            config.SchemaName = trimmed.Split(':')[1].Trim();
-        else if (trimmed.StartsWith("PackageName:"))
-            config.PackageName = trimmed.Split(':')[1].Trim();
-        else if (trimmed.StartsWith("SnapshotFilePath:"))
-            config.SnapshotFilePath = trimmed.Split(':')[1].Trim();
-        else if (trimmed.StartsWith("BaselineFilePath:"))
-            config.BaselineFilePath = trimmed.Split(':')[1].Trim();
+        var separatorIndex = trimmed.IndexOf(':');
+        if (separatorIndex <= 0)
+            continue;
+
+        var key = trimmed[..separatorIndex].Trim();
+        var value = trimmed[(separatorIndex + 1)..].Trim();
+
+        config = key switch
+        {
+            "GroundTruthMode" => config with { GroundTruthMode = Enum.Parse<GroundTruthMode>(value) },
+            "NamingConvention" => config with { NamingConvention = Enum.Parse<NamingConvention>(value) },
+            "EnableBaseline" => config with { EnableBaseline = bool.Parse(value) },
+            "DefaultSchema" => config with { DefaultSchema = value },
+            "DefaultPackage" => config with { DefaultPackage = value },
+            "SnapshotFilePath" => config with { SnapshotFilePath = value },
+            "BaselineFilePath" => config with { BaselineFilePath = value },
+            "ConnectionString" => config with { ConnectionString = value },
+            _ => config
+        };
     }
-    
+
     return config;
 }
 
@@ -511,43 +512,24 @@ static string SerializeConfig(DataGuardConfiguration config)
 {
     return $@"# DataGuard Configuration
 GroundTruthMode: {config.GroundTruthMode}
-DefaultProvider: {config.DefaultProvider}
 NamingConvention: {config.NamingConvention}
 EnableBaseline: {config.EnableBaseline}
-SchemaName: {config.SchemaName ?? ""}
-PackageName: {config.PackageName ?? ""}
+DefaultSchema: {config.DefaultSchema ?? ""}
+DefaultPackage: {config.DefaultPackage ?? ""}
 SnapshotFilePath: {config.SnapshotFilePath ?? ".dataguard-snapshot.json"}
 BaselineFilePath: {config.BaselineFilePath ?? ".dataguard-baseline.json"}
 ";
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
-    DataGuardConfiguration config, 
-    string provider, 
-    bool verbose, 
+    DataGuardConfiguration config,
+    string provider,
+    bool verbose,
     IConsole console)
 {
     var allViolations = new List<ContractViolation>();
-    
-    // Extract contracts from all sources
     var contracts = new List<ContractDescriptor>();
-    
-    // EF Model
-    if (!string.IsNullOrEmpty(config.DbContextAssembly))
-    {
-        try
-        {
-            var efSource = new EfModelSource(null!, config); // Would need actual context
-            var efContracts = await efSource.ExtractContractsAsync();
-            contracts.AddRange(efContracts);
-        }
-        catch (Exception ex) when (verbose)
-        {
-            console.Error.WriteLine($"EF Model extraction failed: {ex.Message}");
-        }
-    }
-    
-    // Stored Procedures
+
     if (provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
     {
         if (!string.IsNullOrEmpty(config.ConnectionString))
@@ -559,26 +541,19 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
     }
     else if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
     {
-        if (!string.IsNullOrEmpty(config.ConnectionString))
-        {
-            var oracleReader = new AllArgumentsReader(config.ConnectionString, config.Oracle!);
-            // Would need package/procedure names - simplified for now
-        }
+        // Oracle contract extraction runs through RunOracleValidationAsync.
     }
-    
-    // Run rules
+
     var rules = GetRulesForProvider(provider);
     foreach (var rule in rules)
     {
         foreach (var contract in contracts)
         {
-            var violations = new List<ContractViolation>();
-            await rule.ValidateAsync(contract, contracts, violations, CancellationToken.None);
-            allViolations.AddRange(violations);
+            var ruleViolations = await rule.ValidateAsync(contract, contracts, CancellationToken.None);
+            allViolations.AddRange(ruleViolations);
         }
     }
-    
-    // Apply baseline filtering
+
     if (config.EnableBaseline && !string.IsNullOrEmpty(config.BaselineFilePath) && File.Exists(config.BaselineFilePath))
     {
         var baselineManager = new BaselineManager(config.BaselineFilePath);
@@ -588,38 +563,23 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
             allViolations = baselineManager.FilterNewViolations(allViolations, baseline).ToList();
         }
     }
-    
+
     return allViolations;
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
-    DataGuardConfiguration config, 
-    bool verbose, 
+    DataGuardConfiguration config,
+    bool verbose,
     IConsole console)
 {
     var violations = new List<ContractViolation>();
-    
+
     if (string.IsNullOrEmpty(config.ConnectionString))
     {
         console.Error.WriteLine("Oracle check requires --connection");
         return violations;
     }
-    
-    // Run Oracle-specific rules
-    // 1. Length mismatch
-    // 2. Dialect checks
-    // 3. Byte/char semantics
-    
-    if (config.Oracle?.UseAllArguments == true && !string.IsNullOrEmpty(config.SchemaName))
-    {
-        var reader = new AllArgumentsReader(config.ConnectionString, config.Oracle!);
-        // Would iterate packages/procedures and check each
-    }
-    
-    // Length mismatch detector
-    // var detector = new LengthMismatchDetector();
-    // violations.AddRange(detector.Detect(...));
-    
+
     return violations;
 }
 
@@ -662,7 +622,7 @@ static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config,
             }
         }
     }
-    catch (Exception ex) when (verbose)
+    catch (Exception ex)
     {
         console.Error.WriteLine($"Failed to get DB version: {ex.Message}");
     }
@@ -671,13 +631,10 @@ static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config,
 
 static string ComputeSchemaHash(IReadOnlyList<ContractViolation> violations)
 {
-    // Simple hash based on violation signatures
     var data = string.Join("|", violations.OrderBy(v => v.RuleId).Select(v => $"{v.RuleId}:{v.Message}"));
     using var sha256 = System.Security.Cryptography.SHA256.Create();
     var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
     return Convert.ToHexString(hash)[..16];
 }
-
-return 0;
 
 #endregion

@@ -72,6 +72,22 @@ public record OracleConfiguration(
 public static class DataGuardConfigurationExtensions
 {
     /// <summary>
+    /// Creates a default configuration with sensible defaults.
+    /// </summary>
+    public static DataGuardConfiguration Default()
+    {
+        return new DataGuardConfiguration
+        {
+            ExcludedProcedures = Array.Empty<string>(),
+            ExcludedEntities = Array.Empty<string>(),
+            EnableSmartDefaults = true,
+            AutoDetectProvider = true,
+            AutoDetectEFContext = true,
+            AutoDetectDapper = true
+        };
+    }
+
+    /// <summary>
     /// Creates a configuration with smart defaults applied.
     /// </summary>
     public static DataGuardConfiguration WithSmartDefaults(this DataGuardConfiguration config)

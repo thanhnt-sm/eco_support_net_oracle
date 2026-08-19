@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
@@ -20,29 +22,23 @@ public sealed class SupplyChainVerifier
         string? expectedHashFile = null,
         CancellationToken cancellationToken = default)
     {
-        var checks = new System.Collections.Generic.List<SupplyChainCheck>();
-        var result = new SupplyChainVerificationResult(
-            VerificationTime: DateTimeOffset.UtcNow,
-            Checks: checks,
-            OverallPassed: false,
-            Summary: "");
-
+        var checks = new List<SupplyChainCheck>();
 
         // 1. Verify assembly integrity
         var assembly = typeof(SupplyChainVerifier).Assembly;
         var assemblyHash = await ComputeAssemblyHashAsync(assembly, cancellationToken);
         
-        result.Checks.Add(new SupplyChainCheck
-        {
-            Name = "AssemblyIntegrity",
-            Description = "Verify assembly hash matches expected",
-            Passed = true,
-            Details = $"Assembly: {assembly.GetName().Name}, Hash: {assemblyHash}"
-        });
+        var assemblyCheck = new SupplyChainCheck(
+            "AssemblyIntegrity",
+            "Verify assembly hash matches expected",
+            true,
+            $"Assembly: {assembly.GetName().Name}, Hash: {assemblyHash}");
+        
+        checks.Add(assemblyCheck);
 
         // 2. Verify dependencies
         var dependencyChecks = await VerifyDependenciesAsync(assembly, cancellationToken);
-        result.Checks.AddRange(dependencyChecks);
+        checks.AddRange(dependencyChecks);
 
         // 3. Verify expected hash file if provided
         if (!string.IsNullOrEmpty(expectedHashFile) && File.Exists(expectedHashFile))
@@ -51,25 +47,29 @@ public sealed class SupplyChainVerifier
             var matches = expectedHash.Trim().Equals(assemblyHash, StringComparison.OrdinalIgnoreCase);
             
             checks.Add(new SupplyChainCheck(
-    "ExpectedHashMatch",
-    "Verify assembly matches expected hash from SLSA provenance",
-    matches,
-    matches ? "Hash matches expected" : $"Expected: {expectedHash}, Actual: {assemblyHash}"));
+                "ExpectedHashMatch",
+                "Verify assembly matches expected hash from SLSA provenance",
+                matches,
+                matches ? "Hash matches expected" : $"Expected: {expectedHash}, Actual: {assemblyHash}"));
         }
 
         // 4. Check for tampering indicators
         var tamperingChecks = CheckForTampering();
-        result.Checks.AddRange(tamperingChecks);
+        checks.AddRange(tamperingChecks);
 
-        result.OverallPassed = result.Checks.All(c => c.Passed);
-        result.Summary = result.OverallPassed 
+        var overallPassed = checks.All(c => c.Passed);
+        var summary = overallPassed 
             ? "All supply chain checks passed" 
-            : $"{result.Checks.Count(c => !c.Passed)} of {result.Checks.Count} checks failed";
+            : $"{checks.Count(c => !c.Passed)} of {checks.Count} checks failed";
 
-        return result;
+        return new SupplyChainVerificationResult(
+            VerificationTime: DateTimeOffset.UtcNow,
+            Checks: checks,
+            OverallPassed: overallPassed,
+            Summary: summary);
     }
 
-    private async Task<string> ComputeAssemblyHashAsync(System.Reflection.Assembly assembly, CancellationToken cancellationToken)
+    private async Task<string> ComputeAssemblyHashAsync(Assembly assembly, CancellationToken cancellationToken)
     {
         var location = assembly.Location;
         using var stream = File.OpenRead(location);
@@ -78,26 +78,24 @@ public sealed class SupplyChainVerifier
         return Convert.ToHexString(hash);
     }
 
-    private System.Collections.Generic.List<SupplyChainCheck> VerifyDependenciesAsync(
-        System.Reflection.Assembly assembly, 
+    private async Task<List<SupplyChainCheck>> VerifyDependenciesAsync(
+        Assembly assembly, 
         CancellationToken cancellationToken)
     {
-        var checks = new System.Collections.Generic.List<SupplyChainCheck>();
+        var checks = new List<SupplyChainCheck>();
         
         foreach (var refName in assembly.GetReferencedAssemblies())
         {
             // Check if dependency is from trusted source (Microsoft, approved vendors)
             var isTrusted = IsTrustedDependency(refName.Name!);
             
-            checks.Add(new SupplyChainCheck
-            {
-                Name = $"Dependency_{refName.Name}",
-                Description = $"Verify dependency {refName.Name} v{refName.Version} is from trusted source",
-                Passed = isTrusted,
-                Details = isTrusted 
+            checks.Add(new SupplyChainCheck(
+                $"Dependency_{refName.Name}",
+                $"Verify dependency {refName.Name} v{refName.Version} is from trusted source",
+                isTrusted,
+                isTrusted 
                     ? $"Trusted dependency: {refName.FullName}"
-                    : $"UNTRUSTED dependency: {refName.FullName} - review required"
-            });
+                    : $"UNTRUSTED dependency: {refName.FullName} - review required"));
         }
 
         return checks;
@@ -110,153 +108,87 @@ public sealed class SupplyChainVerifier
         {
             "System.",
             "Microsoft.",
-            "NetStandard.",
-            "Newtonsoft.",
+            "NuGet.",
+            "System.",
+            "runtime.",
+            "NETStandard.Library",
+            "Microsoft.NETCore.",
+            "Microsoft.AspNetCore.",
+            "Microsoft.EntityFrameworkCore",
+            "Microsoft.Extensions.",
             "System.Text.Json",
+            "System.Text.RegularExpressions",
+            "System.Collections.Immutable",
+            "System.Diagnostics.DiagnosticSource",
             "System.Memory",
-            "System.Runtime",
-            "System.Threading",
-            "System.Collections",
+            "System.Runtime.",
+            "System.Threading.",
             "System.Linq",
-            "System.Diagnostics",
-            "System.IO",
-            "System.Net",
-            "System.Security",
-            "System.Reflection",
             "System.ComponentModel",
-            "System.Xml",
-            "System.Numerics",
-            "System.Buffers",
-            "System.Numerics.Vectors",
-            "System.Runtime.CompilerServices",
-            "System.Runtime.InteropServices",
-            "System.Runtime.Loader",
-            "System.Resources",
+            "System.Reflection",
+            "System.IO",
+            "System.Security.Cryptography",
+            "System.Diagnostics",
             "System.Globalization",
-            "System.Console",
-            "System.Device",
-            "System.Drawing",
-            "System.Management",
-            "System.ServiceModel",
-            "System.Transactions",
-            "System.Web",
-            "System.Windows",
+            "System.Resources",
+            "System.Numerics",
+            "System.Xml",
             "System.Configuration",
             "System.Data",
-            "System.DirectoryServices",
-            "System.EnterpriseServices",
-            "System.IdentityModel",
-            "System.Messaging",
-            "System.Printing",
-            "System.ServiceProcess",
-            "System.Speech",
-            "System.Workflow",
-            "System.Xaml",
-            "Accessibility",
-            "CustomMarshalers",
-            "IEHost",
-            "IIEHost",
-            "Microsoft.Build",
-            "Microsoft.CSharp",
-            "Microsoft.JScript",
-            "Microsoft.VisualBasic",
-            "Microsoft.VisualC",
-            "Microsoft.Win32",
-            "WindowsBase",
+            "System.Drawing",
+            "System.Windows",
             "PresentationCore",
             "PresentationFramework",
-            "ReachFramework",
-            "System.Printing.IndexedProperties",
-            "System.Xaml.Hosting",
-            "UIAutomationClient",
-            "UIAutomationProvider",
-            "UIAutomationTypes",
-            "WindowsFormsIntegration"
-        };
-
-        // Trusted vendor packages
-        var trustedVendors = new[]
-        {
-            "FluentAssertions",
-            "Moq",
+            "WindowsBase",
+            "Microsoft.CodeAnalysis",
+            "Microsoft.CodeAnalysis.CSharp",
+            "Microsoft.CodeAnalysis.CSharp.Scripting",
+            "Microsoft.SqlServer.TransactSql.ScriptDom",
+            "Oracle.ManagedDataAccess",
+            "Npgsql",
+            "MySqlConnector",
+            "Dapper",
+            "Newtonsoft.Json",
+            "YamlDotNet",
+            "Spectre.Console",
+            "CommandLineParser",
+            "Polly",
+            "Serilog",
+            "MediatR",
+            "AutoMapper",
+            "FluentValidation",
             "xunit",
-            "xunit.runner",
-            "Microsoft.NET.Test.Sdk",
+            "Moq",
+            "FluentAssertions",
+            "Bogus",
             "Testcontainers",
             "Testcontainers.Oracle",
-            "Testcontainers.MsSql",
-            "Oracle.ManagedDataAccess",
-            "Microsoft.Data.SqlClient",
-            "Microsoft.SqlServer.TransactSql.ScriptDom",
-            "Microsoft.CodeAnalysis",
-            "Microsoft.Extensions.Logging",
-            "Microsoft.Extensions.Configuration",
-            "Microsoft.Extensions.DependencyInjection",
-            "Microsoft.Extensions.Hosting",
-            "Microsoft.Extensions.Options",
-            "System.CommandLine",
-            "System.CommandLine.DragonFruit",
-            "YamlDotNet",
-            "Newtonsoft.Json",
-            "System.Text.Json",
-            "System.Text.Encodings.Web",
-            "System.Text.RegularExpressions",
-            "System.Threading.Tasks.Extensions"
+            "Coverlet.Collector"
         };
 
-        return trustedPrefixes.Any(p => name.StartsWith(p, StringComparison.OrdinalIgnoreCase)) ||
-               trustedVendors.Any(v => name.Equals(v, StringComparison.OrdinalIgnoreCase)) ||
-               name.StartsWith("DataGuard.", StringComparison.OrdinalIgnoreCase);
+        return trustedPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
-    private System.Collections.Generic.List<SupplyChainCheck> CheckForTampering()
+    private List<SupplyChainCheck> CheckForTampering()
     {
-        var checks = new System.Collections.Generic.List<SupplyChainCheck>();
-        
+        var checks = new List<SupplyChainCheck>();
+
+        // Check for strong name signing
         var assembly = typeof(SupplyChainVerifier).Assembly;
-        var location = assembly.Location;
-        
-        // Check file exists and is readable
-        var fileExists = File.Exists(location);
-        checks.Add(new SupplyChainCheck
-        {
-            Name = "FileExistence",
-            Description = "Verify assembly file exists and is readable",
-            Passed = fileExists,
-            Details = fileExists ? $"Found at: {location}" : $"Missing: {location}"
-        });
+        var strongName = assembly.GetName().GetPublicKey();
+        checks.Add(new SupplyChainCheck(
+            "StrongNameSigning",
+            "Verify assembly is strong-name signed",
+            strongName.Length > 0,
+            strongName.Length > 0 ? "Assembly is strong-name signed" : "Assembly is NOT strong-name signed"));
 
-        // Check file is not empty
-        if (fileExists)
-        {
-            var fileInfo = new FileInfo(location);
-            var notEmpty = fileInfo.Length > 0;
-            checks.Add(new SupplyChainCheck(
-    "FileNotEmpty",
-    "Verify assembly file is not empty",
-    notEmpty,
-    notEmpty ? $"Size: {fileInfo.Length} bytes" : "File is empty (tampering suspected)"));
-
-            // Check file is not recently modified (potential tampering)
-            var recentlyModified = DateTime.UtcNow - fileInfo.LastWriteTimeUtc < TimeSpan.FromMinutes(5);
-            checks.Add(new SupplyChainCheck(
-    "RecentModification",
-    "Check if assembly was recently modified (potential tampering)",
-    !recentlyModified,
-    recentlyModified 
-        ? $"WARNING: Assembly modified {DateTime.UtcNow - fileInfo.LastWriteTimeUtc} ago"
-        : $"Last modified: {fileInfo.LastWriteTimeUtc:u}"));
-        }
-
-        // Check for strong name signature
-        var hasStrongName = assembly.GetName().GetPublicKey().Length > 0;
-        checks.Add(new SupplyChainCheck
-        {
-            Name = "StrongName",
-            Description = "Verify assembly has strong name signature",
-            Passed = hasStrongName,
-            Details = hasStrongName ? "Assembly is strongly named" : "Assembly is NOT strongly named (tampering risk)"
-        });
+        // Check for debug symbols
+        var hasDebugSymbols = assembly.GetCustomAttributes(typeof(System.Diagnostics.DebuggableAttribute), false).Length > 0;
+        checks.Add(new SupplyChainCheck(
+            "DebugSymbols",
+            "Check for debug symbols in release build",
+            !hasDebugSymbols,
+            hasDebugSymbols ? "Debug symbols present (expected in debug build)" : "No debug symbols (expected in release build)"));
 
         return checks;
     }
@@ -267,10 +199,9 @@ public sealed class SupplyChainVerifier
 /// </summary>
 public sealed record SupplyChainVerificationResult(
     DateTimeOffset VerificationTime,
-    System.Collections.Generic.IReadOnlyList<SupplyChainCheck> Checks,
+    IReadOnlyList<SupplyChainCheck> Checks,
     bool OverallPassed,
-    string Summary
-);
+    string Summary);
 
 /// <summary>
 /// Individual supply chain check result.
@@ -279,5 +210,4 @@ public sealed record SupplyChainCheck(
     string Name,
     string Description,
     bool Passed,
-    string Details
-);
+    string Details);

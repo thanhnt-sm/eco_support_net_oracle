@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Composition;
+using System.Composition.Convention;
 using System.Composition.Hosting;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,33 @@ using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 
 namespace DataGuard.Core.Plugins;
+
+/// <summary>
+/// Metadata for rule plugins in MEF 2.
+/// </summary>
+public class RulePluginMetadata : IRuleMetadata
+{
+    public string RuleId { get; }
+    public string Name { get; }
+    public string Description { get; }
+    public string Category { get; }
+    public string DefaultSeverity { get; }
+    public string MinDataGuardVersion { get; }
+    public string Author { get; }
+    public string[] Tags { get; }
+
+    public RulePluginMetadata(IDictionary<string, object> metadata)
+    {
+        RuleId = metadata?.TryGetValue("RuleId", out var id) == true ? id?.ToString() ?? "" : "";
+        Name = metadata?.TryGetValue("Name", out var name) == true ? name?.ToString() ?? "" : "";
+        Description = metadata?.TryGetValue("Description", out var desc) == true ? desc?.ToString() ?? "" : "";
+        Category = metadata?.TryGetValue("Category", out var cat) == true ? cat?.ToString() ?? "Custom" : "Custom";
+        DefaultSeverity = metadata?.TryGetValue("DefaultSeverity", out var sev) == true ? sev?.ToString() ?? "Warning" : "Warning";
+        MinDataGuardVersion = metadata?.TryGetValue("MinDataGuardVersion", out var ver) == true ? ver?.ToString() ?? "1.0.0" : "1.0.0";
+        Author = metadata?.TryGetValue("Author", out var auth) == true ? auth?.ToString() ?? "" : "";
+        Tags = metadata?.TryGetValue("Tags", out var tags) == true && tags is string[] tagArray ? tagArray : Array.Empty<string>();
+    }
+}
 
 /// <summary>
 /// Plugin architecture for custom rules - allows external assemblies to extend DataGuard.
@@ -31,12 +59,35 @@ public sealed class RulePluginManager : IDisposable
         _logger = logger;
         
         var config = new ContainerConfiguration()
-            .WithAssembliesInDirectory(pluginDirectory ?? GetDefaultPluginDirectory())
-            .WithDefaultConventions();
+            .WithDefaultConventions(new ConventionBuilder());
+
+        // Scan directory for assemblies
+        var dir = pluginDirectory ?? GetDefaultPluginDirectory();
+        if (Directory.Exists(dir))
+        {
+            foreach (var assemblyFile in Directory.GetFiles(dir, "*.dll"))
+            {
+                try
+                {
+                    var assembly = Assembly.LoadFrom(assemblyFile);
+                    config = config.WithAssembly(assembly);
+                }
+                catch
+                {
+                    // Ignore load errors
+                }
+            }
+        }
 
         _container = config.CreateContainer();
         
-        _rulePlugins = _container.GetExports<IContractRule, IRuleMetadata>();
+        // GetExports<T, TMetadata> doesn't exist in MEF 2, use GetExports<T>() 
+        // and create Lazy with metadata manually
+        _rulePlugins = _container.GetExports<IContractRule>()
+            .Select(e => new Lazy<IContractRule, IRuleMetadata>(
+                () => e,
+                new RulePluginMetadata(e.GetType().GetCustomAttributes<ExportMetadataAttribute>().ToDictionary(a => a.Name, a => a.Value))))
+            .ToImmutableArray();
         
         _logger?.LogInformation("Loaded {Count} rule plugins from {Directory}", 
             _rulePlugins.Length, pluginDirectory ?? GetDefaultPluginDirectory());

@@ -4,6 +4,7 @@ using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using global::Oracle.ManagedDataAccess.Client;
 using System.Data;
+using System.Security.Cryptography;
 
 /// <summary>
 /// Reads stored procedure parameters from Oracle ALL_ARGUMENTS view.

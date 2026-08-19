@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using DataGuard.Core.Abstractions;
+using System.Text.Json;
 
 namespace DataGuard.Core.Reporting;
 
@@ -161,7 +162,7 @@ public class FileSarifSink : ISarifSink
 
         writer.WriteStartObject();
         writer.WriteString("version", log.Version ?? "2.1.0");
-        writer.WriteString("$schema", log.Schema ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
+        writer.WriteString("$schema", log.SchemaUri ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
 
         writer.WritePropertyName("runs");
         writer.WriteStartArray();

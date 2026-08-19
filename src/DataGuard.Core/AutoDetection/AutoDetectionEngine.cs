@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-// using static System.Console;  // Use static for Console methods
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -26,7 +25,18 @@ public interface IConsole
     ConsoleKeyInfo ReadKey(bool intercept);
 }
 
+/// <summary>
+/// Default console implementation.
+/// </summary>
+public sealed class SystemConsole : IConsole
+{
+    public void Write(string value) => Console.Write(value);
+    public void WriteLine(string value) => Console.WriteLine(value);
+    public string? ReadLine() => Console.ReadLine();
+    public ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
+}
 
+/// <summary>
 /// Scans the project to automatically configure DataGuard with zero manual setup.
 /// </summary>
 public sealed class AutoDetectionEngine
@@ -45,7 +55,7 @@ public sealed class AutoDetectionEngine
     /// </summary>
     public async Task<DataGuardConfiguration> DetectAsync(CancellationToken cancellationToken = default)
     {
-        var config = DataGuardConfiguration.Default with { EnableSmartDefaults = true };
+        var config = new DataGuardConfiguration();
 
         // 1. Detect database provider from connection strings in config files
         var provider = await DetectProviderFromConfigAsync(cancellationToken);
@@ -198,130 +208,98 @@ public sealed class AutoDetectionEngine
         {
             var content = await File.ReadAllTextAsync(csproj, cancellationToken);
             if (content.Contains("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase) ||
-                content.Contains("Microsoft.EntityFrameworkCore.SqlServer", StringComparison.OrdinalIgnoreCase) ||
-                content.Contains("Microsoft.EntityFrameworkCore.Oracle", StringComparison.OrdinalIgnoreCase) ||
-                content.Contains("Oracle.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase))
+                content.Contains("EntityFrameworkCore", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
         }
-
-        // Check for DbContext in source files
+        
+        // Also check for DbContext in source files
         var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
-        foreach (var csFile in csFiles.Take(50)) // Limit to first 50 files for performance
+        foreach (var csFile in csFiles)
         {
-            try
-            {
-                var content = await File.ReadAllTextAsync(csFile, cancellationToken);
-                if (content.Contains(": DbContext") || content.Contains("DbContextOptions") ||
-                    content.Contains("Microsoft.EntityFrameworkCore"))
-                {
-                    return true;
-                }
-            }
-            catch { }
+            var content = await File.ReadAllTextAsync(csFile, cancellationToken);
+            if (content.Contains("DbContext", StringComparison.OrdinalIgnoreCase))
+                return true;
         }
 
         return false;
     }
 
     /// <summary>
-    /// Detects Dapper usage by scanning for Dapper packages and usage.
+    /// Detects Dapper usage by scanning for Dapper package.
     /// </summary>
     private async Task<bool> DetectDapperAsync(CancellationToken cancellationToken)
     {
-        // Check for Dapper packages
         var csprojFiles = Directory.GetFiles(_projectRoot, "*.csproj", SearchOption.AllDirectories);
+        
         foreach (var csproj in csprojFiles)
         {
             var content = await File.ReadAllTextAsync(csproj, cancellationToken);
-            if (content.Contains("Dapper", StringComparison.OrdinalIgnoreCase) &&
-                !content.Contains("DapperExtensions", StringComparison.OrdinalIgnoreCase))
-            {
+            if (content.Contains("Dapper", StringComparison.OrdinalIgnoreCase))
                 return true;
-            }
         }
-
-        // Check for Dapper usage in source
+        
+        // Also check for Dapper usage in source files
         var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
-        foreach (var csFile in csFiles.Take(50))
+        foreach (var csFile in csFiles)
         {
-            try
-            {
-                var content = await File.ReadAllTextAsync(csFile, cancellationToken);
-                if (Regex.IsMatch(content, @"\b(Query|QueryAsync|QueryFirst|QueryFirstAsync|QuerySingle|Execute|ExecuteAsync)\s*\(") &&
-                    content.Contains("using Dapper", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-            catch { }
+            var content = await File.ReadAllTextAsync(csFile, cancellationToken);
+            if (content.Contains("Dapper.", StringComparison.OrdinalIgnoreCase))
+                return true;
         }
 
         return false;
     }
 
     /// <summary>
-    /// Attempts to detect connection string from various sources.
+    /// Detects connection string from various sources.
     /// </summary>
     private async Task<string?> DetectConnectionStringAsync(CancellationToken cancellationToken)
     {
         // 1. Environment variable (highest priority)
-        var envConn = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING") 
-                   ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
-                   ?? Environment.GetEnvironmentVariable("ConnectionStrings__Default");
-        if (!string.IsNullOrEmpty(envConn)) return envConn;
+        var envConn = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(envConn))
+            return envConn;
 
         // 2. appsettings.json
         var appSettingsPath = FindFile("appsettings.json");
         if (appSettingsPath != null)
         {
-            var conn = await ExtractConnectionStringFromJsonAsync(appSettingsPath, cancellationToken);
-            if (!string.IsNullOrEmpty(conn)) return conn;
-        }
-
-        // 2b. appsettings.Development.json
-        var devSettingsPath = FindFile("appsettings.Development.json");
-        if (devSettingsPath != null)
-        {
-            var conn = await ExtractConnectionStringFromJsonAsync(devSettingsPath, cancellationToken);
-            if (!string.IsNullOrEmpty(conn)) return conn;
+            var content = await File.ReadAllTextAsync(appSettingsPath, cancellationToken);
+            var connStr = ExtractConnectionStringFromJson(content);
+            if (!string.IsNullOrEmpty(connStr))
+                return connStr;
         }
 
         // 3. .dataguard.yml
         var dataguardConfigPath = FindFile(".dataguard.yml");
         if (dataguardConfigPath != null)
         {
-            var conn = ExtractConnectionStringFromYaml(await File.ReadAllTextAsync(dataguardConfigPath, cancellationToken));
-            if (!string.IsNullOrEmpty(conn)) return conn;
+            var content = await File.ReadAllTextAsync(dataguardConfigPath, cancellationToken);
+            var connStr = ExtractConnectionStringFromYaml(content);
+            if (!string.IsNullOrEmpty(connStr))
+                return connStr;
         }
 
         return null;
     }
 
-    private async Task<string?> ExtractConnectionStringFromJsonAsync(string filePath, CancellationToken cancellationToken)
+    private string? ExtractConnectionStringFromJson(string json)
     {
         try
         {
-            var content = await File.ReadAllTextAsync(filePath, cancellationToken);
-            var doc = System.Text.Json.JsonDocument.Parse(content);
-            
-            if (doc.RootElement.TryGetProperty("ConnectionStrings", out var connStrings))
+            var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("ConnectionStrings", out var connStrings))
             {
-                // Try common connection string names
-                foreach (var name in new[] { "DefaultConnection", "Default", "Database", "DbConnection", "SqlConnection" })
-                {
-                    if (connStrings.TryGetProperty(name, out var prop))
-                    {
-                        return prop.GetString();
-                    }
-                }
-                
-                // Return first connection string found
                 foreach (var prop in connStrings.EnumerateObject())
                 {
                     var value = prop.Value.GetString();
-                    if (!string.IsNullOrEmpty(value) && (value.Contains("Server=") || value.Contains("Data Source=")))
+                    if (!string.IsNullOrEmpty(value) && 
+                        (value.Contains("Server=", StringComparison.OrdinalIgnoreCase) ||
+                         value.Contains("Data Source=", StringComparison.OrdinalIgnoreCase)))
                     {
                         return value;
                     }
@@ -337,35 +315,12 @@ public sealed class AutoDetectionEngine
         try
         {
             var lines = yaml.Split('\n');
-            bool inConnectionStrings = false;
             foreach (var line in lines)
             {
                 var trimmed = line.Trim();
-                if (trimmed.StartsWith("ConnectionStrings:"))
+                if (trimmed.StartsWith("connectionString:", StringComparison.OrdinalIgnoreCase))
                 {
-                    inConnectionStrings = true;
-                    continue;
-                }
-                if (inConnectionStrings && trimmed.StartsWith("-"))
-                {
-                    // YAML list item
-                    continue;
-                }
-                if (inConnectionStrings && trimmed.Contains(":"))
-                {
-                    var parts = trimmed.Split(':', 2);
-                    if (parts.Length == 2)
-                    {
-                        var value = parts[1].Trim().Trim('\'', '"');
-                        if (!string.IsNullOrEmpty(value) && (value.Contains("Server=") || value.Contains("Data Source=")))
-                        {
-                            return value;
-                        }
-                    }
-                }
-                if (inConnectionStrings && !trimmed.StartsWith(" ") && !trimmed.StartsWith("\t"))
-                {
-                    inConnectionStrings = false;
+                    return trimmed.Split(':')[1].Trim();
                 }
             }
         }
@@ -378,77 +333,70 @@ public sealed class AutoDetectionEngine
     /// </summary>
     private async Task<NamingConvention?> DetectNamingConventionAsync(CancellationToken cancellationToken)
     {
-        var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories)
-            .Take(20).ToList();
+        var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
+        var snakeCaseCount = 0;
+        var pascalCaseCount = 0;
 
-        int snakeCase = 0, pascalCase = 0;
-
-        foreach (var file in csFiles)
+        foreach (var csFile in csFiles)
         {
-            try
-            {
-                var content = await File.ReadAllTextAsync(file, cancellationToken);
-                var tree = CSharpSyntaxTree.ParseText(content);
-                var root = await tree.GetRootAsync(cancellationToken);
+            var content = await File.ReadAllTextAsync(csFile, cancellationToken);
+            
+            // Count snake_case identifiers
+            var snakeMatches = Regex.Matches(content, @"\b[a-z]+_[a-z]+\b");
+            snakeCaseCount += snakeMatches.Count;
 
-                // Check property names
-                var properties = root.DescendantNodes()
-                    .OfType<PropertyDeclarationSyntax>()
-                    .Take(100);
-
-                foreach (var prop in properties)
-                {
-                    var name = prop.Identifier.ValueText;
-                    if (name.Contains('_'))
-                        snakeCase++;
-                    else if (char.IsUpper(name[0]) && name != name.ToUpper())
-                        pascalCase++;
-                }
-            }
-            catch { }
+            // Count PascalCase property names
+            var pascalMatches = Regex.Matches(content, @"public\s+\w+\s+[A-Z][a-z]+[A-Z][a-z]+\s*\{");
+            pascalCaseCount += pascalMatches.Count;
         }
 
-        if (snakeCase > pascalCase * 2) return NamingConvention.SnakeCaseToPascalCase;
-        if (pascalCase > snakeCase * 2) return NamingConvention.PascalCaseToSnakeCase;
-        
-        return null; // Use default
+        if (snakeCaseCount > pascalCaseCount * 2)
+            return NamingConvention.SnakeCaseToPascalCase;
+        if (pascalCaseCount > snakeCaseCount * 2)
+            return NamingConvention.PascalCaseToSnakeCase;
+
+        return null; // Could not determine
     }
 
     /// <summary>
-    /// Detects EF Core DbContext for model extraction.
+    /// Detects EF Core DbContext class.
     /// </summary>
     private async Task<string?> DetectEfCoreContextAsync(CancellationToken cancellationToken)
     {
-        var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories)
-            .Take(30).ToList();
-
-        foreach (var file in csFiles)
+        var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
+        
+        foreach (var csFile in csFiles)
         {
-            try
+            var content = await File.ReadAllTextAsync(csFile, cancellationToken);
+            
+            // Look for class that inherits from DbContext
+            var matches = Regex.Matches(content, @"class\s+(\w+)\s*:\s*DbContext");
+            if (matches.Count > 0)
             {
-                var content = await File.ReadAllTextAsync(file, cancellationToken);
-                var tree = CSharpSyntaxTree.ParseText(content);
-                var root = await tree.GetRootAsync(cancellationToken);
-
-                var dbContexts = root.DescendantNodes()
-                    .OfType<ClassDeclarationSyntax>()
-                    .Where(c => c.BaseList?.Types.Any(t => t.Type.ToString().Contains("DbContext")) == true)
-                    .ToList();
-
-                if (dbContexts.Count > 0)
-                {
-                    // Return the first DbContext found
-                    var context = dbContexts.First();
-                    var namespaceDecl = context.Ancestors().OfType<NamespaceDeclarationSyntax>().FirstOrDefault();
-                    var namespaceName = namespaceDecl?.Name.ToString() ?? "";
-                    var className = context.Identifier.ValueText;
-                    return string.IsNullOrEmpty(namespaceName) ? className : $"{namespaceName}.{className}";
-                }
+                return matches[0].Groups[1].Value;
             }
-            catch { }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Applies provider-specific defaults to configuration.
+    /// </summary>
+    private DataGuardConfiguration ApplyProviderDefaults(DataGuardConfiguration config, DatabaseProvider provider)
+    {
+        return provider switch
+        {
+            DatabaseProvider.SqlServer => config with
+            {
+                SqlServer = new SqlServerConfiguration()
+            },
+            DatabaseProvider.Oracle => config with
+            {
+                Oracle = new OracleConfiguration()
+            },
+            _ => config
+        };
     }
 
     private string? FindFile(string fileName)
@@ -483,48 +431,46 @@ public static class InteractiveConfigBuilder
         IConsole console,
         CancellationToken cancellationToken = default)
     {
-        console.Out.WriteLine("🔧 DataGuard Interactive Setup Wizard");
-        console.Out.WriteLine("=====================================");
-        console.Out.WriteLine();
-
-        var config = DataGuardConfiguration.Default;
+        console.WriteLine("🔧 DataGuard Interactive Setup Wizard");
+        console.WriteLine("=====================================");
+        console.WriteLine("");
 
         // 1. Detect or ask for provider
-        console.Out.WriteLine("📡 Detecting database provider...");
+        console.WriteLine("📡 Detecting database provider...");
         var provider = await DetectProviderInteractiveAsync(console, cancellationToken);
-        console.Out.WriteLine($"   Detected: {provider}");
-        console.Out.WriteLine();
+        console.WriteLine($"   Detected: {provider}");
+        console.WriteLine("");
 
         // 2. Get connection string
         var connectionString = await GetConnectionStringInteractiveAsync(console, cancellationToken);
-        console.Out.WriteLine();
+        console.WriteLine("");
 
         // 3. Detect EF Core / Dapper
-        console.Out.WriteLine("🔍 Scanning for ORMs...");
+        console.WriteLine("🔍 Scanning for ORMs...");
         var hasEfCore = await DetectEfCoreAsync(projectRoot, cancellationToken);
         var hasDapper = await DetectDapperAsync(projectRoot, cancellationToken);
-        console.Out.WriteLine($"   EF Core: {(hasEfCore ? "✅ Found" : "❌ Not found")}");
-        console.Out.WriteLine($"   Dapper:  {(hasDapper ? "✅ Found" : "❌ Not found")}");
-        console.Out.WriteLine();
+        console.WriteLine($"   EF Core: {(hasEfCore ? "✅ Found" : "❌ Not found")}");
+        console.WriteLine($"   Dapper:  {(hasDapper ? "✅ Found" : "❌ Not found")}");
+        console.WriteLine("");
 
         // 4. Naming convention
         var naming = await GetNamingConventionInteractiveAsync(console, cancellationToken);
-        console.Out.WriteLine();
+        console.WriteLine("");
 
         // 5. Baseline mode
-        console.Out.WriteLine("📋 Baseline mode for legacy codebases:");
-        console.Out.WriteLine("   1. Snapshot (recommended) - Compare against committed schema snapshot");
-        console.Out.WriteLine("   2. Baseline - Freeze current violations, only fail on new drift");
-        console.Out.WriteLine("   3. Manual - Define expected schema via attributes");
-        console.Out.Write("   Choice [1-3, default 1]: ");
-        var baselineChoice = console.In.ReadLine() ?? "1";
+        console.WriteLine("📋 Baseline mode for legacy codebases:");
+        console.WriteLine("   1. Snapshot (recommended) - Compare against committed schema snapshot");
+        console.WriteLine("   2. Baseline - Freeze current violations, only fail on new drift");
+        console.WriteLine("   3. Manual - Define expected schema via attributes");
+        console.Write("   Choice [1-3, default 1]: ");
+        var baselineChoice = console.ReadLine() ?? "1";
         var groundTruthMode = baselineChoice switch
         {
             "2" => GroundTruthMode.Snapshot,
             "3" => GroundTruthMode.Manual,
             _ => GroundTruthMode.Snapshot
         };
-        console.Out.WriteLine();
+        console.WriteLine("");
 
         // 6. Generate config
         var config = new DataGuardConfiguration
@@ -538,14 +484,14 @@ public static class InteractiveConfigBuilder
         var configPath = Path.Combine(projectRoot, ".dataguard.yml");
         await SaveConfigAsync(config, configPath, cancellationToken);
         
-        console.Out.WriteLine($"✅ Configuration saved to {configPath}");
-        console.Out.WriteLine();
-        console.Out.WriteLine("Next steps:");
-        console.Out.WriteLine("  1. Run 'dataguard baseline' to create baseline");
-        console.Out.WriteLine("  2. Run 'dataguard validate' to validate");
-        console.Out.WriteLine("  3. Add to CI pipeline");
+        console.WriteLine($"✅ Configuration saved to {configPath}");
+        console.WriteLine("");
+        console.WriteLine("Next steps:");
+        console.WriteLine("  1. Run 'dataguard baseline' to create baseline");
+        console.WriteLine("  2. Run 'dataguard validate' to validate");
+        console.WriteLine("  3. Add to CI pipeline");
 
-        return new DataGuardConfiguration(); // Would return actual config
+        return config;
     }
 
     private static async Task<DatabaseProvider> DetectProviderInteractiveAsync(IConsole console, CancellationToken ct)
@@ -557,8 +503,8 @@ public static class InteractiveConfigBuilder
 
     private static async Task<string> GetConnectionStringInteractiveAsync(IConsole console, CancellationToken ct)
     {
-        console.Out.Write("🔗 Enter connection string (or press Enter to use env var DATAGUARD_CONNECTION_STRING): ");
-        var input = console.In.ReadLine();
+        console.Write("🔗 Enter connection string (or press Enter to use env var DATAGUARD_CONNECTION_STRING): ");
+        var input = console.ReadLine();
         if (string.IsNullOrWhiteSpace(input))
         {
             return Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING") ?? "";
@@ -592,12 +538,12 @@ public static class InteractiveConfigBuilder
 
     private static async Task<NamingConvention> GetNamingConventionInteractiveAsync(IConsole console, CancellationToken ct)
     {
-        console.Out.WriteLine("📝 Naming convention:");
-        console.Out.WriteLine("   1. snake_case ↔ PascalCase (default)");
-        console.Out.WriteLine("   2. PascalCase ↔ snake_case");
-        console.Out.WriteLine("   3. Exact match");
-        console.Out.Write("   Choice [1-3, default 1]: ");
-        var choice = console.In.ReadLine() ?? "1";
+        console.WriteLine("📝 Naming convention:");
+        console.WriteLine("   1. snake_case ↔ PascalCase (default)");
+        console.WriteLine("   2. PascalCase ↔ snake_case");
+        console.WriteLine("   3. Exact match");
+        console.Write("   Choice [1-3, default 1]: ");
+        var choice = console.ReadLine() ?? "1";
         
         return choice switch
         {

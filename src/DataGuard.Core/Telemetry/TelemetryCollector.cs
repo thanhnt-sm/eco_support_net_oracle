@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
@@ -77,13 +78,12 @@ public sealed class TelemetryCollector : IDisposable
     {
         if (!_config.Enabled) return;
 
-        var evt = new TelemetryEvent
-        {
-            Timestamp = DateTimeOffset.UtcNow,
-            EventType = eventType,
-            Details = details,
-            Properties = properties?.ToImmutableDictionary() ?? ImmutableDictionary<string, object?>.Empty
-        };
+        var evt = new TelemetryEvent(
+            DateTimeOffset.UtcNow,
+            eventType,
+            details,
+            properties?.ToImmutableDictionary() ?? ImmutableDictionary<string, object?>.Empty
+        );
 
         _eventQueue.Enqueue(evt);
     }
@@ -169,20 +169,24 @@ public sealed class TimedOperation : IDisposable
     private readonly TelemetryCollector _collector;
     private readonly string _operationName;
     private readonly IEnumerable<KeyValuePair<string, object?>>? _tags;
-    private readonly Stopwatch _stopwatch;
+    private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+    private bool _disposed;
 
-    public TimedOperation(TelemetryCollector collector, string operationName, IEnumerable<KeyValuePair<string, object?>>? tags = null)
+    public TimedOperation(TelemetryCollector collector, string operationName, IEnumerable<KeyValuePair<string, object?>>? tags)
     {
         _collector = collector;
         _operationName = operationName;
         _tags = tags;
-        _stopwatch = Stopwatch.StartNew();
     }
 
     public void Dispose()
     {
-        _stopwatch.Stop();
-        _collector.RecordHistogram(_operationName, _stopwatch.Elapsed.TotalMilliseconds, _tags);
+        if (!_disposed)
+        {
+            _stopwatch.Stop();
+            _collector.RecordHistogram(_operationName, _stopwatch.Elapsed.TotalMilliseconds, _tags);
+            _disposed = true;
+        }
     }
 }
 
@@ -200,20 +204,12 @@ public sealed record TelemetryEvent(
 /// </summary>
 public static class ValidationMetrics
 {
-    public const string RulesExecuted = "rules.executions";
-    public const string RuleDuration = "rule.duration";
-    public const string ValidationTotal = "validations.total";
+    public const string ValidationsTotal = "validations.total";
     public const string ViolationsTotal = "violations.total";
     public const string ViolationsErrors = "violations.errors";
     public const string ViolationsWarnings = "violations.warnings";
     public const string ValidationContracts = "validation.contracts";
     public const string ValidationDuration = "validation.duration";
-    public const string BaselineCreated = "baseline.created";
-    public const string BaselineLoaded = "baseline.loaded";
-    public const string SchemaHashComputed = "schema.hash.computed";
-    public const string DatabaseConnection = "database.connection";
-    public const string DatabaseQueryDuration = "database.query.duration";
-    public const string CacheHit = "cache.hit";
-    public const string CacheMiss = "cache.miss";
-    public const string CacheEviction = "cache.eviction";
+    public const string RuleExecutions = "rule.executions";
+    public const string RuleDuration = "rule.duration";
 }

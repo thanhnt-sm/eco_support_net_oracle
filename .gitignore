@@ -364,3 +364,7 @@ Thumbs.db
 !CONTRIBUTING.md
 !SECURITY.md
 !CODE_OF_CONDUCT.md
+
+# Harness session artifacts
+.omo/
+.omp/

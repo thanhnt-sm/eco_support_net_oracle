@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using Microsoft.CodeAnalysis;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
@@ -35,7 +37,7 @@ public static class DataGuardApi
     /// </summary>
     public static ValidationPipeline CreatePipeline()
     {
-        return new ValidationPipeline(DataGuardConfiguration.Default);
+        return new ValidationPipeline(new DataGuardConfiguration());
     }
 }
 
@@ -126,7 +128,7 @@ public sealed class ValidationPipeline : IDisposable
             }
         }
 
-        var duration = Stopwatch.GetTimestamp() - stopwatch.GetTimestamp();
+        var duration = Stopwatch.GetTimestamp() - Stopwatch.GetTimestamp();
         var timeSpan = TimeSpan.FromSeconds((double)duration / Stopwatch.Frequency);
 
         // Record telemetry
@@ -158,7 +160,7 @@ public sealed class ValidationPipeline : IDisposable
         CancellationToken cancellationToken = default)
     {
         var baselineManager = new BaselineManager(_config.BaselineFilePath ?? ".dataguard-baseline.json");
-        return await baselineManager.CreateBaselineAsync(violations, schemaVersion, _config.GroundTruthMode.ToString(), cancellationToken);
+        return await baselineManager.CreateBaselineAsync(violations, schemaVersion, _config.GroundTruthMode.ToString(), null, null, cancellationToken);
     }
 
     /// <summary>
@@ -182,25 +184,26 @@ public sealed class ValidationPipeline : IDisposable
 
         if (baseline == null)
         {
-            return new DriftReport
-            {
-                HasBaseline = false,
-                DriftDetected = false,
-                Message = "No baseline found. Run 'CreateBaseline' first."
-            };
+            return new DriftReport(
+                HasBaseline: false,
+                DriftDetected: false,
+                NewViolations: ImmutableArray<ContractViolation>.Empty,
+                BaselineVersion: "",
+                BaselineHash: "",
+                CurrentHash: "",
+                Message: "No baseline found. Run 'CreateBaseline' first.");
         }
 
         var filtered = new BaselineManager("").FilterNewViolations(currentViolations, baseline).ToList();
         
-        return new DriftReport
-        {
-            HasBaseline = true,
-            DriftDetected = filtered.Count > 0,
-            NewViolations = filtered.ToImmutableArray(),
-            BaselineVersion = baseline.SchemaVersion,
-            BaselineHash = baseline.SchemaHash,
-            CurrentHash = BaselineManager.ComputeSchemaHash(currentViolations)
-        };
+        return new DriftReport(
+            HasBaseline: true,
+            DriftDetected: filtered.Count > 0,
+            NewViolations: filtered.ToImmutableArray(),
+            BaselineVersion: baseline.SchemaVersion,
+            BaselineHash: baseline.SchemaHash,
+            CurrentHash: BaselineManager.ComputeSchemaHash(currentViolations),
+            Message: "");
     }
 
     public void Dispose()
@@ -331,8 +334,15 @@ public static class DataGuardFactory
     /// </summary>
     public static ValidationResult ValidateGraph(RuleDependencyGraph graph)
     {
-        return graph.Validate().IsValid 
-            ? new ValidationResult([], []) 
-            : new ValidationResult(graph.Validate().Errors, graph.Validate().Warnings);
+        var result = graph.Validate();
+        return new ValidationResult(
+            ContractsValidated: 0,
+            TotalViolations: result.Errors.Length + result.Warnings.Length,
+            Errors: result.Errors.Length,
+            Warnings: result.Warnings.Length,
+            Infos: 0,
+            Violations: ImmutableArray<ContractViolation>.Empty,
+            Duration: TimeSpan.Zero,
+            SchemaVersion: "1.0");
     }
 }

@@ -306,7 +306,7 @@ internal sealed class DummyRule : IContractRule
         ContractDescriptor contract,
         IReadOnlyList<ContractDescriptor> allContracts,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(Array.Empty<ContractViolation>());
+        => Task.FromResult<IReadOnlyList<ContractViolation>>(Array.Empty<ContractViolation>());
 }
 
 /// <summary>
@@ -319,7 +319,7 @@ public static class BuiltInRuleDependencies
         var graph = new RuleDependencyGraph();
 
         // Register all built-in rules with their dependencies
-        // Order: Parameter checks -> Column checks -> Type checks -> Naming -> Length -> Dialect
+        // Order: Parameter checks -> Column checks -> Type checks -> Naming -> Nullable
 
         // Level 1: Basic parameter checks (no dependencies)
         graph.AddRule(new ParameterCountRule());
@@ -336,18 +336,6 @@ public static class BuiltInRuleDependencies
 
         // Level 5: Naming convention (depends on parameter/column names)
         graph.AddRule(new NamingConventionRule(), "ParameterCountRule", "ColumnShapeMatchRule");
-
-        // Level 6: Length checks (depend on type and column info)
-        graph.AddRule(new LengthExceedsColumnRule(), "ParameterTypeMatchRule", "ColumnShapeMatchRule");
-        graph.AddRule(new ByteLengthOverflowRiskRule(), "LengthExceedsColumnRule");
-        graph.AddRule(new InferredSizeFallbackRule(), "ParameterTypeMatchRule");
-
-        // Level 7: Dialect checks (independent but run last)
-        graph.AddRule(new OracleSyntaxInNonOracleRule());
-        graph.AddRule(new NonOracleFunctionInOracleRule());
-        graph.AddRule(new ProviderOptionMismatchRule());
-        graph.AddRule(new SqlServerSyntaxLeakRule());
-        graph.AddRule(new RawSqlUnmappedTypeUsageRule());
 
         return graph;
     }

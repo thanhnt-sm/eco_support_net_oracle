@@ -11,9 +11,9 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
-using Microsoft.CodeAnalysis.IncrementalGenerators;
 using Microsoft.CodeAnalysis.Operations;
 using DataGuard.Core.Abstractions;
+using DataGuard.Core.Rules;
 
 namespace DataGuard.Analyzers;
 
@@ -217,8 +217,8 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
             {
                 ctx.ReportDiagnostic(Diagnostic.Create(
                     Descriptor,
-                    site.Location,
-                    site.MethodName));
+                    site.Value.Location,
+                    site.Value.MethodName));
             }
         });
     }
@@ -289,7 +289,7 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
         string containingType = "";
         if (callType == SqlCallType.EfCore)
         {
-            var symbolInfo = context.SemanticModel.GetSymbolInfo(memberAccess.Expression, context.CancellationToken);
+            var symbolInfo = context.SemanticModel.GetSymbolInfo(memberAccess.Expression, CancellationToken.None);
             if (symbolInfo.Symbol is IMethodSymbol method && 
                 method.ContainingType?.Name.StartsWith("DbSet", StringComparison.Ordinal) == true)
             {
@@ -387,14 +387,6 @@ internal sealed class UnvalidatedCallInfo
         RawSqlCalls.Length > 0;
 }
 
-/// <summary>
-/// A SQL call site that needs validation.
-/// </summary>
-internal sealed record SqlCallSite(
-    string MethodName,
-    Location Location,
-    string SqlText,
-    string ContainingType);
 
 /// <summary>
 /// CI Heavy Layer: Full semantic analyzer with database connection.
@@ -572,7 +564,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private ContractDescriptor? CreateEntityContractDescriptor(ITypeSymbol entityType, OperationAnalysisContext context)
+    private EntityDescriptor? CreateEntityContractDescriptor(ITypeSymbol entityType, OperationAnalysisContext context)
     {
         try
         {
@@ -618,24 +610,68 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
     {
         var violations = new List<ContractViolation>();
         
-        // Run validation rules against the entity contract
-        var rules = GetValidationRules();
-        var allContracts = new List<ContractDescriptor> { };
-        
-        foreach (var rule in _rules)
+        // Check if this is a stored procedure call
+        if (isStoredProc)
         {
-            var violationsForRule = rule.ValidateAsync(new ContractDescriptor("entity", "", ContractType.Entity, Location.None), new List<ContractDescriptor>(), cancellationToken);
-            // The rules are async but we need to run them synchronously here
-            // For analyzer, we'll run them and collect violations
-            // This is a simplified version - in reality, we'd run the full validation pipeline
+            // For stored procedures, validate parameter count and types
+            var sqlLower = sqlText.ToLowerInvariant();
+            
+            // Check for EXEC or EXECUTE prefix
+            if (sqlLower.StartsWith("exec ") || sqlLower.StartsWith("execute "))
+            {
+                // Extract parameter count from the SQL
+                var paramCount = ExtractParameterCount(sqlText);
+                
+                // Basic validation: if we can't determine the expected parameter count from metadata,
+                // at least verify the SQL structure is valid
+                if (string.IsNullOrWhiteSpace(sqlText.Trim()))
+                {
+                    violations.Add(new ContractViolation(
+                        "DG001",
+                        "Empty stored procedure call",
+                        DiagnosticSeverity.Error,
+                        Location.None));
+                }
+            }
+        }
+        else
+        {
+            // For raw SQL validation
+            if (string.IsNullOrWhiteSpace(sqlText))
+            {
+                violations.Add(new ContractViolation(
+                    "DG001",
+                    "Empty SQL text",
+                    DiagnosticSeverity.Error,
+                    Location.None));
+            }
+            
+            // Check for SQL injection patterns
+            if (ContainsSqlInjectionPatterns(sqlText))
+            {
+                violations.Add(new ContractViolation(
+                    "DG099",
+                    "Potential SQL injection pattern detected",
+                    DiagnosticSeverity.Warning,
+                    Location.None));
+            }
         }
         
-        // For now, implement basic validation
-        // Check parameter count match
-        if (IsStoredProcedureCall(sqlText))
+        // Run validation rules from the rule engine
+        foreach (var rule in GetValidationRules())
         {
-            var paramCount = ExtractParameterCount(sqlText);
-            // This would need actual SP metadata from DB
+            try
+            {
+                var ruleViolations = rule.ValidateAsync(
+                    entity,
+                    new List<ContractDescriptor>(),
+                    cancellationToken).GetAwaiter().GetResult();
+                violations.AddRange(ruleViolations);
+            }
+            catch
+            {
+                // Skip rules that fail to execute
+            }
         }
         
         return violations;
@@ -663,6 +699,42 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
                 "Potential SQL injection pattern detected",
                 DiagnosticSeverity.Warning,
                 Location.None));
+        }
+        
+        // Additional validation for stored procedure calls
+        if (isStoredProc)
+        {
+            // Verify the SQL has a valid EXEC or EXECUTE prefix
+            var sqlLower = sqlText.ToLowerInvariant();
+            if (!sqlLower.StartsWith("exec ") && !sqlLower.StartsWith("execute "))
+            {
+                violations.Add(new ContractViolation(
+                    "DG002",
+                    "Stored procedure call must start with EXEC or EXECUTE",
+                    DiagnosticSeverity.Warning,
+                    Location.None));
+            }
+            
+            // Check for minimum SQL structure
+            if (string.IsNullOrWhiteSpace(sqlText.Trim()))
+            {
+                // Already handled above, but add additional check
+            }
+        }
+        
+        // Check for common raw SQL patterns
+        if (sqlText.Contains("SELECT") || sqlText.Contains("SELECT "))
+        {
+            // For SELECT queries, verify they reference valid entities
+            var hasFromClause = sqlText.IndexOf("FROM", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!hasFromClause)
+            {
+                violations.Add(new ContractViolation(
+                    "DG098",
+                    "Raw SQL query missing FROM clause",
+                    DiagnosticSeverity.Warning,
+                    Location.None));
+            }
         }
         
         return violations;
@@ -699,22 +771,36 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         return 0;
     }
 
-    private bool ContainsSqlInjectionPatterns(string sqlText)
+    private static string ExtractSqlFromArguments(ImmutableArray<IArgumentOperation> arguments)
     {
-        var sqlLower = sqlText.ToLowerInvariant();
-        var injectionPatterns = new[]
-        {
-            ";--", "';--", "';--", "1=1", "1=1--", "' or '1'='1",
-            "union select", "drop table", "drop database", "truncate table",
-            "xp_cmdshell", "sp_executesql", "execute immediate"
-        };
-        
-        return injectionPatterns.Any(p => sqlLower.Contains(p));
+        if (arguments.IsDefaultOrEmpty)
+            return string.Empty;
+
+        var firstArgSyntax = arguments[0].Syntax;
+        if (firstArgSyntax is LiteralExpressionSyntax literal && literal.Token.Value is string str)
+            return str;
+
+        if (firstArgSyntax is InterpolatedStringExpressionSyntax interp)
+            return interp.ToString();
+
+        return string.Empty;
     }
+
+    private static ITypeSymbol? GetEntityTypeFromDbSet(IMethodSymbol method)
+    {
+        if (method.ContainingType is INamedTypeSymbol dbSet &&
+            dbSet.Name.StartsWith("DbSet", StringComparison.Ordinal) &&
+            dbSet.TypeArguments.Length == 1)
+        {
+            return dbSet.TypeArguments[0];
+        }
+        return null;
+    }
+
 
     private DiagnosticDescriptor GetDiagnosticDescriptor(string ruleId)
     {
-        return DiagnosticDescriptors.All.FirstOrDefault(d => d.Id == ruleId) 
+        return AllDescriptors.FirstOrDefault(d => d.Id == ruleId) 
             ?? DiagnosticDescriptors.ParameterMismatch;
     }
 

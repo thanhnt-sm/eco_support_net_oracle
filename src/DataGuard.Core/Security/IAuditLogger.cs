@@ -68,20 +68,18 @@ public sealed class FileAuditLogger : IAuditLogger
         string? errorMessage = null,
         CancellationToken cancellationToken = default)
     {
-        var entry = new AuditEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow,
-            EventType = "DatabaseOperation",
-            Operation = operation,
-            Provider = provider,
-            ConnectionStringHash = connectionStringHash,
-            Details = details,
-            Success = success,
-            ErrorMessage = errorMessage,
-            MachineName = Environment.MachineName,
-            UserName = Environment.UserName,
-            ProcessId = Environment.ProcessId
-        };
+        var entry = new AuditEntry(
+            DateTimeOffset.UtcNow,
+            "DatabaseOperation",
+            operation,
+            provider,
+            connectionStringHash,
+            details,
+            success,
+            errorMessage,
+            Environment.MachineName,
+            Environment.UserName,
+            Environment.ProcessId);
 
         await WriteEntryAsync(entry, cancellationToken);
     }
@@ -92,19 +90,18 @@ public sealed class FileAuditLogger : IAuditLogger
         string connectionStringHash,
         CancellationToken cancellationToken = default)
     {
-        var entry = new AuditEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow,
-            EventType = "CredentialAccess",
-            Operation = operation,
-            Provider = provider,
-            ConnectionStringHash = connectionStringHash,
-            Details = $"Credential access: {operation}",
-            Success = true,
-            MachineName = Environment.MachineName,
-            UserName = Environment.UserName,
-            ProcessId = Environment.ProcessId
-        };
+        var entry = new AuditEntry(
+            DateTimeOffset.UtcNow,
+            "CredentialAccess",
+            operation,
+            provider,
+            connectionStringHash,
+            $"Credential access: {operation}",
+            true,
+            null,
+            Environment.MachineName,
+            Environment.UserName,
+            Environment.ProcessId);
 
         await WriteEntryAsync(entry, cancellationToken);
     }
@@ -115,19 +112,18 @@ public sealed class FileAuditLogger : IAuditLogger
         string? newValue,
         CancellationToken cancellationToken = default)
     {
-        var entry = new AuditEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow,
-            EventType = "ConfigurationChange",
-            Operation = "SettingChanged",
-            Provider = "DataGuard",
-            ConnectionStringHash = "",
-            Details = $"Setting: {setting}, Old: {MaskValue(oldValue)}, New: {MaskValue(newValue)}",
-            Success = true,
-            MachineName = Environment.MachineName,
-            UserName = Environment.UserName,
-            ProcessId = Environment.ProcessId
-        };
+        var entry = new AuditEntry(
+            DateTimeOffset.UtcNow,
+            "ConfigurationChange",
+            "SettingChanged",
+            "DataGuard",
+            "",
+            $"Setting: {setting}, Old: {MaskValue(oldValue)}, New: {MaskValue(newValue)}",
+            true,
+            null,
+            Environment.MachineName,
+            Environment.UserName,
+            Environment.ProcessId);
 
         await WriteEntryAsync(entry, cancellationToken);
     }

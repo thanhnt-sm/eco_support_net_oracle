@@ -38,9 +38,10 @@ public sealed class CredentialManager
     /// </summary>
     public async Task<string> GetConnectionStringAsync(CancellationToken cancellationToken = default)
     {
-        var connectionString = _config.ConnectionString 
+        var stored = await LoadFromCredentialStoreAsync(cancellationToken);
+        var connectionString = _config.ConnectionString
             ?? Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")
-            ?? await LoadFromCredentialStoreAsync(cancellationToken);
+            ?? stored?.ConnectionString;
 
         if (string.IsNullOrEmpty(connectionString))
         {
@@ -99,7 +100,7 @@ public sealed class CredentialManager
         try
         {
             var stored = await LoadFromCredentialStoreAsync(cancellationToken);
-            if (!string.IsNullOrEmpty(stored) && stored != currentConnectionString)
+            if (!string.IsNullOrEmpty(stored?.ConnectionString) && stored!.ConnectionString != currentConnectionString)
             {
                 var warning = $"⚠ Credential rotation detected: connection string has changed since last run. " +
                              $"If this was intentional, run 'dataguard baseline' to update. " +
@@ -110,7 +111,7 @@ public sealed class CredentialManager
                 
                 await LogAuditAsync("CredentialRotationDetected", new 
                 { 
-                    OldHash = ComputeHash(stored),
+                    OldHash = ComputeHash(stored!.ConnectionString),
                     NewHash = ComputeHash(currentConnectionString)
                 });
             }
@@ -165,6 +166,23 @@ public sealed class CredentialManager
         }
     }
 
+    /// <summary>
+    /// Gets the connection string from the local encrypted credential store, decrypting if necessary.
+    /// Returns null when no credential is stored.
+    /// </summary>
+    public async Task<string?> GetStoredConnectionStringAsync(CancellationToken cancellationToken = default)
+    {
+        var stored = await LoadFromCredentialStoreAsync(cancellationToken);
+        if (stored == null || string.IsNullOrEmpty(stored.ConnectionString))
+            return null;
+
+        var value = stored.ConnectionString;
+        if (stored.IsEncrypted && IsEncrypted(value))
+            value = DecryptConnectionString(value);
+
+        return value;
+    }
+
     private async Task SaveToCredentialStoreAsync(CredentialData data, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
@@ -176,15 +194,13 @@ public sealed class CredentialManager
         if (!_config.EnableAuditLogging)
             return;
 
-        var auditEntry = new AuditLogEntry
-        {
-            Timestamp = DateTimeOffset.UtcNow,
-            EventType = eventType,
-            Details = JsonSerializer.Serialize(details),
-            MachineName = Environment.MachineName,
-            UserName = Environment.UserName,
-            ProcessId = Environment.ProcessId
-        };
+        var auditEntry = new AuditLogEntry(
+            DateTimeOffset.UtcNow,
+            eventType,
+            JsonSerializer.Serialize(details),
+            Environment.MachineName,
+            Environment.UserName,
+            Environment.ProcessId);
 
         var logPath = _config.AuditLogPath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

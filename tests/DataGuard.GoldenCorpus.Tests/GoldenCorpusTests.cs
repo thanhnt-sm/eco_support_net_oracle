@@ -9,7 +9,7 @@ using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using DataGuard.Core.Rules;
 using DataGuard.Oracle.Adapter;
-using DataGuard.SqlServer.Adapter;
+using Microsoft.CodeAnalysis;
 using FluentAssertions;
 using Xunit;
 using Xunit.Abstractions;
@@ -89,23 +89,23 @@ public class GoldenCorpusTests
         
         foreach (var file in jsonFiles)
         {
+            GoldenCorpusTestCase? testCase = null;
             try
             {
                 var json = File.ReadAllText(file);
-                var testCase = JsonSerializer.Deserialize<GoldenCorpusTestCase>(json, new JsonSerializerOptions
+                testCase = JsonSerializer.Deserialize<GoldenCorpusTestCase>(json, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
                 });
-
-                if (testCase != null)
-                {
-                    yield return new object[] { testCase };
-                }
             }
             catch (Exception ex)
             {
-                // Log but don't fail - some test files might be malformed
                 Console.WriteLine($"Failed to load test case from {file}: {ex.Message}");
+            }
+
+            if (testCase != null)
+            {
+                yield return new object[] { testCase };
             }
         }
     }
@@ -124,8 +124,7 @@ public class GoldenCorpusTests
         {
             foreach (var contract in contracts)
             {
-                var ruleViolations = new List<ContractViolation>();
-                await rule.ValidateAsync(contract, contracts, ruleViolations, CancellationToken.None);
+                var ruleViolations = await rule.ValidateAsync(contract, contracts, CancellationToken.None);
                 violations.AddRange(ruleViolations);
             }
         }
@@ -232,8 +231,8 @@ public class GoldenCorpusTests
         // Add provider-specific rules
         if (provider?.Equals("Oracle", StringComparison.OrdinalIgnoreCase) == true)
         {
-            rules.Add(new OracleSyntaxInNonOracleRule());
-            rules.Add(new NonOracleFunctionInOracleRule());
+            rules.Add(new OracleSyntaxInNonOracleContextRule());
+            rules.Add(new NonOracleFunctionInOracleContextRule());
             rules.Add(new ProviderOptionMismatchRule());
             rules.Add(new SqlServerSyntaxLeakRule());
             rules.Add(new RawSqlUnmappedTypeUsageRule());

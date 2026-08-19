@@ -1,14 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
 using DataGuard.Core.Security;
 using DataGuard.Core.Telemetry;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
+
+using MSHealthStatus = Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus;
 
 namespace DataGuard.Core.Health;
 
@@ -67,34 +71,34 @@ public sealed class DataGuardHealthCheck : IHealthCheck
         // 1. Check credential availability
         var credentialCheck = await CheckCredentialsAsync(cancellationToken);
         checks.Add(credentialCheck);
-        if (credentialCheck.Status != HealthStatus.Healthy) overallHealthy = false;
+        if (credentialCheck.Status != MSHealthStatus.Healthy) overallHealthy = false;
 
         // 2. Check baseline file accessibility
         var baselineCheck = await CheckBaselineAsync(cancellationToken);
         checks.Add(baselineCheck);
-        if (baselineCheck.Status != HealthStatus.Healthy) overallHealthy = false;
+        if (baselineCheck.Status != MSHealthStatus.Healthy) overallHealthy = false;
 
         // 3. Check supply chain integrity
         var supplyChainCheck = await CheckSupplyChainAsync(cancellationToken);
         checks.Add(supplyChainCheck);
-        if (supplyChainCheck.Status != HealthStatus.Healthy) overallHealthy = false;
+        if (supplyChainCheck.Status != MSHealthStatus.Healthy) overallHealthy = false;
 
         // 4. Check disk space for output
         var diskCheck = CheckDiskSpace();
         checks.Add(diskCheck);
-        if (diskCheck.Status != HealthStatus.Healthy) overallHealthy = false;
+        if (diskCheck.Status != MSHealthStatus.Healthy) overallHealthy = false;
 
         // 5. Check memory pressure
         var memoryCheck = CheckMemoryPressure();
         checks.Add(memoryCheck);
-        if (memoryCheck.Status != HealthStatus.Healthy) overallHealthy = false;
+        if (memoryCheck.Status != MSHealthStatus.Healthy) overallHealthy = false;
 
-        var status = overallHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
+        var status = overallHealthy ? MSHealthStatus.Healthy : MSHealthStatus.Unhealthy;
         var description = overallHealthy 
             ? "All readiness checks passed" 
-            : $"Failed checks: {string.Join(", ", checks.Where(c => c.Status != HealthStatus.Healthy).Select(c => c.Name))}";
+            : $"Failed checks: {string.Join(", ", checks.Where(c => c.Status != MSHealthStatus.Healthy).Select(c => c.Name))}";
 
-        return Task.FromResult(new HealthCheckResult(
+        return new HealthCheckResult(
             status,
             description,
             data: new Dictionary<string, object>
@@ -102,7 +106,7 @@ public sealed class DataGuardHealthCheck : IHealthCheck
                 ["checks"] = checks,
                 ["uptime"] = _startupStopwatch.Elapsed.ToString(),
                 ["timestamp"] = DateTimeOffset.UtcNow
-            }));
+            });
     }
 
     /// <summary>
@@ -131,24 +135,23 @@ public sealed class DataGuardHealthCheck : IHealthCheck
             var connectionString = await _credentialManager.GetConnectionStringAsync(cancellationToken);
             var hasConnection = !string.IsNullOrEmpty(connectionString);
             
-            return new HealthCheckData
-            {
-                Name = "Credentials",
-                Status = hasConnection ? HealthStatus.Healthy : HealthStatus.Degraded,
-                Description = hasConnection ? "Connection string available" : "No connection string configured",
-                Duration = TimeSpan.Zero
-            };
+            return new HealthCheckData(
+                "Credentials",
+                hasConnection ? MSHealthStatus.Healthy : MSHealthStatus.Degraded,
+                hasConnection ? "Connection string available" : "No connection string configured",
+                TimeSpan.Zero,
+                null,
+                null);
         }
         catch (Exception ex)
         {
-            return new HealthCheckData
-            {
-                Name = "Credentials",
-                Status = HealthStatus.Unhealthy,
-                Description = $"Failed to get credentials: {ex.Message}",
-                Duration = TimeSpan.Zero,
-                Exception = ex
-            };
+            return new HealthCheckData(
+                "Credentials",
+                MSHealthStatus.Unhealthy,
+                $"Failed to get credentials: {ex.Message}",
+                TimeSpan.Zero,
+                ex,
+                null);
         }
     }
 
@@ -160,29 +163,28 @@ public sealed class DataGuardHealthCheck : IHealthCheck
             var baseline = await baselineManager.LoadAsync(cancellationToken);
             
             var hasBaseline = baseline != null;
-            var status = hasBaseline ? HealthStatus.Healthy : HealthStatus.Degraded;
+            var status = hasBaseline ? MSHealthStatus.Healthy : MSHealthStatus.Degraded;
             var description = hasBaseline 
                 ? $"Baseline loaded (v{baseline.SchemaVersion}, {baseline.Violations.Count} violations)" 
                 : "No baseline file found";
 
-            return new HealthCheckData
-            {
-                Name = "Baseline",
-                Status = status,
-                Description = description,
-                Duration = TimeSpan.Zero
-            };
+            return new HealthCheckData(
+                "Baseline",
+                status,
+                description,
+                TimeSpan.Zero,
+                null,
+                null);
         }
         catch (Exception ex)
         {
-            return new HealthCheckData
-            {
-                Name = "Baseline",
-                Status = HealthStatus.Unhealthy,
-                Description = $"Failed to load baseline: {ex.Message}",
-                Duration = TimeSpan.Zero,
-                Exception = ex
-            };
+            return new HealthCheckData(
+                "Baseline",
+                MSHealthStatus.Unhealthy,
+                $"Failed to load baseline: {ex.Message}",
+                TimeSpan.Zero,
+                ex,
+                null);
         }
     }
 
@@ -190,30 +192,28 @@ public sealed class DataGuardHealthCheck : IHealthCheck
     {
         try
         {
-            var result = await SupplyChainVerifier.VerifyAsync(null, cancellationToken);
+            var result = await _supplyChainVerifier.VerifyAsync(null, cancellationToken);
             
-            return new HealthCheckData
-            {
-                Name = "SupplyChain",
-                Status = result.OverallPassed ? HealthStatus.Healthy : HealthStatus.Degraded,
-                Description = result.Summary,
-                Duration = TimeSpan.Zero,
-                Data = new Dictionary<string, object>
+            return new HealthCheckData(
+                "SupplyChain",
+                result.OverallPassed ? MSHealthStatus.Healthy : MSHealthStatus.Degraded,
+                result.Summary,
+                TimeSpan.Zero,
+                null,
+                new Dictionary<string, object>
                 {
                     ["checks"] = result.Checks
-                }
-            };
+                });
         }
         catch (Exception ex)
         {
-            return new HealthCheckData
-            {
-                Name = "SupplyChain",
-                Status = HealthStatus.Unhealthy,
-                Description = $"Supply chain verification failed: {ex.Message}",
-                Duration = TimeSpan.Zero,
-                Exception = ex
-            };
+            return new HealthCheckData(
+                "SupplyChain",
+                MSHealthStatus.Unhealthy,
+                $"Supply chain verification failed: {ex.Message}",
+                TimeSpan.Zero,
+                ex,
+                null);
         }
     }
 
@@ -227,27 +227,26 @@ public sealed class DataGuardHealthCheck : IHealthCheck
             var totalSpaceGB = drive.TotalSize / (1024.0 * 1024.0 * 1024.0);
             var freePercent = (freeSpaceGB / totalSpaceGB) * 100;
 
-            var status = freePercent > 10 ? HealthStatus.Healthy : 
-                         freePercent > 5 ? HealthStatus.Degraded : HealthStatus.Unhealthy;
+            var status = freePercent > 10 ? MSHealthStatus.Healthy : 
+                         freePercent > 5 ? MSHealthStatus.Degraded : MSHealthStatus.Unhealthy;
 
-            return new HealthCheckData
-            {
-                Name = "DiskSpace",
-                Status = status,
-                Description = $"{freeSpaceGB:F1}GB free ({freePercent:F1}%)",
-                Duration = TimeSpan.Zero
-            };
+            return new HealthCheckData(
+                "DiskSpace",
+                status,
+                $"{freeSpaceGB:F1}GB free ({freePercent:F1}%)",
+                TimeSpan.Zero,
+                null,
+                null);
         }
         catch (Exception ex)
         {
-            return new HealthCheckData
-            {
-                Name = "DiskSpace",
-                Status = HealthStatus.Unknown,
-                Description = $"Could not check disk space: {ex.Message}",
-                Duration = TimeSpan.Zero,
-                Exception = ex
-            };
+            return new HealthCheckData(
+                "DiskSpace",
+                MSHealthStatus.Unhealthy,
+                $"Could not check disk space: {ex.Message}",
+                TimeSpan.Zero,
+                ex,
+                null);
         }
     }
 
@@ -261,27 +260,26 @@ public sealed class DataGuardHealthCheck : IHealthCheck
             var totalMemory = GC.GetTotalMemory(false);
             var totalMemoryMB = totalMemory / (1024.0 * 1024.0);
 
-            var status = totalMemoryMB < 500 ? HealthStatus.Healthy :
-                         totalMemoryMB < 1000 ? HealthStatus.Degraded : HealthStatus.Unhealthy;
+            var status = totalMemoryMB < 500 ? MSHealthStatus.Healthy :
+                         totalMemoryMB < 1000 ? MSHealthStatus.Degraded : MSHealthStatus.Unhealthy;
 
-            return new HealthCheckData
-            {
-                Name = "Memory",
-                Status = status,
-                Description = $"{totalMemoryMB:F1}MB allocated (Gen0: {gen0}, Gen1: {gen1}, Gen2: {gen2})",
-                Duration = TimeSpan.Zero
-            };
+            return new HealthCheckData(
+                "Memory",
+                status,
+                $"{totalMemoryMB:F1}MB allocated (Gen0: {gen0}, Gen1: {gen1}, Gen2: {gen2})",
+                TimeSpan.Zero,
+                null,
+                null);
         }
         catch (Exception ex)
         {
-            return new HealthCheckData
-            {
-                Name = "Memory",
-                Status = HealthStatus.Unknown,
-                Description = $"Could not check memory: {ex.Message}",
-                Duration = TimeSpan.Zero,
-                Exception = ex
-            };
+            return new HealthCheckData(
+                "Memory",
+                MSHealthStatus.Unhealthy,
+                $"Could not check memory: {ex.Message}",
+                TimeSpan.Zero,
+                ex,
+                null);
         }
     }
 }
@@ -296,17 +294,6 @@ public sealed record HealthCheckData(
     TimeSpan Duration,
     Exception? Exception = null,
     Dictionary<string, object>? Data = null);
-
-/// <summary>
-/// Health status enum.
-/// </summary>
-public enum HealthStatus
-{
-    Healthy,
-    Degraded,
-    Unhealthy,
-    Unknown
-}
 
 /// <summary>
 /// Extension methods for registering health checks in ASP.NET Core or generic host.
@@ -324,11 +311,22 @@ public static class HealthCheckExtensions
     {
         var healthCheck = new DataGuardHealthCheck(config, credentialManager, telemetry);
 
-        builder.AddCheck("dataguard-liveness", healthCheck.CheckHealthAsync, tags: new[] { "liveness" });
-        builder.AddCheck("dataguard-readiness", healthCheck.CheckReadinessAsync, tags: new[] { "readiness" });
-        builder.AddCheck("dataguard-startup", healthCheck.CheckStartupAsync, tags: new[] { "startup" });
+        builder.AddCheck("dataguard-liveness", new LambdaHealthCheck(healthCheck.CheckHealthAsync), tags: new[] { "liveness" });
+        builder.AddCheck("dataguard-readiness", new LambdaHealthCheck(healthCheck.CheckReadinessAsync), tags: new[] { "readiness" });
+        builder.AddCheck("dataguard-startup", new LambdaHealthCheck(healthCheck.CheckStartupAsync), tags: new[] { "startup" });
 
         return builder;
+    }
+
+    private sealed class LambdaHealthCheck : IHealthCheck
+    {
+        private readonly Func<HealthCheckContext, CancellationToken, Task<HealthCheckResult>> _check;
+
+        public LambdaHealthCheck(Func<HealthCheckContext, CancellationToken, Task<HealthCheckResult>> check)
+            => _check = check;
+
+        public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+            => _check(context, cancellationToken);
     }
 }
 
@@ -347,8 +345,8 @@ public sealed class HealthCheckServer : IDisposable
         _listener = new HttpListener();
         _listener.Prefixes.Add($"http://localhost:{port}/health/");
         _healthCheck = new DataGuardHealthCheck(
-            DataGuardConfiguration.Default,
-            new CredentialManager(DataGuardConfiguration.Default));
+            new DataGuardConfiguration(),
+            new CredentialManager(new DataGuardConfiguration()));
     }
 
     public void Start()
@@ -399,7 +397,7 @@ public sealed class HealthCheckServer : IDisposable
         }
 
         var response = context.Response;
-        response.StatusCode = result.Status == HealthStatus.Healthy ? 200 : 503;
+        response.StatusCode = result.Status == MSHealthStatus.Healthy ? 200 : 503;
         response.ContentType = "application/json";
 
         var json = System.Text.Json.JsonSerializer.Serialize(new

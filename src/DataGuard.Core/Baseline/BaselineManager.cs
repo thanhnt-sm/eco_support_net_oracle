@@ -1,18 +1,17 @@
 using System;
-using System.IO;
-using System.IO.MemoryMappedFiles;
-using System.Runtime.InteropServices;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.IO;
+using System.IO.MemoryMappedFiles;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Caching.Memory;
 using DataGuard.Core.Abstractions;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace DataGuard.Core.Baseline;
 
@@ -187,16 +186,30 @@ public class BaselineManager
         }
     }
 
-    private static string ComputeSchemaHash(IEnumerable<ContractViolation> violations)
+    /// <summary>
+    /// Computes a schema hash for the given violations.
+    /// </summary>
+    public static string ComputeSchemaHash(IEnumerable<ContractViolation> violations)
     {
         var data = string.Join("|", violations
             .OrderBy(v => v.RuleId)
             .ThenBy(v => v.Message)
             .Select(v => $"{v.RuleId}:{v.Message}"));
         
-        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
         return Convert.ToHexString(hash)[..16];
+    }
+
+    /// <summary>
+    /// Filters violations to only return new ones not in baseline.
+    /// </summary>
+    public IEnumerable<ContractViolation> FilterNewViolations(IEnumerable<ContractViolation> current, BaselineFile baseline)
+    {
+        var baselineSignatures = new HashSet<string>(
+            baseline.Violations.Select(v => $"{v.RuleId}:{v.Message}"));
+        
+        return current.Where(v => !baselineSignatures.Contains($"{v.RuleId}:{v.Message}"));
     }
 
     private static string ExtractMajorMinor(string version)
@@ -229,11 +242,10 @@ public class BaselineManager
             .ThenBy(v => v.Message)
             .Select(v => $"{v.RuleId}:{v.Message}"));
         
-        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
         return Convert.ToHexString(hash)[..16];
     }
-
 }
 
 /// <summary>
@@ -288,14 +300,14 @@ public record BaselineLocation(
 /// <summary>
 /// Summary information about a baseline file.
 /// </summary>
-public record BaselineInfo
+public record BaselineInfo(
+    string FilePath,
+    long FileSizeBytes,
+    DateTimeOffset LastModified,
+    BaselineFile? Baseline,
+    string? ErrorMessage = null
+)
 {
-    public string FilePath { get; init; } = "";
-    public int Version { get; init; }
-    public DateTimeOffset CreatedAt { get; init; }
-    public string SchemaVersion { get; init; } = "";
-    public string GroundTruthMode { get; init; } = "";
-    public string DatabaseVersion { get; init; } = "";
-    public string SchemaHash { get; init; } = "";
-    public int ViolationCount { get; init; }
+    public bool IsValid => Baseline != null;
+    public bool HasViolations => Baseline?.Violations?.Count > 0;
 }
