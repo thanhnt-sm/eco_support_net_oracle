@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 using DataGuard.Core.Models;
 using System.Net.Http;
 using System.Text.Json;
-using Azure.Identity;
-using Azure.Security.KeyVault.Secrets;
+using System.Net.Http.Headers;
 using Amazon;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
@@ -175,9 +174,33 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     {
         try
         {
-            var client = new SecretClient(new Uri(_config.KeyVaultUri!), new DefaultAzureCredential());
-            var response = await client.GetSecretAsync(credentialName, cancellationToken: cancellationToken);
-            return response.Value.Value;
+            using var client = new HttpClient();
+
+            // Azure managed identity token (IMDS endpoint) for Key Vault.
+            using var tokenRequest = new HttpRequestMessage(HttpMethod.Get,
+                "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net");
+            tokenRequest.Headers.Add("Metadata", "true");
+            var tokenResponse = await client.SendAsync(tokenRequest, cancellationToken);
+            if (!tokenResponse.IsSuccessStatusCode)
+                return string.Empty;
+
+            var tokenJson = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
+            using var tokenDoc = JsonDocument.Parse(tokenJson);
+            var accessToken = tokenDoc.RootElement.GetProperty("access_token").GetString();
+            if (string.IsNullOrEmpty(accessToken))
+                return string.Empty;
+
+            // Key Vault REST: GET secrets/{name}?api-version=7.4
+            using var secretRequest = new HttpRequestMessage(HttpMethod.Get,
+                $"{_config.KeyVaultUri!.TrimEnd('/')}/secrets/{Uri.EscapeDataString(credentialName)}?api-version=7.4");
+            secretRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            var secretResponse = await client.SendAsync(secretRequest, cancellationToken);
+            if (!secretResponse.IsSuccessStatusCode)
+                return string.Empty;
+
+            var secretJson = await secretResponse.Content.ReadAsStringAsync(cancellationToken);
+            using var secretDoc = JsonDocument.Parse(secretJson);
+            return secretDoc.RootElement.GetProperty("value").GetString() ?? string.Empty;
         }
         catch (Exception ex)
         {
