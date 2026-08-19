@@ -1,8 +1,0 @@
-/Volumes/Data/101.AI/GitHub/eco_supporrt/target/debug/deps/utf8parse-3d76933a69240517.d: /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/lib.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/types.rs
-
-/Volumes/Data/101.AI/GitHub/eco_supporrt/target/debug/deps/libutf8parse-3d76933a69240517.rlib: /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/lib.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/types.rs
-
-/Volumes/Data/101.AI/GitHub/eco_supporrt/target/debug/deps/libutf8parse-3d76933a69240517.rmeta: /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/lib.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/types.rs
-
-/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/lib.rs:
-/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/utf8parse-0.2.2/src/types.rs:
