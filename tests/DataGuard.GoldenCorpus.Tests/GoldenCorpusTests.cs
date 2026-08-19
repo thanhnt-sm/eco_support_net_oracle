@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -167,6 +168,27 @@ public class GoldenCorpusTests
             contracts.AddRange(sqlContracts);
         }
 
+        // Build database schema ground-truth contract (for length/dialect rules)
+        var schemaTables = input.DatabaseSchema.Tables
+            .Select(t => new DatabaseTableDescriptor(
+                t.Name,
+                t.Columns.Select(c => new ColumnDescriptor(
+                    c.Name,
+                    c.Type,
+                    c.CharLength,
+                    null,
+                    null,
+                    c.Nullable,
+                    c.CharUsed,
+                    c.CharLength
+                )).ToList()))
+            .ToList();
+
+        contracts.Add(new DatabaseSchemaDescriptor(
+            Id: "schema:ground-truth",
+            Tables: schemaTables,
+            LengthSemantics: input.LengthSemantics));
+
         return contracts;
     }
 
@@ -299,6 +321,16 @@ public class GoldenCorpusProperty
     public bool IsPrimaryKey { get; set; }
     public bool IsUnicode { get; set; }
 }
+public class DatabaseColumn
+{
+    public string Name { get; set; } = "";
+    public string Type { get; set; } = "";
+    [JsonPropertyName("char_length")]
+    public int? CharLength { get; set; }
+    [JsonPropertyName("char_used")]
+    public string? CharUsed { get; set; }
+    public bool Nullable { get; set; }
+}
 
 public class DatabaseSchema
 {
@@ -311,14 +343,6 @@ public class DatabaseTable
     public List<DatabaseColumn> Columns { get; set; } = new();
 }
 
-public class DatabaseColumn
-{
-    public string Name { get; set; } = "";
-    public string Type { get; set; } = "";
-    public int? CharLength { get; set; }
-    public string? CharUsed { get; set; }
-    public bool Nullable { get; set; }
-}
 
 public class ExpectedDiagnostic
 {

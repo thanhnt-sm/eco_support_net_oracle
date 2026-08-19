@@ -85,7 +85,8 @@ public enum ContractType
 {
     Entity,
     StoredProcedure,
-    RawSql
+    RawSql,
+    DatabaseSchema
 }
 
 /// <summary>
@@ -185,3 +186,21 @@ public record RawSqlDescriptor(
     IReadOnlyList<ColumnDescriptor> ResultColumns,
     Location? Location = null
 ) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location);
+
+/// <summary>
+/// Represents database ground-truth schema (tables + columns) used by length/dialect rules.
+/// </summary>
+public record DatabaseSchemaDescriptor(
+    string Id,
+    IReadOnlyList<DatabaseTableDescriptor> Tables,
+    string LengthSemantics,
+    Location? Location = null
+) : ContractDescriptor(Id, "DatabaseSchema", ContractType.DatabaseSchema, Location);
+
+/// <summary>
+/// A database table's columns.
+/// </summary>
+public record DatabaseTableDescriptor(
+    string Name,
+    IReadOnlyList<ColumnDescriptor> Columns
+);

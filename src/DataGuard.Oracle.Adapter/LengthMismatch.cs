@@ -164,25 +164,22 @@ public class LengthMismatchDetector
 
             if (column == null) continue;
 
-            // 1. Direct length mismatch: entity MaxLength > column MaxLength
+            // 1. Direct length mismatch: entity MaxLength > column length
             if (property.MaxLength.HasValue && column.MaxLength.HasValue)
             {
                 if (property.MaxLength.Value > column.MaxLength.Value)
                 {
                     yield return new ContractViolation(
-                        "DG020",
-                        $"Entity property '{property.Name}' has MaxLength={property.MaxLength.Value} " +
-                        $"but Oracle column '{column.Name}' has MaxLength={column.MaxLength.Value}. " +
-                        $"Data truncation will occur at runtime.",
+                        "DG007",
+                        $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} " +
+                        $"exceeds column '{column.Name}' length={column.MaxLength.Value}",
                         DiagnosticSeverity.Error,
-                        property.Annotations?.TryGetValue("Location", out var loc) == true ? loc as Location : null,
+                        null,
                         new Dictionary<string, object?>
                         {
                             { "property", property.Name },
                             { "entityMaxLength", property.MaxLength.Value },
-                            { "columnMaxLength", column.MaxLength.Value },
-                            { "entityColumnName", property.ColumnName ?? property.Name },
-                            { "dbColumnName", column.Name }
+                            { "columnMaxLength", column.MaxLength.Value }
                         });
                 }
             }
@@ -192,41 +189,37 @@ public class LengthMismatchDetector
                 property.MaxLength.HasValue &&
                 column.MaxLength.HasValue)
             {
-                var maxBytesPerChar = IsUnicodeType(property.ClrTypeName) ? 3 : 1; // UTF-8: 3 bytes per char max, ASCII: 1
-                var maxByteLength = column.MaxLength.Value * maxBytesPerChar;
+                var maxBytesPerChar = IsUnicodeType(property.ClrTypeName) ? 3 : 1;
+                var entityMaxBytes = property.MaxLength.Value * maxBytesPerChar;
 
-                if (property.MaxLength.Value * maxBytesPerChar > maxByteLength)
+                if (entityMaxBytes > column.MaxLength.Value)
                 {
                     yield return new ContractViolation(
-                        "DG021",
-                        $"Byte-length overflow risk: property '{property.Name}' has MaxLength={property.MaxLength.Value} " +
-                        $"({property.MaxLength.Value * maxBytesPerChar} bytes max for {maxBytesPerChar}-byte chars) " +
-                        $"but Oracle column '{column.Name}' has MaxLength={column.MaxLength.Value} " +
-                        $"({maxByteLength} bytes in {sessionSemantics} semantics). " +
-                        $"Unicode data may exceed column byte capacity.",
+                        "DG008",
+                        $"Byte overflow risk: property '{property.Name}' may exceed column '{column.Name}' " +
+                        $"byte capacity in {sessionSemantics.ToString().ToUpperInvariant()} semantics",
                         DiagnosticSeverity.Warning,
                         null,
                         new Dictionary<string, object?>
                         {
                             { "property", property.Name },
-                            { "entityMaxLength", property.MaxLength.Value },
-                            { "maxBytesPerChar", maxBytesPerChar },
-                            { "columnMaxLength", column.MaxLength.Value },
-                            { "maxByteLength", maxByteLength },
+                            { "entityMaxBytes", entityMaxBytes },
+                            { "columnMaxBytes", column.MaxLength.Value },
                             { "semantics", sessionSemantics.ToString() }
                         });
                 }
             }
 
-            // 3. CLOB/VARCHAR2 switching risk (mirrors #33218)
+            // 3. Inferred NVARCHAR2(2000) fallback risk (mirrors dotnet/efcore#33218)
             if (!property.MaxLength.HasValue && IsUnicodeType(property.ClrTypeName))
             {
-                if (column.DataType != "NCLOB" && column.DataType != "CLOB")
+                if (string.Equals(column.DataType, "CLOB", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(column.DataType, "NCLOB", StringComparison.OrdinalIgnoreCase))
                 {
                     yield return new ContractViolation(
-                        "DG022",
-                        $"EF Core will infer NVARCHAR2(2000) for property '{property.Name}' (no MaxLength set, Unicode=true) " +
-                        $"but Oracle column '{column.Name}' is {column.DataType}. " +
+                        "DG009",
+                        $"EF Core will infer NVARCHAR2(2000) for property '{property.Name}' " +
+                        $"(no MaxLength set, Unicode=true) but Oracle column '{column.Name}' is {column.DataType}. " +
                         $"If values exceed 2000 characters, ORA-12899 'value too large for column' will occur at runtime. " +
                         $"Consider setting explicit MaxLength or using NCLOB column type.",
                         DiagnosticSeverity.Warning,
@@ -275,7 +268,7 @@ public enum LengthSemantics
 /// </summary>
 public class LengthExceedsColumnRule : ContractRuleBase
 {
-    public override string RuleId => "DG020";
+    public override string RuleId => "DG007";
     public override string Name => "Entity Length Exceeds Column Length";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
     public override string Description => "Entity property MaxLength exceeds Oracle column MaxLength";
@@ -286,7 +279,7 @@ public class LengthExceedsColumnRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        // Implementation would use LengthMismatchDetector
+        violations.AddRange(LengthMismatchRuleHelper.Detect(contract, allContracts, RuleId));
         return Task.CompletedTask;
     }
 }
@@ -296,7 +289,7 @@ public class LengthExceedsColumnRule : ContractRuleBase
 /// </summary>
 public class ByteLengthOverflowRiskRule : ContractRuleBase
 {
-    public override string RuleId => "DG021";
+    public override string RuleId => "DG008";
     public override string Name => "Byte Length Overflow Risk";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
     public override string Description => "Entity property may exceed Oracle column byte capacity in BYTE semantics";
@@ -307,6 +300,7 @@ public class ByteLengthOverflowRiskRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
+        violations.AddRange(LengthMismatchRuleHelper.Detect(contract, allContracts, RuleId));
         return Task.CompletedTask;
     }
 }
@@ -316,7 +310,7 @@ public class ByteLengthOverflowRiskRule : ContractRuleBase
 /// </summary>
 public class InferredSizeFallbackRule : ContractRuleBase
 {
-    public override string RuleId => "DG022";
+    public override string RuleId => "DG009";
     public override string Name => "Inferred Size Fallback Risk";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
     public override string Description => "EF Core infers NVARCHAR2(2000) which may cause ORA-12899";
@@ -327,6 +321,38 @@ public class InferredSizeFallbackRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
+        violations.AddRange(LengthMismatchRuleHelper.Detect(contract, allContracts, RuleId));
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Shared detection logic for the three length-mismatch rules.
+/// </summary>
+internal static class LengthMismatchRuleHelper
+{
+    public static IReadOnlyList<ContractViolation> Detect(
+        ContractDescriptor contract,
+        IReadOnlyList<ContractDescriptor> allContracts,
+        string ruleId)
+    {
+        if (contract is not EntityDescriptor entity || string.IsNullOrEmpty(entity.TableName))
+            return Array.Empty<ContractViolation>();
+
+        var schema = allContracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault();
+        if (schema == null)
+            return Array.Empty<ContractViolation>();
+
+        var table = schema.Tables.FirstOrDefault(t =>
+            string.Equals(t.Name, entity.TableName, StringComparison.OrdinalIgnoreCase));
+        if (table == null)
+            return Array.Empty<ContractViolation>();
+
+        var semantics = string.Equals(schema.LengthSemantics, "BYTE", StringComparison.OrdinalIgnoreCase)
+            ? LengthSemantics.Byte : LengthSemantics.Char;
+
+        return new LengthMismatchDetector().Detect(entity, table.Columns, semantics)
+            .Where(v => v.RuleId == ruleId)
+            .ToList();
     }
 }
