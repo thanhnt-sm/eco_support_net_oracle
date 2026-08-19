@@ -38,6 +38,8 @@ public static class DiagnosticIds
     public const string UnmappedTypeUsage = "DG014";         // CI heavy: unmapped type in Oracle
     public const string PhantomTable = "DG015";              // CI heavy: table reference doesn't exist
     public const string PhantomColumn = "DG016";             // CI heavy: column reference doesn't exist
+    public const string MissingFromClause = "DG098";         // CI heavy: SELECT without FROM clause
+    public const string SqlInjectionPattern = "DG099";       // CI heavy: potential SQL injection pattern
 }
 
 /// <summary>
@@ -189,6 +191,24 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "Raw SQL references a column that doesn't exist in its table (AI hallucination).");
+
+    public static readonly DiagnosticDescriptor MissingFromClause = new(
+        id: DiagnosticIds.MissingFromClause,
+        title: "Raw SQL query missing FROM clause",
+        messageFormat: "{0}",
+        category: "DataGuard.Contracts",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Raw SQL SELECT query is missing a FROM clause.");
+
+    public static readonly DiagnosticDescriptor SqlInjectionPattern = new(
+        id: DiagnosticIds.SqlInjectionPattern,
+        title: "Potential SQL injection pattern",
+        messageFormat: "{0}",
+        category: "DataGuard.Security",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Raw SQL contains a pattern that may indicate SQL injection.");
 }
 
 /// <summary>
@@ -428,7 +448,9 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.NonOracleFunctionInOracle,
         DiagnosticDescriptors.ProviderOptionMismatch,
         DiagnosticDescriptors.SqlServerSyntaxLeak,
-        DiagnosticDescriptors.UnmappedTypeUsage
+        DiagnosticDescriptors.UnmappedTypeUsage,
+        DiagnosticDescriptors.MissingFromClause,
+        DiagnosticDescriptors.SqlInjectionPattern
     ];
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => AllDescriptors.ToImmutableArray();

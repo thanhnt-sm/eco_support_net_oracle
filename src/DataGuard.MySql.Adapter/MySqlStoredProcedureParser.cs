@@ -46,7 +46,7 @@ public sealed class MySqlStoredProcedureParser : IContractSource
             var dataType = reader.IsDBNull(2) ? "" : reader.GetString(2);
             var mode = reader.IsDBNull(3) ? "IN" : reader.GetString(3);
             var ordinal = reader.IsDBNull(4) ? 0 : reader.GetInt32(4);
-            var maxLength = reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5);
+            var maxLength = reader.IsDBNull(5) ? null : NormalizeLength(reader.GetInt64(5));
             var precision = reader.IsDBNull(6) ? null : (int?)reader.GetInt32(6);
             var scale = reader.IsDBNull(7) ? null : (int?)reader.GetInt32(7);
 
@@ -88,4 +88,6 @@ public sealed class MySqlStoredProcedureParser : IContractSource
         "INOUT" => ParameterDirection.InputOutput,
         _ => ParameterDirection.Input
     };
+
+    private static int? NormalizeLength(long value) => value > int.MaxValue ? null : (int)value;
 }

@@ -614,48 +614,40 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
 
     if (string.IsNullOrEmpty(config.ConnectionString))
     {
-        console.Error.WriteLine("Oracle check requires --connection");
-        return violations;
+        throw new InvalidOperationException("Oracle check requires --connection");
     }
 
     var owner = config.DefaultSchema ?? config.Oracle?.Owner;
-    try
+
+    // Read NLS length semantics (CHAR vs BYTE) to drive byte-overflow detection.
+    var semanticsResolver = new LengthSemanticsResolver(config.ConnectionString);
+    var semantics = await semanticsResolver.ResolveAsync();
+
+    // Read the full schema (all tables' columns) for the owner.
+    var columnsReader = new AllTabColumnsReader(config.ConnectionString);
+    var tables = new List<DatabaseTableDescriptor>();
+    if (!string.IsNullOrEmpty(owner))
     {
-        // Read NLS length semantics (CHAR vs BYTE) to drive byte-overflow detection.
-        var semanticsResolver = new LengthSemanticsResolver(config.ConnectionString);
-        var semantics = await semanticsResolver.ResolveAsync();
-
-        // Read the full schema (all tables' columns) for the owner.
-        var columnsReader = new AllTabColumnsReader(config.ConnectionString);
-        var tables = new List<DatabaseTableDescriptor>();
-        if (!string.IsNullOrEmpty(owner))
-        {
-            var allColumns = await columnsReader.GetAllColumnsAsync(owner);
-            tables = allColumns
-                .Select(kv => new DatabaseTableDescriptor(kv.Key, kv.Value))
-                .ToList();
-        }
-
-        var schemaDescriptor = new DatabaseSchemaDescriptor(
-            Id: "oracle-schema",
-            Tables: tables,
-            LengthSemantics: semantics == LengthSemantics.Byte ? "BYTE" : "CHAR");
-
-        // Run Oracle dialect checks against the schema column types (unmapped type detection).
-        var checker = new OracleDialectChecker();
-        var sqlText = string.Join(" ", tables.SelectMany(t => t.Columns).Select(c => $"{c.DataType} {c.Name}"));
-        violations.AddRange(checker.CheckRawSqlUnmappedTypeUsage(sqlText, isOracleContext: true));
-
-        if (verbose)
-        {
-            console.Out.WriteLine($"Oracle NLS length semantics: {semantics}");
-            console.Out.WriteLine($"Oracle schema '{owner}': {tables.Count} tables, {tables.Sum(t => t.Columns.Count)} columns");
-        }
+        var allColumns = await columnsReader.GetAllColumnsAsync(owner);
+        tables = allColumns
+            .Select(kv => new DatabaseTableDescriptor(kv.Key, kv.Value))
+            .ToList();
     }
-    catch (Exception ex)
+
+    var schemaDescriptor = new DatabaseSchemaDescriptor(
+        Id: "oracle-schema",
+        Tables: tables,
+        LengthSemantics: semantics == LengthSemantics.Byte ? "BYTE" : "CHAR");
+
+    // Run Oracle dialect checks against the schema column types (unmapped type detection).
+    var checker = new OracleDialectChecker();
+    var sqlText = string.Join(" ", tables.SelectMany(t => t.Columns).Select(c => $"{c.DataType} {c.Name}"));
+    violations.AddRange(checker.CheckRawSqlUnmappedTypeUsage(sqlText, isOracleContext: true));
+
+    if (verbose)
     {
-        console.Error.WriteLine($"Oracle check failed: {ex.Message}");
-        Environment.ExitCode = 1;
+        console.Out.WriteLine($"Oracle NLS length semantics: {semantics}");
+        console.Out.WriteLine($"Oracle schema '{owner}': {tables.Count} tables, {tables.Sum(t => t.Columns.Count)} columns");
     }
 
     return violations;

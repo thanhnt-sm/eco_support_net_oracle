@@ -17,8 +17,16 @@ public class PhantomIdentifierRule : ContractRuleBase
     public override string Description => "Raw SQL references a table or column that does not exist in the database schema";
 
     private static readonly Regex TableRefRegex = new(
-        @"\b(?:FROM|JOIN)\s+([A-Za-z_][\w]*)(?:\s+(?:AS\s+)?([A-Za-z_][\w]*))?",
+        @"\b(?:FROM|JOIN)\s+([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)?)(?:\s+(?:AS\s+)?([A-Za-z_][\w]*))?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex CteNameRegex = new(
+        @"\bWITH\s+([A-Za-z_][\w]*)\s+AS\s*\(",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex SimpleIdentifierRegex = new(
+        @"^[A-Za-z_]\w*$",
+        RegexOptions.Compiled);
 
     private static readonly Regex QualifiedColumnRegex = new(
         @"\b([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)",
@@ -27,6 +35,14 @@ public class PhantomIdentifierRule : ContractRuleBase
     private static readonly Regex SelectListRegex = new(
         @"\bSELECT\s+(.+?)\s+FROM\b",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly HashSet<string> SqlKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "ON",
+        "AND", "OR", "NOT", "NULL", "AS", "ORDER", "GROUP", "BY", "HAVING", "LIMIT",
+        "OFFSET", "FETCH", "UNION", "DISTINCT", "INTO", "VALUES", "SET", "CASE",
+        "WHEN", "THEN", "ELSE", "END", "EXISTS", "BETWEEN", "LIKE", "IN", "IS"
+    };
 
     protected override Task ValidateCoreAsync(
         ContractDescriptor contract,
@@ -47,15 +63,37 @@ public class PhantomIdentifierRule : ContractRuleBase
             t => t.Name.ToUpperInvariant(),
             t => t.Columns.Select(c => c.Name.ToUpperInvariant()).ToHashSet());
 
+        // 0. Collect CTE names (WITH clause) so they are not reported as phantom tables.
+        var cteNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in CteNameRegex.Matches(sql))
+        {
+            cteNames.Add(m.Groups[1].Value);
+        }
+
         // 1. Table references.
         var tableRefs = new List<(string Table, string Alias)>();
         foreach (Match m in TableRefRegex.Matches(sql))
         {
-            tableRefs.Add((m.Groups[1].Value, m.Groups[2].Value));
+            var table = m.Groups[1].Value;
+            var alias = m.Groups[2].Value;
+
+            // Strip schema qualifier: FROM dbo.Users -> table "Users".
+            var dotIdx = table.LastIndexOf('.');
+            if (dotIdx >= 0)
+                table = table[(dotIdx + 1)..];
+
+            // A SQL keyword following the table name is not an alias.
+            if (SqlKeywords.Contains(alias))
+                alias = string.Empty;
+
+            tableRefs.Add((table, alias));
         }
 
         foreach (var (table, _) in tableRefs)
         {
+            if (cteNames.Contains(table))
+                continue;
+
             if (!tables.ContainsKey(table.ToUpperInvariant()))
             {
                 violations.Add(new ContractViolation(
@@ -100,22 +138,34 @@ public class PhantomIdentifierRule : ContractRuleBase
                 foreach (var rawCol in selectMatch.Groups[1].Value.Split(','))
                 {
                     var col = rawCol.Trim();
-                    if (col.Length == 0 || col == "*" || col.Contains('.'))
+                    if (col.Length == 0 || col == "*" || col.Contains('.') || col.Contains('('))
                         continue;
 
+                    // Skip literals and operators that indicate expressions.
+                    if (col.Contains('+') || col.Contains('-') || col.Contains('*') || col.Contains('/'))
+                        continue;
+
+                    // Take the alias if present ("expr AS alias"), else the last whitespace token.
                     var asIdx = col.IndexOf(" AS ", StringComparison.OrdinalIgnoreCase);
-                    var clean = asIdx >= 0 ? col[..asIdx].Trim() : col;
-                    if (clean.Length == 0)
+                    var clean = asIdx >= 0 ? col[(asIdx + 4)..].Trim() : col;
+
+                    var tokens = clean.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    if (tokens.Length == 0)
+                        continue;
+                    var candidate = tokens[tokens.Length - 1];
+
+                    // Only compare simple identifiers (skip keywords, literals, expressions).
+                    if (!SimpleIdentifierRegex.IsMatch(candidate) || SqlKeywords.Contains(candidate))
                         continue;
 
-                    if (!primaryCols.Contains(clean.ToUpperInvariant()))
+                    if (!primaryCols.Contains(candidate.ToUpperInvariant()))
                     {
                         violations.Add(new ContractViolation(
                             "DG016",
-                            $"Column '{clean.ToUpperInvariant()}' does not exist in table '{primary}'",
+                            $"Column '{candidate.ToUpperInvariant()}' does not exist in table '{primary}'",
                             Severity,
                             rawSql.Location,
-                            new Dictionary<string, object?> { { "column", clean.ToUpperInvariant() }, { "table", primary } }));
+                            new Dictionary<string, object?> { { "column", candidate.ToUpperInvariant() }, { "table", primary } }));
                     }
                 }
             }

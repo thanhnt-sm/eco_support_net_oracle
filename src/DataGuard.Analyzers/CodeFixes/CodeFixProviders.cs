@@ -10,7 +10,7 @@ using Microsoft.CodeAnalysis.CodeFixes;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Editing;
-using Microsoft.CodeAnalysis.Formatting;
+using Microsoft.CodeAnalysis.Rename;
 using DataGuard.Analyzers;
 
 namespace DataGuard.Analyzers.CodeFixes;
@@ -148,21 +148,13 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private void RegisterDialectFixes(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
-        
-        // Fix: Replace Oracle syntax with ANSI SQL
-        context.RegisterCodeFix(
-            CodeAction.Create(
-                "Convert to ANSI SQL",
-                c => ConvertToAnsiSqlAsync(context.Document, root!, node, c),
-                "DataGuard.ConvertToAnsiSql"),
-            diagnostic);
 
-        // Fix: Replace SQL Server syntax with Oracle equivalent
+        // Fix: Add a manual conversion note (non-destructive; dialect conversion needs a real SQL parser).
         context.RegisterCodeFix(
             CodeAction.Create(
-                "Convert to Oracle syntax",
-                c => ConvertToOracleSyntaxAsync(context.Document, root!, node, c),
-                "DataGuard.ConvertToOracle"),
+                "Add manual dialect conversion note",
+                c => AddDialectCommentAsync(context.Document, root!, node, c),
+                "DataGuard.AddDialectNote"),
             diagnostic);
     }
 
@@ -207,7 +199,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var target = node.FirstAncestorOrSelf<MemberDeclarationSyntax>();
         if (target == null) return document;
 
-        editor.AddAttribute(target, CreateAttribute("SkipContractCheck", "Dynamic SQL - manual review required"));
+        editor.AddAttribute(target, CreateSkipContractCheckAttribute("Dynamic SQL - manual review required"));
         return editor.GetChangedDocument();
     }
 
@@ -217,7 +209,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
         if (method == null) return document;
 
-        var attributes = method.ParameterList.Parameters.Select(p => CreateAttribute("ExpectedSpParameter", p.Identifier.ValueText));
+        var attributes = method.ParameterList.Parameters.Select(p => CreateExpectedSpParameterAttribute(p.Identifier.ValueText));
         editor.ReplaceNode(method, method.WithAttributeLists(method.AttributeLists.AddRange(attributes)));
         return editor.GetChangedDocument();
     }
@@ -239,7 +231,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
         if (method == null) return document;
 
-        var attributes = method.ParameterList.Parameters.Select(p => CreateAttribute("ExpectedSpParameter", p.Identifier.ValueText));
+        var attributes = method.ParameterList.Parameters.Select(p => CreateExpectedSpParameterAttribute(p.Identifier.ValueText));
         editor.ReplaceNode(method, method.WithAttributeLists(method.AttributeLists.AddRange(attributes)));
         return editor.GetChangedDocument();
     }
@@ -248,35 +240,37 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var invocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
-        if (invocation == null || invocation.ArgumentList.Arguments.Count == 0) return document;
+        if (invocation == null) return document;
 
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
         if (method == null) return document;
 
+        // Do not rewrite the SQL literal: attach a review note as leading trivia instead.
         var paramList = string.Join(", ", method.ParameterList.Parameters.Select(p => p.Identifier.ValueText));
-        var sql = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-            SyntaxFactory.Literal($"/* DataGuard: verify SQL parameters match: {paramList} */"));
-        var newInvocation = invocation.WithArgumentList(
-            invocation.ArgumentList.WithArguments(
-                invocation.ArgumentList.Arguments.Replace(invocation.ArgumentList.Arguments[0],
-                    SyntaxFactory.Argument(sql))));
-        editor.ReplaceNode(invocation, newInvocation);
+        var comment = SyntaxFactory.Comment($"// DataGuard: verify SQL parameters match: {paramList}");
+        editor.ReplaceNode(invocation, invocation.WithLeadingTrivia(invocation.GetLeadingTrivia().Add(comment)));
         return editor.GetChangedDocument();
     }
 
     private async Task<Document> FixNamingConventionAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
     {
-        var editor = await DocumentEditor.CreateAsync(document, c);
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
         if (property == null) return document;
+
+        var semanticModel = await document.GetSemanticModelAsync(c).ConfigureAwait(false);
+        if (semanticModel == null) return document;
+
+        var symbol = semanticModel.GetDeclaredSymbol(property, c);
+        if (symbol == null) return document;
 
         // Apply snake_case to PascalCase renaming (identity when already PascalCase).
         var newName = ToPascalCase(property.Identifier.ValueText);
         if (newName == property.Identifier.ValueText) return document;
 
-        var newProperty = property.WithIdentifier(SyntaxFactory.Identifier(newName));
-        editor.ReplaceNode(property, newProperty);
-        return editor.GetChangedDocument();
+        var solution = await Renamer.RenameSymbolAsync(
+            document.Project.Solution, symbol, new SymbolRenameOptions(), newName, c).ConfigureAwait(false);
+
+        return solution.GetDocument(document.Id) ?? document;
     }
 
     private async Task<Document> AddColumnAttributeAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
@@ -285,28 +279,20 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
         if (property == null) return document;
 
-        editor.AddAttribute(property, CreateAttribute("Column", ToSnakeCase(property.Identifier.ValueText)));
+        editor.AddAttribute(property, CreateColumnAttribute(ToSnakeCase(property.Identifier.ValueText)));
         return editor.GetChangedDocument();
     }
 
-    private async Task<Document> ConvertToAnsiSqlAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
+    private async Task<Document> AddDialectCommentAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
     {
-        return await RewriteSqlLiteralAsync(document, root, node, c, new Dictionary<string, string>
-        {
-            ["NVL("] = "COALESCE(",
-            ["DECODE("] = "CASE WHEN ",
-            ["SYSDATE"] = "GETDATE()"
-        });
-    }
+        var editor = await DocumentEditor.CreateAsync(document, c);
+        var target = (SyntaxNode?)node.FirstAncestorOrSelf<LiteralExpressionSyntax>()
+            ?? node.FirstAncestorOrSelf<StatementSyntax>();
+        if (target == null) return document;
 
-    private async Task<Document> ConvertToOracleSyntaxAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
-    {
-        return await RewriteSqlLiteralAsync(document, root, node, c, new Dictionary<string, string>
-        {
-            ["ISNULL("] = "NVL(",
-            ["GETDATE()"] = "SYSDATE",
-            ["TOP "] = "/* TOP -> FETCH FIRST */ "
-        });
+        var comment = SyntaxFactory.Comment("// DataGuard: convert this SQL to the target dialect manually");
+        editor.ReplaceNode(target, target.WithLeadingTrivia(target.GetLeadingTrivia().Add(comment)));
+        return editor.GetChangedDocument();
     }
 
     private async Task<Document> AddMaxLengthAttributeAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
@@ -315,7 +301,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
         if (property == null) return document;
 
-        editor.AddAttribute(property, CreateAttribute("MaxLength", "2000"));
+        editor.AddAttribute(property, CreateMaxLengthAttribute(2000));
         return editor.GetChangedDocument();
     }
 
@@ -333,38 +319,69 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private async Task<Document> AddUseOracleAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
-        var invocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
-        if (invocation == null) return document;
 
-        var useOracle = SyntaxFactory.InvocationExpression(
-            SyntaxFactory.MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, invocation, SyntaxFactory.IdentifierName("UseOracle")));
-        editor.ReplaceNode(invocation, useOracle);
+        // Replace UseSqlServer(...) with UseOracle(...), keeping the existing connection string argument.
+        var scope = (SyntaxNode?)node.FirstAncestorOrSelf<MethodDeclarationSyntax>()
+            ?? node.FirstAncestorOrSelf<StatementSyntax>();
+        if (scope == null) return document;
+
+        var useSqlServer = scope.DescendantNodesAndSelf()
+            .OfType<InvocationExpressionSyntax>()
+            .FirstOrDefault(inv => inv.Expression is MemberAccessExpressionSyntax ma
+                && ma.Name.Identifier.ValueText == "UseSqlServer");
+        if (useSqlServer == null) return document;
+
+        var renamed = useSqlServer.WithExpression(
+            ((MemberAccessExpressionSyntax)useSqlServer.Expression).WithName(SyntaxFactory.IdentifierName("UseOracle")));
+        editor.ReplaceNode(useSqlServer, renamed);
         return editor.GetChangedDocument();
     }
 
-    private static AttributeListSyntax CreateAttribute(string name, string argument)
+    private static AttributeListSyntax CreateSkipContractCheckAttribute(string reason)
     {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName(name))
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("SkipContractCheck"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
                 SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(argument))))));
+                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(reason)))
+                    .WithNameEquals(SyntaxFactory.NameEquals(SyntaxFactory.IdentifierName("Reason"))))));
         return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
     }
 
-    private static async Task<Document> RewriteSqlLiteralAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c, IReadOnlyDictionary<string, string> replacements)
+    private static AttributeListSyntax CreateExpectedSpParameterAttribute(string name)
     {
-        var editor = await DocumentEditor.CreateAsync(document, c);
-        var literal = node.FirstAncestorOrSelf<LiteralExpressionSyntax>();
-        if (literal == null || literal.Token.Value is not string sql) return document;
-
-        var rewritten = sql;
-        foreach (var (from, to) in replacements)
-            rewritten = rewritten.Replace(from, to);
-
-        var newLiteral = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(rewritten));
-        editor.ReplaceNode(literal, newLiteral);
-        return editor.GetChangedDocument();
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("ExpectedSpParameter"))
+            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
+                SyntaxFactory.SeparatedList<AttributeArgumentSyntax>(new[]
+                {
+                    SyntaxFactory.AttributeArgument(
+                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(name))),
+                    SyntaxFactory.AttributeArgument(
+                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty))),
+                    SyntaxFactory.AttributeArgument(
+                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty)))
+                })));
+        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
     }
+
+    private static AttributeListSyntax CreateColumnAttribute(string name)
+    {
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("Column"))
+            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
+                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
+                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(name))))));
+        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
+    }
+
+    private static AttributeListSyntax CreateMaxLengthAttribute(int length)
+    {
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("MaxLength"))
+            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
+                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
+                    SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(length))))));
+        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
+    }
+
+
 
     private static string ToSnakeCase(string pascalCase)
     {

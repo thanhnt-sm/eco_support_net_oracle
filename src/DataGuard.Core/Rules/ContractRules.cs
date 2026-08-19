@@ -89,28 +89,6 @@ public class ParameterCountRule : ContractRuleBase
                 }
             }
         }
-        // Handle EntityDescriptor
-        else if (contract is EntityDescriptor entityDesc)
-        {
-            var sqlText = entityDesc.Properties
-                .Where(p => p.ColumnName != null)
-                .Select(p => p.ColumnName)
-                .Aggregate<string, string>("", (a, b) => a + " " + b);
-
-            if (!string.IsNullOrEmpty(sqlText))
-            {
-                var paramMatches = Regex.Matches(sqlText, @"@\w+");
-                var detectedCount = paramMatches.Count;
-
-                if (detectedCount == 0)
-                {
-                    violations.Add(CreateViolation(
-                        RuleId,
-                        "Entity contract has no parameters detected in SQL",
-                        Severity));
-                }
-            }
-        }
     }
 }
 
@@ -164,7 +142,7 @@ public class ParameterTypeMatchRule : ContractRuleBase
         // Handle RawSqlDescriptor which has Parameters with DataType
         if (contract is RawSqlDescriptor sqlDesc)
         {
-            var isOracle = sqlDesc.Parameters?.Any(p => p.DataType?.Contains("NUMBER") == true) == true;
+            var isOracle = sqlDesc.Parameters?.Any(p => p.DataType?.Contains("NUMBER", StringComparison.OrdinalIgnoreCase) == true) == true;
             var typeMap = isOracle ? OracleTypeMap : SqlServerTypeMap;
 
             foreach (var param in sqlDesc.Parameters)
@@ -185,17 +163,18 @@ public class ParameterTypeMatchRule : ContractRuleBase
 
     private static string InferClrType(string typeStr)
     {
-        return typeStr switch
+        var t = (typeStr ?? string.Empty).Trim().ToLowerInvariant();
+        return t switch
         {
             "int" or "integer" or "number" => "int",
             "long" or "bigint" => "long",
             "short" or "smallint" => "short",
-            "float" or "real" => "double",
-            "decimal" or "numeric" => "decimal",
-            "varchar" or "char" or "nvarchar" or "nchar" => "string",
-            "datetime" or "date" or "datetime2" => "DateTime",
+            "float" or "real" or "binary_double" => "double",
+            "decimal" or "numeric" or "money" or "smallmoney" => "decimal",
+            "varchar" or "varchar2" or "char" or "nvarchar" or "nvarchar2" or "nchar" or "text" or "ntext" or "clob" or "nclob" => "string",
+            "datetime" or "datetime2" or "date" or "timestamp" or "smalldatetime" => "DateTime",
             "uniqueidentifier" or "guid" => "Guid",
-            "byte[]" or "varbinary" or "binary" => "byte[]",
+            "byte[]" or "varbinary" or "binary" or "image" or "raw" or "blob" => "byte[]",
             _ => "string"
         };
     }
@@ -230,20 +209,14 @@ public class ParameterDirectionRule : ContractRuleBase
         {
             foreach (var param in sqlDesc.Parameters)
             {
-                // Check for OUT direction
-                if (param.DataType != null && param.DataType.Contains("OUT"))
+                // Check for OUT/INOUT/RETURN directions that require out/ref at the call site.
+                if (param.Direction is ParameterDirection.Output
+                    or ParameterDirection.InputOutput
+                    or ParameterDirection.ReturnValue)
                 {
                     violations.Add(CreateViolation(
                         RuleId,
-                        $"Parameter '{param.Name}' has OUT direction in SQL - verify matches call site",
-                        Severity));
-                }
-                // Check for REF direction
-                if (param.DataType != null && param.DataType.Contains("REF"))
-                {
-                    violations.Add(CreateViolation(
-                        RuleId,
-                        $"Parameter '{param.Name}' has REF direction in SQL - verify matches call site",
+                        $"Parameter '{param.Name}' is {param.Direction} - verify call site uses out/ref",
                         Severity));
                 }
             }
@@ -282,6 +255,10 @@ public class ColumnShapeMatchRule : ContractRuleBase
                 {
                     var columnNames = ExtractColumnNamesFromSql(sqlDesc.SqlText);
 
+                    // If no columns could be extracted (SELECT *, expressions only), skip shape comparison.
+                    if (columnNames.Count == 0)
+                        return;
+
                     // Check for missing required columns
                     var missingColumns = entityPropertyNames.Where(p => !columnNames.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList();
 
@@ -313,31 +290,50 @@ public class ColumnShapeMatchRule : ContractRuleBase
         var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var selectMatch = Regex.Match(
-            sqlText, @"SELECT\s+(.+?)\s+FROM", RegexOptions.IgnoreCase);
+            sqlText, @"SELECT\s+(.+?)\s+FROM", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-        if (selectMatch.Success)
+        if (!selectMatch.Success)
+            return columns;
+
+        var selectClause = selectMatch.Groups[1].Value;
+        if (selectClause.Trim() == "*")
+            return columns; // SELECT *: column list is unknown, skip shape comparison.
+
+        foreach (var part in selectClause.Split(','))
         {
-            var selectClause = selectMatch.Groups[1].Value;
-            var parts = selectClause.Split(',');
+            var trimmed = part.Trim();
+            if (trimmed.Length == 0 || trimmed == "*")
+                continue;
 
-            foreach (var part in parts)
-            {
-                var columnName = part.Split(' ').First().Trim();
-                if (!string.IsNullOrEmpty(columnName) &&
-                    !columnName.ToUpperInvariant().StartsWith("AS") &&
-                    !columnName.ToUpperInvariant().StartsWith("SUM") &&
-                    !columnName.ToUpperInvariant().StartsWith("COUNT") &&
-                    !columnName.ToUpperInvariant().StartsWith("MAX") &&
-                    !columnName.ToUpperInvariant().StartsWith("MIN") &&
-                    !columnName.ToUpperInvariant().StartsWith("AVG") &&
-                    !columnName.ToUpperInvariant().StartsWith("DISTINCT"))
-                {
-                    columns.Add(columnName);
-                }
-            }
+            // Skip expressions: function calls, qualified refs, literals, operators.
+            if (trimmed.Contains('(') || trimmed.Contains('.') ||
+                trimmed.Contains('+') || trimmed.Contains('-') || trimmed.Contains('*') || trimmed.Contains('/'))
+                continue;
+
+            var tokens = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0)
+                continue;
+
+            // "column AS alias" -> use the alias; otherwise use the last token (handles "column alias").
+            var asIndex = Array.FindIndex(tokens, t => t.Equals("AS", StringComparison.OrdinalIgnoreCase));
+            var columnName = asIndex >= 0 && asIndex + 1 < tokens.Length
+                ? tokens[asIndex + 1]
+                : tokens[tokens.Length - 1];
+
+            if (string.IsNullOrEmpty(columnName) || IsSqlKeyword(columnName))
+                continue;
+
+            columns.Add(columnName);
         }
 
         return columns;
+    }
+
+    private static bool IsSqlKeyword(string token)
+    {
+        return token.ToUpperInvariant() is "SELECT" or "FROM" or "WHERE" or "AS" or
+            "SUM" or "COUNT" or "MAX" or "MIN" or "AVG" or "DISTINCT" or "CASE" or
+            "WHEN" or "THEN" or "ELSE" or "END" or "NULL";
     }
 }
 
@@ -357,38 +353,45 @@ public class NullableMismatchRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        // Handle EntityDescriptor
+        // Handle EntityDescriptor: compare property nullability against ground-truth schema columns.
         if (contract is EntityDescriptor entityDesc)
         {
+            var schema = allContracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault();
+            if (schema == null)
+                return;
+
+            var columnNullability = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var table in schema.Tables)
+            {
+                foreach (var column in table.Columns)
+                {
+                    columnNullability[column.Name] = column.IsNullable;
+                }
+            }
+
             foreach (var prop in entityDesc.Properties)
             {
                 var hasRequired = prop.Annotations?.Any(a => a.Key == "Required") == true;
                 var columnName = prop.ColumnName;
+                if (string.IsNullOrEmpty(columnName))
+                    continue;
 
-                if (string.IsNullOrEmpty(columnName)) continue;
+                if (!columnNullability.TryGetValue(columnName, out var columnIsNullable))
+                    continue;
 
-                // Check if column appears in SQL with NOT NULL
-                // Search through all raw SQL descriptions
-                var rawSqlDescriptions = allContracts?.Where(c => c is RawSqlDescriptor)
-                    .Cast<RawSqlDescriptor>()
-                    .ToList() ?? new List<RawSqlDescriptor>();
-
-                foreach (var sqlDesc in rawSqlDescriptions)
+                if (hasRequired && columnIsNullable)
                 {
-                    if (sqlDesc.SqlText != null)
-                    {
-                        var sqlText = sqlDesc.SqlText;
-                        if (sqlText.IndexOf(columnName, StringComparison.OrdinalIgnoreCase) >= 0 && sqlText.Contains("NOT NULL"))
-                        {
-                            if (hasRequired)
-                            {
-                                violations.Add(CreateViolation(
-                                    RuleId,
-                                    $"Property '{prop.Name}' is required but database column '{columnName}' allows NULL",
-                                    Severity));
-                            }
-                        }
-                    }
+                    violations.Add(CreateViolation(
+                        RuleId,
+                        $"Property '{prop.Name}' is required but database column '{columnName}' allows NULL",
+                        Severity));
+                }
+                else if (!hasRequired && !columnIsNullable)
+                {
+                    violations.Add(CreateViolation(
+                        RuleId,
+                        $"Property '{prop.Name}' is nullable but database column '{columnName}' is NOT NULL",
+                        Severity));
                 }
             }
         }

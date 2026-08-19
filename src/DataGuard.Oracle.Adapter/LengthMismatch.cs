@@ -164,22 +164,25 @@ public class LengthMismatchDetector
 
             if (column == null) continue;
 
-            // 1. Direct length mismatch: entity MaxLength > column length
-            if (property.MaxLength.HasValue && column.MaxLength.HasValue)
+            // 1. Direct length mismatch: entity MaxLength (chars) > column char length.
+            //    ColumnDescriptor.MaxLength holds DATA_LENGTH (bytes); CharLength holds CHAR_LENGTH (chars).
+            //    Compare chars against chars, falling back to byte length only for BYTE-semantics columns.
+            var columnCharLength = column.CharLength ?? column.MaxLength;
+            if (property.MaxLength.HasValue && columnCharLength.HasValue)
             {
-                if (property.MaxLength.Value > column.MaxLength.Value)
+                if (property.MaxLength.Value > columnCharLength.Value)
                 {
                     yield return new ContractViolation(
                         "DG007",
                         $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} " +
-                        $"exceeds column '{column.Name}' length={column.MaxLength.Value}",
+                        $"exceeds column '{column.Name}' length={columnCharLength.Value}",
                         DiagnosticSeverity.Error,
                         null,
                         new Dictionary<string, object?>
                         {
                             { "property", property.Name },
                             { "entityMaxLength", property.MaxLength.Value },
-                            { "columnMaxLength", column.MaxLength.Value }
+                            { "columnMaxLength", columnCharLength.Value }
                         });
                 }
             }
