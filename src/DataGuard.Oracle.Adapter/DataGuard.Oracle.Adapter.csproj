@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
-    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.6.0" />
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.300" />
   </ItemGroup>
 
   <ItemGroup>
