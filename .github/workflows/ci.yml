@@ -8,6 +8,7 @@ name: 'CI'
     branches:
       - 'main'
       - 'develop'
+  workflow_dispatch: {}
 permissions:
   contents: 'read'
   packages: 'read'
@@ -62,8 +63,11 @@ jobs:
           dotnet-version: '${{ env.DOTNET_VERSION }}'
       - name: 'Restore dependencies'
         run: 'dotnet restore DataGuard.sln'
-      - name: 'Run NuGet package vulnerability scan'
-        run: "dotnet tool install --global NuGetPackageExplorer.CLI || true\necho \"$HOME/.dotnet/tools\" >> $GITHUB_PATH\nfor proj in src/*/DataGuard.*.csproj; do\n  if [ -f \"$proj\" ]; then\n    dotnet nuget-package-explorer scan \"$proj\" --fail-on-high || true\n  fi\ndone\n"
+      # "NuGetPackageExplorer.CLI" and "dotnet-scan" are not real packages —
+      # the built-in, always-available NuGet vulnerability audit is
+      # `dotnet list package --vulnerable`, which needs no extra tool install.
+      - name: 'List vulnerable NuGet packages'
+        run: 'dotnet list DataGuard.sln package --vulnerable --include-transitive'
         continue-on-error: true
       - name: 'Check for secrets with TruffleHog'
         if: 'github.event_name == ''pull_request'''
@@ -73,14 +77,6 @@ jobs:
           base: '${{ github.base_ref }}'
           head: 'HEAD'
         continue-on-error: true
-      - name: 'Run .NET Security Audit (OWASP)'
-        run: "dotnet tool install --global dotnet-scan || true\necho \"$HOME/.dotnet/tools\" >> $GITHUB_PATH\ndotnet scan DataGuard.sln --format sarif --output security-scan.sarif || true\n"
-      - name: 'Upload security scan results'
-        uses: 'github/codeql-action/upload-sarif@v3'
-        if: 'always() && hashFiles(''security-scan.sarif'') != '''''
-        with:
-          sarif_file: 'security-scan.sarif'
-          category: 'dotnet-security-scan'
   generate-sbom:
     name: 'Generate SBOM'
     runs-on: 'ubuntu-latest'
@@ -94,7 +90,7 @@ jobs:
         with:
           dotnet-version: '${{ env.DOTNET_VERSION }}'
       - name: 'Install sbom-tool'
-        run: "dotnet tool install --global Microsoft.Sbom.Tool || true\n"
+        run: "dotnet tool install --global Microsoft.Sbom.DotNetTool\necho \"$HOME/.dotnet/tools\" >> $GITHUB_PATH\n"
       - name: 'Generate SBOM for solution'
         run: "export PATH=\"$HOME/.dotnet/tools:$PATH\"\nsbom-tool generate \\\n  -b \"$(pwd)/src\" \\\n  -bc \"DataGuard.sln\" \\\n  -pn \"DataGuard\" \\\n  -pv \"0.1.0-ci\" \\\n  -ps \"$(pwd)/artifacts\" \\\n  -o \"$(pwd)/sbom\"\n"
       - name: 'Upload SBOM'
@@ -140,7 +136,9 @@ jobs:
         uses: 'github/codeql-action/init@v3'
         with:
           languages: 'csharp'
-          config-file: './.github/codeql-config.yml'
+          # Only keep config-file if .github/codeql-config.yml actually
+          # exists in the repo — otherwise this step fails outright.
+          # config-file: './.github/codeql-config.yml'
       - name: 'Perform CodeQL Analysis'
         uses: 'github/codeql-action/analyze@v3'
         with:
