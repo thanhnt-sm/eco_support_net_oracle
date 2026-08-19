@@ -1,47 +1,125 @@
-# Rust / Cargo
-/target/
-Cargo.lock
-**/*.rs.bk
+# .NET Build Output
+**/bin/
+**/obj/
+*.dll
+*.exe
 *.pdb
+*.ilk
+*.meta
+*.user
+*.suo
+*.cache
+*.generated.cs
 
-# Python / UV / Virtual Environments
-.venv/
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-.coverage
-htmlcov/
-.mypy_cache/
-.ruff_cache/
+# NuGet
+*.nupkg
+.nuget/
+packages/
 
-# Environment Variables & API Secrets
+# Node.js / pnpm
+node_modules/
+.pnpm-store/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build Output
+dist/
+build/
+out/
+artifacts/
+*.vsix
+*.zip
+*.nupkg
+
+# Test Results
+TestResults/
+*.trx
+*.cobertura.xml
+coverage/
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment Variables & Secrets
 .env
 .env.*
 !.env.example
 *.pem
 *.key
 *.token
+*.pfx
+*.cer
 
-# Scratchpads & Throwaway directories
-/scratch/
-/tmp/
-*.scratch.*
+# Local Config
+/local.settings.json
+/appsettings.Development.json
+/appsettings.Local.json
 
-# IDE & Editor artifacts
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Local logs & agent IDE state
+# Logs
 *.log
-.system_generated/
-.codegraph/
-.omo/
+logs/
+*.log.*
 
-# Benchmark data (local only)
-/.benchmarks/
+# Temporary Files
+*.tmp
+*.temp
+.tmp/
+temp/
+*.bak
+*~
+
+# Testcontainers
+.testcontainers/
+
+# Coverage
+.coverage/
+coverage/
+*.coverage
+
+# Benchmark
+*.benchmark
+/benchmark/
+
+# Profiler
+*.profiler
+*.gcview
+
+# pnpm
+pnpm-lock.yaml
+
+# Vite
+dist/
+*.local
+
+# Turbo
+.turbo/
+
+# Vitest
+vitest.config.ts.timestamp-*.map
+vitest.config.ts.timestamp-*.map
+
+# Changeset
+.changeset/
+
+# Docker
+.docker/
+
+# OS
+Thumbs.db

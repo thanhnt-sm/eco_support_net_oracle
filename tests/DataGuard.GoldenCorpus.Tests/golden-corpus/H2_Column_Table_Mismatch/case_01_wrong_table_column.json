@@ -1,0 +1,31 @@
+{
+  "testCase": "H2_001",
+  "category": "H2_Column_Table_Mismatch",
+  "description": "AI assigns a real column to the wrong table in a JOIN",
+  "input": {
+    "entity": {
+      "name": "OrderDetail",
+      "properties": [
+        { "name": "OrderId", "type": "int" },
+        { "name": "ProductId", "type": "int" },
+        { "name": "Quantity", "type": "int" },
+        { "name": "UnitPrice", "type": "decimal", "maxLength": 18 }
+      ]
+    },
+    "sql": "SELECT od.order_id, od.product_id, od.quantity, od.unit_price, p.product_name FROM order_details od JOIN products p ON od.product_id = p.id WHERE od.order_id = :orderId AND od.customer_id = :custId",
+    "databaseSchema": {
+      "tables": [
+        { "name": "ORDER_DETAILS", "columns": ["ORDER_ID", "PRODUCT_ID", "QUANTITY", "UNIT_PRICE"] },
+        { "name": "PRODUCTS", "columns": ["ID", "PRODUCT_NAME", "PRICE"] },
+        { "name": "ORDERS", "columns": ["ID", "CUSTOMER_ID", "ORDER_DATE"] }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG001",
+      "messageContains": "Column 'CUSTOMER_ID' does not exist in table 'ORDER_DETAILS'",
+      "severity": "Error"
+    }
+  ]
+}

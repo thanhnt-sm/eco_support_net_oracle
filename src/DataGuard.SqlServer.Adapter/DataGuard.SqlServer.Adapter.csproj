@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <PackageId>DataGuard.SqlServer.Adapter</PackageId>
+    <Version>0.1.0-alpha.1</Version>
+    <Authors>DataGuard Contributors</Authors>
+    <Description>SQL Server adapter for DataGuard contract validation.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/DataGuard/DataGuard</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DataGuard/DataGuard</RepositoryUrl>
+    <PackageTags>efcore;stored-procedure;contract-validation;sql-server</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="170.1.0" />
+  </ItemGroup>
+</Project>

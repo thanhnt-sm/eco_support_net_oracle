@@ -1,0 +1,10 @@
+/Volumes/Data/101.AI/GitHub/eco_supporrt/target/debug/deps/zerovec_derive-afc72f3688a7667d.d: /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/lib.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/make_ule.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/make_varule.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/ule.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/utils.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/varule.rs
+
+/Volumes/Data/101.AI/GitHub/eco_supporrt/target/debug/deps/libzerovec_derive-afc72f3688a7667d.dylib: /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/lib.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/make_ule.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/make_varule.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/ule.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/utils.rs /Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/varule.rs
+
+/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/lib.rs:
+/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/make_ule.rs:
+/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/make_varule.rs:
+/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/ule.rs:
+/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/utils.rs:
+/Users/thannt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerovec-derive-0.11.4/src/varule.rs:

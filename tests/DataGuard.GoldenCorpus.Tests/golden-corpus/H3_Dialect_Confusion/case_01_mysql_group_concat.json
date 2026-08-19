@@ -1,0 +1,29 @@
+{
+  "testCase": "H3_001",
+  "category": "H3_Dialect_Confusion",
+  "description": "AI uses MySQL GROUP_CONCAT instead of Oracle LISTAGG",
+  "input": {
+    "entity": {
+      "name": "Customer",
+      "properties": [
+        { "name": "Id", "type": "int", "isPrimaryKey": true },
+        { "name": "OrderIds", "type": "string", "maxLength": 4000 }
+      ]
+    },
+    "sql": "SELECT c.id, GROUP_CONCAT(o.id) as order_ids FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id",
+    "databaseSchema": {
+      "tables": [
+        { "name": "CUSTOMERS", "columns": ["ID", "FULL_NAME", "EMAIL"] },
+        { "name": "ORDERS", "columns": ["ID", "CUSTOMER_ID", "ORDER_DATE"] }
+      ]
+    },
+    "provider": "Oracle"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG010",
+      "messageContains": "Oracle-specific syntax 'GROUP_CONCAT' used but should be 'LISTAGG'",
+      "severity": "Warning"
+    }
+  ]
+}

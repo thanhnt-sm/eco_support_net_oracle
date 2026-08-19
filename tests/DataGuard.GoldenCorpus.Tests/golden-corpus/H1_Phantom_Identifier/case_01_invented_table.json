@@ -1,0 +1,29 @@
+{
+  "testCase": "H1_001",
+  "category": "H1_Phantom_Identifier",
+  "description": "AI invents a table name that doesn't exist in the database schema",
+  "input": {
+    "entity": {
+      "name": "Order",
+      "properties": [
+        { "name": "Id", "type": "int", "isPrimaryKey": true },
+        { "name": "CustomerId", "type": "int" },
+        { "name": "OrderDate", "type": "DateTime" },
+        { "name": "TotalAmount", "type": "decimal", "maxLength": 18 }
+      ]
+    },
+    "sql": "SELECT * FROM ORDERS_SUMMARY WHERE customer_id = :custId",
+    "databaseSchema": {
+      "tables": [
+        { "name": "ORDERS", "columns": ["ID", "CUSTOMER_ID", "ORDER_DATE", "TOTAL_AMOUNT"] }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG001",
+      "messageContains": "Table 'ORDERS_SUMMARY' does not exist in database",
+      "severity": "Error"
+    }
+  ]
+}

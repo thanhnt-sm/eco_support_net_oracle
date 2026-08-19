@@ -1,154 +1,150 @@
-<div align="center">
-  <p>
-    <b>English</b> | <a href="README.vi.md">Tiếng Việt</a>
-  </p>
-</div>
+# EcoSupport
 
-<div align="center">
+> Autonomous niche ecosystem radar and support engine for open source foundations.
 
-# 🌿 EcoSupport
-### Autonomous Niche Ecosystem Radar & Support Platform for Open Source Foundations
-**Built for the Claude for Open Source: Ecosystem Impact Track**
+[![CI](https://github.com/thanhnt-sm/eco_support_net_oracle/workflows/CI/badge.svg)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml)
+[![Release](https://github.com/thanhnt-sm/eco_support_net_oracle/workflows/Release/badge.svg)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/release.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@eco-support/cli)](https://www.npmjs.com/package/@eco-support/cli)
+[![npm](https://img.shields.io/npm/v/@eco-support/mcp)](https://www.npmjs.com/package/@eco-support/mcp)
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Model Context Protocol](https://img.shields.io/badge/MCP-FastMCP_2.0-purple.svg)](https://modelcontextprotocol.io/)
-[![Powered by Claude 3.7](https://img.shields.io/badge/Anthropic-Claude_3.7_Sonnet-orange.svg)](https://www.anthropic.com/)
-[![CI](https://img.shields.io/badge/CI-Passing-success.svg)]()
+## Overview
 
-<p align="center">
-  <b>Protecting the long-tail of open-source software with Claude 3.7 Extended Thinking & FastMCP.</b>
-</p>
+EcoSupport analyzes niche software ecosystems (C FFI, RTOS, WebAssembly, Embedded, Rust Crates, Go Modules) to identify critical infrastructure, assess supply chain risk, and automate maintenance workflows.
 
-</div>
+**Key Capabilities:**
+- 🔍 **Ecosystem Scanning** — Discover and score niche packages by Ecosystem Criticality Index (ECI)
+- 🔬 **Repository Diagnosis** — Deep bottleneck analysis of GitHub repositories
+- 🏷️ **Automated Triage** — Issue severity classification, labeling, and patch planning
+- 🔧 **MCP Bridge Generation** — Generate FastMCP servers from API specifications
+- 🔒 **Security Auditing** — Comprehensive MCP server vulnerability scanning
 
----
+## Installation
 
-## 📖 Overview
-
-Modern AI and software ecosystems stand upon thousands of overlooked, single-maintainer open-source packages—low-level C/Rust FFI bindings, niche scientific serialization formats, and hardware-adjacent kernels. When these packages experience maintainer burnout or security vulnerabilities, cascading failures ripple across the entire global AI stack.
-
-**EcoSupport** is an autonomous open-source infrastructure suite engineered to:
-1. **Radar**: Continuously scan and quantify fragility in niche open-source repositories using the **Ecosystem Criticality Index (ECI)**.
-2. **Deep Triage**: Deconstruct complex multi-language bug reports using **Claude 3.7 Sonnet’s Extended Thinking**.
-3. **Patch Synthesis**: Generate verifiable, regression-tested bug fixes and C-boundary patches with zero maintainer spam.
-4. **MCP Bridge Synthesis**: Automatically convert legacy, un-agentic Python/C libraries into fully compliant, secure **FastMCP 2.0 servers**.
-5. **Security Audit**: Proactively scan community MCP servers for SSRF, injection vulnerabilities, and tool-description drift.
-
----
-
-## 🏛️ System Architecture
-
-```mermaid
-graph LR
-    subgraph Radar ["📡 Niche Ecosystem Radar"]
-        A[GitHub / PyPI / Crates.io] --> B[Health & Dependency Analyzer]
-        B --> C[Ecosystem Criticality Model ECI]
-    end
-
-    subgraph CoreEngine ["🧠 Claude 3.7 Thinking Engine"]
-        C --> D[Autonomous Triage Agent]
-        C --> E[Patch Synthesizer Agent]
-        C --> F[FastMCP Bridge Builder]
-    end
-
-    subgraph Interfaces ["⚡ Distribution & MCP Protocol"]
-        D & E & F --> G[FastMCP 2.0 Server]
-        D & E & F --> H[Rich Terminal CLI]
-        D & E & F --> I[Claude Desktop / Cursor]
-    end
-```
-
----
-
-## 🚀 Quickstart
-
-### 1. Installation & Build
-
+### CLI (npm)
 ```bash
-# Clone the repository
-git clone https://github.com/thanhnt-sm/eco_support_net_oracle.git
-cd eco_support_net_oracle
-
-# Build Native Rust CLI (eco-support)
-cargo build --release
+npm install -g @eco-support/cli
+# or
+pnpm add -g @eco-support/cli
 ```
 
-### 2. Configuration
-Copy the sample environment file and set your API keys:
+### MCP Server (Docker)
 ```bash
-cp .env.example .env
-# Edit .env and insert your ANTHROPIC_API_KEY
+docker pull ghcr.io/thanhnt-sm/eco_support_net_oracle/eco-support-mcp:latest
+docker run -p 8080:8080 \
+  -e ANTHROPIC_API_KEY=your_key \
+  -e GITHUB_TOKEN=your_token \
+  ghcr.io/thanhnt-sm/eco_support_net_oracle/eco-support-mcp:latest
 ```
 
-### 3. Command Line Interface (CLI)
+### MCP Server (Cloudflare Workers)
+See [docs/mcp.md](docs/mcp.md#cloudflare-workers-deployment)
 
+## Quick Start
+
+### 1. Configure Credentials
 ```bash
-# 1. Scan high-risk niche repositories by category
-cargo run -p eco-cli -- scan --category c-ffi --limit 5
-
-# 2. Perform deep triage with Claude 3.7 Extended Thinking
-cargo run -p eco-cli -- triage --repo "owner/repo" --issue 42 --thinking-budget 8192
-
-# 3. Automatically synthesize an MCP Server for a niche package
-cargo run -p eco-cli -- synthesize-mcp --package "custom-raster-io" --output ./mcp_servers/
-
-# 4. Audit an MCP Server implementation for security flaws
-cargo run -p eco-cli -- audit-mcp crates/eco-mcp/src/server.rs
-
-# 5. Launch the integrated FastMCP 2.0 Server
-./target/release/eco-support mcp-serve --transport stdio
+eco-support config login
+# Or set environment variables:
+export ANTHROPIC_API_KEY=your_anthropic_key
+export GITHUB_TOKEN=your_github_token
 ```
 
----
-
-## 🔌 Connecting to Claude Desktop / Cursor
-
-Add the EcoSupport FastMCP server to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "eco-support": {
-      "command": "/absolute/path/to/eco_support/target/release/eco-support",
-      "args": ["mcp-serve", "--transport", "stdio"],
-      "env": {
-        "ANTHROPIC_API_KEY": "your_api_key_here"
-      }
-    }
-  }
-}
+### 2. Run Health Check
+```bash
+eco-support doctor
 ```
 
----
+### 3. Scan Niche Ecosystems
+```bash
+# Scan C FFI libraries
+eco-support scan --category C-FFI --limit 20
 
-## 📂 Project Structure
-
-```
-eco_support/
-├── Cargo.toml                  # Cargo Workspace Manifest (5 Crates)
-├── CLAUDE.md                   # Anthropic agent instructions & standards
-├── AGENTS.md                   # Multi-agent architecture and safety guardrails
-├── crates/                     # Production Native Rust Engine
-│   ├── eco-core/               # Claude 3.7 Client, Thinking Budget, Telemetry
-│   ├── eco-radar/              # Niche Scanner & ECI Criticality Math Engine
-│   ├── eco-mcp/                # FastMCP 2.0 Server & Static Security Auditor
-│   ├── eco-agents/             # Autonomous Triage, Patch, & Bridge Agents
-│   └── eco-cli/                # Ultra-fast (3.7MB) Terminal CLI Interface
-├── docs/                       # Living 5-Perspective Documentation (Bilingual EN/VI)
-│   ├── overview/               # Vibe Coder Guide & Conceptual Mindmaps
-│   ├── architecture/           # System Blueprint, DAG & Benchmarks
-│   ├── operations/             # SRE Runbooks & Disaster Recovery
-│   ├── developers/             # Contributor Manual & FastMCP Tool API
-│   └── testing/                # QA Verification & Test Strategy
-├── grants/                     # Anthropic Ecosystem Grant Application Suite
-├── brainstorm/                 # Red Team Analysis & Product Strategy
-├── research/                   # Niche Dependency Survey & Benchmarks
-└── scripts/                    # Git Automation, Guards & DocSync Validators
+# Scan Rust crates with detailed output
+eco-support scan --category RUST-CRATES --limit 10 --detailed
 ```
 
----
+### 4. Triage a GitHub Issue
+```bash
+eco-support triage --repo owner/repo --issue 123 --thinking-budget 8000
+```
 
-## 📜 License
+### 5. Generate MCP Bridge
+```bash
+eco-support synthesize-mcp --package my-package --api "REST API with users, posts, comments endpoints"
+```
 
-Distributed under the **Apache 2.0 License**. See [`LICENSE`](LICENSE) for details.
+### 6. Security Audit MCP Server
+```bash
+eco-support audit-mcp ./path/to/mcp-server --detailed
+```
+
+### 7. Run MCP Server
+```bash
+# Local stdio (for Claude Desktop)
+eco-support mcp-serve --transport stdio
+
+# HTTP server (for remote agents)
+eco-support mcp-serve --transport http --port 8080
+```
+
+## MCP Tools
+
+When connected via MCP, the following tools are available:
+
+| Tool | Description | Mutating |
+|------|-------------|----------|
+| `scan_niche_ecosystem` | Scan niche ecosystems for critical infrastructure | No |
+| `diagnose_repo_bottleneck` | Deep repository bottleneck analysis | No |
+| `triage_issue` | Automated issue triage with patch planning | **Yes** |
+| `synthesize_mcp_bridge` | Generate FastMCP server code | No |
+| `audit_mcp_security` | Security audit of MCP server source | No |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    @eco-support/core                      │
+│  Config, Types, Errors, Subprocess wrappers              │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+        ┌──────────────┴──────────────┐
+        ▼                             ▼
+┌───────────────┐             ┌───────────────┐
+│ @eco-support/ │             │ @eco-support/ │
+│     cli       │             │     mcp       │
+│  (commander)  │             │  (MCP SDK)    │
+└───────┬───────┘             └───────┬───────┘
+        │                             │
+        ▼                             ▼
+┌───────────────┐             ┌───────────────┐
+│ Rust/Python   │             │ HTTP/stdio/   │
+│ Subprocesses  │             │ SSE Transport │
+└───────────────┘             └───────────────┘
+```
+
+## Documentation
+
+- [CLI Reference](docs/cli.md) — All commands and options
+- [MCP Server](docs/mcp.md) — Tools, transports, deployment
+- [Architecture](docs/architecture.md) — Internal design
+- [Contributing](docs/contributing.md) — Development workflow
+
+## Credentials
+
+EcoSupport uses a layered credential resolution (highest priority first):
+
+1. **Explicit flags** — `--anthropic-key`, `--github-token`
+2. **Environment variables** — `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`
+3. **Local .env files** — `.env.local`, `.env`
+4. **User config** — `~/.config/eco-support/config.json`
+5. **Project config** — `.eco-supportrc.json`
+6. **OS Keychain** — `eco-support config login`
+
+Run `eco-support config get` to see resolved values with sources.
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE) for details.
+
+PolyForm Noncommercial 1.0.0 — see [LICENSE.noncommercial](LICENSE.noncommercial) for non-commercial use restrictions.

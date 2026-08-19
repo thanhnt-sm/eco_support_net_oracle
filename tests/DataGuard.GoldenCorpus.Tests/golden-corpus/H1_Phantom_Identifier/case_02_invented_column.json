@@ -1,0 +1,29 @@
+{
+  "testCase": "H1_002",
+  "category": "H1_Phantom_Identifier",
+  "description": "AI invents a column name that doesn't exist in the database table",
+  "input": {
+    "entity": {
+      "name": "Customer",
+      "properties": [
+        { "name": "Id", "type": "int", "isPrimaryKey": true },
+        { "name": "FullName", "type": "string", "maxLength": 100 },
+        { "name": "Email", "type": "string", "maxLength": 255 },
+        { "name": "PhoneNumber", "type": "string", "maxLength": 20 }
+      ]
+    },
+    "sql": "SELECT id, full_name, email, phone, address FROM customers WHERE id = :id",
+    "databaseSchema": {
+      "tables": [
+        { "name": "CUSTOMERS", "columns": ["ID", "FULL_NAME", "EMAIL", "PHONE"] }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG004",
+      "messageContains": "Column 'ADDRESS' does not exist in table 'CUSTOMERS'",
+      "severity": "Error"
+    }
+  ]
+}

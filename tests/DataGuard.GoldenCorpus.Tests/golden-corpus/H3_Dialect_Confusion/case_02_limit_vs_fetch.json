@@ -1,0 +1,29 @@
+{
+  "testCase": "H3_002",
+  "category": "H3_Dialect_Confusion",
+  "description": "AI uses MySQL/PostgreSQL LIMIT instead of Oracle FETCH FIRST",
+  "input": {
+    "entity": {
+      "name": "Product",
+      "properties": [
+        { "name": "Id", "type": "int", "isPrimaryKey": true },
+        { "name": "Name", "type": "string", "maxLength": 200 },
+        { "name": "Price", "type": "decimal", "maxLength": 18 }
+      ]
+    },
+    "sql": "SELECT * FROM products ORDER BY price DESC LIMIT 10",
+    "databaseSchema": {
+      "tables": [
+        { "name": "PRODUCTS", "columns": ["ID", "NAME", "PRICE"] }
+      ]
+    },
+    "provider": "Oracle"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG010",
+      "messageContains": "LIMIT clause not supported in Oracle, use FETCH FIRST 10 ROWS ONLY",
+      "severity": "Warning"
+    }
+  ]
+}

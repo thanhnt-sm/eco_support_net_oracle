@@ -1,0 +1,35 @@
+{
+  "testCase": "VN_001",
+  "category": "Vietnamese_Data",
+  "description": "Vietnamese Unicode characters exceed BYTE length semantics",
+  "input": {
+    "entity": {
+      "name": "Customer",
+      "properties": [
+        { "name": "Id", "type": "int", "isPrimaryKey": true },
+        { "name": "FullName", "type": "string", "maxLength": 50, "isUnicode": true }
+      ]
+    },
+    "databaseSchema": {
+      "tables": [
+        { 
+          "name": "CUSTOMERS", 
+          "columns": [
+            { "name": "ID", "type": "NUMBER(10)", "nullable": false },
+            { "name": "FULL_NAME", "type": "VARCHAR2(50 BYTE)", "char_length": 50, "char_used": "B", "nullable": false }
+          ]
+        }
+      ]
+    },
+    "provider": "Oracle",
+    "lengthSemantics": "BYTE"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG008",
+      "messageContains": "Byte overflow risk: property 'FullName' may exceed column 'FULL_NAME' byte capacity in BYTE semantics",
+      "severity": "Warning"
+    }
+  ],
+  "notes": "Vietnamese characters like 'Đ', 'ă', 'ê', 'ô', 'ư' use 2-3 bytes in UTF-8. 'Nguyễn Văn Tèo' (14 chars) = ~28 bytes, exceeds 50 BYTE limit if longer names are used."
+}

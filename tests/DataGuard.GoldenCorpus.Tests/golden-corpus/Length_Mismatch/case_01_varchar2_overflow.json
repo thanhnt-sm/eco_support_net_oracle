@@ -1,0 +1,41 @@
+{
+  "testCase": "LM_001",
+  "category": "Length_Mismatch",
+  "description": "Entity string MaxLength exceeds Oracle VARCHAR2 column length",
+  "input": {
+    "entity": {
+      "name": "Customer",
+      "properties": [
+        { "name": "Id", "type": "int", "isPrimaryKey": true },
+        { "name": "FullName", "type": "string", "maxLength": 200 },
+        { "name": "Email", "type": "string", "maxLength": 320 }
+      ]
+    },
+    "databaseSchema": {
+      "tables": [
+        { 
+          "name": "CUSTOMERS", 
+          "columns": [
+            { "name": "ID", "type": "NUMBER(10)", "nullable": false },
+            { "name": "FULL_NAME", "type": "VARCHAR2(100)", "char_length": 100, "char_used": "C", "nullable": false },
+            { "name": "EMAIL", "type": "VARCHAR2(255)", "char_length": 255, "char_used": "C", "nullable": false }
+          ]
+        }
+      ]
+    },
+    "provider": "Oracle",
+    "lengthSemantics": "CHAR"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG007",
+      "messageContains": "Entity property 'FullName' MaxLength=200 exceeds column 'FULL_NAME' length=100",
+      "severity": "Error"
+    },
+    {
+      "ruleId": "DG007",
+      "messageContains": "Entity property 'Email' MaxLength=320 exceeds column 'EMAIL' length=255",
+      "severity": "Error"
+    }
+  ]
+}

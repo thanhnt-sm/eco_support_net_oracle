@@ -1,0 +1,131 @@
+# omp Configuration — Model Routing & Defaults
+# Source: opencode zen best free models config
+# Updated: 2026-08-18
+
+[omp]
+# Global settings
+version = "2.1.0"
+debug = false
+timeout_seconds = 30
+max_parallel_agents = 3
+
+# Default model for agent spawning when no task-specific routing applies
+default_agent = "nemotron-3-ultra-free"
+
+# Provider configuration
+[omp.providers.opencode-zen]
+# Base endpoint for all opencode zen API calls
+base_url = "https://api.opencode.net/zen/v1"
+api_key_env = "OPENCODE_ZEN_API_KEY"
+rate_limit = { requests_per_minute = 40, tokens_per_minute = 150000 }
+health_check = { path = "/v1/models", interval_seconds = 15 }
+
+# Provider configuration
+[omp.providers.ollama]
+base_url = "http://localhost:11434"
+timeout_seconds = 90
+auto_fallback = true
+health_check = { path = "/api/tags", interval_seconds = 10 }
+
+# Model routing rules: task type → agent name (must match [[agents]].name in agents.toml)
+[omp.routing]
+# Map task categories to agent names
+reasoning = "nemotron-3-ultra-free"
+planning = "nemotron-3-ultra-free"
+architecture = "nemotron-3-ultra-free"
+design = "nemotron-3-ultra-free"
+coding = "llama-3.1-405b-free"
+implementation = "llama-3.1-405b-free"
+refactor = "llama-3.1-405b-free"
+debug = "llama-3.1-405b-free"
+review = "nemotron-3-ultra-free"
+audit = "nemotron-3-ultra-free"
+analysis = "nemotron-3-ultra-free"
+security = "nemotron-3-ultra-free"
+math = "nemotron-3-ultra-free"
+proof = "nemotron-3-ultra-free"
+algorithm = "nemotron-3-ultra-free"
+quick = "qwen2.5-coder-32b-free"
+simple = "qwen2.5-coder-32b-free"
+chat = "qwen2.5-coder-32b-free"
+summarize = "qwen2.5-coder-32b-free"
+general = "deepseek-v3-free"
+multilingual = "deepseek-v3-free"
+fast = "gemini-2.0-flash-free"
+multimodal = "gemini-2.0-flash-free"
+long_context = "gemini-2.0-flash-free"
+
+# Enhanced fallback chain when primary agent unavailable
+# Order matters: primary → secondary → tertiary → quaternary
+[omp.routing.fallback_chain]
+primary = "nemotron-3-ultra-free"
+secondary = "llama-3.1-405b-free"
+tertiary = "deepseek-v3-free"
+quaternary = "qwen2.5-coder-32b-free"
+
+# Agent spawn limits per task type - optimized based on model capabilities
+[omp.limits]
+reasoning = { max_agents = 2, max_tokens = 32000 }
+planning = { max_agents = 2, max_tokens = 32000 }
+architecture = { max_agents = 1, max_tokens = 64000 }
+design = { max_agents = 1, max_tokens = 64000 }
+coding = { max_agents = 3, max_tokens = 48000 }
+implementation = { max_agents = 3, max_tokens = 48000 }
+refactor = { max_agents = 2, max_tokens = 32000 }
+debug = { max_agents = 2, max_tokens = 32000 }
+review = { max_agents = 1, max_tokens = 16000 }
+audit = { max_agents = 1, max_tokens = 16000 }
+analysis = { max_agents = 1, max_tokens = 16000 }
+security = { max_agents = 1, max_tokens = 16000 }
+math = { max_agents = 1, max_tokens = 16000 }
+proof = { max_agents = 1, max_tokens = 16000 }
+algorithm = { max_agents = 1, max_tokens = 16000 }
+quick = { max_agents = 1, max_tokens = 8000 }
+simple = { max_agents = 1, max_tokens = 8000 }
+chat = { max_agents = 1, max_tokens = 8000 }
+summarize = { max_agents = 1, max_tokens = 8000 }
+general = { max_agents = 1, max_tokens = 24000 }
+multilingual = { max_agents = 1, max_tokens = 24000 }
+fast = { max_agents = 2, max_tokens = 32000 }
+multimodal = { max_agents = 1, max_tokens = 32000 }
+long_context = { max_agents = 1, max_tokens = 128000 }
+
+# Japanese/Korean/Vietnamese language support
+[omp.i18n]
+supported_languages = ["vi", "en", "ja", "ko"]
+default_language = "vi"
+fallback_to_english = true
+model_language_tags = {
+    "nemotron-3-ultra-free" = ["reasoning", "vi", "en"]
+    "llama-3.1-405b-free" = ["coding", "vi", "en"]
+    "deepseek-v3-free" = ["general", "vi", "en", "ja", "ko"]
+    "gemini-2.0-flash-free" = ["multimodal", "vi", "en"]
+    "qwen2.5-coder-32b-free" = ["quick", "vi", "en"]
+    "claude-3.5-sonnet-free" = ["coding", "reasoning", "vi", "en"]
+    "mistral-large-free" = ["general", "vi", "en"]
+}
+
+# Security: restricted models / disallowed providers
+[omp.security]
+disallowed_providers = []
+restricted_models = ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"]
+enable_model_quota = true
+
+# Performance settings
+[omp.performance]
+# Enable caching of model responses (reduces API calls)
+enable_caching = true
+cache_ttl_seconds = 300
+max_cache_size = 1000
+
+# Concurrent request limits per model
+max_concurrent_requests = 5
+
+# Timeout per model type (seconds)
+model_timeouts = {
+    "nomoderation-3-ultra-free" = 60
+    "llama-3.1-405b-free" = 90
+    "deepseek-v3-free" = 45
+    "qwen2.5-coder-32b-free" = 20
+    "gemini-2.0-flash-free" = 30
+}

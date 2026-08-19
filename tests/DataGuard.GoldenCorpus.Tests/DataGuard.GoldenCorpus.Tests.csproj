@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DefineConstants>$(DefineConstants);GOLDEN_CORPUS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DataGuard.Core\DataGuard.Core.csproj" />
+    <ProjectReference Include="..\..\src\DataGuard.SqlServer.Adapter\DataGuard.SqlServer.Adapter.csproj" />
+    <ProjectReference Include="..\..\src\DataGuard.Oracle.Adapter\DataGuard.Oracle.Adapter.csproj" />
+    <ProjectReference Include="..\..\src\DataGuard.Analyzers\DataGuard.Analyzers.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.8.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeInBuildOutput>false</IncludeInBuildOutput>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" Version="6.12.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.0" />
+    <PackageReference Include="Testcontainers.Oracle" Version="3.5.0" />
+    <PackageReference Include="Testcontainers.MsSql" Version="3.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="golden-corpus/**/*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>

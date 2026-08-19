@@ -1,0 +1,35 @@
+{
+  "testCase": "LM_002",
+  "category": "Length_Mismatch",
+  "description": "EF Core Oracle provider infers NVARCHAR2(2000) for string with no MaxLength",
+  "input": {
+    "entity": {
+      "name": "Document",
+      "properties": [
+        { "name": "Id", "type": "int", "isPrimaryKey": true },
+        { "name": "Content", "type": "string", "isUnicode": true }
+      ]
+    },
+    "databaseSchema": {
+      "tables": [
+        { 
+          "name": "DOCUMENTS", 
+          "columns": [
+            { "name": "ID", "type": "NUMBER(10)", "nullable": false },
+            { "name": "CONTENT", "type": "CLOB", "nullable": true }
+          ]
+        }
+      ]
+    },
+    "provider": "Oracle",
+    "lengthSemantics": "CHAR"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG009",
+      "messageContains": "EF Core will infer NVARCHAR2(2000) for property 'Content' (no MaxLength set, Unicode=true) but Oracle column 'CONTENT' is CLOB",
+      "severity": "Warning"
+    }
+  ],
+  "notes": "Per dotnet/efcore#33218, EF Core Oracle provider falls back to NVARCHAR2(2000) when string property has no MaxLength and IsUnicode=true. This can cause ORA-12899 if values exceed 2000 characters."
+}
