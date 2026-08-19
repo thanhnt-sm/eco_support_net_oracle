@@ -17,7 +17,7 @@ public sealed class TelemetryCollector : IDisposable
 {
     private readonly Meter _meter;
     private readonly TelemetryConfig _config;
-    private readonly ConcurrentDictionary<string, LongTaskCounter> _counters = new();
+    private readonly ConcurrentDictionary<string, Counter<long>> _counters = new();
     private readonly ConcurrentDictionary<string, Histogram<double>> _histograms = new();
     private readonly ConcurrentQueue<TelemetryEvent> _eventQueue = new();
     private readonly Timer? _flushTimer;

@@ -1,11 +1,14 @@
 using System;
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Models;
 using DataGuard.Core.Security;
+using DataGuard.Core.Telemetry;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DataGuard.Core.Health;
 

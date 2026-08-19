@@ -30,6 +30,14 @@
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="170.3.0" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" NoWarn="NU1903" />
     <PackageReference Include="System.Composition.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.0" />
+    <PackageReference Include="YamlDotNet" Version="15.0.0" />
+    <PackageReference Include="System.Composition.Hosting" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

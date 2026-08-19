@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using DataGuard.Core.Abstractions;
+using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Rules;
 
@@ -291,9 +292,9 @@ public static class RuleDependencyGraphExtensions
 /// </summary>
 internal sealed class DummyRule : IContractRule
 {
-    public string RuleId { get; }
+    public string RuleId { get; set; }
     public string Name => RuleId;
-    public DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+    public DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Warning;
     public string Description => "Dependency placeholder";
 
     public DummyRule(string ruleId)

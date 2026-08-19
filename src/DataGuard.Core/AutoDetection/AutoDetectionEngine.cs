@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+// using static System.Console;  // Use static for Console methods
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -10,11 +11,22 @@ using DataGuard.Core.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.Extensions.Logging;
 
 namespace DataGuard.Core.AutoDetection;
 
 /// <summary>
-/// Auto-detection engine for EF Core, Dapper, and database providers.
+/// Console abstraction for interactive prompting.
+/// </summary>
+public interface IConsole
+{
+    void Write(string value);
+    void WriteLine(string value);
+    string? ReadLine();
+    ConsoleKeyInfo ReadKey(bool intercept);
+}
+
+
 /// Scans the project to automatically configure DataGuard with zero manual setup.
 /// </summary>
 public sealed class AutoDetectionEngine

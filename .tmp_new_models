@@ -1,0 +1,26 @@
+
+[[agents]]
+name = "claude-3.5-sonnet-free"
+provider = "opencode-zen"
+model = "anthropic/claude-3.5-sonnet"
+tags = ["coding", "reasoning", "premium-free"]
+context_window = 200000
+max_output = 8192
+temperature = 0.2
+top_p = 0.95
+description = "Anthropic Claude 3.5 Sonnet - best free model for code and reasoning (limited free tier)"
+endpoint = "https://api.opencode.net/zen/v1"
+# Free tier: 20 requests/min, 100k tokens/min
+
+[[agents]]
+name = "mistral-large-free"
+provider = "opencode-zen"
+model = "mistralai/mistral-large"
+tags = ["general", "long-context", "multilingual"]
+context_window = 128000
+max_output = 8192
+temperature = 0.3
+top_p = 0.95
+description = "Mistral Large - strong general-purpose free model"
+endpoint = "https://api.opencode.net/zen/v1"
+# Free tier: 30 requests/min, 150k tokens/min

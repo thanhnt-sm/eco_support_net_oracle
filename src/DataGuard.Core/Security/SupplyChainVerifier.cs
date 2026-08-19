@@ -11,20 +11,22 @@ namespace DataGuard.Core.Security;
 /// <summary>
 /// Verifies supply chain integrity following SLSA (Supply chain Levels for Software Artifacts) principles.
 /// </summary>
-public static class SupplyChainVerifier
+public sealed class SupplyChainVerifier
 {
     /// <summary>
     /// Verifies the integrity of the current assembly against known good hashes.
     /// </summary>
-    public static async Task<SupplyChainVerificationResult> VerifyAsync(
+    public async Task<SupplyChainVerificationResult> VerifyAsync(
         string? expectedHashFile = null,
         CancellationToken cancellationToken = default)
     {
-        var result = new SupplyChainVerificationResult
-        {
-            VerificationTime = DateTimeOffset.UtcNow,
-            Checks = new System.Collections.Generic.List<SupplyChainCheck>()
-        };
+        var checks = new System.Collections.Generic.List<SupplyChainCheck>();
+        var result = new SupplyChainVerificationResult(
+            VerificationTime: DateTimeOffset.UtcNow,
+            Checks: checks,
+            OverallPassed: false,
+            Summary: "");
+
 
         // 1. Verify assembly integrity
         var assembly = typeof(SupplyChainVerifier).Assembly;
@@ -48,13 +50,11 @@ public static class SupplyChainVerifier
             var expectedHash = await File.ReadAllTextAsync(expectedHashFile, cancellationToken);
             var matches = expectedHash.Trim().Equals(assemblyHash, StringComparison.OrdinalIgnoreCase);
             
-            result.Checks.Add(new SupplyChainCheck
-            {
-                Name = "ExpectedHashMatch",
-                Description = "Verify assembly matches expected hash from SLSA provenance",
-                Passed = matches,
-                Details = matches ? "Hash matches expected" : $"Expected: {expectedHash}, Actual: {assemblyHash}"
-            });
+            checks.Add(new SupplyChainCheck(
+    "ExpectedHashMatch",
+    "Verify assembly matches expected hash from SLSA provenance",
+    matches,
+    matches ? "Hash matches expected" : $"Expected: {expectedHash}, Actual: {assemblyHash}"));
         }
 
         // 4. Check for tampering indicators
@@ -69,7 +69,7 @@ public static class SupplyChainVerifier
         return result;
     }
 
-    private static async Task<string> ComputeAssemblyHashAsync(System.Reflection.Assembly assembly, CancellationToken cancellationToken)
+    private async Task<string> ComputeAssemblyHashAsync(System.Reflection.Assembly assembly, CancellationToken cancellationToken)
     {
         var location = assembly.Location;
         using var stream = File.OpenRead(location);
@@ -78,7 +78,7 @@ public static class SupplyChainVerifier
         return Convert.ToHexString(hash);
     }
 
-    private static System.Collections.Generic.List<SupplyChainCheck> VerifyDependenciesAsync(
+    private System.Collections.Generic.List<SupplyChainCheck> VerifyDependenciesAsync(
         System.Reflection.Assembly assembly, 
         CancellationToken cancellationToken)
     {
@@ -103,7 +103,7 @@ public static class SupplyChainVerifier
         return checks;
     }
 
-    private static bool IsTrustedDependency(string name)
+    private bool IsTrustedDependency(string name)
     {
         // Trusted prefixes for dependencies
         var trustedPrefixes = new[]
@@ -209,7 +209,7 @@ public static class SupplyChainVerifier
                name.StartsWith("DataGuard.", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static System.Collections.Generic.List<SupplyChainCheck> CheckForTampering()
+    private System.Collections.Generic.List<SupplyChainCheck> CheckForTampering()
     {
         var checks = new System.Collections.Generic.List<SupplyChainCheck>();
         
@@ -231,25 +231,21 @@ public static class SupplyChainVerifier
         {
             var fileInfo = new FileInfo(location);
             var notEmpty = fileInfo.Length > 0;
-            checks.Add(new SupplyChainCheck
-            {
-                Name = "FileNotEmpty",
-                Description = "Verify assembly file is not empty",
-                Passed = notEmpty,
-                Details = notEmpty ? $"Size: {fileInfo.Length} bytes" : "File is empty (tampering suspected)"
-            });
+            checks.Add(new SupplyChainCheck(
+    "FileNotEmpty",
+    "Verify assembly file is not empty",
+    notEmpty,
+    notEmpty ? $"Size: {fileInfo.Length} bytes" : "File is empty (tampering suspected)"));
 
             // Check file is not recently modified (potential tampering)
             var recentlyModified = DateTime.UtcNow - fileInfo.LastWriteTimeUtc < TimeSpan.FromMinutes(5);
-            checks.Add(new SupplyChainCheck
-            {
-                Name = "RecentModification",
-                Description = "Check if assembly was recently modified (potential tampering)",
-                Passed = !recentlyModified,
-                Details = recentlyModified 
-                    ? $"WARNING: Assembly modified {DateTime.UtcNow - fileInfo.LastWriteTimeUtc} ago"
-                    : $"Last modified: {fileInfo.LastWriteTimeUtc:u}"
-            });
+            checks.Add(new SupplyChainCheck(
+    "RecentModification",
+    "Check if assembly was recently modified (potential tampering)",
+    !recentlyModified,
+    recentlyModified 
+        ? $"WARNING: Assembly modified {DateTime.UtcNow - fileInfo.LastWriteTimeUtc} ago"
+        : $"Last modified: {fileInfo.LastWriteTimeUtc:u}"));
         }
 
         // Check for strong name signature

@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
+using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 
 namespace DataGuard.Core.Plugins;
@@ -108,7 +109,7 @@ public interface IRuleMetadata
     string Name { get; }
     string Description { get; }
     string Category { get; }
-    DiagnosticSeverity DefaultSeverity { get; }
+    string DefaultSeverity { get; }
     string MinDataGuardVersion { get; }
     string Author { get; }
     string[] Tags { get; }
@@ -130,7 +131,7 @@ public sealed class ExportRuleAttribute : ExportAttribute, IRuleMetadata
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
     public string Category { get; set; } = "Custom";
-    public DiagnosticSeverity DefaultSeverity { get; set; } = DiagnosticSeverity.Warning;
+    public string DefaultSeverity { get; set; } = "Warning";
     public string MinDataGuardVersion { get; set; } = "1.0.0";
     public string Author { get; set; } = "";
     public string[] Tags { get; set; } = Array.Empty<string>();
@@ -139,12 +140,11 @@ public sealed class ExportRuleAttribute : ExportAttribute, IRuleMetadata
 /// <summary>
 /// Example custom rule plugin.
 /// </summary>
-[ExportRule(
-    RuleId = "CUSTOM001",
+[ExportRule("CUSTOM001",
     Name = "Custom Naming Convention",
     Description = "Enforces custom naming convention for specific schemas",
     Category = "Naming",
-    DefaultSeverity = DiagnosticSeverity.Warning,
+    DefaultSeverity = "Warning",
     MinDataGuardVersion = "1.0.0",
     Author = "DataGuard Team",
     Tags = new[] { "naming", "custom" }
@@ -153,7 +153,7 @@ public sealed class CustomNamingConventionRule : IContractRule
 {
     public string RuleId => "CUSTOM001";
     public string Name => "Custom Naming Convention";
-    public DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+    public Microsoft.CodeAnalysis.DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Warning;
     public string Description => "Enforces custom naming convention for specific schemas";
 
     public async Task<IReadOnlyList<ContractViolation>> ValidateAsync(
