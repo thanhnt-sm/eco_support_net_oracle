@@ -69,7 +69,7 @@ public class OracleDialectChecker
             if (sqlText.Contains(op, StringComparison.OrdinalIgnoreCase))
             {
                 violations.Add(new ContractViolation(
-                    "DG011",
+                    "DG010",
                     $"Oracle-specific operator '{op}' used in non-Oracle context",
                     DiagnosticSeverity.Warning,
                     location,
@@ -98,7 +98,7 @@ public class OracleDialectChecker
             if (ContainsKeyword(sqlText, keyword))
             {
                 violations.Add(new ContractViolation(
-                    "DG012",
+                    "DG011",
                     $"SQL Server-specific keyword '{keyword}' used in Oracle context",
                     DiagnosticSeverity.Warning,
                     location,
@@ -111,7 +111,7 @@ public class OracleDialectChecker
         if (sqlText.Contains("TOP", StringComparison.OrdinalIgnoreCase))
         {
             violations.Add(new ContractViolation(
-                "DG013",
+                "DG011",
                 "SQL Server TOP clause used in Oracle context (use FETCH FIRST n ROWS ONLY)",
                 DiagnosticSeverity.Warning,
                 location
@@ -121,7 +121,7 @@ public class OracleDialectChecker
         if (sqlText.Contains("LIMIT", StringComparison.OrdinalIgnoreCase))
         {
             violations.Add(new ContractViolation(
-                "DG014",
+                "DG011",
                 "MySQL/PostgreSQL LIMIT clause used in Oracle context (use FETCH FIRST n ROWS ONLY)",
                 DiagnosticSeverity.Warning,
                 location
@@ -144,7 +144,7 @@ public class OracleDialectChecker
             return new List<ContractViolation>
             {
                 new ContractViolation(
-                    "DG015",
+                    "DG012",
                     $"Oracle context detected but provider is '{providerName}'. Expected Oracle provider.",
                     DiagnosticSeverity.Error,
                     location
@@ -171,7 +171,7 @@ public class OracleDialectChecker
         if (System.Text.RegularExpressions.Regex.IsMatch(sqlText, @"\bEXEC\s+\w+\.", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             violations.Add(new ContractViolation(
-                "DG016",
+                "DG013",
                 "SQL Server EXEC dbo.Procedure syntax used in Oracle context. Use BEGIN ... END; block or CALL.",
                 DiagnosticSeverity.Warning,
                 location
@@ -189,9 +189,44 @@ public class OracleDialectChecker
         bool isOracleContext,
         Location? location = null)
     {
-        // This would check for types that Oracle EF Core doesn't map
-        // Placeholder for future implementation
-        return Array.Empty<ContractViolation>();
+        var violations = new List<ContractViolation>();
+
+        if (isOracleContext)
+        {
+            // SQL Server types that Oracle EF Core does not map
+            string[] sqlServerTypes = { "UNIQUEIDENTIFIER", "MONEY", "SMALLMONEY", "DATETIME2", "DATETIMEOFFSET", "GEOGRAPHY", "GEOMETRY", "HIERARCHYID", "SQL_VARIANT" };
+            foreach (var type in sqlServerTypes)
+            {
+                if (ContainsKeyword(sqlText, type))
+                {
+                    violations.Add(new ContractViolation(
+                        "DG014",
+                        $"Type '{type}' used with Oracle EF Core raw SQL but not mapped by provider",
+                        DiagnosticSeverity.Warning,
+                        location,
+                        new Dictionary<string, object?> { { "type", type } }));
+                }
+            }
+        }
+        else
+        {
+            // Oracle types that SQL Server does not map
+            string[] oracleTypes = { "VARCHAR2", "NVARCHAR2", "NUMBER", "CLOB", "NCLOB", "BLOB", "RAW", "ROWID", "UROWID", "BINARY_FLOAT", "BINARY_DOUBLE" };
+            foreach (var type in oracleTypes)
+            {
+                if (ContainsKeyword(sqlText, type))
+                {
+                    violations.Add(new ContractViolation(
+                        "DG014",
+                        $"Type '{type}' used with SQL Server raw SQL but not mapped by provider",
+                        DiagnosticSeverity.Warning,
+                        location,
+                        new Dictionary<string, object?> { { "type", type } }));
+                }
+            }
+        }
+
+        return violations;
     }
 
     private static bool ContainsKeyword(string text, string keyword)
@@ -223,7 +258,7 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
         if (contract is RawSqlDescriptor rawSql)
         {
             var checker = new OracleDialectChecker();
-            var isOracle = false; // Would be determined from context
+            var isOracle = false; // This rule detects Oracle syntax leaking into non-Oracle (SQL Server) context
             violations.AddRange(checker.CheckOracleSyntaxInNonOracleContext(rawSql.SqlText, isOracle, contract.Location));
         }
         return Task.CompletedTask;
@@ -235,7 +270,7 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 /// </summary>
 public class NonOracleFunctionInOracleContextRule : ContractRuleBase
 {
-    public override string RuleId => "DG012";
+    public override string RuleId => "DG011";
     public override string Name => "Non-Oracle Function in Oracle Context";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
     public override string Description => "SQL Server/MySQL function used in Oracle context";
@@ -260,7 +295,7 @@ public class NonOracleFunctionInOracleContextRule : ContractRuleBase
 /// </summary>
 public class ProviderOptionMismatchRule : ContractRuleBase
 {
-    public override string RuleId => "DG015";
+    public override string RuleId => "DG012";
     public override string Name => "Provider Option Mismatch";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
     public override string Description => "Database context doesn't match configured provider";
@@ -271,7 +306,7 @@ public class ProviderOptionMismatchRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        // Implementation would check DbContextOptions for provider mismatch
+        // Requires DbContext provider registration info (available only in the Roslyn analyzer, not contract-based rules)
         return Task.CompletedTask;
     }
 }
@@ -281,7 +316,7 @@ public class ProviderOptionMismatchRule : ContractRuleBase
 /// </summary>
 public class SqlServerSyntaxLeakRule : ContractRuleBase
 {
-    public override string RuleId => "DG016";
+    public override string RuleId => "DG013";
     public override string Name => "SQL Server Syntax Leak";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
     public override string Description => "SQL Server EXEC syntax used in Oracle context";
@@ -306,7 +341,7 @@ public class SqlServerSyntaxLeakRule : ContractRuleBase
 /// </summary>
 public class RawSqlUnmappedTypeUsageRule : ContractRuleBase
 {
-    public override string RuleId => "DG017";
+    public override string RuleId => "DG014";
     public override string Name => "Raw SQL Unmapped Type Usage";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
     public override string Description => "Raw SQL uses type not mapped by Oracle EF Core provider";
@@ -317,6 +352,11 @@ public class RawSqlUnmappedTypeUsageRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
+        if (contract is RawSqlDescriptor rawSql)
+        {
+            var checker = new OracleDialectChecker();
+            violations.AddRange(checker.CheckRawSqlUnmappedTypeUsage(rawSql.SqlText, true, contract.Location));
+        }
         return Task.CompletedTask;
     }
 }
