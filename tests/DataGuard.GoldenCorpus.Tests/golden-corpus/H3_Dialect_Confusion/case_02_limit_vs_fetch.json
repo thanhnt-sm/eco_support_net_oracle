@@ -21,8 +21,8 @@
   },
   "expectedDiagnostics": [
     {
-      "ruleId": "DG010",
-      "messageContains": "LIMIT clause not supported in Oracle, use FETCH FIRST 10 ROWS ONLY",
+      "ruleId": "DG011",
+      "messageContains": "LIMIT clause not supported in Oracle, use FETCH FIRST n ROWS ONLY",
       "severity": "Warning"
     }
   ]

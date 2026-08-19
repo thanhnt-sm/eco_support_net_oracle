@@ -21,7 +21,7 @@
   },
   "expectedDiagnostics": [
     {
-      "ruleId": "DG001",
+      "ruleId": "DG015",
       "messageContains": "Table 'ORDERS_SUMMARY' does not exist in database",
       "severity": "Error"
     }

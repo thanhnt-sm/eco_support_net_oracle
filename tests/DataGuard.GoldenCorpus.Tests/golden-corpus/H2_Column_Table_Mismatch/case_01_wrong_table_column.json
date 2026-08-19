@@ -23,7 +23,7 @@
   },
   "expectedDiagnostics": [
     {
-      "ruleId": "DG001",
+      "ruleId": "DG016",
       "messageContains": "Column 'CUSTOMER_ID' does not exist in table 'ORDER_DETAILS'",
       "severity": "Error"
     }

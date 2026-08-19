@@ -36,6 +36,8 @@ public static class DiagnosticIds
     public const string ProviderOptionMismatch = "DG012";    // CI heavy: missing UseOracle
     public const string SqlServerSyntaxLeak = "DG013";       // CI heavy: EXEC dbo. in Oracle
     public const string UnmappedTypeUsage = "DG014";         // CI heavy: unmapped type in Oracle
+    public const string PhantomTable = "DG015";              // CI heavy: table reference doesn't exist
+    public const string PhantomColumn = "DG016";             // CI heavy: column reference doesn't exist
 }
 
 /// <summary>
@@ -170,6 +172,23 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "Oracle EF Core 8+ raw SQL requires mapped types.");
+    public static readonly DiagnosticDescriptor PhantomTable = new(
+        id: DiagnosticIds.PhantomTable,
+        title: "Phantom table reference",
+        messageFormat: "Table '{0}' does not exist in database",
+        category: "DataGuard.Contracts",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Raw SQL references a table that doesn't exist in the database schema (AI hallucination).");
+
+    public static readonly DiagnosticDescriptor PhantomColumn = new(
+        id: DiagnosticIds.PhantomColumn,
+        title: "Phantom column reference",
+        messageFormat: "Column '{0}' does not exist in table '{1}'",
+        category: "DataGuard.Contracts",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Raw SQL references a column that doesn't exist in its table (AI hallucination).");
 }
 
 /// <summary>

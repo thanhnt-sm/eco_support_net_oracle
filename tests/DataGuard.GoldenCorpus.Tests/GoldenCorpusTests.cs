@@ -247,7 +247,8 @@ public class GoldenCorpusTests
             new ParameterDirectionRule(),
             new ColumnShapeMatchRule(),
             new NullableMismatchRule(),
-            new NamingConventionRule()
+            new NamingConventionRule(),
+            new PhantomIdentifierRule()
         };
 
         // Add provider-specific rules
@@ -337,10 +338,71 @@ public class DatabaseSchema
     public List<DatabaseTable> Tables { get; set; } = new();
 }
 
+[JsonConverter(typeof(DatabaseTableConverter))]
 public class DatabaseTable
 {
     public string Name { get; set; } = "";
     public List<DatabaseColumn> Columns { get; set; } = new();
+}
+
+public class DatabaseTableConverter : JsonConverter<DatabaseTable>
+{
+    public override DatabaseTable Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var table = new DatabaseTable();
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject) break;
+            if (reader.TokenType != JsonTokenType.PropertyName) continue;
+
+            var prop = reader.GetString();
+            reader.Read();
+            switch (prop)
+            {
+                case "name":
+                    table.Name = reader.GetString() ?? "";
+                    break;
+                case "columns":
+                    table.Columns = ReadColumns(ref reader, options);
+                    break;
+                default:
+                    reader.Skip();
+                    break;
+            }
+        }
+        return table;
+    }
+
+    private static List<DatabaseColumn> ReadColumns(ref Utf8JsonReader reader, JsonSerializerOptions options)
+    {
+        var columns = new List<DatabaseColumn>();
+        if (reader.TokenType != JsonTokenType.StartArray) return columns;
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType == JsonTokenType.String)
+            {
+                columns.Add(new DatabaseColumn { Name = reader.GetString() ?? "" });
+            }
+            else if (reader.TokenType == JsonTokenType.StartObject)
+            {
+                var col = JsonSerializer.Deserialize<DatabaseColumn>(ref reader, options);
+                if (col != null) columns.Add(col);
+            }
+        }
+        return columns;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DatabaseTable value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("name", value.Name);
+        writer.WriteStartArray("columns");
+        foreach (var c in value.Columns)
+            JsonSerializer.Serialize(writer, c, options);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
 }
 
 

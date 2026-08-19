@@ -21,8 +21,8 @@
   },
   "expectedDiagnostics": [
     {
-      "ruleId": "DG010",
-      "messageContains": "Oracle-specific syntax 'GROUP_CONCAT' used but should be 'LISTAGG'",
+      "ruleId": "DG011",
+      "messageContains": "Non-Oracle function 'GROUP_CONCAT' used in Oracle context - use LISTAGG",
       "severity": "Warning"
     }
   ]

@@ -21,7 +21,7 @@
   },
   "expectedDiagnostics": [
     {
-      "ruleId": "DG004",
+      "ruleId": "DG016",
       "messageContains": "Column 'ADDRESS' does not exist in table 'CUSTOMERS'",
       "severity": "Error"
     }

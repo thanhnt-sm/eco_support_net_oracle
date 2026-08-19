@@ -122,9 +122,20 @@ public class OracleDialectChecker
         {
             violations.Add(new ContractViolation(
                 "DG011",
-                "MySQL/PostgreSQL LIMIT clause used in Oracle context (use FETCH FIRST n ROWS ONLY)",
+                "LIMIT clause not supported in Oracle, use FETCH FIRST n ROWS ONLY",
                 DiagnosticSeverity.Warning,
                 location
+            ));
+        }
+
+        if (sqlText.Contains("GROUP_CONCAT", StringComparison.OrdinalIgnoreCase))
+        {
+            violations.Add(new ContractViolation(
+                "DG011",
+                "Non-Oracle function 'GROUP_CONCAT' used in Oracle context - use LISTAGG",
+                DiagnosticSeverity.Warning,
+                location,
+                new Dictionary<string, object?> { { "function", "GROUP_CONCAT" }, { "suggestion", "LISTAGG" } }
             ));
         }
 
