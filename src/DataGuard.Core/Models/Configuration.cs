@@ -17,6 +17,7 @@ public record DataGuardConfiguration(
     int MaxDegreeOfParallelism = 0, // 0 = auto (Environment.ProcessorCount)
     bool EnableConcurrentValidation = true,
     int ValidationTimeoutSeconds = 300,
+    int MaxViolationQueueSize = 100000,
     
     // Security settings
     bool EnableCredentialRotationDetection = true,

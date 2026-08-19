@@ -6,6 +6,7 @@ using DataGuard.Core.Models;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Security;
+using DataGuard.Core.Validation;
 using System.IO;
 
 namespace DataGuard.Core.Tests;
@@ -217,5 +218,30 @@ public class AuditLoggerTests
         {
             if (File.Exists(tempFile)) File.Delete(tempFile);
         }
+    }
+}
+
+public class ConcurrentValidationEngineTests
+{
+    [Fact]
+    public async Task ValidateAsync_MatchesSequentialResults()
+    {
+        var entity = new EntityDescriptor(
+            "e1", "Customer", "Customer", "CUSTOMERS",
+            new List<PropertyDescriptor>
+            {
+                new PropertyDescriptor("FullName", "string", "FULL_NAME", "VARCHAR2(100)", false, 200, false, false)
+            });
+        var contracts = new List<ContractDescriptor> { entity };
+        var rules = new List<IContractRule> { new NamingConventionRule() };
+
+        var engine = new ConcurrentValidationEngine();
+        var concurrent = await engine.ValidateAsync(contracts, rules);
+
+        var sequential = new List<ContractViolation>();
+        foreach (var rule in rules)
+            sequential.AddRange(await rule.ValidateAsync(entity, contracts));
+
+        concurrent.Count.Should().Be(sequential.Count);
     }
 }

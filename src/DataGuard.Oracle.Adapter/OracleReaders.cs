@@ -336,6 +336,54 @@ public class AllTabColumnsReader
         return columns;
     }
 
+    /// <summary>
+    /// Reads all tables' columns for an owner, grouped by table name.
+    /// </summary>
+    public async Task<Dictionary<string, List<ColumnDescriptor>>> GetAllColumnsAsync(
+        string owner,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new Dictionary<string, List<ColumnDescriptor>>(StringComparer.OrdinalIgnoreCase);
+
+        const string sql = @"
+            SELECT table_name, column_name, data_type, data_length, char_length,
+                   data_precision, data_scale, nullable, char_used, data_default, column_id
+            FROM all_tab_columns
+            WHERE owner = :owner
+            ORDER BY table_name, column_id";
+
+        await using var connection = new OracleConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new OracleCommand(sql, connection);
+        command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var tableName = reader.IsDBNull(0) ? "" : reader.GetString(0);
+            var column = new ColumnDescriptor(
+                Name: reader.IsDBNull(1) ? "" : reader.GetString(1),
+                DataType: reader.IsDBNull(2) ? "" : reader.GetString(2),
+                MaxLength: reader.IsDBNull(3) ? null : (int?)reader.GetInt32(3),
+                CharLength: reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
+                Precision: reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5),
+                Scale: reader.IsDBNull(6) ? null : (int?)reader.GetInt32(6),
+                IsNullable: !reader.IsDBNull(7) && reader.GetString(7) == "Y",
+                CharUsed: NormalizeCharUsed(reader.IsDBNull(8) ? null : reader.GetString(8)),
+                DataDefault: reader.IsDBNull(9) ? null : reader.GetString(9),
+                ColumnId: reader.IsDBNull(10) ? 0 : reader.GetInt32(10));
+
+            if (!result.TryGetValue(tableName, out var list))
+            {
+                list = new List<ColumnDescriptor>();
+                result[tableName] = list;
+            }
+            list.Add(column);
+        }
+
+        return result;
+    }
+
     private static string? NormalizeCharUsed(string? charUsed)
     {
         return charUsed?.ToUpperInvariant() switch

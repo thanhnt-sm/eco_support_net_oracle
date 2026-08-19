@@ -12,6 +12,7 @@ using DataGuard.Core.Sources;
 using DataGuard.Oracle.Adapter;
 using Microsoft.CodeAnalysis;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Validation;
 
 var assembly = Assembly.GetExecutingAssembly();
 var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -574,12 +575,20 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
     }
 
     var rules = GetRulesForProvider(provider);
-    foreach (var rule in rules)
+    if (config.EnableConcurrentValidation)
     {
-        foreach (var contract in contracts)
+        var engine = new ConcurrentValidationEngine(config.MaxDegreeOfParallelism, config.MaxViolationQueueSize);
+        allViolations.AddRange(await engine.ValidateAsync(contracts, rules));
+    }
+    else
+    {
+        foreach (var rule in rules)
         {
-            var ruleViolations = await rule.ValidateAsync(contract, contracts, CancellationToken.None);
-            allViolations.AddRange(ruleViolations);
+            foreach (var contract in contracts)
+            {
+                var ruleViolations = await rule.ValidateAsync(contract, contracts, CancellationToken.None);
+                allViolations.AddRange(ruleViolations);
+            }
         }
     }
 
@@ -609,15 +618,38 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
         return violations;
     }
 
+    var owner = config.DefaultSchema ?? config.Oracle?.Owner;
     try
     {
         // Read NLS length semantics (CHAR vs BYTE) to drive byte-overflow detection.
         var semanticsResolver = new LengthSemanticsResolver(config.ConnectionString);
         var semantics = await semanticsResolver.ResolveAsync();
 
+        // Read the full schema (all tables' columns) for the owner.
+        var columnsReader = new AllTabColumnsReader(config.ConnectionString);
+        var tables = new List<DatabaseTableDescriptor>();
+        if (!string.IsNullOrEmpty(owner))
+        {
+            var allColumns = await columnsReader.GetAllColumnsAsync(owner);
+            tables = allColumns
+                .Select(kv => new DatabaseTableDescriptor(kv.Key, kv.Value))
+                .ToList();
+        }
+
+        var schemaDescriptor = new DatabaseSchemaDescriptor(
+            Id: "oracle-schema",
+            Tables: tables,
+            LengthSemantics: semantics == LengthSemantics.Byte ? "BYTE" : "CHAR");
+
+        // Run Oracle dialect checks against the schema column types (unmapped type detection).
+        var checker = new OracleDialectChecker();
+        var sqlText = string.Join(" ", tables.SelectMany(t => t.Columns).Select(c => $"{c.DataType} {c.Name}"));
+        violations.AddRange(checker.CheckRawSqlUnmappedTypeUsage(sqlText, isOracleContext: true));
+
         if (verbose)
         {
             console.Out.WriteLine($"Oracle NLS length semantics: {semantics}");
+            console.Out.WriteLine($"Oracle schema '{owner}': {tables.Count} tables, {tables.Sum(t => t.Columns.Count)} columns");
         }
     }
     catch (Exception ex)
