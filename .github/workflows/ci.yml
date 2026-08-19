@@ -1,145 +1,206 @@
-name: 'CI'
-'on':
+name: CI
+
+on:
   push:
-    branches:
-      - 'main'
-      - 'develop'
+    branches: [main, develop]
   pull_request:
-    branches:
-      - 'main'
-      - 'develop'
+    branches: [main, develop]
   workflow_dispatch: {}
+
+# Least-privilege floor; individual jobs declare what they need.
 permissions:
-  contents: 'read'
-  packages: 'read'
-  security-events: 'write'
-  id-token: 'write'
+  contents: read
+
 env:
-  DOTNET_VERSION: '8.0.x'
-  NUGET_SOURCE: 'https://api.nuget.org/v3/index.json'
+  DOTNET_VERSION: "9.0.x"
+  NUGET_SOURCE: "https://api.nuget.org/v3/index.json"
+
 jobs:
   build-and-test:
-    name: 'Build and Test'
-    runs-on: 'ubuntu-latest'
+    name: Build and Test
+    runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout'
-        uses: 'actions/checkout@v4'
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
         with:
           fetch-depth: 0
-      - name: 'Setup .NET'
-        uses: 'actions/setup-dotnet@v4'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '${{ env.DOTNET_VERSION }}'
-      - name: 'Restore dependencies'
-        run: 'dotnet restore DataGuard.sln'
-      - name: 'Build solution'
-        run: 'dotnet build DataGuard.sln --configuration Release --no-restore'
-      - name: 'Run analyzers'
-        run: 'dotnet build DataGuard.sln --configuration Release --no-restore /p:RunAnalyzers=true'
-      - name: 'Run tests'
-        run: 'dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"'
-        continue-on-error: true
-      - name: 'Upload test results'
-        uses: 'actions/upload-artifact@v4'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          name: 'test-results'
-          path: '**/TestResults/*.trx'
-      - name: 'Upload coverage'
-        uses: 'actions/upload-artifact@v4'
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore DataGuard.sln
+
+      - name: Build solution
+        run: dotnet build DataGuard.sln --configuration Release --no-restore
+
+      - name: Run analyzers
+        run: dotnet build DataGuard.sln --configuration Release --no-restore /p:RunAnalyzers=true
+
+      - name: Run tests (fail-fast)
+        run: dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: 'coverage'
-          path: '**/coverage.cobertura.xml'
+          name: test-results
+          path: "**/TestResults/*.trx"
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: "**/coverage.cobertura.xml"
+
   security-scan:
-    name: 'Security Scan'
-    runs-on: 'ubuntu-latest'
+    name: Security Scan
+    runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout'
-        uses: 'actions/checkout@v4'
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
         with:
           fetch-depth: 0
-      - name: 'Setup .NET'
-        uses: 'actions/setup-dotnet@v4'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '${{ env.DOTNET_VERSION }}'
-      - name: 'Restore dependencies'
-        run: 'dotnet restore DataGuard.sln'
-      # "NuGetPackageExplorer.CLI" and "dotnet-scan" are not real packages —
-      # the built-in, always-available NuGet vulnerability audit is
-      # `dotnet list package --vulnerable`, which needs no extra tool install.
-      - name: 'List vulnerable NuGet packages'
-        run: 'dotnet list DataGuard.sln package --vulnerable --include-transitive'
-        continue-on-error: true
-      - name: 'Check for secrets with TruffleHog'
-        if: 'github.event_name == ''pull_request'''
-        uses: 'trufflesecurity/trufflehog@main'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore DataGuard.sln
+
+      # `dotnet list package --vulnerable` always exits 0 even when
+      # vulnerable packages are found — parse the JSON and fail explicitly.
+      # Note: --vulnerable output only carries `vulnerabilities`; deprecated
+      # packages need the separate --deprecated flag, so only vulnerable is
+      # checked here.
+      - name: List vulnerable NuGet packages (gate)
+        run: |
+          dotnet list DataGuard.sln package --vulnerable --include-transitive --format json > vuln.json
+          python3 - <<'EOF'
+          import json, sys
+          with open('vuln.json') as f:
+              data = json.load(f)
+          bad = []
+          for proj in data.get('projects', []):
+              for fw in proj.get('frameworks', []):
+                  for pkg in fw.get('topLevelPackages', []) + fw.get('transitivePackages', []):
+                      if pkg.get('vulnerabilities'):
+                          bad.append((pkg.get('name', '?'), proj.get('path', '?')))
+          if bad:
+              for name, path in bad:
+                  print(f"::error::Vulnerable package: {name} ({path})")
+              sys.exit(1)
+          print('No vulnerable packages found.')
+          EOF
+
+      - name: Check for secrets with TruffleHog
+        uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
         with:
-          path: './'
-          base: '${{ github.base_ref }}'
-          head: 'HEAD'
-        continue-on-error: true
+          path: ./
+          only_verified: true
+          version: "3.97.0"
+
   generate-sbom:
-    name: 'Generate SBOM'
-    runs-on: 'ubuntu-latest'
+    name: Generate SBOM
+    runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout'
-        uses: 'actions/checkout@v4'
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
         with:
           fetch-depth: 0
-      - name: 'Setup .NET'
-        uses: 'actions/setup-dotnet@v4'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '${{ env.DOTNET_VERSION }}'
-      - name: 'Install sbom-tool'
-        run: "dotnet tool install --global Microsoft.Sbom.DotNetTool\necho \"$HOME/.dotnet/tools\" >> $GITHUB_PATH\n"
-      - name: 'Generate SBOM for solution'
-        run: "export PATH=\"$HOME/.dotnet/tools:$PATH\"\nsbom-tool generate \\\n  -b \"$(pwd)/src\" \\\n  -bc \"DataGuard.sln\" \\\n  -pn \"DataGuard\" \\\n  -pv \"0.1.0-ci\" \\\n  -ps \"$(pwd)/artifacts\" \\\n  -o \"$(pwd)/sbom\"\n"
-      - name: 'Upload SBOM'
-        uses: 'actions/upload-artifact@v4'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore DataGuard.sln
+
+      - name: Install sbom-tool (pinned)
+        run: |
+          dotnet tool install --global Microsoft.Sbom.DotNetTool --version 4.1.5
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Generate SBOM for solution
+        run: |
+          export PATH="$HOME/.dotnet/tools:$PATH"
+          # -m is the output directory (must pre-exist); -bc must be a
+          # directory; -o does not exist in sbom-tool 4.1.5.
+          mkdir -p "$(pwd)/sbom" "$(pwd)/artifacts"
+          sbom-tool generate \
+            -b "$(pwd)/src" \
+            -bc "$(pwd)/src" \
+            -pn "DataGuard" \
+            -pv "0.1.0-ci" \
+            -ps "$(pwd)/artifacts" \
+            -m "$(pwd)/sbom"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: 'sbom'
-          path: './sbom/**/*'
+          name: sbom
+          path: ./sbom/**/*
           retention-days: 7
-  docker-build:
-    name: 'Build Docker Image'
-    runs-on: 'ubuntu-latest'
-    needs:
-      - 'build-and-test'
-    if: 'github.event_name == ''push'' && github.ref == ''refs/heads/main'''
+
+  docker-smoke:
+    name: Build and Smoke-Test Docker Image
+    runs-on: ubuntu-latest
+    needs: [build-and-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: 'Checkout'
-        uses: 'actions/checkout@v4'
-      - name: 'Set up Docker Buildx'
-        uses: 'docker/setup-buildx-action@v3'
-      - name: 'Build Docker image (no push)'
-        uses: 'docker/build-push-action@v5'
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
-          context: '.'
-          file: 'Dockerfile'
+          context: .
+          file: Dockerfile
           push: false
-          tags: 'ghcr.io/${{ github.repository }}/dataguard:latest'
+          tags: dataguard:test
           load: true
-      - name: 'Test Docker image'
-        run: "docker run --rm ghcr.io/${{ github.repository }}/dataguard:latest --help\n"
+
+      - name: Smoke test (CLI --help)
+        run: docker run --rm dataguard:test --help
+
   codeql:
-    name: 'CodeQL Analysis'
-    runs-on: 'ubuntu-latest'
-    needs:
-      - 'build-and-test'
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    needs: [build-and-test]
     permissions:
-      security-events: 'write'
+      contents: read
+      security-events: write
+      actions: read
     steps:
-      - name: 'Checkout'
-        uses: 'actions/checkout@v4'
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
         with:
           fetch-depth: 0
-      - name: 'Initialize CodeQL'
-        uses: 'github/codeql-action/init@v3'
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@d6317709a54fd87078d323eeb0e48ec331c8e621 # v3
         with:
-          languages: 'csharp'
-          # Only keep config-file if .github/codeql-config.yml actually
-          # exists in the repo — otherwise this step fails outright.
-          # config-file: './.github/codeql-config.yml'
-      - name: 'Perform CodeQL Analysis'
-        uses: 'github/codeql-action/analyze@v3'
+          languages: csharp
+          config-file: ./.github/codeql-config.yml
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@d6317709a54fd87078d323eeb0e48ec331c8e621 # v3
         with:
-          category: '/language:csharp'
+          category: "/language:csharp"

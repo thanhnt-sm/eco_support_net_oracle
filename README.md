@@ -28,13 +28,10 @@ npm install -g @eco-support/cli
 pnpm add -g @eco-support/cli
 ```
 
-### MCP Server (Docker)
+### DataGuard CLI (Docker)
 ```bash
-docker pull ghcr.io/thanhnt-sm/eco_support_net_oracle/eco-support-mcp:latest
-docker run -p 8080:8080 \
-  -e ANTHROPIC_API_KEY=your_key \
-  -e GITHUB_TOKEN=your_token \
-  ghcr.io/thanhnt-sm/eco_support_net_oracle/eco-support-mcp:latest
+docker pull ghcr.io/thanhnt-sm/eco_support_net_oracle:latest
+docker run --rm ghcr.io/thanhnt-sm/eco_support_net_oracle:latest --help
 ```
 
 ### MCP Server (Cloudflare Workers)

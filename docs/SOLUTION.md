@@ -167,43 +167,49 @@ DataGuard.sln
 
 ## Pipeline CI/CD
 
+> Pipeline được rewrite toàn diện (2026-08): SDK `9.0.x`, permissions tối thiểu,
+> pin SHA toàn bộ actions, supply-chain (cosign v3.1.3 keyless + SBOM + attestations),
+> Trusted Publishing cho NuGet. Chi tiết: `plans/2026-08-20-ci-cd-upgrade.md`.
+
 ### Build & Test (`.github/workflows/ci.yml`)
 ```yaml
 jobs:
-  build-and-test:
-    - dotnet restore
-    - dotnet build --configuration Release
-    - dotnet build /p:RunAnalyzers=true
-    - dotnet test --collect:"XPlat Code Coverage"
+  build-and-test:   # SDK 9.0.x, NuGet cache, fail-fast
+    - dotnet restore DataGuard.sln
+    - dotnet build --configuration Release --no-restore
+    - dotnet test DataGuard.sln --configuration Release --no-build
+    - dotnet list DataGuard.sln package --vulnerable --include-transitive (gate, parse JSON)
 
   security-scan:
-    - TruffleHog secrets scan
-    - dotnet-scan OWASP
-    - CodeQL Analysis
+    - TruffleHog (pin SHA, only_verified) — push + PR
+    - CodeQL Analysis (default csharp + custom queries .github/codeql)
 
   generate-sbom:
-    - Microsoft.Sbom.Tool per project
+    - Microsoft.Sbom.Tool 4.1.5 (pin global tool) — sbom-tool generate
+      (-bc directory, -m output dir) → upload sboms artifact
 
-  docker-build:
-    - docker/build-push-action (main branch only)
+  docker-smoke:     # chỉ push → main
+    - build image qua Dockerfile → chạy `DataGuard.Cli.dll --help`
 ```
 
 ### Release (`.github/workflows/release.yml`)
 ```yaml
 jobs:
-  build-and-test: (same as CI)
+  build-and-test: (same as CI) + pack NuGet (version từ git tag, strip prefix v)
   sign-packages:
-    - cosign keyless signing + bundles
-  generate-sbom:
-    - Microsoft.Sbom.Tool
+    - cosign v3.1.3 keyless signing + `--bundle` (nupkgs) → signed-nupkgs artifact
+    - SBOM per-package (download nupkgs thật → sbom-tool generate) → sboms artifact
   publish-nuget:
-    - dotnet nuget push with NUGET_API_KEY
-  create-github-release:
-    - softprops/action-gh-release
+    - Trusted Publishing (NuGet/login OIDC, secret NUGET_USER) fallback NUGET_API_KEY
+    - dotnet nuget push từ artifacts (không skip-duplicate)
   publish-attestations:
-    - gh attestation upload
+    - actions/attest@v4 (build provenance, id-token) — thay `gh attestation upload`
+  create-github-release:
+    - gh CLI: draft → attach nupkg + .sigstore.json + SBOM → publish
+      (guard: xóa draft cũ khi re-run, fail nếu đã published)
   docker:
-    - docker/build-push-action to GHCR
+    - buildx + QEMU: linux/amd64 + linux/arm64 → push GHCR
+    - tags: semver (từ git tag) + raw version + latest (workflow_dispatch)
 ```
 
 ---

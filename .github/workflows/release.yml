@@ -11,17 +11,13 @@ on:
         required: true
         type: string
 
-# Global env
-env:
-  DOTNET_VERSION: "8.0.x"
-  NUGET_SOURCE: "https://api.nuget.org/v3/index.json"
-
 # Top-level permissions are conservative; individual jobs request what they need.
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
+
+env:
+  DOTNET_VERSION: "9.0.x"
+  NUGET_SOURCE: "https://api.nuget.org/v3/index.json"
 
 jobs:
   build-and-test:
@@ -30,10 +26,11 @@ jobs:
     permissions:
       contents: read
     outputs:
-      release_version: ${{ steps.version.outputs.value }}
+      release_tag: ${{ steps.version.outputs.tag }}
+      release_version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
         with:
           # On a tag push, github.ref already points at the tag. On a manual
           # run there is no tag ref, so check out the tag given in the input.
@@ -42,17 +39,26 @@ jobs:
 
       - name: Resolve release version
         id: version
+        env:
+          REF_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
+          # tag keeps the "v" prefix (matches the git tag); version strips it
+          # (NuGet package / SBOM / Docker tag use plain SemVer).
+          echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
         run: dotnet restore DataGuard.sln
@@ -65,18 +71,27 @@ jobs:
           dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results
           path: "**/TestResults/*.trx"
 
+      # Package version MUST match the release tag (SemVer without the "v"
+      # prefix). The csproj files hardcode 0.1.0-alpha.1 — overriding at pack
+      # time keeps build output consistent with the GitHub release and makes
+      # duplicate versions fail loudly instead of being silently skipped.
       - name: Pack NuGet packages
         run: |
-          dotnet pack DataGuard.sln --configuration Release --no-build --output ./artifacts
+          dotnet pack DataGuard.sln --configuration Release --no-build --output ./artifacts \
+            -p:PackageVersion="$RELEASE_VERSION" \
+            -p:Version="$RELEASE_VERSION"
           ls -la ./artifacts/
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
 
       - name: Upload NuGet packages (un-signed)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nupkgs
           path: ./artifacts/*.nupkg
@@ -87,8 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-test
     permissions:
-      id-token: write   # required for keyless cosign with OIDC
-      attestations: write
+      id-token: write # required for keyless cosign with OIDC
       contents: read
     steps:
       - name: Download NuGet packages
@@ -98,11 +112,11 @@ jobs:
           path: ./artifacts
 
       - name: Install sigstore (cosign)
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
-          # cosign-installer now refuses to install any cosign release older
-          # than v2.6.0, so the previous "v2.2.0" pin failed at install time.
-          cosign-release: "v2.6.0"
+          # v2.6.0 was vulnerable to GHSA-fx35-mq7g-6g98 (fixed in v2.6.5/v3.1.3);
+          # bundle output is the default format since cosign v3.1.
+          cosign-release: "v3.1.3"
 
       - name: Verify cosign is available
         run: |
@@ -112,7 +126,7 @@ jobs:
           fi
           cosign version
 
-      - name: Sign packages (keyless) and produce .cosign signatures
+      - name: Sign packages (keyless) with bundle
         run: |
           set -euo pipefail
           mkdir -p ./artifacts
@@ -121,11 +135,12 @@ jobs:
           for pkg in ./artifacts/*.nupkg; do
             found=true
             echo "Signing $pkg..."
-            # --yes is required on cosign v2+: without it, sign-blob waits on
-            # an interactive confirmation prompt that never comes in CI.
-            cosign sign-blob --keyless --yes --output-signature="$pkg.cosign" "$pkg"
-            if [ ! -f "$pkg.cosign" ]; then
-              echo "Signature for $pkg not found" >&2
+            # --yes required on cosign v2+: sign-blob waits on an interactive
+            # confirmation prompt that never comes in CI. --bundle stores
+            # signature + certificate + tlog proof in one file (recommended).
+            cosign sign-blob --keyless --yes --bundle "$pkg.sigstore.json" "$pkg"
+            if [ ! -f "$pkg.sigstore.json" ]; then
+              echo "Signature bundle for $pkg not found" >&2
               exit 1
             fi
           done
@@ -140,28 +155,28 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           for pkg in ./artifacts/*.nupkg; do
-            sig="$pkg.cosign"
-            if [ ! -f "$sig" ]; then
-              echo "Missing signature for $pkg: $sig" >&2
+            bundle="$pkg.sigstore.json"
+            if [ ! -f "$bundle" ]; then
+              echo "Missing signature bundle for $pkg: $bundle" >&2
               exit 1
             fi
-            echo "Verifying $pkg with $sig..."
+            echo "Verifying $pkg with $bundle..."
             # cosign v2+ requires an explicit expected identity/issuer for
-            # keyless verification; without these flags verify-blob errors out.
+            # keyless verification; the bundle makes this offline-capable.
             cosign verify-blob \
-              --signature "$sig" \
+              --bundle "$bundle" \
               --certificate-identity-regexp "^https://github.com/${{ github.repository }}/\.github/workflows/release\.yml@.*$" \
               --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
               "$pkg"
           done
 
-      - name: Upload signed packages and signatures
-        uses: actions/upload-artifact@v4
+      - name: Upload signed packages and signature bundles
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: signed-nupkgs
           path: |
             ./artifacts/*.nupkg
-            ./artifacts/*.cosign
+            ./artifacts/*.sigstore.json
           retention-days: 30
 
   generate-sbom:
@@ -172,28 +187,33 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Install SBOM tool and add to PATH
         run: |
           set -euo pipefail
-          dotnet tool install --global Microsoft.Sbom.Tool
-          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+          dotnet tool install --global Microsoft.Sbom.DotNetTool --version 4.1.5
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
           export PATH="$HOME/.dotnet/tools:$PATH"
           sbom-tool --version
+
+      - name: Download NuGet packages to supply to the SBOM tool
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: nupkgs
+          path: ./artifacts
 
       - name: Generate SBOM for each project
         run: |
           set -euo pipefail
-          mkdir -p ./sbom ./artifacts
           shopt -s nullglob
           found=false
           for proj in src/*/DataGuard.*.csproj; do
@@ -201,13 +221,16 @@ jobs:
               found=true
               name=$(basename "$proj" .csproj)
               echo "Generating SBOM for $name..."
+              # -m is the output directory (must pre-exist); -bc must be a
+              # directory; -o does not exist in sbom-tool 4.1.5.
+              mkdir -p "$(pwd)/sbom/$name"
               sbom-tool generate \
                 -b "$(pwd)/src" \
-                -bc "$proj" \
+                -bc "$(pwd)/src" \
                 -pn "DataGuard.$name" \
                 -pv "${{ needs.build-and-test.outputs.release_version }}" \
                 -ps "$(pwd)/artifacts" \
-                -o "$(pwd)/sbom/$name"
+                -m "$(pwd)/sbom/$name"
             fi
           done
           if [ "$found" = false ]; then
@@ -217,7 +240,7 @@ jobs:
           ls -la ./sbom || true
 
       - name: Upload SBOMs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sboms
           path: ./sbom/**/*
@@ -228,44 +251,56 @@ jobs:
     runs-on: ubuntu-latest
     needs: [sign-packages, generate-sbom]
     permissions:
-      packages: write
+      id-token: write # Trusted Publishing (OIDC)
       contents: read
+    env:
+      # Secrets are read through env vars — never interpolate ${{ secrets }}
+      # into run scripts (script injection, CWE-094).
+      NUGET_USER: ${{ secrets.NUGET_USER }}
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
-      - name: Download signed packages and signatures
-        uses: actions/download-artifact@v4
+      - name: Download signed packages and signature bundles
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: signed-nupkgs
           path: ./artifacts
 
-      - name: Download SBOMs
-        uses: actions/download-artifact@v4
+      - name: NuGet login (Trusted Publishing, OIDC)
+        id: login
+        if: env.NUGET_USER != ''
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
-          name: sboms
-          path: ./sbom
-
-      - name: Check NUGET_API_KEY secret
-        run: |
-          if [ -z "${{ secrets.NUGET_API_KEY || '' }}" ]; then
-            echo "NUGET_API_KEY secret is not set" >&2
-            exit 1
-          fi
+          # nuget.org profile name, NOT an email address.
+          user: ${{ env.NUGET_USER }}
 
       - name: Publish to NuGet.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          LOGIN_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
+          KEY="${LOGIN_KEY:-}"
+          if [ -n "${KEY}" ]; then
+            echo "Using Trusted Publishing credentials."
+          else
+            KEY="${NUGET_API_KEY:-}"
+            if [ -n "${KEY}" ]; then
+              echo "Using NUGET_API_KEY fallback (legacy — expires 2026-11-01)."
+            else
+              echo "::error::No NuGet credentials. Set NUGET_USER (Trusted Publishing) or NUGET_API_KEY secret." >&2
+              exit 1
+            fi
+          fi
           shopt -s nullglob
           pushed_any=false
           for pkg in ./artifacts/*.nupkg; do
-            if [ -f "$pkg" ]; then
-              echo "Publishing $pkg..."
-              dotnet nuget push "$pkg" \
-                --api-key "$NUGET_API_KEY" \
-                --source "${{ env.NUGET_SOURCE }}" \
-                --skip-duplicate
-              pushed_any=true
-            fi
+            echo "Publishing $pkg..."
+            # No --skip-duplicate: a duplicate version means the version
+            # calculation is broken and must fail loudly.
+            dotnet nuget push "$pkg" \
+              --api-key "$KEY" \
+              --source "${{ env.NUGET_SOURCE }}" \
+              --timeout 600
+            pushed_any=true
           done
           if [ "$pushed_any" = false ]; then
             echo "No packages found to publish" >&2
@@ -279,24 +314,54 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download signed packages & signatures
-        uses: actions/download-artifact@v4
+      - name: Download signed packages & signature bundles
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: signed-nupkgs
           path: ./artifacts
 
-      - name: Create Release (attach artifacts)
-        uses: softprops/action-gh-release@v1
+      - name: Download SBOMs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          # tag_name must be explicit: on a manual run there's no tag ref
-          # for the action to infer a tag name from.
-          tag_name: ${{ needs.build-and-test.outputs.release_version }}
-          generate_release_notes: true
-          files: |
-            ./artifacts/*.nupkg
-            ./artifacts/*.cosign
+          name: sboms
+          path: ./sbom
+
+      - name: Create draft release and attach assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          # A previous failed run may have left a draft behind; a published
+          # release must never be silently overwritten.
+          if gh release view "$RELEASE_TAG" --json isDraft -q .isDraft >/dev/null 2>&1; then
+            if [ "$(gh release view "$RELEASE_TAG" --json isDraft -q .isDraft)" = "true" ]; then
+              echo "Removing leftover draft release $RELEASE_TAG..."
+              gh release delete --yes "$RELEASE_TAG"
+            else
+              echo "::error::Release $RELEASE_TAG already exists and is published." >&2
+              exit 1
+            fi
+          fi
+          # sbom-tool writes manifests three levels deep; bash does not enable
+          # globstar by default, so collect files explicitly.
+          mapfile -t sbom_assets < <(find ./sbom -name '*.json' -type f)
+          if [ "${#sbom_assets[@]}" -eq 0 ]; then
+            echo "::warning::No SBOM assets found to attach."
+          fi
+          gh release create "$RELEASE_TAG" \
+            --draft \
+            --title "$RELEASE_TAG" \
+            --notes "Release $RELEASE_TAG of DataGuard." \
+            ./artifacts/*.nupkg \
+            ./artifacts/*.sigstore.json \
+            "${sbom_assets[@]}"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false
 
   publish-attestations:
     name: Publish Build Provenance Attestations
@@ -308,16 +373,13 @@ jobs:
       attestations: write
     steps:
       - name: Download signed packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: signed-nupkgs
           path: ./artifacts
 
-      # `gh attestation upload` does not exist (the gh CLI attestation group
-      # only has download/verify/trusted-root). GitHub's supported way to
-      # create and publish an attestation is this official action instead.
       - name: Generate and publish build provenance attestation
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: "./artifacts/*.nupkg"
 
@@ -326,19 +388,22 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-and-test, publish-nuget]
     permissions:
-      packages: write
       contents: read
+      packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.x
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Set up QEMU (arm64 builds on amd64 runners)
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -346,16 +411,21 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/${{ github.repository }}
-          # "type=ref,event=tag" only produces a tag on a push-tag trigger;
-          # "type=raw" with the resolved version covers manual dispatch too.
+          # On tag pushes, semver patterns derive from the tag (v1.2.3 -> 1.2.3)
+          # and metadata-action's default flavor adds a `latest` marker. On
+          # manual dispatch there is no tag ref, so the resolved version and a
+          # `latest` marker are added explicitly.
           tags: |
-            type=raw,value=${{ needs.build-and-test.outputs.release_version }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ needs.build-and-test.outputs.release_version }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: Dockerfile

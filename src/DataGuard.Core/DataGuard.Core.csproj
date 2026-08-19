@@ -7,8 +7,8 @@
     <Company>DataGuard</Company>
     <Description>Core contract validation engine for Entity ↔ Stored Procedure/Raw SQL. Zero vendor dependencies.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/DataGuard/DataGuard</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/DataGuard/DataGuard</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>efcore;stored-procedure;contract-validation;roslyn;sql-server;oracle</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -27,14 +27,14 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.11.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="170.3.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" NoWarn="NU1903" />
+    <PackageReference Include="System.Text.Json" Version="8.0.6" />
     <PackageReference Include="System.Composition.Hosting" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.0" />
     <PackageReference Include="YamlDotNet" Version="15.0.0" />

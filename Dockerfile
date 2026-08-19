@@ -1,51 +1,60 @@
-# Build stage
-FROM node:20-alpine AS builder
+# DataGuard.Cli — multi-arch build (linux/amd64 + linux/arm64).
+# Pattern follows the official dotnet-docker samples:
+#   https://github.com/dotnet/dotnet-docker/blob/main/samples/aspnetapp/Dockerfile
+#
+# The build stage runs natively on the builder platform (BUILDPLATFORM) and
+# cross-compiles the app for TARGETARCH via `dotnet publish -a $TARGETARCH`.
+# The final stage contains no RUN steps, so per-platform images are assembled
+# from the multi-arch runtime base without emulation.
 
+# ---------- Build stage ----------
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+ARG BUILDPLATFORM
+# Release version to bake into the binary (e.g. 1.2.3); the csproj files
+# hardcode 0.1.0-alpha.1 which would otherwise end up in the image.
+ARG VERSION=0.1.0-ci
+WORKDIR /source
+
+# Copy only project files first for optimal layer caching on restore.
+# Directory.Build.props is auto-imported by MSBuild — it MUST be present
+# during restore so the restore graph matches the publish graph.
+COPY --link Directory.Build.props .
+COPY --link src/DataGuard.Core/DataGuard.Core.csproj src/DataGuard.Core/
+COPY --link src/DataGuard.Analyzers/DataGuard.Analyzers.csproj src/DataGuard.Analyzers/
+COPY --link src/DataGuard.SqlServer.Adapter/DataGuard.SqlServer.Adapter.csproj src/DataGuard.SqlServer.Adapter/
+COPY --link src/DataGuard.Oracle.Adapter/DataGuard.Oracle.Adapter.csproj src/DataGuard.Oracle.Adapter/
+COPY --link src/DataGuard.MySql.Adapter/DataGuard.MySql.Adapter.csproj src/DataGuard.MySql.Adapter/
+COPY --link src/DataGuard.PostgreSql.Adapter/DataGuard.PostgreSql.Adapter.csproj src/DataGuard.PostgreSql.Adapter/
+COPY --link src/DataGuard.Cli/DataGuard.Cli.csproj src/DataGuard.Cli/
+
+# Restore the CLI project, not the whole solution: DataGuard.sln also lists
+# the test projects, which are intentionally not part of the image build and
+# would make the restore fail (MSB3202). Project-level restore pulls in all
+# ProjectReferences (Core, adapters, analyzers) transitively.
+RUN dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj
+
+# Copy the rest of the source and publish the CLI.
+# Note: --arch $TARGETARCH relies on the SDK normalizing "amd64" -> "x64"
+# (verified on SDK 9.0.x; arm64 stays arm64). Do not "fix" this to
+# linux-$TARGETARCH — that RID does not exist.
+COPY --link . .
+RUN dotnet publish src/DataGuard.Cli/DataGuard.Cli.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /app/publish \
+    --arch $TARGETARCH \
+    -p:Version=$VERSION
+
+# ---------- Runtime stage ----------
+FROM mcr.microsoft.com/dotnet/runtime:9.0 AS final
 WORKDIR /app
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+# Non-root user baked into .NET 9 runtime images (UID 1654).
+USER $APP_UID
 
-# Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/core/package.json packages/core/
-COPY packages/cli/package.json packages/cli/
-COPY packages/mcp/package.json packages/mcp/
+COPY --link --from=build /app/publish .
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile --prod=false
+LABEL org.opencontainers.image.source="https://github.com/thanhnt-sm/eco_support_net_oracle"
+LABEL org.opencontainers.image.description="DataGuard CLI — contract validation for Entity to Stored Procedure/Raw SQL"
 
-# Copy source
-COPY . .
-
-# Build all packages
-RUN pnpm run build
-
-# Production stage
-FROM node:20-alpine AS production
-
-WORKDIR /app
-
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-# Copy built packages
-COPY --from=builder --chown=nodejs:nodejs /app/packages/core/dist ./packages/core/dist
-COPY --from=builder --chown=nodejs:nodejs /app/packages/mcp/dist ./packages/mcp/dist
-COPY --from=builder --chown=nodejs:nodejs /app/packages/mcp/package.json ./packages/mcp/
-
-# Install production dependencies only
-RUN corepack enable && corepack prepare pnpm@9.0.0 --activate && \
-    cd packages/mcp && pnpm install --frozen-lockfile --prod
-
-USER nodejs
-
-EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:8080/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
-
-# Start MCP server with HTTP transport
-CMD ["node", "packages/mcp/dist/index.js", "--transport", "http", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["dotnet", "DataGuard.Cli.dll"]

@@ -13,7 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="170.3.0" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,8 @@
+# CodeQL configuration — enables the repository's custom query pack
+# (.github/codeql/queries + qlpack.yml) on top of the default csharp suite.
+# Referenced from .github/workflows/ci.yml (job: codeql).
+name: "DataGuard CodeQL configuration"
+
+queries:
+  - name: DataGuard custom security queries
+    uses: ./.github/codeql

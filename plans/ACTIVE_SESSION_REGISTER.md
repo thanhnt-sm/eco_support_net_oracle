@@ -162,3 +162,65 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 | **LUẬT 4** | Dùng `./scripts/git_sync.sh "message"` để commit — không dùng `git` trực tiếp. |
 | **LUẬT 5** | Cập nhật file này (`plans/ACTIVE_SESSION_REGISTER.md`) sau mỗi phiên làm việc để phiên sau biết tiếp tục từ đâu. |
 | **LUẬT 6** | `research/` hoàn toàn độc lập. Không import code từ `research/` vào `crates/`. |
+
+---
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên này — Research: NuGet Release Pipeline Best Practices)
+
+1. ✅ **Nghiên cứu checklist best-practice cho NuGet release pipeline (.NET 8, 2025–2026)**:
+   - Version từ git tag → khuyến nghị **MinVer** (tag-first, set đủ Version/PackageVersion/AssemblyVersion; cần `fetch-depth: 0`).
+   - Secret check không shell injection → env var + `if: env.X != ''` / `github.secret_source`; khuyến nghị bỏ hẳn API key khi chuyển Trusted Publishing.
+   - Release action → `gh` CLI (draft → upload → publish) thay softprops v2 (EOL, lỗi immutable releases #653).
+   - NuGet publish → **Trusted Publishing (OIDC, NuGet/login@v1)** bắt buộc migrate trước 01/11/2026 (API key cũ hết hạn); bỏ `--skip-duplicate`; provenance trên nuget.org chưa có (epic #13581 mở).
+   - `dotnet pack` solution + `<IsPackable>false</IsPackable>` cho project không packable.
+   - SBOM → CycloneDX cho NuGet package; Microsoft.Sbom.DotNetTool khi cần SPDX.
+   - Deliverable: checklist + YAML skeleton đầy đủ (kèm nguồn chính thức) — chưa ghi file vào repo (chỉ trả lời trong session).
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
+- [ ] (Khi có yêu cầu) Áp dụng checklist để rewrite `release.yml` của dự án .NET 8 tương ứng.
+
+---
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên này — Continuation: DataGuard Security Hardening)
+
+1. ✅ **Recover session cũ dở dang (todo 3 phase/15 item: Core Fixes ×6, Validation Logic ×6, Integration ×3)**:
+   - Đánh giá hiện trạng: `dotnet build DataGuard.sln` → **0 errors**; `dotnet test` → **37/37 PASS** (29 Core + 8 GoldenCorpus); không còn `NotImplementedException`/stub trong `src/`.
+   - Kết luận: toàn bộ 15 item todo cũ đã hoàn thành ở các commit trước (build + test xanh).
+2. ✅ **Security hardening — xử lý toàn bộ lỗ hổng package (NuGet audit)**:
+   - `Microsoft.Extensions.Caching.Memory` 8.0.0 → **8.0.1** (fix HIGH GHSA-qj66-m88j-hmgj).
+   - `Microsoft.Data.SqlClient` 5.2.0 → **5.2.2** (fix transitive Azure.Identity 1.10.3 + MSAL 4.56.0) — cả `DataGuard.Core` lẫn `DataGuard.SqlServer.Adapter`.
+   - `Microsoft.Extensions.Logging.Abstractions` 8.0.0 → **8.0.2** (khớp Caching.Memory 8.0.1, tránh NU1605 downgrade).
+   - `Testcontainers.Oracle/MsSql` 3.5.0 → **4.14.0** (fix transitive SSH.NET 2020.0.2 HIGH + BouncyCastle 2.2.1 Moderate) — test-only.
+   - `System.Text.Json` 8.0.5 → **8.0.6** + **xóa `NoWarn="NU1903"`** (suppression tạo điểm mù cho `dotnet list package --vulnerable`; 8.0.5 thực chất đã vá CVE-2024-30105/CVE-2024-43485, nhưng suppression không nên tồn tại nếu không có lý do).
+   - Verify: `dotnet list package --vulnerable` → **0 vulnerable** trên cả 9 project, **sau khi xóa toàn bộ `NoWarn="NU1903"`** (scan không còn điểm mù).
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
+- [ ] (Tuỳ chọn) Dọn 3201 warning CS1591/CS1998/CS860x tồn đọng (thiếu XML doc, async-no-await, nullable) — `TreatWarningsAsErrors=false` nên không chặn build; ưu tiên thấp.
+
+---
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên này — CI/CD Upgrade: Research + Redteam + Implement + Test + QC)
+
+1. ✅ **Pull GitHub + vi phẫu 2 workflow files** (`ci.yml`, `release.yml`):
+   - `git stash push -u` → `git pull --rebase origin main` (không xung đột); workflows = bản remote; WIP (Analyzers.cs, OracleDialectChecker.cs, PhantomIdentifierRule.cs) stash/pop nguyên vẹn.
+   - Phát hiện Critical: SDK 8.0.x vs toàn bộ project net9.0; job codeql thiếu `contents: read`; Dockerfile Node.js legacy tham chiếu `packages/*` + `pnpm-workspace.yaml` KHÔNG TỒN TẠI; trufflehog@main; cosign v2.6.0 dính GHSA-fx35-mq7g-6g98.
+2. ✅ **Research 5 background agents** (CI .NET best practices, NuGet release/Trusted Publishing, supply chain/sigstore, Docker/GHCR multi-arch, docs exploration) → SHA pins verified, cosign v3.1.3 + `--bundle`, `actions/attest@v4`, gh CLI thay softprops.
+3. ✅ **Plan decision-complete**: `plans/2026-08-20-ci-cd-upgrade.md` (16 quyết định D1–D16). Momus review bị cancel do stale timeout (5 phút) — không tạo thay thế.
+4. ✅ **Implement toàn bộ**:
+   - `ci.yml` rewrite: SDK 9.0.x, permissions tối thiểu, build/test fail-fast, vuln-scan gate (parse JSON thật), TruffleHog pin SHA + chạy cả push/PR, CodeQL + custom queries (`codeql-config.yml` mới), SBOM pin 4.1.5, docker smoke test, cache NuGet.
+   - `release.yml` rewrite: version từ tag (tách `release_tag`/`release_version` không prefix v), Trusted Publishing + fallback API key, cosign keyless sign+verify (bundle), SBOM có nupkg thật, gh CLI draft→publish + guard draft cũ, `actions/attest@v4` provenance, Docker multi-arch (amd64+arm64) push GHCR, pin SHA toàn bộ actions.
+   - `Dockerfile` mới: .NET 9 CLI multi-stage (sdk→runtime), restore project-level (fix MSB3202 — sln chứa test projects không COPY), `COPY --link`, `USER $APP_UID`, `--arch $TARGETARCH` (verify amd64→x64), `ARG VERSION` bake version.
+   - Phụ trợ: `dependabot.yml`, `.dockerignore` mới; `Directory.Build.props` net8.0→**net9.0**; sửa `RepositoryUrl` sai trong `DataGuard.Core.csproj`; xóa `.github/.DS_Store`; README section Docker → DataGuard CLI image `ghcr.io/thanhnt-sm/eco_support_net_oracle:latest`.
+5. ✅ **Test**: `actionlint` clean (exit 0), YAML valid, `dotnet build` 0 errors (3201 warnings StyleCop pre-existing), Core.Tests 29/29 PASS. Docker smoke test defer — local không có daemon (CI sẽ chạy).
+6. ✅ **QC adversarial (code-reviewer)**: 20 findings (2 BLOCKER, 5 MAJOR, 9 MINOR, 4 NIT) → **đã fix 100%**:
+   - BLOCKER: Dockerfile restore sln (→ project-level) + `sbom-tool -o` không tồn tại (→ `-m` + `mkdir` + `-bc` directory) — cả 2 workflows.
+   - MAJOR: shell injection `inputs.tag`/`ref_name` (→ env), SBOM glob `**` thiếu globstar (→ `find`+mapfile), `latest`/version tag normalize, SBOM cần nupkg thật (`download-artifact` trước generate).
+   - MINOR: bỏ dead check `deprecated`, pin SHA 8 actions còn lại, draft-release guard, `qlpack.yml` path (→ tham chiếu `.github/codeql`), props copy trong Docker, bỏ SBOM download thừa.
+   - Re-verify: actionlint + YAML clean sau fixes.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
+- [ ] **Chưa push** — local ahead origin/main: 11 commit cũ + toàn bộ thay đổi CI/CD. Cần user confirm trước khi push (theo quy tắc không tự push).
+- [ ] **User action bắt buộc**: tạo secret `NUGET_USER` (Trusted Publishing trên nuget.org, hạn chót migrate 01/11/2026) + tùy chọn `NUGET_API_KEY` fallback. Thiếu secrets → release workflow fail có chủ đích (fail-loud).
+- [ ] Test thật trên GitHub: push → CI chạy (docker smoke cần daemon runner); tạo tag `v0.1.0` để test release pipeline end-to-end.
+- [ ] Verify CodeQL custom queries lần chạy đầu (finding 15 debatable — pack layout `./.github/codeql` đã fix, cần xác nhận trên runner thật).
+- [ ] (Tuỳ chọn, ngoài scope) README/register còn mô tả sản phẩm npm/Rust cũ (`@eco-support/*`, `crates/`) — lỗi thời so với repo .NET DataGuard; cần rewrite riêng khi có yêu cầu.

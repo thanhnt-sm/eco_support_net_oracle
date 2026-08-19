@@ -1,0 +1,15 @@
+# Keep the Docker build context lean and reproducible.
+**/bin/
+**/obj/
+.git/
+.github/
+artifacts/
+sbom/
+scratch/
+**/TestResults/
+**/coverage.cobertura.xml
+**/*.user
+**/*.suo
+.vscode/
+.idea/
+.DS_Store

@@ -164,7 +164,7 @@ test(core): add config resolution tests
 
 ## Release Process
 
-Releases are automated via GitHub Actions on tag push:
+Releases are automated via GitHub Actions on tag push (`release.yml`):
 
 ```bash
 # Create release tag
@@ -173,12 +173,18 @@ git push origin v0.1.0
 ```
 
 This triggers:
-1. Build all packages
-2. Run tests
-3. Publish `@eco-support/cli` and `@eco-support/mcp` to npm (with provenance)
-4. Build and push Docker image to GHCR
-5. Deploy MCP server to Cloudflare Workers (on main branch)
-6. Create GitHub Release with generated notes
+
+1. Build all packages + run tests (SDK 9.0.x)
+2. Pack NuGet packages with version derived from the tag (`v1.2.3` → `1.2.3`)
+3. Sign packages with cosign (keyless, `--bundle`) and generate SBOMs
+4. Publish to NuGet via Trusted Publishing (OIDC) with API-key fallback
+5. Publish build provenance attestations (`actions/attest@v4`)
+6. Create a GitHub Release (draft → attach nupkgs + signatures + SBOMs → publish)
+7. Build and push multi-arch Docker image (linux/amd64 + linux/arm64) to GHCR
+
+**Before releasing, ensure the `NUGET_USER` secret is configured** (Trusted
+Publishing on nuget.org; required before 01/11/2026 when API keys expire).
+Without it (and without `NUGET_API_KEY`), the publish job fails loudly by design.
 
 ### Versioning
 
