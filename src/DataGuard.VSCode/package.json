@@ -1,0 +1,44 @@
+{
+  "name": "dataguard-vscode",
+  "displayName": "DataGuard",
+  "description": "Run DataGuard contract validation from the VS Code status bar.",
+  "version": "0.1.0",
+  "publisher": "dataguard",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85"
+  },
+  "categories": [
+    "Linters"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:csharp"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "DataGuard",
+      "properties": {
+        "dataguard.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable DataGuard validation."
+        },
+        "dataguard.configPath": {
+          "type": "string",
+          "default": ".dataguard.yml",
+          "description": "Path to the DataGuard configuration file, relative to the workspace root."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}
