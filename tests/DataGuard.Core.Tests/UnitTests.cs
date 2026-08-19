@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis;
 using DataGuard.Core.Models;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Baseline;
+using DataGuard.Core.Security;
 using System.IO;
 
 namespace DataGuard.Core.Tests;
@@ -170,6 +171,47 @@ public class BaselineManagerTests
             
             filtered.Should().HaveCount(1);
             filtered.First().RuleId.Should().Be("DG002");
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+}
+
+public class AuditLoggerTests
+{
+    [Fact]
+    public async Task AuditLog_HashChain_VerifiesIntegrity()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"audit-{Guid.NewGuid():N}.log");
+        try
+        {
+            var logger = new FileAuditLogger(tempFile);
+            await logger.LogCredentialAccessAsync("test", "provider", "hash1");
+            await logger.LogCredentialAccessAsync("test", "provider", "hash2");
+
+            (await logger.VerifyIntegrityAsync()).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task AuditLog_TamperedEntry_FailsVerification()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"audit-{Guid.NewGuid():N}.log");
+        try
+        {
+            var logger = new FileAuditLogger(tempFile);
+            await logger.LogCredentialAccessAsync("test", "provider", "hash1");
+
+            await File.AppendAllTextAsync(tempFile,
+                "{\"Timestamp\":\"2020-01-01T00:00:00+00:00\",\"EventType\":\"Forged\",\"Hash\":\"deadbeef\",\"PreviousHash\":null}\n");
+
+            (await logger.VerifyIntegrityAsync()).Should().BeFalse();
         }
         finally
         {

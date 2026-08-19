@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace DataGuard.Core.Security;
 
@@ -48,6 +50,7 @@ public sealed class FileAuditLogger : IAuditLogger
 {
     private readonly string _logPath;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private string? _lastHash;
 
     public FileAuditLogger(string? logPath = null)
     {
@@ -137,15 +140,78 @@ public sealed class FileAuditLogger : IAuditLogger
 
     private async Task WriteEntryAsync(AuditEntry entry, CancellationToken cancellationToken)
     {
-        var logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DataGuard",
-            "audit.log");
+        await _writeLock.WaitAsync(cancellationToken);
+        try
+        {
+            var previousHash = _lastHash ?? await ReadLastHashAsync(cancellationToken);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!);
+            var content = JsonSerializer.Serialize(entry with { Hash = null, PreviousHash = null });
+            var hash = ComputeHash((previousHash ?? "") + content);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(entry);
-        await File.AppendAllTextAsync(_logPath, json + Environment.NewLine, cancellationToken);
+            var chained = entry with { Hash = hash, PreviousHash = previousHash };
+            var json = JsonSerializer.Serialize(chained);
+            await File.AppendAllTextAsync(_logPath, json + Environment.NewLine, cancellationToken);
+
+            _lastHash = hash;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Verifies the hash-chain integrity of the audit log. Returns false on any tampering.
+    /// </summary>
+    public async Task<bool> VerifyIntegrityAsync(CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(_logPath)) return true;
+
+        var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
+        string? previousHash = null;
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            AuditEntry? entry;
+            try
+            {
+                entry = JsonSerializer.Deserialize<AuditEntry>(line);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+            if (entry == null) return false;
+
+            var content = JsonSerializer.Serialize(entry with { Hash = null, PreviousHash = null });
+            var expected = ComputeHash((previousHash ?? "") + content);
+            if (!string.Equals(entry.Hash, expected, StringComparison.Ordinal))
+                return false;
+
+            previousHash = entry.Hash;
+        }
+        return true;
+    }
+
+    private async Task<string?> ReadLastHashAsync(CancellationToken cancellationToken)
+    {
+        if (!File.Exists(_logPath)) return null;
+
+        var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i])) continue;
+            var entry = JsonSerializer.Deserialize<AuditEntry>(lines[i]);
+            if (entry?.Hash != null) return entry.Hash;
+        }
+        return null;
+    }
+
+    private static string ComputeHash(string input)
+    {
+        var bytes = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes);
     }
 }
 
@@ -178,5 +244,7 @@ public sealed record AuditEntry(
     string? ErrorMessage = null,
     string MachineName = "",
     string UserName = "",
-    int ProcessId = 0
+    int ProcessId = 0,
+    string? Hash = null,
+    string? PreviousHash = null
 );
