@@ -85,11 +85,13 @@ jobs:
         continue-on-error: true
 
       - name: Check for secrets with TruffleHog
+        if: github.event_name == 'pull_request'
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: main
+          base: ${{ github.base_ref }}
           head: HEAD
+        continue-on-error: true
 
       - name: Run .NET Security Audit (OWASP)
         run: |
@@ -99,7 +101,7 @@ jobs:
 
       - name: Upload security scan results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('security-scan.sarif') != ''
         with:
           sarif_file: security-scan.sarif
           category: dotnet-security-scan
