@@ -128,8 +128,8 @@ flowchart TB
 
 ## Current verified implementation
 
-- Run `32371572507` packaged and attested both VSIX artifacts; it uploads SHA-256 checksums and GitHub build provenance.
-- No VSIX SBOM is generated yet. Do not claim the VSIX supply-chain gate complete until the workflow uploads a dependency SBOM for each artifact.
+- Run `32372844980` packaged both VSIX artifacts and uploaded SHA-256 checksums plus SPDX SBOM output for each; both package jobs passed.
+- Run `32371572507` attested both VSIX artifacts with GitHub build provenance.
 - Run `32371572762` passed all five core CI jobs; code scanning open alerts were zero at that check.
 - Public Marketplace publish remains blocked by missing publisher credentials and the unperformed Visual Studio 2022 Experimental Instance install/invoke smoke.
 
