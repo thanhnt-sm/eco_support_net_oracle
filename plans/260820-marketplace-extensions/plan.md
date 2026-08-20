@@ -126,6 +126,13 @@ flowchart TB
 - Marketplace metadata/docs must match the canonical MIT license; no unsupported compliance claim.
 - Windows Visual Studio 2022 Build Tools/VSSDK availability on CI.
 
+## Current verified implementation
+
+- Run `32371572507` packaged and attested both VSIX artifacts; it uploads SHA-256 checksums and GitHub build provenance.
+- No VSIX SBOM is generated yet. Do not claim the VSIX supply-chain gate complete until the workflow uploads a dependency SBOM for each artifact.
+- Run `32371572762` passed all five core CI jobs; code scanning open alerts were zero at that check.
+- Public Marketplace publish remains blocked by missing publisher credentials and the unperformed Visual Studio 2022 Experimental Instance install/invoke smoke.
+
 ## Completion criteria
 
 - Both VSIX artifacts build and install/validate reproducibly.
