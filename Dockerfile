@@ -34,7 +34,9 @@ COPY --link src/DataGuard.Cli/DataGuard.Cli.csproj src/DataGuard.Cli/
 # the test projects, which are intentionally not part of the image build and
 # would make the restore fail (MSB3202). Project-level restore pulls in all
 # ProjectReferences (Core, adapters, analyzers) transitively.
-RUN dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj
+# Restore must target the same RID that publish --arch resolves to, otherwise
+# NETSDK1047 (assets file missing 'net9.0/linux-x64').
+RUN arch="$TARGETARCH"; [ "$arch" = "amd64" ] && arch="x64"; dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj -r "linux-$arch"
 
 # Copy the rest of the source and publish the CLI.
 # Note: --arch $TARGETARCH relies on the SDK normalizing "amd64" -> "x64"

@@ -218,10 +218,13 @@ jobs:
           fetch-depth: 0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@67ba681cdcbc95ed0371c210ccf82c4d968ae5eb # 2026-08-20 pin
+        uses: github/codeql-action/init@67ba681cdcbc95ed0371c210ccf82c4d968ae5eb # v3.37.7
         with:
           languages: csharp
           config-file: ./.github/codeql-config.yml
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@67ba681cdcbc95ed0371c210ccf82c4d968ae5eb # v3.37.7
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@67ba681cdcbc95ed0371c210ccf82c4d968ae5eb # 2026-08-20 pin
