@@ -46,12 +46,13 @@ public class DataGuardCodeFixProvider : CodeFixProvider
             DiagnosticIds.UnvalidatedSqlCall);
 
     /// <summary>Gets the batch fix-all provider.</summary>
-    /// <returns></returns>
+    /// <returns>The batch fix-all provider.</returns>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
     /// <summary>Registers code fixes for the current diagnostic context.</summary>
-    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
+    /// <param name="context">The code fix context carrying the diagnostic and document.</param>
+    /// <returns>A task that represents the asynchronous registration.</returns>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
@@ -442,12 +443,13 @@ public class AddMaxLengthAttributeFixProvider : CodeFixProvider
         => ImmutableArray.Create(DiagnosticIds.LengthExceedsColumn, DiagnosticIds.InferredSizeFallback);
 
     /// <summary>Gets the batch fix-all provider.</summary>
-    /// <returns></returns>
+    /// <returns>The batch fix-all provider.</returns>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
     /// <summary>Registers code fixes for the current diagnostic context.</summary>
-    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
+    /// <param name="context">The code fix context carrying the diagnostic and document.</param>
+    /// <returns>A task that represents the asynchronous registration.</returns>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
@@ -497,12 +499,13 @@ public class SkipContractCheckFixProvider : CodeFixProvider
         => ImmutableArray.Create(DiagnosticIds.UnvalidatedSqlCall);
 
     /// <summary>Gets the batch fix-all provider.</summary>
-    /// <returns></returns>
+    /// <returns>The batch fix-all provider.</returns>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
     /// <summary>Registers code fixes for the current diagnostic context.</summary>
-    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
+    /// <param name="context">The code fix context carrying the diagnostic and document.</param>
+    /// <returns>A task that represents the asynchronous registration.</returns>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
