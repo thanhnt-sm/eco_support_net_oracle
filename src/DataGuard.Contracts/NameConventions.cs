@@ -9,6 +9,11 @@ namespace DataGuard.Contracts;
 /// </summary>
 public static class NameConventions
 {
+    /// <summary>
+    /// Converts a PascalCase identifier to snake_case.
+    /// </summary>
+    /// <param name="pascalCase">Identifier to convert.</param>
+    /// <returns>The snake_case identifier.</returns>
     public static string ToSnakeCase(string pascalCase)
     {
         if (string.IsNullOrEmpty(pascalCase)) return pascalCase;
@@ -23,6 +28,11 @@ public static class NameConventions
         return result.ToString();
     }
 
+    /// <summary>
+    /// Converts a snake_case, kebab-case, or dotted identifier to PascalCase.
+    /// </summary>
+    /// <param name="snakeCase">Identifier to convert.</param>
+    /// <returns>The PascalCase identifier.</returns>
     public static string ToPascalCase(string snakeCase)
     {
         if (string.IsNullOrEmpty(snakeCase)) return snakeCase;

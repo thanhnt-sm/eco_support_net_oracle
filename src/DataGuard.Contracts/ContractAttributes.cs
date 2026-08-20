@@ -37,6 +37,11 @@ public sealed class SkipContractCheckAttribute : Attribute
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = true)]
 public sealed class ExpectedColumnAttribute : Attribute
 {
+    /// <summary>
+    /// Initializes an expected-column declaration.
+    /// </summary>
+    /// <param name="columnName">Database column name.</param>
+    /// <param name="clrTypeName">Expected CLR type name.</param>
     public ExpectedColumnAttribute(string columnName, string clrTypeName)
     {
         ColumnName = columnName;
@@ -60,6 +65,12 @@ public sealed class ExpectedColumnAttribute : Attribute
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
 public sealed class ExpectedSpParameterAttribute : Attribute
 {
+    /// <summary>
+    /// Initializes an expected stored-procedure parameter declaration.
+    /// </summary>
+    /// <param name="name">Parameter name.</param>
+    /// <param name="dbType">Expected database type name.</param>
+    /// <param name="direction">Expected parameter direction.</param>
     public ExpectedSpParameterAttribute(string name, string dbType, string direction)
     {
         Name = name;
@@ -69,10 +80,16 @@ public sealed class ExpectedSpParameterAttribute : Attribute
             : ParameterDirection.Input;
     }
 
+    /// <summary>Expected parameter name.</summary>
     public string Name { get; }
+    /// <summary>Expected database type name.</summary>
     public string DbType { get; }
+    /// <summary>Expected parameter direction.</summary>
     public ParameterDirection Direction { get; set; }
+    /// <summary>Maximum parameter length (0 = unspecified).</summary>
     public int MaxLength { get; set; }
+    /// <summary>Expected numeric precision, if applicable.</summary>
     public byte? Precision { get; set; }
+    /// <summary>Expected numeric scale, if applicable.</summary>
     public byte? Scale { get; set; }
 }
