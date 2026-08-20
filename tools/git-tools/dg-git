@@ -158,7 +158,7 @@ cmd_push() {
 cmd_sync() {
     require_git_repo
     local msg="" fix_mode=true yes_mode=true
-    while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-fix) fix_mode=false;; --no-yes) yes_mode=false;; *) break;; esac; shift; done
+    while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-fix) fix_mode=false;; --no-yes) DG_YES_MODE=false;; *) break;; esac; shift; done
     # No message: auto-generate a conventional commit message so a bare
     # `dg-git` runs the full workflow end-to-end.
     [[ -z "$msg" ]] && msg="chore: auto-sync $(date +%Y-%m-%d-%H%M%S)"
