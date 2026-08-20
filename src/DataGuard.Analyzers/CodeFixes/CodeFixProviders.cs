@@ -22,6 +22,7 @@ namespace DataGuard.Analyzers.CodeFixes;
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(DataGuardCodeFixProvider)), Shared]
 public class DataGuardCodeFixProvider : CodeFixProvider
 {
+    /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
     public sealed override ImmutableArray<string> FixableDiagnosticIds
         => ImmutableArray.Create(
             DiagnosticIds.ParameterMismatch,
@@ -39,9 +40,11 @@ public class DataGuardCodeFixProvider : CodeFixProvider
             DiagnosticIds.UnmappedTypeUsage,
             DiagnosticIds.UnvalidatedSqlCall);
 
+    /// <summary>Gets the batch fix-all provider.</summary>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
+    /// <summary>Registers code fixes for the current diagnostic context.</summary>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
@@ -380,12 +383,15 @@ public class DataGuardCodeFixProvider : CodeFixProvider
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(AddMaxLengthAttributeFixProvider)), Shared]
 public class AddMaxLengthAttributeFixProvider : CodeFixProvider
 {
+    /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
     public sealed override ImmutableArray<string> FixableDiagnosticIds
         => ImmutableArray.Create(DiagnosticIds.LengthExceedsColumn, DiagnosticIds.InferredSizeFallback);
 
+    /// <summary>Gets the batch fix-all provider.</summary>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
+    /// <summary>Registers code fixes for the current diagnostic context.</summary>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
@@ -423,12 +429,15 @@ public class AddMaxLengthAttributeFixProvider : CodeFixProvider
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(SkipContractCheckFixProvider)), Shared]
 public class SkipContractCheckFixProvider : CodeFixProvider
 {
+    /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
     public sealed override ImmutableArray<string> FixableDiagnosticIds
         => ImmutableArray.Create(DiagnosticIds.UnvalidatedSqlCall);
 
+    /// <summary>Gets the batch fix-all provider.</summary>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
+    /// <summary>Registers code fixes for the current diagnostic context.</summary>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();

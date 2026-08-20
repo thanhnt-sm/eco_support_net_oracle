@@ -258,6 +258,9 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
         "SELECT", "INSERT", "UPDATE", "DELETE", "EXEC", "BEGIN", "WITH", "MERGE"
     };
 
+    /// <summary>
+    /// Initializes the incremental syntax pipeline for unvalidated SQL call diagnostics.
+    /// </summary>
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // Single provider that identifies all SQL call sites in one pass
@@ -492,8 +495,10 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.SqlInjectionPattern
     ];
 
+    /// <summary>Gets the diagnostics supported by this analyzer.</summary>
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => AllDescriptors.ToImmutableArray();
 
+    /// <summary>Registers semantic analysis callbacks.</summary>
     public override void Initialize(AnalysisContext context)
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
