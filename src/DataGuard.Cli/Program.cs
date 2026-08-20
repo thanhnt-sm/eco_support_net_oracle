@@ -344,8 +344,15 @@ configShowCommand.SetHandler((configPath) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
-    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+
+    // Never print secrets: redact connection string and vault/key material.
+    var redacted = config with
+    {
+        ConnectionString = string.IsNullOrEmpty(config.ConnectionString) ? null : "***redacted***"
+    };
+    var json = JsonSerializer.Serialize(redacted, new JsonSerializerOptions { WriteIndented = true });
     console.Out.WriteLine(json);
+    console.Out.WriteLine("# Secrets are redacted. Use environment DATAGUARD_CONNECTION_STRING instead of --connection.");
 }, configOption);
 
 var configValidateCommand = new Command("validate", "Validate configuration file")

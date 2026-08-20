@@ -61,7 +61,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor ParameterMismatch = new(
         id: DiagnosticIds.ParameterMismatch,
         title: "Parameter count/type mismatch",
-        messageFormat: "Parameter mismatch: {0}",
+        messageFormat: "{0}",
         category: "DataGuard.Contracts",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
@@ -70,7 +70,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor DirectionMismatch = new(
         id: DiagnosticIds.DirectionMismatch,
         title: "Parameter direction mismatch",
-        messageFormat: "Parameter '{0}' direction mismatch: expected {1}, got {2}",
+        messageFormat: "{0}",
         category: "DataGuard.Contracts",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
@@ -79,7 +79,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor ColumnShapeMismatch = new(
         id: DiagnosticIds.ColumnShapeMismatch,
         title: "Result set column shape mismatch",
-        messageFormat: "Result set missing required column '{0}' for entity '{1}'",
+        messageFormat: "{0}",
         category: "DataGuard.Contracts",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
@@ -88,7 +88,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor NullableMismatch = new(
         id: DiagnosticIds.NullableMismatch,
         title: "Nullable mismatch",
-        messageFormat: "Column '{0}' is NOT NULL but entity property '{1}' is nullable",
+        messageFormat: "{0}",
         category: "DataGuard.Contracts",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -97,7 +97,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor NamingConvention = new(
         id: DiagnosticIds.NamingConvention,
         title: "Naming convention violation",
-        messageFormat: "Column '{0}' doesn't match entity property '{1}' per naming convention",
+        messageFormat: "{0}",
         category: "DataGuard.Contracts",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -106,7 +106,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor LengthExceedsColumn = new(
         id: DiagnosticIds.LengthExceedsColumn,
         title: "Entity length exceeds column length",
-        messageFormat: "Entity property '{0}' MaxLength={1} exceeds column '{2}' length={3}",
+        messageFormat: "{0}",
         category: "DataGuard.Length",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
@@ -115,7 +115,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor ByteLengthOverflow = new(
         id: DiagnosticIds.ByteLengthOverflow,
         title: "Byte length overflow risk",
-        messageFormat: "Byte overflow risk: property '{0}' may exceed column '{1}' byte capacity in {2} semantics",
+        messageFormat: "{0}",
         category: "DataGuard.Length",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -124,7 +124,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor InferredSizeFallback = new(
         id: DiagnosticIds.InferredSizeFallback,
         title: "Inferred size fallback risk",
-        messageFormat: "EF Core will infer NVARCHAR2(2000) for '{0}' - may cause ORA-12899 if values exceed 2000 chars",
+        messageFormat: "{0}",
         category: "DataGuard.Length",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -133,7 +133,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor OracleSyntaxInNonOracle = new(
         id: DiagnosticIds.OracleSyntaxInNonOracle,
         title: "Oracle syntax in non-Oracle context",
-        messageFormat: "Oracle-specific syntax '{0}' used but provider is not Oracle",
+        messageFormat: "{0}",
         category: "DataGuard.Dialect",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -142,7 +142,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor NonOracleFunctionInOracle = new(
         id: DiagnosticIds.NonOracleFunctionInOracle,
         title: "Non-Oracle function in Oracle context",
-        messageFormat: "Non-Oracle function '{0}' used in Oracle context",
+        messageFormat: "{0}",
         category: "DataGuard.Dialect",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -151,7 +151,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor ProviderOptionMismatch = new(
         id: DiagnosticIds.ProviderOptionMismatch,
         title: "Provider option mismatch",
-        messageFormat: "Oracle metadata reader used but DbContext doesn't have UseOracle registered",
+        messageFormat: "{0}",
         category: "DataGuard.Dialect",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
@@ -160,7 +160,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor SqlServerSyntaxLeak = new(
         id: DiagnosticIds.SqlServerSyntaxLeak,
         title: "SQL Server syntax in Oracle",
-        messageFormat: "SQL Server EXEC syntax used in Oracle context - use BEGIN/END block",
+        messageFormat: "{0}",
         category: "DataGuard.Dialect",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -169,7 +169,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor UnmappedTypeUsage = new(
         id: DiagnosticIds.UnmappedTypeUsage,
         title: "Unmapped type usage",
-        messageFormat: "Type '{0}' used with Oracle EF Core raw SQL but not mapped by provider",
+        messageFormat: "{0}",
         category: "DataGuard.Dialect",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
@@ -177,7 +177,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor PhantomTable = new(
         id: DiagnosticIds.PhantomTable,
         title: "Phantom table reference",
-        messageFormat: "Table '{0}' does not exist in database",
+        messageFormat: "{0}",
         category: "DataGuard.Contracts",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
@@ -186,7 +186,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor PhantomColumn = new(
         id: DiagnosticIds.PhantomColumn,
         title: "Phantom column reference",
-        messageFormat: "Column '{0}' does not exist in table '{1}'",
+        messageFormat: "{0}",
         category: "DataGuard.Contracts",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,

@@ -10,6 +10,7 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <IncludeBuildOutput>true</IncludeBuildOutput>
     <DevelopmentDependency>true</DevelopmentDependency>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +24,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The compiler does not resolve NuGet dependencies of analyzer/generator assemblies,
+         so bundle DataGuard.Core (and its non-framework, non-Roslyn dependencies) into the
+         analyzer path. Without this the analyzer throws FileNotFoundException when loaded. -->
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"
+          Exclude="$(OutputPath)\$(AssemblyName).dll;$(OutputPath)\Microsoft.CodeAnalysis*.dll" />
+    <None Include="$(OutputPath)\*.dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false"
+          Exclude="$(OutputPath)\$(AssemblyName).dll;$(OutputPath)\Microsoft.CodeAnalysis*.dll" />
   </ItemGroup>
 </Project>

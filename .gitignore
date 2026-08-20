@@ -368,3 +368,7 @@ Thumbs.db
 # Harness session artifacts
 .omo/
 .omp/
+
+# DataGuard runtime artifacts (may contain connection strings)
+.dataguard*
+*.nupkg

@@ -6,18 +6,11 @@
     <Authors>DataGuard Contributors</Authors>
     <Description>PostgreSQL adapter for DataGuard contract validation. Requires Npgsql (PostgreSQL License).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/DataGuard/DataGuard</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/DataGuard/DataGuard</RepositoryUrl>
     <PackageTags>efcore;stored-procedure;contract-validation;postgresql</PackageTags>
-    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
     <PackageReference Include="Npgsql" Version="8.0.3" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="..\..\LICENSE.md" Pack="true" PackagePath="LICENSE.md" />
   </ItemGroup>
 </Project>

@@ -6,8 +6,8 @@
     <Authors>DataGuard Contributors</Authors>
     <Description>SQL Server adapter for DataGuard contract validation.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/DataGuard/DataGuard</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/DataGuard/DataGuard</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</RepositoryUrl>
     <PackageTags>efcore;stored-procedure;contract-validation;sql-server</PackageTags>
   </PropertyGroup>
 

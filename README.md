@@ -1,147 +1,76 @@
-# EcoSupport
+# DataGuard — Contract Validation for Entity ↔ Stored Procedure / Raw SQL
 
-> Autonomous niche ecosystem radar and support engine for open source foundations.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions)
 
-[![CI](https://github.com/thanhnt-sm/eco_support_net_oracle/workflows/CI/badge.svg)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml)
-[![Release](https://github.com/thanhnt-sm/eco_support_net_oracle/workflows/Release/badge.svg)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/release.yml)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![npm](https://img.shields.io/npm/v/@eco-support/cli)](https://www.npmjs.com/package/@eco-support/cli)
-[![npm](https://img.shields.io/npm/v/@eco-support/mcp)](https://www.npmjs.com/package/@eco-support/mcp)
+**DataGuard** detects drift between your .NET entities and the SQL they depend on — stored procedure parameters, result-set shapes, nullability, length semantics, and dialect mismatches — at design time and in CI.
 
-## Overview
+> **Why it exists:** EF Core has tracked the gap for stored-procedure contract validation since [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) and declined to build it. DataGuard ports the *model contracts* pattern that **dbt** proved out for data engineering (preflight column/parameter checks at compile time, since Core v1.5, 2023) to the .NET stored-procedure world.
 
-EcoSupport analyzes niche software ecosystems (C FFI, RTOS, WebAssembly, Embedded, Rust Crates, Go Modules) to identify critical infrastructure, assess supply chain risk, and automate maintenance workflows.
+## Quickstart
 
-**Key Capabilities:**
-- 🔍 **Ecosystem Scanning** — Discover and score niche packages by Ecosystem Criticality Index (ECI)
-- 🔬 **Repository Diagnosis** — Deep bottleneck analysis of GitHub repositories
-- 🏷️ **Automated Triage** — Issue severity classification, labeling, and patch planning
-- 🔧 **MCP Bridge Generation** — Generate FastMCP servers from API specifications
-- 🔒 **Security Auditing** — Comprehensive MCP server vulnerability scanning
-
-## Installation
-
-### CLI (npm)
 ```bash
-npm install -g @eco-support/cli
-# or
-pnpm add -g @eco-support/cli
+dotnet tool install -g DataGuard.Cli
+cd YourProject
+dataguard init            # writes .dataguard.yml + .dataguard-snapshot.json
+dataguard validate        # runs contract rules against ground truth
+dataguard snapshot diff   # detects schema drift vs the committed snapshot
 ```
 
-### DataGuard CLI (Docker)
-```bash
-docker pull ghcr.io/thanhnt-sm/eco_support_net_oracle:latest
-docker run --rm ghcr.io/thanhnt-sm/eco_support_net_oracle:latest --help
-```
+## How it works — three ground-truth modes
 
-### MCP Server (Cloudflare Workers)
-See [docs/mcp.md](docs/mcp.md#cloudflare-workers-deployment)
+| Mode | Source | Use case |
+|------|--------|----------|
+| **Full** | Live database connection | CI pipelines with DBA-approved credentials |
+| **Snapshot** *(default)* | Committed `snapshot.json` | Zero CI credentials; offline validation |
+| **Manual** | `[ExpectedColumn]` / `[ExpectedSpParameter]` attributes | Attribute-only validation, zero DB access |
 
-## Quick Start
+The IDE layer (`DataGuard.Analyzers`) marks unvalidated SQL calls on every keystroke with a lightweight incremental generator; the CI layer (`dataguard validate`) runs the full diff engine with database ground truth.
 
-### 1. Configure Credentials
-```bash
-eco-support config login
-# Or set environment variables:
-export ANTHROPIC_API_KEY=your_anthropic_key
-export GITHUB_TOKEN=your_github_token
-```
+## Rules
 
-### 2. Run Health Check
-```bash
-eco-support doctor
-```
+| ID | Rule | ID | Rule |
+|----|------|----|------|
+| DG001 | Parameter count match | DG009 | NVARCHAR2(2000) inference fallback |
+| DG002 | Parameter type match | DG010-014 | Oracle dialect / provider checks |
+| DG003 | Parameter direction match | DG015/016 | Phantom table / column (AI-hallucination detection) |
+| DG004 | Result-set column shape | MY001-003 | MySQL syntax / length checks |
+| DG005 | Nullability match | PG001-003 | PostgreSQL syntax / length checks |
+| DG006 | Naming convention | DG007/008 | Oracle length semantics (CHAR/BYTE, ORA-12899) |
 
-### 3. Scan Niche Ecosystems
-```bash
-# Scan C FFI libraries
-eco-support scan --category C-FFI --limit 20
+## Packages
 
-# Scan Rust crates with detailed output
-eco-support scan --category RUST-CRATES --limit 10 --detailed
-```
+| Package | Description |
+|---------|-------------|
+| `DataGuard.Core` | Contracts, rules engine, security, telemetry, baseline |
+| `DataGuard.SqlServer.Adapter` | SQL Server catalog reader + ScriptDOM parsing |
+| `DataGuard.Oracle.Adapter` | Oracle ALL_ARGUMENTS/ALL_TAB_COLUMNS/NLS readers |
+| `DataGuard.MySql.Adapter` / `DataGuard.PostgreSql.Adapter` | MySQL / PostgreSQL support |
+| `DataGuard.Analyzers` | Roslyn IDE analyzers + quick fixes |
+| `DataGuard.Cli` | `dataguard` dotnet tool |
 
-### 4. Triage a GitHub Issue
-```bash
-eco-support triage --repo owner/repo --issue 123 --thinking-budget 8000
-```
-
-### 5. Generate MCP Bridge
-```bash
-eco-support synthesize-mcp --package my-package --api "REST API with users, posts, comments endpoints"
-```
-
-### 6. Security Audit MCP Server
-```bash
-eco-support audit-mcp ./path/to/mcp-server --detailed
-```
-
-### 7. Run MCP Server
-```bash
-# Local stdio (for Claude Desktop)
-eco-support mcp-serve --transport stdio
-
-# HTTP server (for remote agents)
-eco-support mcp-serve --transport http --port 8080
-```
-
-## MCP Tools
-
-When connected via MCP, the following tools are available:
-
-| Tool | Description | Mutating |
-|------|-------------|----------|
-| `scan_niche_ecosystem` | Scan niche ecosystems for critical infrastructure | No |
-| `diagnose_repo_bottleneck` | Deep repository bottleneck analysis | No |
-| `triage_issue` | Automated issue triage with patch planning | **Yes** |
-| `synthesize_mcp_bridge` | Generate FastMCP server code | No |
-| `audit_mcp_security` | Security audit of MCP server source | No |
-
-## Architecture
+## CLI commands
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    @eco-support/core                      │
-│  Config, Types, Errors, Subprocess wrappers              │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-        ┌──────────────┴──────────────┐
-        ▼                             ▼
-┌───────────────┐             ┌───────────────┐
-│ @eco-support/ │             │ @eco-support/ │
-│     cli       │             │     mcp       │
-│  (commander)  │             │  (MCP SDK)    │
-└───────┬───────┘             └───────┬───────┘
-        │                             │
-        ▼                             ▼
-┌───────────────┐             ┌───────────────┐
-│ Rust/Python   │             │ HTTP/stdio/   │
-│ Subprocesses  │             │ SSE Transport │
-└───────────────┘             └───────────────┘
+dataguard validate        # run contract validation (SARIF/JSON/text output)
+dataguard baseline        # freeze existing drift for legacy codebases
+dataguard snapshot        # refresh / show / diff schema snapshots
+dataguard oracle-check    # Oracle dialect + length checks (CHAR/BYTE semantics)
+dataguard init            # generate configuration
+dataguard config          # show / validate configuration
+dataguard migrate         # migrate legacy v1 baseline files to v2
 ```
+
+## IDE support
+
+- **Roslyn analyzers** (`DataGuard.Analyzers`): DG001 diagnostics with quick fixes (MaxLength, UseOracle, SkipContractCheck, naming) in any C# IDE.
+- **VS Code extension** (`DataGuard.VSCode`): status-bar runner for `dataguard validate`.
 
 ## Documentation
 
-- [CLI Reference](docs/cli.md) — All commands and options
-- [MCP Server](docs/mcp.md) — Tools, transports, deployment
-- [Architecture](docs/architecture.md) — Internal design
-- [Contributing](docs/contributing.md) — Development workflow
-
-## Credentials
-
-EcoSupport uses a layered credential resolution (highest priority first):
-
-1. **Explicit flags** — `--anthropic-key`, `--github-token`
-2. **Environment variables** — `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`
-3. **Local .env files** — `.env.local`, `.env`
-4. **User config** — `~/.config/eco-support/config.json`
-5. **Project config** — `.eco-supportrc.json`
-6. **OS Keychain** — `eco-support config login`
-
-Run `eco-support config get` to see resolved values with sources.
+- [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/architecture.md) · [Security](SECURITY.md)
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE) for details.
-
-PolyForm Noncommercial 1.0.0 — see [LICENSE.noncommercial](LICENSE.noncommercial) for non-commercial use restrictions.
+[MIT](LICENSE)

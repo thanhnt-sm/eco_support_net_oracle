@@ -145,34 +145,44 @@ public class SqlServerStoredProcedureParser : IContractSource
     {
         var columns = new List<ColumnDescriptor>();
 
-        // Use sp_describe_first_result_set to get result shape
-        var describeSql = $"EXEC sp_describe_first_result_set N'{schemaName}.{procName}', NULL, 1";
+        // sp_describe_first_result_set requires @tsql to be a valid batch: 'EXEC [schema].[proc]'.
+        // Result-set ordinals: is_hidden(0), column_ordinal(1), name(2), is_nullable(3),
+        // system_type_id(4), system_type_name(5), max_length(6), precision(7), scale(8).
+        var describeSql = $"EXEC sp_describe_first_result_set N'EXEC [{EscapeSqlName(schemaName)}].[{EscapeSqlName(procName)}]', NULL, 1";
 
         await using var cmd = new SqlCommand(describeSql, connection);
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-
-        while (await reader.ReadAsync(cancellationToken))
+        try
         {
-            var name = reader.GetString(0); // column_ordinal
-            var isNullable = reader.GetBoolean(1); // is_nullable
-            var systemType = reader.GetString(2); // system_type_name
-            var maxLength = reader.IsDBNull(3) ? (int?)null : reader.GetInt32(3); // max_length
-            var precision = reader.IsDBNull(4) ? (byte?)null : reader.GetByte(4);
-            var scale = reader.IsDBNull(5) ? (byte?)null : reader.GetByte(5);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var name = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                var isNullable = reader.GetBoolean(3);
+                var systemType = reader.IsDBNull(5) ? "" : reader.GetString(5);
+                var maxLength = reader.IsDBNull(6) ? (int?)null : (int)reader.GetInt16(6); // smallint
+                var precision = reader.IsDBNull(7) ? (byte?)null : reader.GetByte(7);
+                var scale = reader.IsDBNull(8) ? (byte?)null : reader.GetByte(8);
 
-            columns.Add(new ColumnDescriptor(
-                Name: name,
-                DataType: systemType,
-                MaxLength: maxLength,
-                Precision: precision,
-                Scale: scale,
-                IsNullable: isNullable,
-                CharUsed: null // SQL Server doesn't have CHAR/BYTE semantics
-            ));
+                columns.Add(new ColumnDescriptor(
+                    Name: name,
+                    DataType: systemType,
+                    MaxLength: maxLength == -1 ? (int?)null : maxLength,
+                    Precision: precision,
+                    Scale: scale,
+                    IsNullable: isNullable,
+                    CharUsed: null // SQL Server doesn't have CHAR/BYTE semantics
+                ));
+            }
+        }
+        catch (SqlException ex) when (ex.Number is 11512 or 11513)
+        {
+            // Procedure returns no result set - nothing to describe, skip.
         }
 
         return columns;
     }
+
+    private static string EscapeSqlName(string name) => name.Replace("]", "]]");
 }
 
 /// <summary>
@@ -249,26 +259,29 @@ internal class SqlParameterVisitor : TSqlFragmentVisitor
         if (parameter.DataType is SqlDataTypeReference sqlDataType)
         {
             // ScriptDOM stores length/precision/scale as literal parameters in Parameters collection:
-            //   varchar(50)  -> Parameters[0] = 50
-            //   decimal(10,2) -> Parameters[0] = 10, Parameters[1] = 2
-            //   varchar(max) -> Parameters[0] is a special max literal
+            //   varchar(50)   -> Parameters[0] = 50 (char/binary length)
+            //   decimal(10,2) -> Parameters[0] = 10 (precision), Parameters[1] = 2 (scale)
+            //   varchar(max)  -> Parameters[0] is a special max literal
+            // Dispatch on type category: char/binary take a length; numeric take precision/scale.
             var literals = sqlDataType.Parameters;
-            if (literals.Count > 0 && literals[0] is IntegerLiteral maxLengthLiteral
-                && int.TryParse(maxLengthLiteral.Value, out var maxLen))
+            var isNumeric = sqlDataType.SqlDataTypeOption is
+                SqlDataTypeOption.Decimal or SqlDataTypeOption.Numeric or
+                SqlDataTypeOption.Money or SqlDataTypeOption.SmallMoney or
+                SqlDataTypeOption.Float or SqlDataTypeOption.Real;
+
+            if (literals.Count > 0 && literals[0] is IntegerLiteral firstLiteral
+                && int.TryParse(firstLiteral.Value, out var first))
             {
-                maxLength = maxLen > 0 ? maxLen : (int?)null;
+                if (isNumeric)
+                    precision = first > 0 ? (byte)first : (byte?)null;
+                else
+                    maxLength = first > 0 ? first : (int?)null;
             }
 
-            if (literals.Count > 1 && literals[1] is IntegerLiteral precisionLiteral
-                && int.TryParse(precisionLiteral.Value, out var prec))
-            {
-                precision = prec > 0 ? (byte)prec : (byte?)null;
-            }
-
-            if (literals.Count > 2 && literals[2] is IntegerLiteral scaleLiteral
+            if (isNumeric && literals.Count > 1 && literals[1] is IntegerLiteral scaleLiteral
                 && int.TryParse(scaleLiteral.Value, out var sc))
             {
-                scale = sc > 0 ? (byte)sc : (byte?)null;
+                scale = sc >= 0 ? (byte)sc : (byte?)null; // scale 0 is valid
             }
         }
 

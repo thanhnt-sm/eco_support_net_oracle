@@ -88,17 +88,26 @@ jobs:
       # checked here.
       - name: List vulnerable NuGet packages (gate)
         run: |
-          dotnet list DataGuard.sln package --vulnerable --include-transitive --format json > vuln.json
+          dotnet list DataGuard.sln package --vulnerable --include-transitive --format json > vuln.json || true
           python3 - <<'EOF'
           import json, sys
           with open('vuln.json') as f:
               data = json.load(f)
+          if data.get('problems'):
+              for p in data['problems']:
+                  print(f"::error::Audit problem: {p.get('message', p)}")
+              sys.exit(1)
           bad = []
+          scanned = False
           for proj in data.get('projects', []):
               for fw in proj.get('frameworks', []):
+                  scanned = True
                   for pkg in fw.get('topLevelPackages', []) + fw.get('transitivePackages', []):
                       if pkg.get('vulnerabilities'):
-                          bad.append((pkg.get('name', '?'), proj.get('path', '?')))
+                          bad.append((pkg.get('id', pkg.get('name', '?')), proj.get('path', '?')))
+          if not scanned:
+              print('::error::No framework was scanned - the vulnerability gate did not run.')
+              sys.exit(1)
           if bad:
               for name, path in bad:
                   print(f"::error::Vulnerable package: {name} ({path})")
