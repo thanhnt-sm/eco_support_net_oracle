@@ -156,7 +156,7 @@ jobs:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before }}
           head: ${{ github.event.pull_request.head.sha || github.sha }}
-          extra_args: --only-verified --fail
+          extra_args: --only-verified   # action already passes --fail; repeating it errors
           version: "3.97.0"
 
   codeql:
