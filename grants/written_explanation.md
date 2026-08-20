@@ -1,32 +1,40 @@
-# Anthropic "Claude for Open Source" Application
-## Ecosystem Impact Track: Official Written Explanation (Max 500 Words)
+# Written Explanation — DataGuard
 
-**Project Name**: EcoSupport Native (`eco-support-rs` / Autonomous Open Source Niche Ecosystem Radar & Support Engine)  
-**Repository**: `https://github.com/thanhnt-sm/eco_support_net_oracle` (Source-Available / PolyForm Noncommercial 1.0.0)  
-**Primary Contact / Maintainer**: Than Nguyen  
-**Track**: Ecosystem Impact Track (Foundational Infrastructure & High-Performance MCP Enablement)
+## 1. The problem
 
----
+.NET applications that call stored procedures or raw SQL have no tooling that validates the
+**contract** between the C# entity/property layer and the database shape (parameter names/types,
+result-set columns, nullability, length semantics). The EF Core team acknowledged the gap in
+[issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) and did not build it.
 
-### Written Explanation (Word Count: 412 words)
+Consequences in practice:
 
-Modern AI development depends upon thousands of overlooked, single-maintainer open-source packages—low-level C/Rust FFI bindings, niche scientific serialization formats, and hardware-adjacent primitives upon which PyTorch, Hugging Face, and LangChain quietly rely. When a single-maintainer dependency with 4,000+ downstream packages experiences maintainer burnout or unaddressed security debt, the entire AI supply chain becomes vulnerable. Furthermore, while the Model Context Protocol (MCP) has become the universal standard for AI tool connectivity, over 80% of foundational domain packages lack native MCP support and security auditing.
+- Renaming/retrofitting a column silently breaks `SELECT` projections or `EXEC` calls at runtime.
+- `VARCHAR2(4000 BYTE)` vs `(100 CHAR)` length-semantics mismatches surface as `ORA-12899` in
+  production, not in CI.
+- AI-generated SQL introduces hallucinated table/column names that nothing catches before deploy.
 
-**EcoSupport** is an ultra-high-performance, native Rust infrastructure engine engineered to systematically monitor, protect, and empower these high-criticality, low-bandwidth open-source foundations.
+## 2. The solution
 
-Unlike resource-heavy Python agent wrappers that consume hundreds of megabytes of RAM, EcoSupport is built as a single 3.7MB zero-overhead Rust binary with sub-millisecond cold starts, enabling continuous background telemetry without degrading host model contexts:
+**DataGuard** brings dbt's proven *model-contract* preflight pattern to .NET:
 
-1. **Empirical Niche Radar**: Replaces vanity star metrics with an empirical **Ecosystem Criticality Index (ECI)**—evaluating downstream dependency depth, issue staleness, maintainer velocity, and CVE exposure to identify fragile open-source backbones.
-2. **Native FastMCP 2.0 & `rmcp` Bridge Synthesis**: Automatically converts legacy C/Rust/Python domain libraries into fully compliant, typed FastMCP 2.0 servers, instantly onboarding long-tail scientific tools into the Claude ecosystem.
-3. **Deep Diagnostic Triage Swarm**: Deconstructs multi-language stack traces and reproduces FFI memory corruption bugs with **Claude 3.7 Sonnet’s Extended Thinking** (8k–16k thinking tokens), reducing maintainer triage lag by over 70%.
-4. **Static MCP Security Auditing**: Proactively audits community MCP servers for SSRF, shell injection, and path traversal vulnerabilities before deployment.
+1. **Lightweight IDE layer** — a netstandard2.0 Roslyn incremental generator/analyzer marks
+   unvalidated SQL calls (EF Core `FromSqlRaw`/`ExecuteSqlRaw`, Dapper) and provides quick fixes
+   (`[SkipContractCheck]`, `[MaxLength]`, provider rename) that emit only compilable code.
+2. **Heavy CI layer** — the `dataguard` dotnet tool extracts database ground truth and runs 22+
+   rules (DG001-016, MY001-003, PG001-003) covering parameter count/type/direction, column shape,
+   nullability, naming, length semantics (CHAR/BYTE), dialect confusion, and phantom identifiers.
+3. **Three ground-truth modes** — Full (live DB), Snapshot (committed JSON, the default, zero CI
+   credentials), Manual (`[ExpectedColumn]`/`[ExpectedSpParameter]` attributes).
+4. **Legacy-friendly** — `dataguard baseline` freezes existing drift; `snapshot diff --fail-on-drift`
+   gates new drift in CI; SARIF output integrates with GitHub/Azure DevOps.
 
-**Why Anthropic Support is Vital:**
-Debugging subtle FFI boundaries, concurrency data races in Python 3.13 free-threaded builds, and synthesizing zero-hallucination patches demand massive reasoning compute. Claude 3.7 Sonnet with Extended Thinking is the only architecture capable of generating verifiable, multi-step patch proofs for niche codebases without introducing regressions.
+## 3. Why the ecosystem needs it
 
-Granting EcoSupport access to the **Claude Max 20x tier** will directly fund:
-- Continuous scanning of 5,000+ critical niche repositories across PyPI, Crates.io, and GitHub.
-- Releasing 250+ verified, secure FastMCP connectors for overlooked scientific and systems libraries.
-- Delivering high-precision, test-backed triage dossiers to over 1,000 burnt-out maintainers.
-
-EcoSupport transforms Claude from a passive assistant into an active guardian of the global open-source commons.
+- Stored-procedure-heavy .NET is a large, underserved surface; contract drift is a top production
+  failure class there.
+- AI-assisted coding increases hallucinated-SQL risk; phantom-identifier detection (DG015/DG016)
+  targets exactly that.
+- MIT license, 8 NuGet packages, four database providers, no vendor lock-in — a strong base for an
+  ecosystem-impact grant: the funding enables real-DB integration tests (Testcontainers), NuGet
+  Trusted Publishing, and the companion Claude skill.

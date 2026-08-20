@@ -1,57 +1,21 @@
-# Universal Agent Rules — Quy tắc cho Devin.ai, OpenCode, Oh-My-Pi, Oh-My-OpenAgent, và mọi AI Agent
+# DataGuard Universal Agent Rules
 
-## MANDATORY FIRST STEP — Phải làm trước tiên
-Before doing ANYTHING, read the workspace session register:
-**`plans/ACTIVE_SESSION_REGISTER.md`**
-This file tells you: current project status, what was just done, and exactly what to do next.
+## Authority
 
-## Pre-Action Interception Hooks (DO NOT WAIT FOR GIT/SCRIPT ERRORS)
-- **Pre-Write Path Check**: Verify destination path BEFORE creating files. Never create rogue files at root or outside approved directories.
-- **In-Flight Co-Update**: When modifying code in `crates/`, update matching `docs/` (both `.md` and `.vi.md`) and `docs/sitemap_and_component_registry.md` in the SAME turn.
-- **Real-Time Register**: Update `plans/ACTIVE_SESSION_REGISTER.md` before concluding any session.
+1. Follow system/developer instructions and explicit user intent.
+2. Read `AGENTS.md` and `rules/workspace_governance.md` before creating, moving, or deleting workspace paths.
+3. Use `plans/2026-08-20-workspace-rationalization.md` for cleanup classification and decision gates.
 
-## The 6 Golden Laws (Never Break)
-1. **NEVER** create files or folders outside the defined workspace structure. Put temp files in `scratch/` only.
-2. **ALWAYS** update `docs/` when modifying `crates/`. Run `./scripts/verify_docs_sync.sh` to confirm.
-3. **ALWAYS** run `cargo check --workspace` after any Rust code change. Fix errors before proceeding.
-4. **NEVER** import code from `research/` into `crates/`. They are strictly isolated.
-5. **ALWAYS** use `./scripts/git_sync.sh "conventional commit message"` to commit — never raw `git commit`.
-6. **ALWAYS** update `plans/ACTIVE_SESSION_REGISTER.md` at the end of every session.
+## Working rules
 
+- Production DataGuard source is `src/`; production tests are the DataGuard test projects under `tests/`.
+- Documentation and knowledge belong in `docs/`, `plans/`, `research/`, `grants/`, and `brainstorm/`; operational automation belongs in `.github/`, `.githooks/`, `scripts/`, and `tools/`.
+- Update documentation when an observable DataGuard contract changes; run the matching build, test, workflow, container, or documentation validator.
+- Do not create arbitrary root paths or generated artifacts. Use policy-approved ignored locations for temporary work.
 
-## Workspace Structure (Memorize This)
-- `crates/` → Rust production code ONLY (eco-core, eco-radar, eco-mcp, eco-agents, eco-cli)
-- `docs/` → Living documentation (must stay in sync with code)
-- `research/` → Standalone research scripts and data (ISOLATED)
-- `rules/` → AI behavioral laws (read-only, do not modify without explicit instruction)
-- `plans/` → Task tracking and session registers
-- `brainstorm/` → Strategy and red-team analysis (read-only)
-- `grants/` → Anthropic grant application (modify only when explicitly instructed)
-- `scripts/` → Automation tools
-- `scratch/` → Throwaway scratchpads (gitignored)
+## Cleanup and safety
 
-## Technology Stack
-- **Primary Language**: Rust (Edition 2021)
-- **Async Runtime**: Tokio
-- **CLI Framework**: Clap v4
-- **JSON Serialization**: Serde + serde_json
-- **Protocol**: FastMCP 2.0 / rmcp (JSON-RPC 2.0)
-- **AI**: Anthropic Claude 3.7 Sonnet with Extended Thinking
-- **Memory Safety**: `#![forbid(unsafe_code)]` on ALL crates
-- **License**: PolyForm Noncommercial 1.0.0
-
-## Build & Test Commands
-```bash
-cargo check --workspace                          # Verify code compiles
-cargo test --workspace                           # Run all tests
-cargo build --release                            # Build optimized binary
-./scripts/verify_docs_sync.sh                    # Check documentation sync
-./scripts/git_sync.sh "your commit message"      # Commit and push
-cargo run -p eco-cli -- scan --category c-ffi    # Demo scan command
-```
-## NEW: opencode zen Integration (2026-08-18)
-Agent config files: `.omo/agents.toml`, `.omo/config.toml`
-Routing rules defined in `.omo/agents.toml` routing → map task types → agent names
-Default agent configured in `.omo/config.toml` default_agent
-Always verify agent availability before spawning; implement fallback to local/ollama models per `.omo/agents.toml` fallback entries
+- Do not delete tracked source, research, legal text, agent configuration, or local session state from an absence search alone.
+- Preserve WIP and require an owner-approved `from → keep | extract | rewrite | remove` manifest before irreversible cleanup.
+- Do not expose secrets, credentials, tokens, private session state, or handoff content.
 

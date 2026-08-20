@@ -1,15 +1,9 @@
-# Windsurf Cascade Rules for EcoSupport
+# DataGuard Windsurf Rules
 
-## Pre-Action Interception Invariants (Strict):
-- **Pre-Write Path Check**: Check target path before writing. Never create rogue files at root. Use `scratch/` for temp work.
-- **In-Flight Co-Update**: When modifying code in `crates/`, update `docs/` (both `.md` and `.vi.md`) and `docs/sitemap_and_component_registry.md` in the exact same turn.
-- **Session Register**: Read `plans/ACTIVE_SESSION_REGISTER.md` on start, update it on completion.
-
-## Architecture & Coding Standard:
-- **Rust Native**: All production code is in `crates/` (`eco-core`, `eco-radar`, `eco-mcp`, `eco-agents`, `eco-cli`).
-- **Memory Safety**: `#![forbid(unsafe_code)]` on all production crates.
-- **Model Context Protocol**: FastMCP 2.0 and `rmcp` compatible JSON-RPC 2.0 tool handlers.
-- **Anthropic Claude 3.7**: Support Extended Thinking via `thinking={"type": "enabled", "budget_tokens": ...}` with offline deterministic fallback simulation.
-- **Separation of Concerns**: Keep `research/` isolated from `crates/`. Keep `scratch/` gitignored.
-- **Documentation Sync**: When touching code, ensure `docs/` is updated and synchronized.
+- Read `AGENTS.md`, `rules/workspace_governance.md`, and the active plan before structural work.
+- `src/` is production DataGuard source; validate changed contracts with the appropriate .NET build/test command.
+- Keep product documentation and knowledge in their canonical directories; do not create root clutter or a parallel runtime/toolchain.
+- Co-update documentation only when a verified observable contract changes; do not preserve stale product claims.
+- Before irreversible cleanup, preserve WIP and obtain an owner-approved `from → keep | extract | rewrite | remove` manifest.
+- Local agent state, caches, and handoffs are not documentation and are not disposable without the owning tool/session being stopped.
 

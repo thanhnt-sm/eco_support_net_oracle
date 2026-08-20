@@ -207,12 +207,19 @@ public sealed class FileAuditLogger : IAuditLogger
     {
         if (!File.Exists(_logPath)) return null;
 
-        var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
-        for (var i = lines.Length - 1; i >= 0; i--)
+        try
         {
-            if (string.IsNullOrWhiteSpace(lines[i])) continue;
-            var entry = JsonSerializer.Deserialize<AuditEntry>(lines[i]);
-            if (entry?.Hash != null) return entry.Hash;
+            var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
+            for (var i = lines.Length - 1; i >= 0; i--)
+            {
+                if (string.IsNullOrWhiteSpace(lines[i])) continue;
+                var entry = JsonSerializer.Deserialize<AuditEntry>(lines[i]);
+                if (entry?.Hash != null) return entry.Hash;
+            }
+        }
+        catch (JsonException)
+        {
+            // One corrupt line must not take down the whole logger.
         }
         return null;
     }

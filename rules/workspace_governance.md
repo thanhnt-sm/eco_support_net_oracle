@@ -1,46 +1,33 @@
-# Workspace Governance & Structural Invariants
+# Workspace Governance — DataGuard
 
-This document establishes the **immutable laws of the EcoSupport workspace**. Every AI agent, subagent, developer, and automated pipeline **MUST** strictly adhere to these boundaries.
+`src/` là production source canonical của DataGuard .NET. Quy hoạch chi tiết, evidence và thứ tự cleanup nằm tại `plans/2026-08-20-workspace-rationalization.md`.
 
----
+## Topology canonical
 
-## 🏛️ Absolute Separation of Concerns (Directory Rules)
+| Nhóm | Paths | Quy tắc |
+|---|---|---|
+| Production | `src/`, `DataGuard.sln`, `Directory.Build.props` | Chỉ đây là source/build surface của product hiện hành. |
+| Tests | `tests/DataGuard.Core.Tests/`, `tests/DataGuard.GoldenCorpus.Tests/` | Mirror và xác minh contract DataGuard. |
+| Documentation/tri thức | `docs/`, `plans/`, `research/`, `grants/`, `brainstorm/`, root README/contributing/security/license | Không lẫn production source; historical material phải được gắn nhãn rõ. |
+| Automation | `.github/`, `.githooks/`, `scripts/`, `tools/`, `Dockerfile`, `.dockerignore` | Chỉ giữ khi CI, release, hook hoặc runbook DataGuard có reference. |
+| Local runtime/state | `.omp/`, `.omo/`, `.codegraph/`, cache lint/test | Không commit output generated; không xóa session/state khi process còn dùng. |
 
-```
-eco_support/
-├── crates/             # 🦀 PRODUCTION RUST SOURCE CODE ONLY
-│   ├── eco-core/       # Core types, Claude 3.7 API client, telemetry
-│   ├── eco-radar/      # Ecosystem Criticality Index (ECI) & registry scanners
-│   ├── eco-mcp/        # Native rmcp / FastMCP servers & security auditor
-│   ├── eco-agents/     # Triage & Patch Synthesizer agent harnesses
-│   └── eco-cli/        # High-speed terminal CLI entrypoint
-├── research/           # 🔬 STANDALONE DEEP ONLINE RESEARCH SUITE
-│   ├── niche_survey/   # Quantitative ecosystem analysis & crawler scripts
-│   ├── benchmarks/     # Empirical evaluation datasets & speed tests
-│   └── data/           # Raw JSON/CSV seed registries and data artifacts
-├── docs/               # 📚 LIVING SCIENTIFIC DOCUMENTATION
-│   ├── architecture/   # System Architecture, Tech Evaluations, ADRs
-│   └── guides/         # Developer guides, API references
-├── plans/              # 📋 EXECUTION BLUEPRINTS & ROADMAPS
-├── brainstorm/         # 🧠 RED-TEAMING & STRATEGIC PLANNING
-├── grants/             # 🏆 ANTHROPIC CLAUDE FOR OPEN SOURCE DOSSIER
-├── scratch/            # 🗑️ THROWAWAY SCRATCHPADS (STRICTLY GITIGNORED)
-├── scripts/            # ⚙️ DEV, GIT AUTOMATION & CI/CD UTILITIES
-├── .agents/ & rules/   # 🤖 CONSTITUTIONAL AGENT RULES & HARNESSES
-└── .githooks/          # 🪝 AUTOMATED PRE-COMMIT & PRE-PUSH VALIDATORS
-```
+## Candidate di sản
 
----
+- `crates/`, Cargo manifests, Python manifests/tests/prototype, Node manifests/`packages/`, EcoSupport docs/rules, `docker-compose.yml`, và agent adapters cũ là candidate, không phải rác mặc định.
+- `packages/` bị ignore là vấn đề ownership/version-control; không được dùng làm bằng chứng xóa.
+- `.tmp_new_models` không có reference operational được tìm thấy và là candidate remove, nhưng vẫn cần phê duyệt vì tracked.
+- `LICENSE` và `LICENSE.md` mâu thuẫn. Chỉ owner được chọn license canonical trước khi xóa hoặc sửa metadata.
 
-## 🚫 Invariant Prohibitions & Violations
+## Quy tắc cleanup
 
-1. **NO Mixing Research into Production**:
-   - Files in `research/` must NEVER be imported into `crates/`. Production crates must remain self-contained, typed, and dependency-minimal.
-2. **NO Unchecked Scratch Code**:
-   - Any throwaway test scripts or experimental prototypes MUST be placed in `scratch/`. `scratch/` is ignored by Git and will never be committed.
-3. **Living Documentation Law**:
-   - Any architectural modification to `crates/` MUST be reflected immediately in `docs/architecture/` and `CLAUDE.md`.
-4. **Zero-Unsafe Rust Invariant**:
-   - `#![forbid(unsafe_code)]` is enforced across all production crates unless specifically required for FFI interoperability and gated behind explicit module boundaries.
-5. **Deterministic Schema Law**:
-   - All MCP tool inputs and outputs must be strongly typed with `serde::Serialize` and `serde::Deserialize` with comprehensive field descriptions.
+1. Trước thay đổi không đảo ngược, lập manifest `from → keep | extract | rewrite | remove`; kiểm tra CI/release, manifest, entrypoint, import/reference và WIP.
+2. Không tạo `archive/` hoặc `legacy/` trong production repo. Tài sản giữ lại phải được extract sang repository/branch riêng; phần remove phải xóa trọn stack cùng docs, link, hook, validator và lock file liên quan.
+3. Generated state chỉ purge khi tool/daemon đã dừng. Không dùng `git clean -fdx`.
+4. Mọi plan cleanup lưu trong `plans/`; agent rule chỉ trỏ về document này, không sao chép topology mâu thuẫn.
+
+## Xác minh
+
+- Product change: `dotnet restore DataGuard.sln`, `dotnet build DataGuard.sln --configuration Release`, và test bị ảnh hưởng.
+- Workflow/container change: YAML/actionlint và Docker smoke test khi daemon sẵn sàng.
+- Docs/rules change: `./scripts/verify_docs_sync.sh`, sau đó kiểm tra nội dung/link vì script hiện chỉ xác nhận file tồn tại.

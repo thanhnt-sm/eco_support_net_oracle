@@ -1,18 +1,40 @@
-[English](SECURITY.md) | [Tiếng Việt](SECURITY.vi.md)
-
 # Security Policy
 
 ## Reporting a Vulnerability
 
-We take the security of EcoSupport and the downstream open-source ecosystems we protect seriously.
+We take the security of DataGuard and the downstream .NET/EF Core ecosystems it protects seriously.
 
-If you discover a potential vulnerability in EcoSupport Core, FastMCP endpoints, or the Niche Radar, please report it privately:
+If you discover a potential vulnerability in DataGuard (Core, adapters, analyzers, CLI, or the VS Code
+extension), please report it privately:
 
-- **Email**: `security@ecosupport.dev` (or via private GitHub Security Advisory)
-- **Do NOT** open a public issue.
+- **Email**: `security@ecosupport.dev`
+- Or open a **private GitHub Security Advisory** at
+  `https://github.com/thanhnt-sm/eco_support_net_oracle/security/advisories`
 
-## Response SLA
-- Initial Acknowledgment: Within 24 hours
-- Triage & Severity Assignment: Within 48 hours
-- Fix & Coordinated Disclosure: Within 14 days
+Please include:
 
+- The affected package/component and version (or commit SHA)
+- A minimal reproduction (SQL, config, or code snippet)
+- Impact description (data exposure, injection, denial of service, supply chain)
+
+We aim to acknowledge reports within 5 business days and to ship fixes as fast as the severity allows.
+
+## Supported versions
+
+| Version | Supported |
+|---------|-----------|
+| 0.1.x (pre-release) | Best effort — see release notes |
+
+## Security posture
+
+- **Credentials**: secret managers (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault) or environment
+  variables are the only supported sources in production; plaintext config-file credentials are
+  disabled by default (`AllowPlaintextConfigFallback=false`).
+- **Supply chain**: NuGet packages are signed (Sigstore keyless), published via Trusted Publishing
+  (OIDC), and carry SBOM + provenance attestation; GitHub Actions are SHA-pinned.
+- **CI gates**: vulnerability scan (fail on vulnerable packages), TruffleHog secret scan, and CodeQL
+  run on every branch/PR and tag release.
+- **Audit**: credential access is written to an append-only tamper-evident hash-chain log with
+  tail-truncation detection.
+- **Plugins**: rule plugins load only from an explicitly configured directory into an isolated,
+  collectible assembly-load context.

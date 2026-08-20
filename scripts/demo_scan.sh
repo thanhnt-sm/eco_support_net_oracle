@@ -1,34 +1,33 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# EcoSupport Live CLI Demonstration Script
-# Designed for Anthropic Grant Review & Terminal Recording
-# ==============================================================================
+# DataGuard demo — contract validation in action, no database required.
+set -euo pipefail
 
-set -e
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
-GREEN="\033[0;32m"
-CYAN="\033[0;36m"
-YELLOW="\033[1;33m"
-BOLD="\033[1m"
-NC="\033[0m"
+echo "=========================================================="
+echo " DataGuard — contract validation for Entity <-> SP/Raw SQL"
+echo " (dotnet tool: dataguard validate, no database needed)"
+echo "=========================================================="
+echo
 
-echo -e "${CYAN}${BOLD}"
-echo "=============================================================================="
-echo "  🚀 ECO-SUPPORT NATIVE — AUTONOMOUS NICHE ECOSYSTEM RADAR"
-echo "  Target: Anthropic 'Claude for Open Source' — Ecosystem Impact Track"
-echo "=============================================================================="
-echo -e "${NC}"
+echo "[1/3] Building sample (manual ground-truth attributes) ..."
+dotnet build samples/DataGuard.Sample/DataGuard.Sample.csproj -c Release --nologo -v q
 
-export PATH="$HOME/.cargo/bin:$PATH"
+SAMPLE_DLL="$ROOT/samples/DataGuard.Sample/bin/Release/net9.0/DataGuard.Sample.dll"
 
-echo -e "${YELLOW}Step 1: Running Pre-Flight Invariant & DocSync Check...${NC}"
-./scripts/preflight_agent_check.sh
+echo
+echo "[2/3] Validating offline against manual attributes ..."
+echo "      (expected: DG006 naming + DG005 nullability findings)"
+echo
+dotnet run --project "$ROOT/src/DataGuard.Cli/DataGuard.Cli.csproj" --no-build -- validate \
+  --offline --assembly "$SAMPLE_DLL" --provider sqlserver --verbose || true
 
-echo -e "\n${YELLOW}Step 2: Scanning C-FFI Critical Infrastructure Ecosystem...${NC}"
-cargo run -p eco-cli --quiet -- scan --category c-ffi --limit 3
+echo
+echo "[3/3] Snapshot/CI drift gate (offline, no snapshot yet):"
+dotnet run --project "$ROOT/src/DataGuard.Cli/DataGuard.Cli.csproj" --no-build -- \
+  validate --offline --assembly "$SAMPLE_DLL" --provider sqlserver --format json > /dev/null 2>&1 \
+  && echo "      validate exited 0" || echo "      validate exited non-zero"
 
-echo -e "\n${YELLOW}Step 3: Scanning Model Context Protocol (MCP) Ecosystem Gaps...${NC}"
-cargo run -p eco-cli --quiet -- scan --category mcp-connectors --limit 2
-
-echo -e "\n${GREEN}${BOLD}✨ Live Demo Completed Successfully!${NC}"
-echo -e "${CYAN}EcoSupport is primed for high-speed autonomous telemetry and triage swarms.${NC}\n"
+echo
+echo "Done. Full-mode flow: dataguard snapshot refresh --connection ... --provider ..."

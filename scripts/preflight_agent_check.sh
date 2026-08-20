@@ -58,6 +58,7 @@ ALLOWED_ROOT_PATTERNS=(
     "^\.ruff_cache"
     "^\.codegraph"
     "^\.omo"
+    "^\.omp"
 )
 
 ROGUE_COUNT=0

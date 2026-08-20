@@ -138,7 +138,7 @@ public class ParameterTypeMatchRule : ContractRuleBase
             var isOracle = sqlDesc.Parameters?.Any(p => p.DataType?.Contains("NUMBER", StringComparison.OrdinalIgnoreCase) == true) == true;
 
 
-            foreach (var param in sqlDesc.Parameters)
+            foreach (var param in sqlDesc.Parameters ?? Array.Empty<ParameterDescriptor>())
             {
                 var clrType = InferClrType(param.DataType);
                 var isCompatible = IsTypeCompatible(clrType, param.DataType, isOracle);
@@ -200,7 +200,7 @@ public class ParameterDirectionRule : ContractRuleBase
         // Handle RawSqlDescriptor which has Parameters with Direction
         if (contract is RawSqlDescriptor sqlDesc)
         {
-            foreach (var param in sqlDesc.Parameters)
+            foreach (var param in sqlDesc.Parameters ?? Array.Empty<ParameterDescriptor>())
             {
                 // Check for OUT/INOUT/RETURN directions that require out/ref at the call site.
                 if (param.Direction is ParameterDirection.Output
@@ -446,15 +446,8 @@ public class NamingConventionRule : ContractRuleBase
     }
 
     public static string ToSnakeCase(string pascalCase)
-    {
-        return string.Concat(pascalCase.Select((c, i) =>
-            i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c).ToString() : char.ToLowerInvariant(c).ToString()));
-    }
+        => DataGuard.Contracts.NameConventions.ToSnakeCase(pascalCase);
 
     public static string ToPascalCase(string snakeCase)
-    {
-        return string.Concat(snakeCase.Split('_', '-', '.')
-            .Where(s => s.Length > 0)
-            .Select(s => char.ToUpperInvariant(s[0]) + s[1..].ToLowerInvariant()));
-    }
+        => DataGuard.Contracts.NameConventions.ToPascalCase(snakeCase);
 }

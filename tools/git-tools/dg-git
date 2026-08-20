@@ -121,9 +121,24 @@ cmd_commit() {
     while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-verify) no_verify=true;; --file) files+=("$2"); shift;; *) break;; esac; shift; done
     [[ -z "$msg" ]] && { echo "Usage: dg-git commit -m \"msg\" [--file file...]"; exit 1; }
     [[ "$no_verify" != true ]] && cmd_doctor || { echo "Use --no-verify to skip"; exit 1; }
+    preflight_stage || exit 0
     [[ ${#files[@]} -gt 0 ]] && git add "${files[@]}" || git add -A
     git commit -m "$msg"
     log_success "Committed: $(git rev-parse --short HEAD) - $msg"
+}
+
+# List what would be staged; refuse silently staging everything unless yes_mode.
+preflight_stage() {
+    local files=()
+    while IFS= read -r f; do files+=("$f"); done < <(git status --porcelain)
+    if [[ ${#files[@]} -eq 0 ]]; then log_info "Working tree clean - nothing to commit"; return 1; fi
+    log_info "Files to stage (${#files[@]}):"
+    printf '  %s\n' "${files[@]}"
+    if [[ "${DG_YES_MODE:-true}" != "true" ]]; then
+        read -p "Stage and commit all? (y/N) " -n 1 -r; echo
+        [[ $REPLY =~ ^[Yy]$ ]] || { log_warn "Aborted"; return 1; }
+    fi
+    return 0
 }
 
 cmd_push() {
@@ -143,11 +158,17 @@ cmd_push() {
 cmd_sync() {
     require_git_repo
     local msg="" fix_mode=true yes_mode=true
-    while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-fix) fix_mode=false;; --no-yes) yes_mode=false;; *) break;; esac; shift; done
-    [[ -z "$msg" ]] && { echo "Usage: dg-git sync -m \"msg\""; exit 1; }
+    while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-fix) fix_mode=false;; --no-yes) DG_YES_MODE=false;; *) break;; esac; shift; done
+    # No message: auto-generate a conventional commit message so a bare
+    # `dg-git` runs the full workflow end-to-end.
+    [[ -z "$msg" ]] && msg="chore: auto-sync $(date +%Y-%m-%d-%H%M%S)"
     cmd_doctor
-    [[ -z "$msg" ]] && { log_error "Message required"; exit 1; }
-    git add -A; git commit -m "$msg"; git push
+    preflight_stage || return 0
+    # Scan the files that WOULD be staged BEFORE touching the index: a secret
+    # finding must leave the index exactly as it was (no partial staging).
+    cmd_secret || return 0
+    git add -A
+    git commit -m "$msg"; git push
     log_success "Synced: $msg"
 }
 
@@ -164,9 +185,40 @@ cmd_branch() {
 }
 
 cmd_secret() {
-    command -v git-secrets >/dev/null && { git secrets --scan --cached; return; }
-    log_warn "git-secrets not installed, scanning basic patterns..."
-    git diff --cached --name-only | while read f; do [[ -f "$f" ]] && grep -qE "(api[_-]?key|secret|password|token|secret)" "$f" 2>/dev/null && log_warn "Potential secret: $f"; done
+    local scan_files=()
+    # Paths from git status cover staged, unstaged and untracked files.
+    while IFS= read -r line; do
+        local path="${line:3}"
+        [[ -n "$path" ]] && scan_files+=("$path")
+    done < <(git status --porcelain)
+    if command -v git-secrets >/dev/null; then
+        if [[ ${#scan_files[@]} -gt 0 ]]; then
+            git secrets --scan "${scan_files[@]}"
+            return $?
+        fi
+        return 0
+    fi
+    log_warn "git-secrets not installed, scanning for high-signal secret VALUES..."
+    # Only flag actual secret-shaped values, not prose mentioning the words
+    # "secret"/"token"/"password" (policy docs and rule files are full of those).
+    local patterns=(
+        'ghp_[A-Za-z0-9]{20,}'
+        'github_pat_[A-Za-z0-9_]{20,}'
+        'AKIA[0-9A-Z]{16}'
+        'sk-[A-Za-z0-9]{20,}'
+        'xox[baprs]-[A-Za-z0-9-]{10,}'
+        'AIza[0-9A-Za-z_-]{35}'
+        '-----BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY-----'
+        'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+        '(api[_-]?key|secret|password|passwd|token)[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{8,}["'"'"']'
+        '(api[_-]?key|secret|password|passwd|token)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/]{16,}'
+    )
+    local joined=$(IFS='|'; echo "${patterns[*]}")
+    local found=0
+    for f in "${scan_files[@]}"; do
+        [[ -f "$f" ]] && grep -Eq "$joined" "$f" 2>/dev/null && { log_warn "Potential secret: $f"; found=1; }
+    done
+    return $found
 }
 
 cmd_config() {
@@ -181,7 +233,7 @@ main() {
     load_config() { [[ -f "$DG_GIT_DIR/.dg-git.yml" ]] && while IFS='=' read -r k v; do [[ $k =~ ^[[:space:]]*# ]] && continue; [[ -z $k ]] && continue; k=$(echo "$k"|xargs); v=$(echo "$v"|xargs); export "DG_${k^^}"="$v"; done < "$DG_GIT_DIR/.dg-git.yml"; :; }
     load_config
     
-    cmd="${1:-help}"; shift || true
+    cmd="${1:-sync}"; shift || true
     case "$cmd" in
         doctor) cmd_doctor "$@" ;;
         commit) cmd_commit "$@" ;;
@@ -190,17 +242,18 @@ main() {
         branch) cmd_branch "$@" ;;
         secret) cmd_secret "$@" ;;
         config) cmd_config "$@" ;;
-        help|--help|-h|"")
+        help|--help|-h)
             cat <<'EOF'
 DataGuard Git Tools (dg-git) - Safe git operations
 
-Usage: dg-git <command> [options]
+Usage: dg-git [command] [options]
+  (no command = full workflow: doctor → commit (auto message) → push)
 
 Commands:
   doctor      Check repo health (default: fix=yes, yes=yes, strict=no)
   commit      Safe commit with validation
   push        Safe push (no force, auto upstream)
-  sync        Doctor → commit → push (default: fix=yes, yes=yes)
+  sync        Doctor → secret scan → commit → push (default: fix=yes, yes=yes)
   branch      Branch management
   secret      Scan for secrets
   config      Manage config
@@ -218,19 +271,14 @@ Config file: .dg-git.yml
   dry_run: false
 
 Examples:
-  dg-git doctor              # Full check with auto-fix
-  dg-git commit -m "feat"    # Safe commit
-  dg-git push                # Safe push
-  dg-git sync -m "feat"      # Full workflow
+  dg-git                    # Full workflow (doctor → commit → push, auto message)
+  dg-git doctor             # Full check with auto-fix
+  dg-git commit -m "feat"   # Safe commit
+  dg-git push               # Safe push
+  dg-git sync -m "feat"     # Full workflow with explicit message
   dg-git branch --create feat/new
-  dg-git secret              # Scan secrets
+  dg-git secret             # Scan secrets
   dg-git config --show
-
-Config file (.dg-git.yml):
-  fix_mode: true
-  yes_mode: true
-  strict_mode: false
-  dry_run: false
 
 EOF
             exit 0;;

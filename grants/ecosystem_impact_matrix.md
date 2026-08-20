@@ -1,33 +1,12 @@
-# EcoSupport Native: Ecosystem Impact Matrix & Resource Allocation
+# Ecosystem Impact Matrix — DataGuard
 
-Quantitative breakdown of targeted niche ecosystems, risk vectors, and Claude compute multiplier.
-
----
-
-## 🎯 Target Niche Sectors & Risk Vectors
-
-| Sector | Target Archetype | Typical Maintainer Count | Downstream AI Impact | Failure Mode Without EcoSupport | EcoSupport Native Solution |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **1. C/Rust FFI Bindings** | Low-level wrappers (`cffi`, SIMD vectorizers, fast tokenizer primitives) | 1 - 2 maintainers | High (Used in torch, transformers, vLLM) | Silent memory corruption, Python 3.13 free-threaded crashes, abandoned builds | **PatchSynthesizer Agent** (Claude Thinking FFI boundary bug repair) |
-| **2. Scientific & Geospatial Formats** | Custom raster, NetCDF, HDF5, domain CAD converters | 1 maintainer (often academic) | Medium-High (Climate AI, Bio-ML, Robotics) | Loss of data pipeline interoperability, stale triage | **Triage Agent & Doc Synthesizer** |
-| **3. Community MCP Connectors** | Unofficial MCP tools for databases, esoteric APIs, legacy protocols | 1 maintainer | High for Agent Developers | Unmaintained schemas, SSRF/prompt injection vulnerabilities, context bloat | **FastMCP Bridge Builder & Native Rust Security Auditor** |
-| **4. Core Systems Infrastructure** | AST parsers, typing stubs, test fixtures, build backends | 1 - 3 maintainers | Extreme (Entire open source ecosystem) | Dependency blocking, CVE backlog, maintainer burnout | **Autonomous Radar & Issue Deconstructors** |
-
----
-
-## 📊 Quantified Return on Claude Max 20x Compute
-
-```mermaid
-pie title Claude Compute Allocation Breakdown
-    "Extended Thinking Patch Synthesis (12k tokens/run)" : 45
-    "Niche AST Codebase Analysis & MCP Generation" : 25
-    "Multi-turn Issue Triage & Reproduction" : 20
-    "MCP Security Auditing & Static Verification" : 10
-```
-
-### Projected 6-Month Ecosystem Multiplier:
-- **Repositories Actively Monitored**: 5,000+ niche packages.
-- **Maintainer Hours Saved per Month**: ~3,200 hours across 500+ projects.
-- **Synthesized FastMCP 2.0 Connectors**: 250+ open-source tool wrappers published to the global MCP registry.
-- **CVE & Stale Bug Patches Delivered**: 800+ high-signal, test-backed PRs.
-- **Runtime Footprint**: < 10MB RAM per background monitor daemon.
+| Dimension | Evidence |
+|-----------|----------|
+| **Problem size** | Legacy .NET + stored procedures is a large, under-tooled surface; EF Core issue #245 (2014) documents the missing contract-validation gap. |
+| **Pattern proven elsewhere** | dbt model contracts (Core v1.5, 2023) — preflight checks at compile time; DataGuard ports the pattern to .NET SP/raw SQL. |
+| **Adoption surface** | NuGet (8 packages), `dotnet tool install -g DataGuard.Cli`, Roslyn analyzers for any C# IDE, VS Code extension. |
+| **Providers** | SQL Server, Oracle, MySQL, PostgreSQL — one engine, four adapters. |
+| **AI-hallucination defense** | DG015/DG016 phantom table/column detection catches invented SQL identifiers — a growing AI-codegen failure mode. |
+| **Security posture** | MIT license; credentials via secret managers/env only (plaintext fallback disabled); supply chain: Sigstore signing, SBOM, provenance, SHA-pinned CI actions, vulnerability gate. |
+| **Verification** | 65 automated tests (analyzer execution, golden corpus strict-mode, per-rule coverage); offline demo in `scripts/demo_scan.sh` + `samples/`; real-DB Testcontainers suite planned with grant support. |
+| **Grant leverage** | Funding → container-based DB integration tests, NuGet Trusted Publishing rollout (deadline 2026-11-01), companion Claude skill, documentation. |

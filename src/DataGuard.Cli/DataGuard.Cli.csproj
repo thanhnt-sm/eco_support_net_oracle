@@ -3,7 +3,6 @@
     <TargetFramework>net9.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <PackageId>DataGuard.Cli</PackageId>
-    <Version>0.1.0-alpha.1</Version>
     <Authors>DataGuard Contributors</Authors>
     <Description>DataGuard CLI tool for contract validation.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

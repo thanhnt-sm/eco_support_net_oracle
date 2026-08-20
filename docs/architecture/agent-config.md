@@ -2,153 +2,72 @@
 
 ## Overview
 
-This document describes the agent configuration system for EcoSupport Native using opencode zen free models. The configuration enables task-routed model selection with automatic fallback to local models.
+Two distinct layers exist and MUST NOT be conflated:
 
-## Files
+1. **Product runtime (`eco-agents` crate)** — the Rust agent swarm shipped by this
+   repository. It is configured programmatically via `eco_core::Config` and talks
+   to Anthropic Claude through `ClaudeClient`. It does NOT read `.omo/` files and
+   does NOT route to opencode-zen.
+2. **Developer workflow (OMP)** — the interactive coding harness used by humans
+   working on this repo. Its configuration lives in `~/.omp/agent/config.yml`
+   (auto-loaded by OMP 17.x) and is documented in `.omp/readme.md`.
 
-### `.omo/agents.toml` — Agent Registry
+## OMP Developer Workflow
 
-Defines all available agents (models) with their properties:
+The pipeline is pinned to two models:
 
-| Field | Description |
-|-------|-------------|
-| `name` | Unique agent identifier |
-| `provider` | Provider: `opencode-zen` or `ollama` |
-| `model` | Model identifier (e.g., `nvidia/nemotron-3-ultra`) |
-| `tags` | Task categories this agent excels at |
-| `context_window` | Maximum context tokens |
-| `max_output` | Maximum output tokens |
-| `temperature` | Sampling temperature |
-| `top_p` | Nucleus sampling parameter |
-| `endpoint` | API endpoint URL |
+| Role | Model |
+|---|---|
+| Worker: dev/test/source exploration/research, all subagents | `deepseek/deepseek-v4-pro:high` |
+| Solver: solution design, plan, verify | `openai-codex/gpt-5.6-terra:high` |
+| Internal title/memory (`tiny`) | `deepseek/deepseek-v4-flash:low` |
 
-**Free Models Configured:**
-- `nemotron-3-ultra-free` — NVIDIA Nemotron 3 Ultra (reasoning, planning)
-- `llama-3.1-405b-free` — Meta Llama 3.1 405B (coding, implementation)
-- `qwen2.5-coder-32b-free` — Qwen 2.5 Coder 32B (quick tasks)
-- `deepseek-v3-free` — DeepSeek V3 (general, multilingual)
-- `gemini-2.0-flash-free` — Google Gemini 2.0 Flash (fast, multimodal)
+Key settings in `~/.omp/agent/config.yml`:
 
-**Local Fallback Models (Ollama):**
-- `ollama-nemotron3-8b` — Nemotron 3 Ultra 8B local
-- `ollama-qwen2.5-coder-32b` — Qwen 2.5 Coder 32B local
-- `ollama-llama3.1-70b` — Llama 3.1 70B local
+- `modelRoles` — role → provider-pinned selector (table above).
+- `retry.fallbackChains` — same-provider fallback only: DeepSeek Pro → Flash;
+  GPT Terra → Sol. If the whole chain fails, the request errors out; no
+  cross-provider task handoff.
+- `modelProviderOrder: [deepseek, openai-codex]`.
+- `tools.approvalMode: write`; `advisor.enabled: false`; `prewalk.enabled: false`.
+- `task.maxConcurrency: 3`, `task.batch: true`.
 
-### `.omo/config.toml` — Routing & Limits
+Handoff between the two models uses `.omp/handoffs/CURRENT.md` (overwritten at each
+milestone). The mandatory template is defined in `~/.omp/agent/AGENTS.md`.
 
-Contains routing rules, limits, and i18n settings.
+## Rust Integration (`eco-agents`)
 
-**Routing (`[omp.routing]`):**
-Maps task types to agent names:
-```
-reasoning → nemotron-3-ultra-free
-planning → nemotron-3-ultra-free
-architecture → nemotron-3-ultra-free
-coding → llama-3.1-405b-free
-implementation → llama-3.1-405b-free
-debug → llama-3.1-405b-free
-review → nemotron-3-ultra-free
-quick → qwen2.5-coder-32b-free
-general → deepseek-v3-free
-multilingual → deepseek-v3-free
-fast → gemini-2.0-flash-free
-```
+`crates/eco-agents/src/bridge.rs` exposes:
 
-**Fallback Chain (`[omp.routing.fallback_chain]`):**
-```
-primary → nemotron-3-ultra-free
-secondary → deepseek-v3-free
-tertiary → ollama-nemotron3-8b
-```
-
-**Limits (`[omp.limits]`):**
-Per-task-type agent spawn limits and token budgets.
-
-**i18n (`[omp.i18n]`):**
-```
-supported_languages = ["vi", "en", "ja", "ko"]
-default_language = "vi"
-fallback_to_english = true
-```
-
-## Rust Integration
-
-### `OpencodeZenBridgeAgent` (in `crates/eco-agents/src/bridge.rs`)
+- `BridgeResult` — package name, generated server filename, server source,
+  README markdown, optional thinking trace.
+- `DocBridgeAgent` — generates a production-ready FastMCP 2.0 / rmcp server from
+  API signatures using `ClaudeClient`.
 
 ```rust
-use eco_agents::{OpencodeZenBridgeAgent, OpencodeZenConfig};
+use eco_agents::{BridgeResult, DocBridgeAgent};
+use eco_core::Config;
 
-let agent = OpencodeZenBridgeAgent::new()?;
-let model = agent.route_task("coding"); // Returns "llama-3.1-405b-free"
-let result = agent.generate_with_model("coding", "Write a Rust function...", 2000).await?;
+let agent = DocBridgeAgent::new(config);
+let result: BridgeResult = agent
+    .generate_mcp_bridge("my-package", &api_signatures, 2000)
+    .await?;
 ```
 
-**Methods:**
-- `new()` — Loads config from `.omo/agents.toml` and `.omo/config.toml`
-- `route_task(task_type)` — Returns agent name for task type
-- `fallback_agent(attempt)` — Returns fallback agent at index
-- `generate_with_model(task_type, prompt, thinking_budget)` — Generates with routed model + fallback chain
+## Verified Commands
 
-### Error Handling
-
-```rust
-pub enum OpencodeZenError {
-    NoProviderAvailable,
-    ModelNotFound(String),
-    RoutingError(String),
-    ConfigReadError(String),
-}
-```
-
-## Usage Examples
-
-### CLI
 ```bash
-# Validate config
-omp config validate
-
-# List agents
-omp agent list
-
-# Route a task
-omp agent route coding
+omp --version
+omp config list --json
+omp models find deepseek-v4-pro --json
+omp models find gpt-5.6-terra --json
+cargo check --workspace
+cargo test -p eco-agents
 ```
-
-### Rust
-```rust
-use eco_agents::OpencodeZenBridgeAgent;
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let agent = OpencodeZenBridgeAgent::new()?;
-    
-    // Route task to best model
-    let model = agent.route_task("architecture");
-    println!("Architecture task → {}", model);
-    
-    // Generate with automatic fallback
-    let response = agent.generate_with_model(
-        "debug",
-        "Fix this Rust borrow checker error...",
-        4096
-    ).await?;
-    
-    println!("{}", response);
-    Ok(())
-}
-```
-
-## Adding New Models
-
-1. Add `[[agents]]` entry to `.omo/agents.toml`
-2. Add routing rule to `[omp.routing]` in `.omo/config.toml`
-3. Add limits to `[omp.limits]` if needed
-4. Add language tags to `[omp.i18n.model_language_tags]` if multilingual
-5. Run `cargo check --workspace`
-6. Run `./scripts/verify_docs_sync.sh`
 
 ## Security
 
-- `restricted_models` blocks proprietary models (GPT-4, etc.)
-- `enable_model_quota` enforces rate limits
-- API keys via environment variable `OPENCODE_ZEN_API_KEY`
+- No API keys or tokens are stored in YAML or committed files; OMP resolves
+  credentials through its own credential store.
+- Never write `.env` values, keys, tokens, database sessions, or transcripts into
+  prompts or handoff files.

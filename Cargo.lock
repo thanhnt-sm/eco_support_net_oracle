@@ -258,7 +258,6 @@ dependencies = [
 name = "eco-agents"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "eco-core",
  "eco-radar",
  "serde",

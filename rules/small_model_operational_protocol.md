@@ -1,73 +1,32 @@
-# Operational Protocol for Small, Constrained & Local AI Models
+# Operational Protocol for Constrained AI Models
 
-**Target Audience**: 7B/8B Parameter LLMs, Quantized Models, Constrained-Context Runtimes, and Automated Agent Harnesses.
+**Scope**: Small-context, low-reasoning, local, or automated agents operating on the DataGuard workspace.
 
----
+## Context discipline
 
-## 🎯 The Core Problem & Philosophy
-Smaller AI models often suffer from context degradation, syntax hallucination, and loss of instruction adherence over multi-turn interactions. This repository provides a **deterministic compiler-in-the-loop harness** that allows small models to produce code with the same precision and reliability as frontier models (Claude 3.7 Sonnet, Opus, GPT-4.5).
+1. Read the relevant symbol, configuration, test, or workflow section before changing it; do not ingest entire trees without a concrete question.
+2. Treat `rules/workspace_governance.md` as the topology source and `plans/2026-08-20-workspace-rationalization.md` as the cleanup manifest.
+3. Keep work inside the requested contract. Do not add a second runtime, package manager, manifest, source tree, or abstraction to compensate for uncertainty.
 
----
+## Compiler and test feedback loop
 
-## 🛠️ Step-by-Step Execution Protocol for Small Models
+For a DataGuard source change:
 
-### Phase 1: Micro-Context Targeting (Read Only What is Needed)
-- **Rule**: Never ingest entire directories into prompt context.
-- Target specific crate files: e.g. `crates/eco-core/src/lib.rs`.
-- Read only public signatures and type definitions before implementing logic.
+1. Make the smallest coherent edit.
+2. Run `dotnet build DataGuard.sln --configuration Release` or the narrowest affected project when that is sufficient.
+3. Run the affected deterministic test project; use `dotnet test DataGuard.sln --configuration Release` when the changed contract spans projects.
+4. Read the actual diagnostic, isolate the responsible symbol, and fix the defect without rewriting unrelated modules.
+5. Re-run the failed command and report its real result.
 
-### Phase 2: Schema-Driven Structured Output
-- When generating MCP tool outputs or radar candidate evaluations, ALWAYS use strict JSON matching the Serde schema:
-```json
-{
-  "repo": "owner/repo",
-  "eci_score": 75.4,
-  "risk_tier": "TIER_1_CRITICAL_EMERGENCY",
-  "reasoning_steps": [
-    "Step 1: Analyzed 4200 downstream dependents",
-    "Step 2: Identified single maintainer inactivity for 120 days",
-    "Step 3: Confirmed missing FastMCP 2.0 connector"
-  ]
-}
-```
+For workflow, documentation, or container changes, use the matching validator: YAML/actionlint, `./scripts/verify_docs_sync.sh`, or a Docker smoke test when a daemon is available.
 
-### Phase 3: Self-Healing Compiler Feedback Loop
-When writing or modifying Rust code, small models must execute the following automated validation pipeline:
+## Safe output and tool use
 
-```
-                  ┌───────────────────────────────┐
-                  │   Small AI Generates Code     │
-                  └──────────────┬────────────────┘
-                                 │
-                                 ▼
-                  ┌───────────────────────────────┐
-                  │    Execute `cargo check`      │
-                  └──────────────┬────────────────┘
-                                 │
-                   ┌─────────────┴─────────────┐
-                   │                           │
-          [Compile Errors]              [Compile Success]
-                   │                           │
-                   ▼                           ▼
-    ┌─────────────────────────────┐ ┌──────────────────────┐
-    │  Extract JSON Error Message │ │ Execute `cargo test` │
-    │  & Re-feed to Agent Loop    │ └──────────────────────┘
-    └──────────────┬──────────────┘
-                   │
-                   └─────────► (Auto-Fix & Retry, max 3 loops)
-```
+- Preserve public types, schema contracts, and error behavior unless the task explicitly changes them.
+- Never synthesize test output, CI state, provider behavior, database results, or security claims.
+- Use structured data only where the target API requires it; do not invent a generic schema.
+- Do not execute untrusted repository scripts or disclose secrets, tokens, credentials, local session data, or handoff contents.
 
-1. Run check: `cargo check --workspace --message-format=short`
-2. If errors occur:
-   - Isolate the line number and compiler diagnostic.
-   - Do NOT rewrite unrelated modules.
-   - Fix only the specific type mismatch or missing lifetime.
-3. Run lint: `cargo clippy --workspace -- -D warnings`
-4. Run tests: `cargo test --workspace`
+## Cleanup boundary
 
----
-
-## 🔒 Invariant Safety Check for Weak Models
-- If uncertain about a lifetime `'a` or async trait signature, use `Box<dyn Error + Send + Sync>` and standard Tokio primitives.
-- Never use `unsafe { ... }`.
-- Never introduce unvetted external crates to `Cargo.toml`.
+An absence search is evidence for investigation, not permission to remove a tracked file. Before an irreversible cleanup action, follow the owner-approved `from → keep | extract | rewrite | remove` manifest and preserve WIP.

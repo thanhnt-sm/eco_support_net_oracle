@@ -3,7 +3,6 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.Analyzers</PackageId>
-    <Version>0.1.0-alpha.1</Version>
     <Authors>DataGuard Contributors</Authors>
     <Description>Roslyn analyzers and quick fixes for DataGuard contract validation (IDE light layer).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;analyzers;roslyn</PackageTags>
@@ -14,6 +13,9 @@
          compile reference so quick-fix attributes ([SkipContractCheck], ...)
          actually compile. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- NU5128: assemblies in generators/dotnet/cs are intentional (Roslyn analyzer
+         packages host them outside lib); not a packaging defect. -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

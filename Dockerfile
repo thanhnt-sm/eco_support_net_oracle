@@ -8,8 +8,10 @@
 # without emulation.
 
 # ---------- Build stage ----------
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:35048e3a81e6a07c316e7bbbd80d80d2ba705fe5f23a8ed42b6638c8f4c20d30 AS build
 
+# BuildKit platform args are only visible to RUN when re-declared in the stage.
+ARG TARGETARCH
 # Release version to bake into the binary (e.g. 1.2.3); the csproj files
 # hardcode 0.1.0-alpha.1 which would otherwise end up in the image.
 ARG VERSION=0.1.0-ci
@@ -20,6 +22,7 @@ WORKDIR /source
 # during restore so the restore graph matches the publish graph.
 COPY --link Directory.Build.props .
 COPY --link src/DataGuard.Core/DataGuard.Core.csproj src/DataGuard.Core/
+COPY --link src/DataGuard.Contracts/DataGuard.Contracts.csproj src/DataGuard.Contracts/
 COPY --link src/DataGuard.Analyzers/DataGuard.Analyzers.csproj src/DataGuard.Analyzers/
 COPY --link src/DataGuard.SqlServer.Adapter/DataGuard.SqlServer.Adapter.csproj src/DataGuard.SqlServer.Adapter/
 COPY --link src/DataGuard.Oracle.Adapter/DataGuard.Oracle.Adapter.csproj src/DataGuard.Oracle.Adapter/
@@ -31,7 +34,9 @@ COPY --link src/DataGuard.Cli/DataGuard.Cli.csproj src/DataGuard.Cli/
 # the test projects, which are intentionally not part of the image build and
 # would make the restore fail (MSB3202). Project-level restore pulls in all
 # ProjectReferences (Core, adapters, analyzers) transitively.
-RUN dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj
+# Restore must target the same RID that publish --arch resolves to, otherwise
+# NETSDK1047 (assets file missing 'net9.0/linux-x64').
+RUN arch="$TARGETARCH"; [ "$arch" = "amd64" ] && arch="x64"; dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj -r "linux-$arch"
 
 # Copy the rest of the source and publish the CLI.
 # Note: --arch $TARGETARCH relies on the SDK normalizing "amd64" -> "x64"
@@ -46,7 +51,7 @@ RUN dotnet publish src/DataGuard.Cli/DataGuard.Cli.csproj \
     -p:Version=$VERSION
 
 # ---------- Runtime stage ----------
-FROM mcr.microsoft.com/dotnet/runtime:9.0 AS final
+FROM mcr.microsoft.com/dotnet/runtime:9.0@sha256:ee9e6309cef467e134056f9115b31fe3a43ef2959e5b1f42bce0cc97f1b3db3f AS final
 WORKDIR /app
 
 # Non-root user baked into .NET 9 runtime images (UID 1654).

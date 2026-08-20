@@ -2,7 +2,6 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.Oracle.Adapter</PackageId>
-    <Version>0.1.0-alpha.1</Version>
     <Authors>DataGuard Contributors</Authors>
     <Description>Oracle adapter for DataGuard contract validation. Requires Oracle.ManagedDataAccess.Core (Oracle Distribution License).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
