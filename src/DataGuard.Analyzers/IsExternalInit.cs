@@ -4,5 +4,9 @@
 
 namespace System.Runtime.CompilerServices;
 
-// Required shim for `init` accessors / records on netstandard2.0.
-internal static class IsExternalInit { }
+/// <summary>
+/// Provides the compiler-recognized <c>IsExternalInit</c> type for init accessors on netstandard2.0.
+/// </summary>
+internal static class IsExternalInit
+{
+}
