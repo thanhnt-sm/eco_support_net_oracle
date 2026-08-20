@@ -3,8 +3,12 @@
   "displayName": "DataGuard",
   "description": "Run DataGuard contract validation from the VS Code status bar.",
   "version": "0.1.0",
-  "publisher": "dataguard",
+  "publisher": "thanhnt-sm",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thanhnt-sm/eco_support_net_oracle"
+  },
   "engines": {
     "vscode": "^1.85"
   },

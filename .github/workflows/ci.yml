@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1"  # weekly full-history secret scan
 
 # Least-privilege floor; individual jobs declare what they need.
 permissions:
@@ -115,12 +117,21 @@ jobs:
           print('No vulnerable packages found.')
           EOF
 
-      - name: Check for secrets with TruffleHog
+      - name: Check for secrets with TruffleHog (commit range + working tree, fail on verified)
         uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
         with:
           path: ./
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
+          head: ${{ github.event.pull_request.head.sha || github.sha }}
           only_verified: true
+          fail: true
           version: "3.97.0"
+
+      - name: TruffleHog full git history (verified secrets, fail)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          docker run --rm -v "$PWD:/pwd" -e "TARGET=/pwd" ghcr.io/trufflesecurity/trufflehog:3.97.0 git file:///pwd --no-update --only-verified --fail
+        continue-on-error: false"
 
   generate-sbom:
     name: Generate SBOM

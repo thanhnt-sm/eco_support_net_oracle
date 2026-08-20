@@ -148,11 +148,14 @@ jobs:
           print('No vulnerable packages found.')
           EOF
 
-      - name: Check for secrets with TruffleHog
+      - name: Check for secrets with TruffleHog (commit range + working tree, fail on verified)
         uses: trufflesecurity/trufflehog@bcfcf73aaf4759d4dadc2783177c245a02792318 # v3.97.0
         with:
           path: ./
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
+          head: ${{ github.event.pull_request.head.sha || github.sha }}
           only_verified: true
+          fail: true
           version: "3.97.0"
 
   codeql:
