@@ -1,3 +1,9 @@
+// <copyright file="CodeFixProviders.cs" company="PlaceholderCompany">
+// Copyright (c) PlaceholderCompany. All rights reserved.
+// </copyright>
+
+namespace DataGuard.Analyzers.CodeFixes;
+
 using System;
 using System.Collections.Immutable;
 using System.Composition;
@@ -13,13 +19,12 @@ using Microsoft.CodeAnalysis.Editing;
 using Microsoft.CodeAnalysis.Rename;
 using DataGuard.Analyzers;
 
-namespace DataGuard.Analyzers.CodeFixes;
-
 /// <summary>
 /// Code fix provider for DataGuard diagnostics.
 /// Provides quick-fix suggestions in IDE for common contract violations.
 /// </summary>
-[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(DataGuardCodeFixProvider)), Shared]
+[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(DataGuardCodeFixProvider))]
+[Shared]
 public class DataGuardCodeFixProvider : CodeFixProvider
 {
     /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
@@ -41,10 +46,12 @@ public class DataGuardCodeFixProvider : CodeFixProvider
             DiagnosticIds.UnvalidatedSqlCall);
 
     /// <summary>Gets the batch fix-all provider.</summary>
+    /// <returns></returns>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
     /// <summary>Registers code fixes for the current diagnostic context.</summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
@@ -55,24 +62,24 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         switch (diagnostic.Id)
         {
             case DiagnosticIds.UnvalidatedSqlCall:
-                RegisterUnvalidatedSqlCallFixes(context, diagnostic, root!);
+                this.RegisterUnvalidatedSqlCallFixes(context, diagnostic, root!);
                 break;
             case DiagnosticIds.ParameterMismatch:
-                RegisterParameterMismatchFixes(context, diagnostic, root!);
+                this.RegisterParameterMismatchFixes(context, diagnostic, root!);
                 break;
             case DiagnosticIds.NamingConvention:
-                RegisterNamingConventionFixes(context, diagnostic, root!);
+                this.RegisterNamingConventionFixes(context, diagnostic, root!);
                 break;
             case DiagnosticIds.OracleSyntaxInNonOracle:
             case DiagnosticIds.NonOracleFunctionInOracle:
             case DiagnosticIds.SqlServerSyntaxLeak:
-                RegisterDialectFixes(context, diagnostic, root!);
+                this.RegisterDialectFixes(context, diagnostic, root!);
                 break;
             case DiagnosticIds.LengthExceedsColumn:
-                RegisterLengthFixes(context, diagnostic, root!);
+                this.RegisterLengthFixes(context, diagnostic, root!);
                 break;
             case DiagnosticIds.ProviderOptionMismatch:
-                RegisterProviderOptionFixes(context, diagnostic, root!);
+                this.RegisterProviderOptionFixes(context, diagnostic, root!);
                 break;
         }
     }
@@ -80,12 +87,12 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private void RegisterUnvalidatedSqlCallFixes(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
-        
+
         // Fix 1: Add [SkipContractCheck] attribute
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Add [SkipContractCheck] attribute",
-                c => AddSkipContractCheckAttributeAsync(context.Document, root!, node, c),
+                c => this.AddSkipContractCheckAttributeAsync(context.Document, root!, node, c),
                 "DataGuard.AddSkipContractCheck"),
             diagnostic);
 
@@ -93,7 +100,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Mark as 'validate in CI only' (add comment)",
-                c => AddCiOnlyCommentAsync(context.Document, root!, node, c),
+                c => this.AddCiOnlyCommentAsync(context.Document, root!, node, c),
                 "DataGuard.MarkCiOnly"),
             diagnostic);
     }
@@ -101,12 +108,12 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private void RegisterParameterMismatchFixes(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
-        
+
         // Fix: Update SQL to match expected parameters
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Update SQL to match expected parameters",
-                c => UpdateSqlToMatchParametersAsync(context.Document, root!, node, c),
+                c => this.UpdateSqlToMatchParametersAsync(context.Document, root!, node, c),
                 "DataGuard.UpdateSql"),
             diagnostic);
     }
@@ -114,12 +121,12 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private void RegisterNamingConventionFixes(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
-        
+
         // Fix: Auto-rename to match convention
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Auto-fix naming convention",
-                c => FixNamingConventionAsync(context.Document, root!, node, c),
+                c => this.FixNamingConventionAsync(context.Document, root!, node, c),
                 "DataGuard.FixNamingConvention"),
             diagnostic);
 
@@ -127,7 +134,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Add [Column] attribute with explicit name",
-                c => AddColumnAttributeAsync(context.Document, root!, node, c),
+                c => this.AddColumnAttributeAsync(context.Document, root!, node, c),
                 "DataGuard.AddColumnAttribute"),
             diagnostic);
     }
@@ -140,7 +147,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Add manual dialect conversion note",
-                c => AddDialectCommentAsync(context.Document, root!, node, c),
+                c => this.AddDialectCommentAsync(context.Document, root!, node, c),
                 "DataGuard.AddDialectNote"),
             diagnostic);
     }
@@ -148,12 +155,12 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private void RegisterLengthFixes(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
-        
+
         // Fix: Add MaxLength attribute
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Add [MaxLength] attribute",
-                c => AddMaxLengthAttributeAsync(context.Document, root!, node, c),
+                c => this.AddMaxLengthAttributeAsync(context.Document, root!, node, c),
                 "DataGuard.AddMaxLength"),
             diagnostic);
 
@@ -161,7 +168,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Change column type to CLOB/NCLOB",
-                c => SuggestClobTypeAsync(context.Document, root!, node, c),
+                c => this.SuggestClobTypeAsync(context.Document, root!, node, c),
                 "DataGuard.SuggestClob"),
             diagnostic);
     }
@@ -169,12 +176,12 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private void RegisterProviderOptionFixes(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
-        
+
         // Fix: Add UseOracle() to DbContext
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Add .UseOracle() to DbContextOptions",
-                c => AddUseOracleAsync(context.Document, root!, node, c),
+                c => this.AddUseOracleAsync(context.Document, root!, node, c),
                 "DataGuard.AddUseOracle"),
             diagnostic);
     }
@@ -184,7 +191,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var target = node.FirstAncestorOrSelf<MemberDeclarationSyntax>();
-        if (target == null) return document;
+        if (target == null)
+        {
+            return document;
+        }
 
         editor.AddAttribute(target, CreateSkipContractCheckAttribute("Dynamic SQL - manual review required"));
         return editor.GetChangedDocument();
@@ -194,7 +204,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
-        if (method == null) return document;
+        if (method == null)
+        {
+            return document;
+        }
 
         var attributes = method.ParameterList.Parameters.Select(p => CreateExpectedSpParameterAttribute(p.Identifier.ValueText));
         editor.ReplaceNode(method, method.WithAttributeLists(method.AttributeLists.AddRange(attributes)));
@@ -205,7 +218,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var target = node.FirstAncestorOrSelf<StatementSyntax>();
-        if (target == null) return document;
+        if (target == null)
+        {
+            return document;
+        }
 
         var comment = SyntaxFactory.Comment("// DataGuard: Validate in CI only");
         editor.ReplaceNode(target, target.WithLeadingTrivia(target.GetLeadingTrivia().Add(comment)));
@@ -216,7 +232,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
-        if (method == null) return document;
+        if (method == null)
+        {
+            return document;
+        }
 
         var attributes = method.ParameterList.Parameters.Select(p => CreateExpectedSpParameterAttribute(p.Identifier.ValueText));
         editor.ReplaceNode(method, method.WithAttributeLists(method.AttributeLists.AddRange(attributes)));
@@ -227,10 +246,16 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var invocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
-        if (invocation == null) return document;
+        if (invocation == null)
+        {
+            return document;
+        }
 
         var method = node.FirstAncestorOrSelf<MethodDeclarationSyntax>();
-        if (method == null) return document;
+        if (method == null)
+        {
+            return document;
+        }
 
         // Do not rewrite the SQL literal: attach a review note as leading trivia instead.
         var paramList = string.Join(", ", method.ParameterList.Parameters.Select(p => p.Identifier.ValueText));
@@ -242,20 +267,32 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private async Task<Document> FixNamingConventionAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
     {
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
-        if (property == null) return document;
+        if (property == null)
+        {
+            return document;
+        }
 
         var semanticModel = await document.GetSemanticModelAsync(c).ConfigureAwait(false);
-        if (semanticModel == null) return document;
+        if (semanticModel == null)
+        {
+            return document;
+        }
 
         var symbol = semanticModel.GetDeclaredSymbol(property, c);
-        if (symbol == null) return document;
+        if (symbol == null)
+        {
+            return document;
+        }
 
         // Apply snake_case to PascalCase renaming (identity when already PascalCase).
         var newName = ToPascalCase(property.Identifier.ValueText);
-        if (newName == property.Identifier.ValueText) return document;
+        if (newName == property.Identifier.ValueText)
+        {
+            return document;
+        }
 
         var solution = await Renamer.RenameSymbolAsync(
-            document.Project.Solution, symbol, new SymbolRenameOptions(), newName, c).ConfigureAwait(false);
+            document.Project.Solution, symbol, default(SymbolRenameOptions), newName, c).ConfigureAwait(false);
 
         return solution.GetDocument(document.Id) ?? document;
     }
@@ -264,7 +301,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
-        if (property == null) return document;
+        if (property == null)
+        {
+            return document;
+        }
 
         editor.AddAttribute(property, CreateColumnAttribute(ToSnakeCase(property.Identifier.ValueText)));
         return editor.GetChangedDocument();
@@ -275,7 +315,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var editor = await DocumentEditor.CreateAsync(document, c);
         var target = (SyntaxNode?)node.FirstAncestorOrSelf<LiteralExpressionSyntax>()
             ?? node.FirstAncestorOrSelf<StatementSyntax>();
-        if (target == null) return document;
+        if (target == null)
+        {
+            return document;
+        }
 
         var comment = SyntaxFactory.Comment("// DataGuard: convert this SQL to the target dialect manually");
         editor.ReplaceNode(target, target.WithLeadingTrivia(target.GetLeadingTrivia().Add(comment)));
@@ -286,7 +329,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
-        if (property == null) return document;
+        if (property == null)
+        {
+            return document;
+        }
 
         editor.AddAttribute(property, CreateMaxLengthAttribute(2000));
         return editor.GetChangedDocument();
@@ -296,7 +342,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
-        if (property == null) return document;
+        if (property == null)
+        {
+            return document;
+        }
 
         var comment = SyntaxFactory.Comment("// DataGuard: consider mapping this property to NCLOB/CLOB");
         editor.ReplaceNode(property, property.WithLeadingTrivia(property.GetLeadingTrivia().Add(comment)));
@@ -310,13 +359,19 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         // Replace UseSqlServer(...) with UseOracle(...), keeping the existing connection string argument.
         var scope = (SyntaxNode?)node.FirstAncestorOrSelf<MethodDeclarationSyntax>()
             ?? node.FirstAncestorOrSelf<StatementSyntax>();
-        if (scope == null) return document;
+        if (scope == null)
+        {
+            return document;
+        }
 
         var useSqlServer = scope.DescendantNodesAndSelf()
             .OfType<InvocationExpressionSyntax>()
             .FirstOrDefault(inv => inv.Expression is MemberAccessExpressionSyntax ma
                 && ma.Name.Identifier.ValueText == "UseSqlServer");
-        if (useSqlServer == null) return document;
+        if (useSqlServer == null)
+        {
+            return document;
+        }
 
         var renamed = useSqlServer.WithExpression(
             ((MemberAccessExpressionSyntax)useSqlServer.Expression).WithName(SyntaxFactory.IdentifierName("UseOracle")));
@@ -345,7 +400,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
                     SyntaxFactory.AttributeArgument(
                         SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty))),
                     SyntaxFactory.AttributeArgument(
-                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty)))
+                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty))),
                 })));
         return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
     }
@@ -368,8 +423,6 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
     }
 
-
-
     private static string ToSnakeCase(string pascalCase)
         => DataGuard.Contracts.NameConventions.ToSnakeCase(pascalCase);
 
@@ -380,7 +433,8 @@ public class DataGuardCodeFixProvider : CodeFixProvider
 /// <summary>
 /// Code fix for adding missing MaxLength attribute.
 /// </summary>
-[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(AddMaxLengthAttributeFixProvider)), Shared]
+[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(AddMaxLengthAttributeFixProvider))]
+[Shared]
 public class AddMaxLengthAttributeFixProvider : CodeFixProvider
 {
     /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
@@ -388,22 +442,27 @@ public class AddMaxLengthAttributeFixProvider : CodeFixProvider
         => ImmutableArray.Create(DiagnosticIds.LengthExceedsColumn, DiagnosticIds.InferredSizeFallback);
 
     /// <summary>Gets the batch fix-all provider.</summary>
+    /// <returns></returns>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
     /// <summary>Registers code fixes for the current diagnostic context.</summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         if (root == null)
+        {
             return;
+        }
+
         var node = root.FindNode(diagnostic.Location.SourceSpan);
 
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Add [MaxLength] attribute with suggested value",
-                c => AddMaxLengthAttributeAsync(context.Document, root!, node, c),
+                c => this.AddMaxLengthAttributeAsync(context.Document, root!, node, c),
                 "DataGuard.AddMaxLength"),
             diagnostic);
     }
@@ -412,7 +471,10 @@ public class AddMaxLengthAttributeFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
-        if (property == null) return document;
+        if (property == null)
+        {
+            return document;
+        }
 
         var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.MaxLength"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
@@ -426,7 +488,8 @@ public class AddMaxLengthAttributeFixProvider : CodeFixProvider
 /// <summary>
 /// Code fix for adding [SkipContractCheck] attribute.
 /// </summary>
-[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(SkipContractCheckFixProvider)), Shared]
+[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(SkipContractCheckFixProvider))]
+[Shared]
 public class SkipContractCheckFixProvider : CodeFixProvider
 {
     /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
@@ -434,22 +497,27 @@ public class SkipContractCheckFixProvider : CodeFixProvider
         => ImmutableArray.Create(DiagnosticIds.UnvalidatedSqlCall);
 
     /// <summary>Gets the batch fix-all provider.</summary>
+    /// <returns></returns>
     public sealed override FixAllProvider GetFixAllProvider()
         => WellKnownFixAllProviders.BatchFixer;
 
     /// <summary>Registers code fixes for the current diagnostic context.</summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
     {
         var diagnostic = context.Diagnostics.First();
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         if (root == null)
+        {
             return;
+        }
+
         var node = root.FindNode(diagnostic.Location.SourceSpan);
 
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Add [SkipContractCheck] attribute (dynamic SQL)",
-                c => AddSkipAttributeAsync(context.Document, root!, node, c),
+                c => this.AddSkipAttributeAsync(context.Document, root!, node, c),
                 "DataGuard.SkipContractCheck"),
             diagnostic);
     }
@@ -458,7 +526,10 @@ public class SkipContractCheckFixProvider : CodeFixProvider
     {
         var editor = await DocumentEditor.CreateAsync(document, c);
         var target = node.FirstAncestorOrSelf<MemberDeclarationSyntax>();
-        if (target == null) return document;
+        if (target == null)
+        {
+            return document;
+        }
 
         var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
