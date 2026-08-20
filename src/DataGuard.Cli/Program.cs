@@ -26,8 +26,8 @@ var rootCommand = new RootCommand("DataGuard - Entity ↔ SP/Raw SQL Contract Va
 
 var connectionOption = new Option<string>("--connection", "Database connection string");
 var configOption = new Option<string>("--config", "Path to .dataguard.yml config file");
-var outputOption = new Option<string>("--output", "Output file path; required for --format sarif");
-var formatOption = new Option<string>("--format", () => "text", "Output format: text (default) or sarif");
+var outputOption = new Option<string>("--output", "Output file path; required for --format sarif or evidence");
+var formatOption = new Option<string>("--format", () => "text", "Output format: text (default), sarif, or evidence");
 var offlineOption = new Option<bool>("--offline", "Run in offline mode (no DB connection)");
 var verboseOption = new Option<bool>("--verbose", "Enable verbose output");
 var providerOption = new Option<string>("--provider", () => "sqlserver", "Database provider: sqlserver, oracle, mysql, postgresql");
@@ -87,15 +87,15 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
     };
 
     var normalizedFormat = format.Trim().ToLowerInvariant();
-    if (normalizedFormat is not ("text" or "sarif"))
+    if (normalizedFormat is not ("text" or "sarif" or "evidence"))
     {
-        console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif.");
+        console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence.");
         Environment.ExitCode = 2;
         return;
     }
-    if (normalizedFormat == "sarif" && string.IsNullOrWhiteSpace(output))
+    if (normalizedFormat is "sarif" or "evidence" && string.IsNullOrWhiteSpace(output))
     {
-        console.Error.WriteLine("--format sarif requires --output <path>; DataGuard never writes SARIF to stdout.");
+        console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
         Environment.ExitCode = 2;
         return;
     }
@@ -104,17 +104,23 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
     {
         var violations = await RunValidationAsync(config, provider, verbose, console);
 
-        var emitter = new DiagnosticEmitter();
         if (normalizedFormat == "text")
         {
+            var emitter = new DiagnosticEmitter();
             emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
+            await emitter.EmitAsync(violations);
+        }
+        else if (normalizedFormat == "sarif")
+        {
+            var emitter = new DiagnosticEmitter();
+            emitter.AddSarifSink(new FileSarifSink(output!));
+            await emitter.EmitAsync(violations);
         }
         else
         {
-            emitter.AddSarifSink(new FileSarifSink(output!));
+            await ContractEvidenceWriter.WriteAsync(output!, provider, violations);
         }
 
-        await emitter.EmitAsync(violations);
 
         var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
 
