@@ -26,8 +26,8 @@ var rootCommand = new RootCommand("DataGuard - Entity ↔ SP/Raw SQL Contract Va
 
 var connectionOption = new Option<string>("--connection", "Database connection string");
 var configOption = new Option<string>("--config", "Path to .dataguard.yml config file");
-var outputOption = new Option<string>("--output", "Output file path for SARIF/JSON");
-var formatOption = new Option<string>("--format", () => "sarif", "Output format: sarif, json, text");
+var outputOption = new Option<string>("--output", "Output file path; required for --format sarif");
+var formatOption = new Option<string>("--format", () => "text", "Output format: text (default) or sarif");
 var offlineOption = new Option<bool>("--offline", "Run in offline mode (no DB connection)");
 var verboseOption = new Option<bool>("--verbose", "Enable verbose output");
 var providerOption = new Option<string>("--provider", () => "sqlserver", "Database provider: sqlserver, oracle, mysql, postgresql");
@@ -46,9 +46,18 @@ var validateCommand = new Command("validate", "Validate contracts against databa
     connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption
 };
 
-validateCommand.SetHandler(async (connection, configPath, output, offline, verbose, provider, schema, assemblyPath) =>
+validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext context) =>
 {
     var console = new SystemConsole();
+    var connection = context.ParseResult.GetValueForOption(connectionOption);
+    var configPath = context.ParseResult.GetValueForOption(configOption);
+    var output = context.ParseResult.GetValueForOption(outputOption);
+    var format = context.ParseResult.GetValueForOption(formatOption) ?? "text";
+    var offline = context.ParseResult.GetValueForOption(offlineOption);
+    var verbose = context.ParseResult.GetValueForOption(verboseOption);
+    var provider = context.ParseResult.GetValueForOption(providerOption) ?? "sqlserver";
+    var schema = context.ParseResult.GetValueForOption(schemaOption);
+    var assemblyPath = context.ParseResult.GetValueForOption(assemblyOption);
     var config = LoadConfig(configPath);
 
     if (offline)
@@ -77,16 +86,32 @@ validateCommand.SetHandler(async (connection, configPath, output, offline, verbo
         DefaultSchema = schema ?? config.DefaultSchema
     };
 
+    var normalizedFormat = format.Trim().ToLowerInvariant();
+    if (normalizedFormat is not ("text" or "sarif"))
+    {
+        console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif.");
+        Environment.ExitCode = 2;
+        return;
+    }
+    if (normalizedFormat == "sarif" && string.IsNullOrWhiteSpace(output))
+    {
+        console.Error.WriteLine("--format sarif requires --output <path>; DataGuard never writes SARIF to stdout.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
     try
     {
         var violations = await RunValidationAsync(config, provider, verbose, console);
 
         var emitter = new DiagnosticEmitter();
-        emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
-
-        if (!string.IsNullOrEmpty(output))
+        if (normalizedFormat == "text")
         {
-            emitter.AddSarifSink(new FileSarifSink(output));
+            emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
+        }
+        else
+        {
+            emitter.AddSarifSink(new FileSarifSink(output!));
         }
 
         await emitter.EmitAsync(violations);
@@ -109,7 +134,7 @@ validateCommand.SetHandler(async (connection, configPath, output, offline, verbo
         }
         Environment.ExitCode = 1;
     }
-}, connectionOption, configOption, outputOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption);
+});
 
 #endregion
 

@@ -53,7 +53,7 @@ The IDE layer (`DataGuard.Analyzers`) marks unvalidated SQL calls on every keyst
 ## CLI commands
 
 ```
-dataguard validate        # run contract validation (SARIF/JSON/text output)
+dataguard validate        # text by default; SARIF requires --format sarif --output <path>
 dataguard baseline        # freeze existing drift for legacy codebases
 dataguard snapshot        # refresh / show / diff schema snapshots
 dataguard oracle-check    # Oracle dialect + length checks (CHAR/BYTE semantics)
@@ -65,7 +65,8 @@ dataguard migrate         # migrate legacy v1 baseline files to v2
 ## IDE support
 
 - **Roslyn analyzers** (`DataGuard.Analyzers`): DG001 diagnostics with quick fixes (MaxLength, UseOracle, SkipContractCheck, naming) in any C# IDE.
-- **VS Code extension** (`DataGuard.VSCode`): status-bar runner for `dataguard validate`.
+- **VS Code extension** (`DataGuard.VSCode`): trusted-workspace CLI runner with private SARIF diagnostics, cancellation and bounded output.
+- **Visual Studio 2022 extension** (`DataGuard.VisualStudio`): VSSDK Tools commands for the same local CLI workflow; packaged on Windows CI.
 
 ## Documentation
 

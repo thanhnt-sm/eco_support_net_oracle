@@ -151,3 +151,7 @@ Không tạo `archive/`, `legacy/`, hay root scratch mới. Khi một stack di s
 - `packages/` bị ignore là một defect ownership/version-control, không phải bằng chứng nó được phép xóa.
 - Cache có thể purge; config/session state cần tool owner hoặc user directive.
 - Mọi cleanup commit phải có manifest from → disposition, cập nhật toàn bộ caller/link/hook/validator và chạy verification DataGuard.
+
+## 6. Phụ thuộc Marketplace
+
+`src/DataGuard.VSCode/` là production source của VS Code extension, không thuộc TypeScript/EcoSupport di sản ở root. `src/DataGuard.VisualStudio/` sẽ là production source Windows-only khi được thêm. Mọi cleanup Node/TypeScript manifest, CI hay docs phải preserve hai module và workflow phát hành của chúng. Chi tiết/gates: [Marketplace product plan](260820-marketplace-extensions/plan.md).

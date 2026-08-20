@@ -12,6 +12,14 @@ public class DiagnosticEmitter
     private readonly List<ISarifSink> _sarifSinks = new();
     private readonly List<IDiagnosticSink> _diagnosticSinks = new();
 
+    private static readonly HashSet<string> SafePropertyKeys = new(StringComparer.Ordinal)
+    {
+        "column", "columnMaxBytes", "columnMaxLength", "dbColumnType",
+        "entityMaxBytes", "entityMaxLength", "function", "inferredType",
+        "keyword", "operator", "property", "referencedIssue", "semantics",
+        "suggestion", "syntax", "table", "type"
+    };
+
     public void AddSarifSink(ISarifSink sink) => _sarifSinks.Add(sink);
     public void AddDiagnosticSink(IDiagnosticSink sink) => _diagnosticSinks.Add(sink);
 
@@ -48,10 +56,10 @@ public class DiagnosticEmitter
                         .Select(g => new ReportingDescriptor
                         {
                             Id = g.Key,
-                            Name = g.First().Message.Split(':')[0],
+                            Name = SafeText(g.First().Message).Split(':')[0],
                             ShortDescription = new MultiformatMessageString
                             {
-                                Text = g.First().Message
+                                Text = SafeText(g.First().Message)
                             },
                             DefaultConfiguration = new ReportingConfiguration
                             {
@@ -69,7 +77,7 @@ public class DiagnosticEmitter
             Results = violations.Select(v => new Result
             {
                 RuleId = v.RuleId,
-                Message = new Message { Text = v.Message },
+                Message = new Message { Text = SafeText(v.Message) },
                 Level = v.Severity switch
                 {
                     DiagnosticSeverity.Error => "error",
@@ -100,7 +108,7 @@ public class DiagnosticEmitter
                         }
                     }
                     : new List<SarifLocation>(),
-                Properties = v.Properties != null ? new PropertyBag(new Dictionary<string, object?>(v.Properties)) : new PropertyBag()
+                Properties = CreateSafeProperties(v.Properties)
             }).ToList()
         };
 
@@ -108,6 +116,58 @@ public class DiagnosticEmitter
         {
             Runs = new List<Run> { run }
         };
+    }
+
+    private static PropertyBag CreateSafeProperties(IReadOnlyDictionary<string, object?>? properties)
+    {
+        if (properties == null)
+            return new PropertyBag();
+
+        var safeProperties = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (key, value) in properties)
+        {
+            if (SafePropertyKeys.Contains(key) && IsSafePropertyValue(value))
+                safeProperties[key] = value;
+        }
+
+        return new PropertyBag(safeProperties);
+    }
+
+    private static bool IsSafePropertyValue(object? value)
+    {
+        if (ContainsSensitiveValue(value))
+            return false;
+
+        return value is null
+            || value is string
+            || value is bool
+            || value is byte or sbyte or short or ushort or int or uint or long or ulong
+            || value is float or double or decimal
+            || value.GetType().IsEnum;
+    }
+
+    private static string SafeText(string? text) =>
+        string.IsNullOrEmpty(text) || !ContainsSensitiveValue(text) ? text ?? string.Empty : "[REDACTED]";
+
+    private static bool ContainsSensitiveValue(object? value)
+    {
+        if (value is not string text)
+            return false;
+
+        return text.Contains("password=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("pwd=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("connectionstring=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("connection string=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("access_token=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("token=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("token:", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("secret=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("secret:", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("authorization: bearer", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("api_key=", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("api-key:", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("api key=", StringComparison.OrdinalIgnoreCase)
+            || (text.StartsWith("eyJ", StringComparison.Ordinal) && text.Length > 20);
     }
 }
 

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+  <Commands package="guidDataGuardPackage">
+    <Groups>
+      <Group guid="guidDataGuardCommandSet" id="DataGuardGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+    </Groups>
+    <Buttons>
+      <Button guid="guidDataGuardCommandSet" id="ValidateCommand" priority="0x0100" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>DataGuard: Run Validation</ButtonText>
+        </Strings>
+      </Button>
+      <Button guid="guidDataGuardCommandSet" id="CancelCommand" priority="0x0101" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>DataGuard: Cancel Validation</ButtonText>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+  <Symbols>
+    <GuidSymbol name="guidDataGuardPackage" value="{04a7c09c-4f79-439f-8298-952900cdb5ae}" />
+    <GuidSymbol name="guidDataGuardCommandSet" value="{a7ceccae-351c-4d13-9568-b2ba5370ea7d}">
+      <IDSymbol name="DataGuardGroup" value="0x1020" />
+      <IDSymbol name="ValidateCommand" value="0x0100" />
+      <IDSymbol name="CancelCommand" value="0x0101" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>

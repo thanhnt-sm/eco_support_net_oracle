@@ -1,0 +1,241 @@
+name: Marketplace Extensions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to package/publish (for example v0.2.0); empty uses package manifests."
+        required: false
+        type: string
+      publish:
+        description: "Publish the two validated VSIX artifacts to Marketplace."
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+env:
+  VSCODE_DIR: src/DataGuard.VSCode
+  VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
+
+jobs:
+  vscode-package:
+    name: Package VS Code Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify release ref
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$PUBLISH" = "true" ] && [ -z "$RELEASE_TAG" ]; then
+            echo "::error::publish=true requires an immutable release tag"
+            exit 1
+          fi
+          if [ -n "$RELEASE_TAG" ] && [ "$(git rev-list -n 1 "$RELEASE_TAG")" != "$(git rev-parse HEAD)" ]; then
+            echo "::error::Checked-out commit does not match tag $RELEASE_TAG"
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
+
+      - name: Install and test
+        working-directory: ${{ env.VSCODE_DIR }}
+        run: |
+          npm ci
+          npm test
+
+      - name: Derive package version
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          if [ -z "$version" ]; then
+            version=$(node -p "require('./${VSCODE_DIR}/package.json').version")
+          fi
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Version '$version' is not SemVer"; exit 1 ;;
+          esac
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Package VSIX
+        working-directory: ${{ env.VSCODE_DIR }}
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          npm pkg set version="$VERSION"
+          npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
+          sha256sum "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix" > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
+
+      - name: Upload VS Code VSIX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-vscode-vsix
+          path: |
+            ${{ runner.temp }}/dataguard-vscode-*.vsix
+            ${{ runner.temp }}/dataguard-vscode-*.vsix.sha256
+          if-no-files-found: error
+
+      - name: Attest VS Code VSIX
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/dataguard-vscode-*.vsix
+
+  visual-studio-package:
+    name: Package Visual Studio Extension
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify release ref
+        shell: pwsh
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:PUBLISH -eq 'true' -and [string]::IsNullOrWhiteSpace($env:RELEASE_TAG)) {
+            throw 'publish=true requires an immutable release tag'
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:RELEASE_TAG)) {
+            $tagCommit = git rev-list -n 1 $env:RELEASE_TAG
+            $headCommit = git rev-parse HEAD
+            if ($tagCommit -ne $headCommit) { throw \"Checked-out commit does not match tag $env:RELEASE_TAG\" }
+          }
+
+      - name: Derive VSIX version
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            [xml]$manifest = Get-Content "$env:VISUAL_STUDIO_DIR/source.extension.vsixmanifest"
+            $version = $manifest.PackageManifest.Metadata.Identity.Version
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$') {
+            throw "Version '$version' is not SemVer"
+          }
+          "value=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Set VSIX manifest version
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $manifestPath = "$env:VISUAL_STUDIO_DIR/source.extension.vsixmanifest"
+          [xml]$manifest = Get-Content $manifestPath
+          $manifest.PackageManifest.Metadata.Identity.Version = $env:VERSION
+          $manifest.Save((Resolve-Path $manifestPath))
+
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($msbuild)) { throw "MSBuild was not found" }
+          "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Restore and package VSIX
+        shell: pwsh
+        env:
+          MSBUILD: ${{ steps.msbuild.outputs.path }}
+        run: |
+          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
+          Copy-Item $vsix.FullName "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix"
+          (Get-FileHash "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix" -Algorithm SHA256).Hash + "  DataGuard.VisualStudio.vsix" |
+            Set-Content "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix.sha256"
+
+      - name: Upload Visual Studio VSIX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-visualstudio-vsix
+          path: |
+            ${{ runner.temp }}/DataGuard.VisualStudio.vsix
+            ${{ runner.temp }}/DataGuard.VisualStudio.vsix.sha256
+          if-no-files-found: error
+
+      - name: Attest Visual Studio VSIX
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/DataGuard.VisualStudio.vsix
+
+  publish-vscode:
+    name: Publish VS Code Marketplace
+    needs: [vscode-package, visual-studio-package]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    environment: marketplace-production
+    steps:
+      - name: Download VS Code VSIX
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dataguard-vscode-vsix
+          path: artifacts
+
+      - name: Publish verified artifact
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          test -n "$VSCE_PAT" || { echo "::error::VSCE_PAT Marketplace Manage credential is required"; exit 1; }
+          npx @vscode/vsce publish --packagePath artifacts/*.vsix --pat "$VSCE_PAT"
+
+  publish-visualstudio:
+    name: Publish Visual Studio Marketplace
+    needs: [vscode-package, visual-studio-package]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: windows-latest
+    environment: marketplace-production
+    steps:
+      - name: Checkout publish manifest
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Download Visual Studio VSIX
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dataguard-visualstudio-vsix
+          path: artifacts
+
+      - name: Publish verified artifact
+        shell: pwsh
+        env:
+          VS_MARKETPLACE_PAT: ${{ secrets.VS_MARKETPLACE_PAT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VS_MARKETPLACE_PAT)) { throw "VS_MARKETPLACE_PAT is required" }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $publisher = & $vswhere -latest -products * -find 'VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe' | Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($publisher)) { throw "VsixPublisher.exe was not found; install the Visual Studio extension development workload" }
+          & $publisher publish -payload "$PWD\artifacts\DataGuard.VisualStudio.vsix" -publishManifest "$env:VISUAL_STUDIO_DIR\vs-publish.json" -personalAccessToken $env:VS_MARKETPLACE_PAT
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

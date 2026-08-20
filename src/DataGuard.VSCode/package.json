@@ -1,20 +1,53 @@
 {
   "name": "dataguard-vscode",
   "displayName": "DataGuard",
-  "description": "Run DataGuard contract validation from the VS Code status bar.",
+  "description": "Detect database contract drift between .NET code, stored procedures, and SQL before it reaches production.",
   "version": "0.1.0",
   "publisher": "thanhnt-sm",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "https://github.com/thanhnt-sm/eco_support_net_oracle"
   },
+  "homepage": "https://github.com/thanhnt-sm/eco_support_net_oracle#readme",
+  "bugs": {
+    "url": "https://github.com/thanhnt-sm/eco_support_net_oracle/issues"
+  },
   "engines": {
-    "vscode": "^1.85"
+    "vscode": "^1.85.0"
   },
   "categories": [
-    "Linters"
+    "Linters",
+    "Testing"
   ],
+  "keywords": [
+    "database",
+    "sql",
+    "stored-procedure",
+    "dapper",
+    "entity-framework",
+    "schema-drift",
+    "contract-testing",
+    "sarif",
+    "devsecops"
+  ],
+  "galleryBanner": {
+    "color": "#0B2942",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "qna": "marketplace",
+  "extensionKind": ["workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "DataGuard runs a local validation CLI and only executes in trusted workspaces."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "DataGuard requires a local workspace and CLI executable."
+    }
+  },
   "main": "./out/extension.js",
   "activationEvents": [
     "onLanguage:csharp",
@@ -25,6 +58,10 @@
       {
         "command": "dataguard.runValidation",
         "title": "DataGuard: Run Validation"
+      },
+      {
+        "command": "dataguard.cancelValidation",
+        "title": "DataGuard: Cancel Validation"
       }
     ],
     "configuration": {
@@ -38,18 +75,36 @@
         "dataguard.configPath": {
           "type": "string",
           "default": ".dataguard.yml",
+          "scope": "resource",
           "description": "Path to the DataGuard configuration file, relative to the workspace root."
+        },
+        "dataguard.cliPath": {
+          "type": "string",
+          "default": "dataguard",
+          "scope": "machine",
+          "description": "Path or command name for the DataGuard CLI. Configure only in User Settings."
+        },
+        "dataguard.timeoutSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 5,
+          "maximum": 900,
+          "scope": "window",
+          "description": "Maximum validation duration before DataGuard terminates its process tree."
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "tsc -p ./",
-    "compile": "tsc -p ./"
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "test": "npm run compile && node --test out/security.test.js",
+    "package": "npx @vscode/vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.7.1",
     "typescript": "^5.4.0"
   }
 }
