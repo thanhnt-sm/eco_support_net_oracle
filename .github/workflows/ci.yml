@@ -131,7 +131,7 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
           docker run --rm -v "$PWD:/pwd" -e "TARGET=/pwd" ghcr.io/trufflesecurity/trufflehog:3.97.0 git file:///pwd --no-update --only-verified --fail
-        continue-on-error: false"
+        continue-on-error: false
 
   generate-sbom:
     name: Generate SBOM
