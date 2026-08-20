@@ -58,6 +58,31 @@ public sealed class DataGuardPackage : AsyncPackage
             new CommandID(CommandSet, CancelCommandId)));
     }
 
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Process? process;
+            lock (this.processGate)
+            {
+                process = this.activeProcess;
+                this.activeProcess = null;
+            }
+
+            if (process != null)
+            {
+                StopProcess(process);
+                process.Dispose();
+            }
+
+            this.errorListProvider?.Dispose();
+            this.errorListProvider = null;
+        }
+
+        base.Dispose(disposing);
+    }
+
     private static bool StopProcess(Process process)
     {
         try
