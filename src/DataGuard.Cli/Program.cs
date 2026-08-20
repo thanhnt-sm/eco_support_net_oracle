@@ -87,13 +87,13 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
     };
 
     var normalizedFormat = format.Trim().ToLowerInvariant();
-    if (normalizedFormat is not ("text" or "sarif" or "evidence"))
+    if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "typescript"))
     {
-        console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence.");
+        console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence, contracts, typescript.");
         Environment.ExitCode = 2;
         return;
     }
-    if (normalizedFormat is "sarif" or "evidence" && string.IsNullOrWhiteSpace(output))
+    if (normalizedFormat is not "text" && string.IsNullOrWhiteSpace(output))
     {
         console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
         Environment.ExitCode = 2;
@@ -102,7 +102,23 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
 
     try
     {
-        var violations = await RunValidationAsync(config, provider, verbose, console);
+        var contracts = await BuildContractsAsync(config, provider);
+
+        if (normalizedFormat == "contracts")
+        {
+            await ContractExportWriter.WriteJsonAsync(output!, provider, contracts);
+            console.Out.WriteLine($"Contracts exported to {output}.");
+            return;
+        }
+
+        if (normalizedFormat == "typescript")
+        {
+            await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>());
+            console.Out.WriteLine($"TypeScript DTOs exported to {output}.");
+            return;
+        }
+
+        var violations = await ValidateContractsAsync(contracts, config, provider);
 
         if (normalizedFormat == "text")
         {
@@ -121,8 +137,8 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
             await ContractEvidenceWriter.WriteAsync(output!, provider, violations);
         }
 
-
         var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
+
 
         if (verbose)
         {
@@ -668,13 +684,8 @@ static string SerializeConfig(DataGuardConfiguration config)
     return serializer.Serialize(config);
 }
 
-static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
-    DataGuardConfiguration config,
-    string provider,
-    bool verbose,
-    IConsole console)
+static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGuardConfiguration config, string provider)
 {
-    var allViolations = new List<ContractViolation>();
     var contracts = new List<ContractDescriptor>();
 
     // Snapshot mode reads the persisted schema only when offline (no connection);
@@ -683,7 +694,6 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
         string.IsNullOrEmpty(config.ConnectionString) &&
         !string.IsNullOrEmpty(config.SnapshotFilePath) && File.Exists(config.SnapshotFilePath))
     {
-        // Offline validation: rebuild ground truth from the committed snapshot schema.
         var snapshotManager = new BaselineManager(config.SnapshotFilePath);
         var snapshot = await snapshotManager.LoadAsync();
         if (snapshot?.Schema != null && snapshot.Schema.Count > 0)
@@ -707,8 +717,7 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
         if (!string.IsNullOrEmpty(config.ConnectionString))
         {
             var spParser = new SqlServerStoredProcedureParser(config.ConnectionString, config);
-            var spContracts = await spParser.ExtractContractsAsync();
-            contracts.AddRange(spContracts);
+            contracts.AddRange(await spParser.ExtractContractsAsync());
         }
     }
     else if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
@@ -755,6 +764,15 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
         }
     }
 
+    return contracts;
+}
+
+static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
+    IReadOnlyList<ContractDescriptor> contracts,
+    DataGuardConfiguration config,
+    string provider)
+{
+    var allViolations = new List<ContractViolation>();
     var rules = GetRulesForProvider(provider);
     if (config.EnableConcurrentValidation)
     {
@@ -784,6 +802,16 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
     }
 
     return allViolations;
+}
+
+static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
+    DataGuardConfiguration config,
+    string provider,
+    bool verbose,
+    IConsole console)
+{
+    var contracts = await BuildContractsAsync(config, provider);
+    return await ValidateContractsAsync(contracts, config, provider);
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
