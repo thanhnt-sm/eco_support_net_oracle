@@ -281,3 +281,26 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 
 - [ ] Chọn disposition `keep`, `extract`, `rewrite` hoặc `remove` cho Rust, Python, TypeScript, Docker Compose, agent adapters và hai license.
 - [ ] Sau khi owner duyệt, thực hiện cleanup theo phase 1–4 của plan, cập nhật toàn bộ docs/hook/validator và chạy verification DataGuard.
+
+---
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên này — Thiết lập OMP 2-model pipeline: DeepSeek worker → GPT solver)
+
+1. ✅ Thiết lập `~/.omp/agent/config.yml` (global, ngoài repo — **không đụng `src/`**): `default`/`smol`/`slow`/`task`/`vision`/`designer`/`commit`/`tiny`/`prewalk`/`advisor` = `deepseek/deepseek-v4-pro:max`; `plan`/`gpt56` = `openai-codex/gpt-5.6-terra:high`; `cycleOrder: [default, gpt56]`; fallback chains (DeepSeek→DeepSeek, GPT→GPT→DeepSeek); `plan.defaultOnStartup: false`.
+2. ✅ Tạo `~/.omp/agent/AGENTS.md` (auto-inject mọi session omp, cả 2 model): quy tắc tiếng Việt + protocol 2-model + template báo cáo 7 mục vào `<repo>/.omp/handoffs/`.
+3. ✅ Tạo `~/.omp/agent/WORKFLOW.md` (import từ AGENTS.md): SOP chi tiết — model roles, plan mode, subagents (`scout`/`librarian`=`@smol`, `reviewer`=`@slow`), skills (`/skill:<name>`), advisor, prewalk, fallback, slash commands, handoff giữa 2 model.
+4. ✅ Verify E2E: DeepSeek tạo `main.py` + handoff 7 mục → GPT đọc handoff, chạy lại verify → `KẾT LUẬN: ĐẠT`.
+
+## 🎯 CÁCH DÙNG (tham chiếu nhanh)
+- Session mở → DeepSeek worker (không tự plan mode). Vào GPT: `/model` → `gpt56`, hoặc `/plan`, hoặc `omp --plan`. Về DeepSeek: `/model` → `default`. Cycle 2 model: `Ctrl+P`.
+- Một lệnh full pipeline: `omp --plan-yolo "…"`.
+
+---
+
+## 📌 PHIÊN GẦN NHẤT — DataGuard .NET + Marketplace (đã push `main`)
+
+1. **Merge an toàn 2 PR Dependabot**: #3 (NuGet deps, 25 packages) và #4 (GitHub Actions group). Repair lock graph, rollback `System.CommandLine` về version main (tránh migration dở), verify CI green từng PR rồi squash-merge, xóa mọi branch ngoài `main`.
+2. **CI core 5/5 green**; CodeQL open alerts = 0. Marketplace package 2/2 green (VS Code + Visual Studio VSIX kèm SHA-256 + SBOM + provenance).
+3. **Marketplace product** (`plans/260820-marketplace-extensions/`): VS Code extension (trusted workspace, no-shell, private SARIF→Problems, cancel/tree) và Visual Studio VSIX (Tools command, SARIF→Error List, taskkill tree, disposal). **Chưa publish public**: cần owner verify publisher + secrets `VSCE_PAT`/`VS_MARKETPLACE_PAT` + VS 2022 Experimental Instance smoke. Runbook: `docs/marketplace-publishing.md`.
+4. **Contract workflow**: CLI thêm `--format evidence|contracts|typescript` (deterministic, redacted, không serialize Location/Annotations). Refactor `BuildContractsAsync` + `ValidateContractsAsync`. Core.Tests 39/39 pass.
+5. **Còn lại (debt, đã block)**: 8 annotations StyleCop/RS1038 → `plans/2026-08-21-warnings-plan.md`. Cần tách generator khỏi assembly reference `Microsoft.CodeAnalysis.Workspaces` và StyleCop settings (`SA1636/SA1204/SA16xx`).
