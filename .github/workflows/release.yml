@@ -231,7 +231,8 @@ jobs:
             # --yes required on cosign v2+: sign-blob waits on an interactive
             # confirmation prompt that never comes in CI. --bundle stores
             # signature + certificate + tlog proof in one file (recommended).
-            cosign sign-blob --keyless --yes --bundle "$pkg.sigstore.json" "$pkg"
+            # NOTE: --keyless was removed in cosign v3 (keyless is the default).
+            cosign sign-blob --yes --bundle "$pkg.sigstore.json" "$pkg"
             if [ ! -f "$pkg.sigstore.json" ]; then
               echo "Signature bundle for $pkg not found" >&2
               exit 1
