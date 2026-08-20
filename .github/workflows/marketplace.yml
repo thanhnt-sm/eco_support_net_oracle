@@ -58,6 +58,11 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
 
+      - name: Setup .NET for SBOM
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 9.0.x
+
       - name: Install and test
         working-directory: ${{ env.VSCODE_DIR }}
         run: |
@@ -88,6 +93,21 @@ jobs:
           npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
           sha256sum "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix" > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
 
+      - name: Generate VS Code extension SBOM
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          dotnet tool install --global Microsoft.Sbom.DotNetTool --version 4.1.5
+          export PATH="$HOME/.dotnet/tools:$PATH"
+          mkdir -p "$RUNNER_TEMP/dataguard-vscode-sbom"
+          sbom-tool generate \
+            -b "$GITHUB_WORKSPACE/$VSCODE_DIR" \
+            -bc "$GITHUB_WORKSPACE/$VSCODE_DIR" \
+            -pn "DataGuard VS Code Extension" \
+            -pv "$VERSION" \
+            -ps "$RUNNER_TEMP" \
+            -m "$RUNNER_TEMP/dataguard-vscode-sbom"
+
       - name: Upload VS Code VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -95,6 +115,7 @@ jobs:
           path: |
             ${{ runner.temp }}/dataguard-vscode-*.vsix
             ${{ runner.temp }}/dataguard-vscode-*.vsix.sha256
+            ${{ runner.temp }}/dataguard-vscode-sbom/**/*
           if-no-files-found: error
 
       - name: Attest VS Code VSIX
@@ -175,6 +196,24 @@ jobs:
           (Get-FileHash "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix" -Algorithm SHA256).Hash + "  DataGuard.VisualStudio.vsix" |
             Set-Content "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix.sha256"
 
+      - name: Generate Visual Studio extension SBOM
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          dotnet tool install --global Microsoft.Sbom.DotNetTool --version 4.1.5
+          $sbomTool = "$env:USERPROFILE\.dotnet\tools\sbom-tool.exe"
+          if (-not (Test-Path $sbomTool)) { throw "sbom-tool was not installed" }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\dataguard-visualstudio-sbom" | Out-Null
+          & $sbomTool generate `
+            -b "$env:GITHUB_WORKSPACE\$env:VISUAL_STUDIO_DIR" `
+            -bc "$env:GITHUB_WORKSPACE\$env:VISUAL_STUDIO_DIR" `
+            -pn "DataGuard Visual Studio Extension" `
+            -pv "$env:VERSION" `
+            -ps "$env:RUNNER_TEMP" `
+            -m "$env:RUNNER_TEMP\dataguard-visualstudio-sbom"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload Visual Studio VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -182,6 +221,7 @@ jobs:
           path: |
             ${{ runner.temp }}/DataGuard.VisualStudio.vsix
             ${{ runner.temp }}/DataGuard.VisualStudio.vsix.sha256
+            ${{ runner.temp }}/dataguard-visualstudio-sbom/**/*
           if-no-files-found: error
 
       - name: Attest Visual Studio VSIX
