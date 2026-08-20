@@ -164,8 +164,10 @@ cmd_sync() {
     [[ -z "$msg" ]] && msg="chore: auto-sync $(date +%Y-%m-%d-%H%M%S)"
     cmd_doctor
     preflight_stage || return 0
+    # Scan the files that WOULD be staged BEFORE touching the index: a secret
+    # finding must leave the index exactly as it was (no partial staging).
+    cmd_secret || return 0
     git add -A
-    cmd_secret || return 0   # abort if git-secrets flags staged content
     git commit -m "$msg"; git push
     log_success "Synced: $msg"
 }
@@ -183,9 +185,18 @@ cmd_branch() {
 }
 
 cmd_secret() {
+    local scan_files=()
+    # Paths from git status cover staged, unstaged and untracked files.
+    while IFS= read -r line; do
+        local path="${line:3}"
+        [[ -n "$path" ]] && scan_files+=("$path")
+    done < <(git status --porcelain)
     if command -v git-secrets >/dev/null; then
-        git secrets --scan --cached
-        return $?
+        if [[ ${#scan_files[@]} -gt 0 ]]; then
+            git secrets --scan "${scan_files[@]}"
+            return $?
+        fi
+        return 0
     fi
     log_warn "git-secrets not installed, scanning for high-signal secret VALUES..."
     # Only flag actual secret-shaped values, not prose mentioning the words
@@ -204,9 +215,9 @@ cmd_secret() {
     )
     local joined=$(IFS='|'; echo "${patterns[*]}")
     local found=0
-    while read -r f; do
+    for f in "${scan_files[@]}"; do
         [[ -f "$f" ]] && grep -Eq "$joined" "$f" 2>/dev/null && { log_warn "Potential secret: $f"; found=1; }
-    done < <(git diff --cached --name-only)
+    done
     return $found
 }
 
