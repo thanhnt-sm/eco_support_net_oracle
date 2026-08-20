@@ -7,6 +7,6 @@ pub mod bridge;
 pub mod patch;
 pub mod triage;
 
-pub use bridge::{BridgeResult, DocBridgeAgent, OpencodeZenBridgeAgent, OpencodeZenConfig, OpencodeZenError};
+pub use bridge::{BridgeResult, DocBridgeAgent};
 pub use patch::{PatchResult, PatchSynthesizerAgent};
 pub use triage::{TriageAgent, TriageResult};

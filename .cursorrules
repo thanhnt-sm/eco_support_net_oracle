@@ -1,19 +1,10 @@
-## Pre-Action Interception Invariants (Strict):
-1. **Pre-Write Tool Hook**: Check path against directory whitelist before creating files. Never pollute root. Use `scratch/` for throwaway work.
-2. **In-Flight Co-Update**: When modifying code in `crates/`, update `docs/` (both `.md` and `.vi.md`) and `docs/sitemap_and_component_registry.md` in the exact same turn.
-3. **Session Register**: Read `plans/ACTIVE_SESSION_REGISTER.md` on start, update it on completion.
+# DataGuard Cursor Rules
 
-## Core Invariants:
-1. **Language**: Primary source code is strictly **Rust** (Edition 2021) in `crates/`. Use Tokio for async, serde for JSON-RPC 2.0, clap for CLI.
-2. **Zero Unsafe**: `#![forbid(unsafe_code)]` must be preserved across all crates.
-3. **Directory Separation**:
-   - `crates/`: Production Rust engine only.
-   - `research/`: Standalone crawler scripts & data. Never import into `crates/`.
-   - `docs/`: Living documentation across 5 perspectives (Bilingual EN/VI).
-   - `grants/`: Anthropic grant application dossier.
-   - `rules/`: Universal AI governance rules.
-   - `scratch/`: Throwaway scratchpads (gitignored).
-4. **Living Documentation Law**: Every code change in `crates/` MUST be reflected in `docs/` and `docs/sitemap_and_component_registry.md`.
-5. **Compiler Loop**: If `cargo check` fails, fix only the localized error. Never rewrite unrelated modules.
-6. **License**: PolyForm Noncommercial 1.0.0. No unauthorized commercial use or AI model training data extraction.
+- `AGENTS.md` and `rules/workspace_governance.md` are the authoritative workspace rules.
+- Production source is `src/`; use the matching DataGuard test/build command for changed contracts.
+- Place documentation and knowledge in `docs/`, `plans/`, `research/`, `grants/`, or `brainstorm/`; place automation in `.github/`, `.githooks/`, `scripts/`, or `tools/`.
+- Update the narrowest affected documentation when public behavior, configuration, build/release, or operations change.
+- Do not create arbitrary root files, invent a second runtime, or retain obsolete instructions.
+- Cleanup requires evidence, preserved WIP, and an owner-approved `from → keep | extract | rewrite | remove` decision.
+- Treat `.omp/`, `.omo/`, `.codegraph/`, and caches as local state; do not purge them while their owner process/session is active.
 

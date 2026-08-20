@@ -187,10 +187,25 @@ cmd_secret() {
         git secrets --scan --cached
         return $?
     fi
-    log_warn "git-secrets not installed, scanning basic patterns..."
+    log_warn "git-secrets not installed, scanning for high-signal secret VALUES..."
+    # Only flag actual secret-shaped values, not prose mentioning the words
+    # "secret"/"token"/"password" (policy docs and rule files are full of those).
+    local patterns=(
+        'ghp_[A-Za-z0-9]{20,}'
+        'github_pat_[A-Za-z0-9_]{20,}'
+        'AKIA[0-9A-Z]{16}'
+        'sk-[A-Za-z0-9]{20,}'
+        'xox[baprs]-[A-Za-z0-9-]{10,}'
+        'AIza[0-9A-Za-z_-]{35}'
+        '-----BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY-----'
+        'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+        '(api[_-]?key|secret|password|passwd|token)[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']{8,}["'"'"']'
+        '(api[_-]?key|secret|password|passwd|token)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9+/]{16,}'
+    )
+    local joined=$(IFS='|'; echo "${patterns[*]}")
     local found=0
     while read -r f; do
-        [[ -f "$f" ]] && grep -qE "(api[_-]?key|secret|password|token|secret)" "$f" 2>/dev/null && { log_warn "Potential secret: $f"; found=1; }
+        [[ -f "$f" ]] && grep -Eq "$joined" "$f" 2>/dev/null && { log_warn "Potential secret: $f"; found=1; }
     done < <(git diff --cached --name-only)
     return $found
 }

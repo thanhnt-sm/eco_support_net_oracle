@@ -1,46 +1,32 @@
-# Living Documentation & Continuous Synchronization Standard
+# DataGuard Documentation Synchronization
 
-**Rule ID**: `DOC-SYNC-INVARIANT-001`  
-**Enforcement**: Pre-commit Git Hook + Universal AI Agent Operational Check
+**Rule ID**: `DOC-SYNC-DATAGUARD-001`
+**Authority**: `rules/workspace_governance.md` defines topology; `plans/2026-08-20-workspace-rationalization.md` defines the cleanup transition.
 
----
+## Scope
 
-## 🎯 The Core Philosophy: "Documentation is Part of the AST"
+Documentation is a product contract, not a duplicate of source code. Update it in the same change when a DataGuard modification changes a public API, CLI behavior, validation rule, supported database/provider, build/release process, configuration, security posture, or operational procedure.
 
-In EcoSupport, documentation is not an afterthought; it is an integral, living representation of the codebase. A PR, commit, or AI code generation turn that modifies code behavior without updating documentation is considered a breaking change and will fail automated verification.
+Do not edit documentation merely to preserve obsolete product identity, stale inventories, or historical toolchains. Correctness is more important than document count.
 
----
+## Placement and language
 
-## 👥 The 5-Perspective Documentation Matrix
+- Product and developer documentation belongs in `docs/`; current plans and ADRs belong in `plans/`.
+- Research, grant material, and strategic notes remain in `research/`, `grants/`, and `brainstorm/`; they are not product source.
+- When a user-facing document has an established English/Vietnamese pair, update both from the same verified facts. Internal implementation notes may use one language when no paired document exists.
+- Do not create a new translation, sitemap entry, diagram, or document solely to satisfy a checklist. Add it only when it represents a maintained product contract.
 
-Every component in EcoSupport must be documented from **5 distinct perspectives**:
+## Change protocol
 
-| Perspective | Target Audience | Key Artifact | Requirements |
-| :--- | :--- | :--- | :--- |
-| **1. Vibe Coder / Founder** | Non-technical creators, intuitive users | [`docs/overview/vibe_coder_guide.md`](file:///Volumes/Data/101.AI/GitHub/eco_supporrt/docs/overview/vibe_coder_guide.md) | Rich Mermaid flowcharts, real-world metaphors, mindmaps, zero jargon, clear visual diagrams. |
-| **2. System Architect** | Senior engineers, reviewers | [`docs/architecture/system_architecture.md`](file:///Volumes/Data/101.AI/GitHub/eco_supporrt/docs/architecture/system_architecture.md) | Topology diagrams, data flow pipelines, state machines, latency/memory benchmarks. |
-| **3. SRE & Operator** | DevOps, maintainers, operators | [`docs/operations/playbook_and_runbook.md`](file:///Volumes/Data/101.AI/GitHub/eco_supporrt/docs/operations/playbook_and_runbook.md) | Step-by-step runbooks, incident triage drills, env configs, disaster recovery scripts. |
-| **4. Developer & Contributor** | Rust / AI engineers | [`docs/developers/contributor_deep_dive.md`](file:///Volumes/Data/101.AI/GitHub/eco_supporrt/docs/developers/contributor_deep_dive.md) | Crate APIs, serialization schemas, Tokio async loops, AST query patterns. |
-| **5. QA & Test Engineer** | Reviewers, grant evaluators | [`docs/testing/qa_test_strategy.md`](file:///Volumes/Data/101.AI/GitHub/eco_supporrt/docs/testing/qa_test_strategy.md) | Test coverage matrices, fuzzing strategies, simulation fallbacks, regression proofs. |
+1. Identify the observable contract changed in `src/`, `tests/`, CI/release, container configuration, or public documentation.
+2. Update the narrowest affected document and remove stale commands, product names, links, and claims in the same change.
+3. Update `docs/sitemap_and_component_registry*.md` only when its replacement/entry is current and semantically correct; do not perpetuate a stale registry.
+4. Run the command or scenario documented whenever practical. Mark an unavailable verification explicitly rather than asserting success.
+5. Run `./scripts/verify_docs_sync.sh` after documentation/rule changes. Its current result proves required files exist, not that their content is semantically current.
 
----
+## Prohibitions
 
-## 🌐 Bilingual Documentation Invariant (`DOC-SYNC-BILINGUAL-002`)
-
-All user-facing documentation, README files, and guides MUST maintain **two synchronized editions**:
-1. **English (Default)**: e.g., `README.md`, `docs/overview/vibe_coder_guide.md`
-2. **Vietnamese (`.vi.md`)**: e.g., `README.vi.md`, `docs/overview/vibe_coder_guide.vi.md`
-
-Each document must provide a reciprocal language navigation link at the top:
-`[English](README.md) | [Tiếng Việt](README.vi.md)`
-
----
-
-## 🔄 Automated Synchronization Protocol for AI Agents
-
-Whenever any AI model modifies code:
-1. **Detect Changes**: Check which crates or tools were altered (`eco-core`, `eco-radar`, `eco-mcp`, `eco-agents`, `eco-cli`).
-2. **Synchronize Registry**: Add/update file entries in [`docs/sitemap_and_component_registry.md`](file:///Volumes/Data/101.AI/GitHub/eco_support/docs/sitemap_and_component_registry.md) and [`docs/sitemap_and_component_registry.vi.md`](file:///Volumes/Data/101.AI/GitHub/eco_support/docs/sitemap_and_component_registry.vi.md).
-3. **Update Diagrams & Text in Both Languages**: Ensure both the English original and Vietnamese `.vi.md` translations reflect identical technical facts and Mermaid structures.
-4. **Validate**: Run `./scripts/verify_docs_sync.sh` before finalizing.
+- Do not claim a build, test, deployment, command, integration, or feature exists without evidence.
+- Do not retain documentation that directs users to a removed runtime or unsupported package manager.
+- Do not delete research, legal text, plans, or user-owned work as part of a documentation-only change.
 

@@ -1,50 +1,25 @@
-# Devin.ai Specific Instructions — EcoSupport Native Workspace
+# Devin Adapter — DataGuard Workspace
 
-## Role Context
-You are Devin, operating as a **Rust native software engineer** inside the EcoSupport workspace. Your job is to implement precise, minimal changes to the Rust codebase following strict architectural boundaries.
+## Before work
 
-## FIRST ACTION (Mandatory)
-1. Read `plans/ACTIVE_SESSION_REGISTER.md` to understand current project state and what needs to be done.
-2. Read `rules/universal_ai_constitution.md` for absolute behavioral constraints.
+1. Read `AGENTS.md`, `rules/workspace_governance.md`, and the relevant active plan.
+2. Identify the exact DataGuard contract, source path, test, configuration, or workflow being changed.
+3. Preserve unrelated WIP and do not infer product scope from historical documents.
 
-## Devin-Specific Workflow Rules
+## While working
 
-### Before Writing Any Code:
-- Confirm the target crate: `eco-core`, `eco-radar`, `eco-mcp`, `eco-agents`, or `eco-cli`.
-- Confirm no existing implementation already covers the requirement.
-- Check `docs/developers/contributor_deep_dive.md` for API patterns.
+- Production implementation belongs in `src/`; DataGuard tests live in the corresponding projects under `tests/`.
+- Make minimal, coherent changes. Use symbol-aware navigation for exported symbols when language support is available.
+- Update the narrowest affected documentation when public behavior, configuration, build/release, or operational behavior changes.
+- Do not create arbitrary root paths, a second runtime, or generated artifacts outside policy-approved ignored locations.
 
-### While Writing Code:
-- Run `cargo check --workspace` after each file edit. Fix errors immediately.
-- Keep changes minimal and localized — do NOT refactor unrelated code.
-- Maintain `#![forbid(unsafe_code)]` on all crate roots.
-- Use `tracing::info!()` for logging, not `println!()`.
+## Verification
 
-### After Writing Code:
-1. Run `cargo test --workspace` — all 9 tests must pass.
-2. Update corresponding `docs/` file if behavior changed.
-3. Run `./scripts/verify_docs_sync.sh` — must show all green.
-4. Run `./scripts/git_sync.sh "feat(crate-name): description of change"`.
-5. Update `plans/ACTIVE_SESSION_REGISTER.md` with what was completed.
+- Source change: run the relevant `dotnet build` and deterministic `dotnet test` scope.
+- Workflow/container/doc change: run the matching YAML/actionlint, Docker smoke, or documentation validator when available.
+- Report only observed results; mark unavailable verification explicitly.
 
-## What You Must NEVER Do
-- ❌ Create files outside the defined workspace structure without explicit permission.
-- ❌ Add dependencies to `Cargo.toml` without checking existing alternatives first.
-- ❌ Modify files in `grants/` or `rules/` without explicit user instruction.
-- ❌ Use `unsafe {}` blocks or `std::process::Command::new("sh")` with shell=true patterns.
-- ❌ Import from `research/` into `crates/`.
-- ❌ Use raw `git` commands — always use `./scripts/git_sync.sh`.
+## Cleanup and security
 
-## Directory Whitelist (Only Create Files Here)
-- `crates/eco-*/src/` — Rust source files
-- `crates/eco-cli/tests/` — Integration test files
-- `docs/` — Documentation only
-- `scratch/` — Throwaway experiments (gitignored)
-- `plans/` — Task planning only
-
-## Current Build State
-```
-✅ cargo check --workspace — CLEAN
-✅ cargo test --workspace — 9/9 PASS
-✅ ./scripts/verify_docs_sync.sh — 16/16 PRESENT
-```
+- Do not move or delete tracked source, research, legal text, agent configuration, or local state without an owner-approved `from → keep | extract | rewrite | remove` manifest.
+- Do not expose secrets, credentials, tokens, private state, or handoff content.

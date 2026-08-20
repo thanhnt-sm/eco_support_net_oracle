@@ -268,3 +268,16 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 - [ ] 3 informational còn lại (cần DB thật/integration test): OracleReaders col_charsetform (NCHAR/NVARCHAR2); wire RefCursorDescriber vào đường Oracle validation (đã implement, chưa gọi); GoldenCorpusTests assert `unexpectedErrors` (cần align fixture H1_002 — entity PhoneNumber↔schema PHONE không khớp).
 - [ ] NuGet publish 5 packages — cần NUGET_USER + tag release (không làm được local).
 - [ ] gh CLI chưa login → chưa tạo được issue/PR.
+
+---
+
+## Phiên này — Quy hoạch workspace DataGuard
+
+1. Đã kiểm tra toàn bộ surface ngoài `src/`: CI/release/Docker xác nhận DataGuard .NET là product canonical; Rust, Python, TypeScript, EcoSupport docs/rules và một số agent adapter là di sản hoặc cần quyết định owner.
+2. Đã ghi manifest và phase cleanup tại `plans/2026-08-20-workspace-rationalization.md`; không xóa hoặc di chuyển WIP, source tracked, research, license, config agent hay session state.
+3. Đã cutover toàn bộ rule workspace đang hiện diện (`CLAUDE.md`, `AGENTS.md`, `rules/*.md`, `.agentrules`, Cursor, Windsurf, Gemini, Devin và `.agents/`) sang policy DataGuard; rule OMP toàn cục trỏ về governance này. Không còn chỉ dẫn Cargo/Rust/EcoSupport bắt buộc. `.tmp_new_models` là candidate remove có evidence; `packages/` bị ignore không được coi là rác.
+
+## Việc tiếp theo — quyết định owner trước cleanup
+
+- [ ] Chọn disposition `keep`, `extract`, `rewrite` hoặc `remove` cho Rust, Python, TypeScript, Docker Compose, agent adapters và hai license.
+- [ ] Sau khi owner duyệt, thực hiện cleanup theo phase 1–4 của plan, cập nhật toàn bộ docs/hook/validator và chạy verification DataGuard.
