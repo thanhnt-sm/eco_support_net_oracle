@@ -23,7 +23,9 @@
 
   <ItemGroup>
     <None Include="source.extension.vsixmanifest" />
-    <None Include="LICENSE.txt" IncludeInVSIXContainer="true" />
+    <Content Include="LICENSE.txt">
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
     <AdditionalFiles Include="stylecop.json" />
     <VSCTCompile Include="Commands\DataGuard.vsct" />
   </ItemGroup>
