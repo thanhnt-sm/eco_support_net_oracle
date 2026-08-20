@@ -164,7 +164,9 @@ cmd_sync() {
     [[ -z "$msg" ]] && msg="chore: auto-sync $(date +%Y-%m-%d-%H%M%S)"
     cmd_doctor
     preflight_stage || return 0
-    git add -A; git commit -m "$msg"; git push
+    git add -A
+    cmd_secret || return 0   # abort if git-secrets flags staged content
+    git commit -m "$msg"; git push
     log_success "Synced: $msg"
 }
 
@@ -181,9 +183,16 @@ cmd_branch() {
 }
 
 cmd_secret() {
-    command -v git-secrets >/dev/null && { git secrets --scan --cached; return; }
+    if command -v git-secrets >/dev/null; then
+        git secrets --scan --cached
+        return $?
+    fi
     log_warn "git-secrets not installed, scanning basic patterns..."
-    git diff --cached --name-only | while read f; do [[ -f "$f" ]] && grep -qE "(api[_-]?key|secret|password|token|secret)" "$f" 2>/dev/null && log_warn "Potential secret: $f"; done
+    local found=0
+    while read -r f; do
+        [[ -f "$f" ]] && grep -qE "(api[_-]?key|secret|password|token|secret)" "$f" 2>/dev/null && { log_warn "Potential secret: $f"; found=1; }
+    done < <(git diff --cached --name-only)
+    return $found
 }
 
 cmd_config() {
@@ -218,7 +227,7 @@ Commands:
   doctor      Check repo health (default: fix=yes, yes=yes, strict=no)
   commit      Safe commit with validation
   push        Safe push (no force, auto upstream)
-  sync        Doctor → commit → push (default: fix=yes, yes=yes)
+  sync        Doctor → secret scan → commit → push (default: fix=yes, yes=yes)
   branch      Branch management
   secret      Scan for secrets
   config      Manage config
