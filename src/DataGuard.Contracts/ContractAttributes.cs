@@ -9,9 +9,13 @@ namespace DataGuard.Contracts;
 /// </summary>
 public enum ParameterDirection
 {
+    /// <summary>Input-only parameter (default).</summary>
     Input,
+    /// <summary>Output parameter (call site uses out).</summary>
     Output,
+    /// <summary>Input/output parameter (call site uses ref).</summary>
     InputOutput,
+    /// <summary>Function return value.</summary>
     ReturnValue
 }
 
@@ -23,6 +27,7 @@ public enum ParameterDirection
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
 public sealed class SkipContractCheckAttribute : Attribute
 {
+    /// <summary>Optional reason the check was skipped (shown in diagnostics).</summary>
     public string? Reason { get; set; }
 }
 
@@ -38,9 +43,13 @@ public sealed class ExpectedColumnAttribute : Attribute
         ClrTypeName = clrTypeName;
     }
 
+    /// <summary>Expected database column name.</summary>
     public string ColumnName { get; }
+    /// <summary>CLR type name of the expected value.</summary>
     public string ClrTypeName { get; }
+    /// <summary>Whether the database column allows NULL.</summary>
     public bool IsNullable { get; set; }
+    /// <summary>Maximum length of the column (0 = unspecified).</summary>
     public int MaxLength { get; set; }
 }
 
