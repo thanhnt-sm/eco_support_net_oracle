@@ -6,8 +6,8 @@ DataGuard validates database contracts between .NET code, stored procedures, and
 
 - **Tools > DataGuard: Run Validation** runs the local DataGuard CLI against `<solution>/.dataguard.yml`.
 - **Tools > DataGuard: Cancel Validation** terminates the owned CLI process tree.
-- Streams redacted output to the **DataGuard** Output Window pane.
-- Uses a private temporary SARIF output file and deletes it after the run.
+- Drains CLI streams without displaying raw output; the **DataGuard** Output Window pane shows lifecycle status only.
+- Maps private SARIF results into the **Error List**, then deletes the temporary file after the run.
 - Does not load database providers, retain database credentials, send telemetry, or invoke a shell inside Visual Studio.
 
 ## Requirements

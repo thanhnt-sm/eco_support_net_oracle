@@ -33,18 +33,31 @@ public static class DiagnosticIds
     public const string ColumnShapeMismatch = "DG004";       // CI heavy: result set column mismatch
     /// <summary>Diagnostic ID for nullable contract mismatch.</summary>
     public const string NullableMismatch = "DG005";          // CI heavy: nullable mismatch
+    /// <summary>Diagnostic ID for naming-convention mismatch.</summary>
     public const string NamingConvention = "DG006";          // CI heavy: naming convention violation
+    /// <summary>Diagnostic ID for entity length exceeding database column length.</summary>
     public const string LengthExceedsColumn = "DG007";       // CI heavy: entity length > column length
+    /// <summary>Diagnostic ID for byte-semantics length overflow.</summary>
     public const string ByteLengthOverflow = "DG008";        // CI heavy: byte semantics overflow risk
+    /// <summary>Diagnostic ID for inferred database-size fallback.</summary>
     public const string InferredSizeFallback = "DG009";      // CI heavy: NVARCHAR2(2000) fallback risk
+    /// <summary>Diagnostic ID for Oracle syntax used outside Oracle.</summary>
     public const string OracleSyntaxInNonOracle = "DG010";   // CI heavy: Oracle syntax in non-Oracle context
+    /// <summary>Diagnostic ID for non-Oracle function used in Oracle.</summary>
     public const string NonOracleFunctionInOracle = "DG011"; // CI heavy: SQL Server syntax in Oracle
+    /// <summary>Diagnostic ID for provider option mismatch.</summary>
     public const string ProviderOptionMismatch = "DG012";    // CI heavy: missing UseOracle
+    /// <summary>Diagnostic ID for SQL Server syntax leaking into Oracle.</summary>
     public const string SqlServerSyntaxLeak = "DG013";       // CI heavy: EXEC dbo. in Oracle
+    /// <summary>Diagnostic ID for unsupported type usage.</summary>
     public const string UnmappedTypeUsage = "DG014";         // CI heavy: unmapped type in Oracle
+    /// <summary>Diagnostic ID for a referenced table absent from schema.</summary>
     public const string PhantomTable = "DG015";              // CI heavy: table reference doesn't exist
+    /// <summary>Diagnostic ID for a referenced column absent from schema.</summary>
     public const string PhantomColumn = "DG016";             // CI heavy: column reference doesn't exist
+    /// <summary>Diagnostic ID for a SELECT statement without a FROM clause.</summary>
     public const string MissingFromClause = "DG098";         // CI heavy: SELECT without FROM clause
+    /// <summary>Diagnostic ID for a potential SQL injection pattern.</summary>
     public const string SqlInjectionPattern = "DG099";       // CI heavy: potential SQL injection pattern
 }
 

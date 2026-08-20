@@ -5,10 +5,12 @@
 namespace DataGuard.VisualStudio;
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
@@ -35,11 +37,13 @@ public sealed class DataGuardPackage : AsyncPackage
     private static readonly Guid OutputPaneGuid = new ("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
     private readonly object processGate = new ();
     private Process? activeProcess;
+    private ErrorListProvider? errorListProvider;
 
     /// <inheritdoc />
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await this.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        this.errorListProvider = new ErrorListProvider(this);
         var commandService = await this.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
         if (commandService == null)
         {
@@ -170,6 +174,7 @@ public sealed class DataGuardPackage : AsyncPackage
             }
 
             await Task.WhenAll(stdoutDrainTask, stderrDrainTask);
+            await this.PublishSarifAsync(sarifPath);
             await this.WriteOutputAsync("[DataGuard] Validation exited with code " + process.ExitCode + ".\r\n");
         }
         catch (Exception ex)
@@ -193,6 +198,98 @@ public sealed class DataGuardPackage : AsyncPackage
                 // A virus scanner can briefly hold the temporary SARIF file; it contains no persisted secret.
             }
         }
+    }
+
+    private async Task PublishSarifAsync(string sarifPath)
+    {
+        if (!File.Exists(sarifPath))
+        {
+            await this.WriteOutputAsync("[DataGuard] Validation produced no SARIF diagnostics.\r\n");
+            return;
+        }
+
+        var tasks = new List<ErrorTask>();
+        try
+        {
+            using (var reader = new StreamReader(sarifPath))
+            using (var document = JsonDocument.Parse(await reader.ReadToEndAsync().ConfigureAwait(false)))
+            {
+                if (!document.RootElement.TryGetProperty("runs", out var runs) || runs.ValueKind != JsonValueKind.Array)
+                {
+                    await this.WriteOutputAsync("[DataGuard] SARIF output has no runs array.\r\n");
+                    return;
+                }
+
+                foreach (var run in runs.EnumerateArray())
+                {
+                    if (!run.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var result in results.EnumerateArray())
+                    {
+                        if (!result.TryGetProperty("locations", out var locations) || locations.ValueKind != JsonValueKind.Array || locations.GetArrayLength() == 0)
+                        {
+                            continue;
+                        }
+
+                        var physical = locations[0].GetProperty("physicalLocation");
+                        var uri = physical.GetProperty("artifactLocation").GetProperty("uri").GetString();
+                        if (string.IsNullOrWhiteSpace(uri) || !Path.IsPathRooted(uri))
+                        {
+                            continue;
+                        }
+
+                        var region = physical.TryGetProperty("region", out var candidateRegion) ? candidateRegion : default;
+                        var line = region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startLine", out var startLine)
+                            ? Math.Max(0, startLine.GetInt32() - 1)
+                            : 0;
+                        var column = region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startColumn", out var startColumn)
+                            ? Math.Max(0, startColumn.GetInt32() - 1)
+                            : 0;
+                        var message = result.TryGetProperty("message", out var messageNode) && messageNode.TryGetProperty("text", out var messageText)
+                            ? Redact(messageText.GetString() ?? "DataGuard contract violation")
+                            : "DataGuard contract violation";
+                        var level = result.TryGetProperty("level", out var levelNode) ? levelNode.GetString() : null;
+
+                        tasks.Add(new ErrorTask
+                        {
+                            Category = TaskCategory.BuildCompile,
+                            Column = column,
+                            Document = uri,
+                            ErrorCategory = level == "error" ? TaskErrorCategory.Error : level == "warning" ? TaskErrorCategory.Warning : TaskErrorCategory.Message,
+                            Line = line,
+                            Text = message,
+                        });
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            await this.WriteOutputAsync("[DataGuard] SARIF output was invalid and was not loaded.\r\n");
+            return;
+        }
+
+        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+        if (this.errorListProvider == null)
+        {
+            return;
+        }
+
+        this.errorListProvider.Tasks.Clear();
+        foreach (var task in tasks)
+        {
+            this.errorListProvider.Tasks.Add(task);
+        }
+
+        if (tasks.Count > 0)
+        {
+            this.errorListProvider.Show();
+        }
+
+        await this.WriteOutputAsync("[DataGuard] Loaded " + tasks.Count + " diagnostics into Error List.\r\n");
     }
 
     private async Task CancelValidationAsync()
