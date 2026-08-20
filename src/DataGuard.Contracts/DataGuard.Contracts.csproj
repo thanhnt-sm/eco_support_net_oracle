@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <PackageId>DataGuard.Contracts</PackageId>
+    <Version>0.1.0-alpha.1</Version>
+    <Authors>DataGuard Contributors</Authors>
+    <Description>Shared contract attributes for DataGuard analyzers (netstandard2.0, IDE-host compatible).</Description>
+    <PackageTags>efcore;stored-procedure;contract-validation;analyzers</PackageTags>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+</Project>

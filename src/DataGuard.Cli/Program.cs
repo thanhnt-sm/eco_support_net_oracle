@@ -30,9 +30,11 @@ var outputOption = new Option<string>("--output", "Output file path for SARIF/JS
 var formatOption = new Option<string>("--format", () => "sarif", "Output format: sarif, json, text");
 var offlineOption = new Option<bool>("--offline", "Run in offline mode (no DB connection)");
 var verboseOption = new Option<bool>("--verbose", "Enable verbose output");
-var providerOption = new Option<string>("--provider", () => "sqlserver", "Database provider: sqlserver, oracle");
+var providerOption = new Option<string>("--provider", () => "sqlserver", "Database provider: sqlserver, oracle, mysql, postgresql");
+var assemblyOption = new Option<string>("--assembly", "Path to compiled assembly for Manual ground-truth mode (--offline)");
 var schemaOption = new Option<string>("--schema", "Database schema/owner name");
 var packageOption = new Option<string>("--package", "Oracle package name");
+var failOnDriftOption = new Option<bool>("--fail-on-drift", "Exit non-zero when snapshot drift is detected");
 var baselinePathOption = new Option<string>("--baseline", () => ".dataguard-baseline.json", "Path to the baseline file to migrate");
 
 #endregion
@@ -41,28 +43,38 @@ var baselinePathOption = new Option<string>("--baseline", () => ".dataguard-base
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, packageOption
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption
 };
 
-validateCommand.SetHandler(async (connection, configPath, output, offline, verbose, provider, schema, package) =>
+validateCommand.SetHandler(async (connection, configPath, output, offline, verbose, provider, schema, assemblyPath) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
 
     if (offline)
     {
-        config = config with { GroundTruthMode = GroundTruthMode.Manual };
+        config = config with { GroundTruthMode = GroundTruthMode.Manual, ManualAssemblyPath = assemblyPath };
+        if (string.IsNullOrEmpty(assemblyPath))
+        {
+            console.Error.WriteLine("Manual mode requires --assembly <path-to-user-assembly.dll> to read [ExpectedColumn]/[ExpectedSpParameter] attributes.");
+            Environment.ExitCode = 1;
+            return;
+        }
     }
     else if (!string.IsNullOrEmpty(connection))
     {
         config = config with { ConnectionString = connection };
     }
+    else if (config.GroundTruthMode != GroundTruthMode.Manual && string.IsNullOrEmpty(config.ConnectionString))
+    {
+        // No connection: validate against the committed snapshot (Snapshot is the default mode).
+        config = config with { GroundTruthMode = GroundTruthMode.Snapshot };
+    }
 
     config = config with
     {
         GroundTruthMode = offline ? GroundTruthMode.Manual : config.GroundTruthMode,
-        DefaultSchema = schema ?? config.DefaultSchema,
-        DefaultPackage = package ?? config.DefaultPackage
+        DefaultSchema = schema ?? config.DefaultSchema
     };
 
     try
@@ -97,7 +109,7 @@ validateCommand.SetHandler(async (connection, configPath, output, offline, verbo
         }
         Environment.ExitCode = 1;
     }
-}, connectionOption, configOption, outputOption, offlineOption, verboseOption, providerOption, schemaOption, packageOption);
+}, connectionOption, configOption, outputOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption);
 
 #endregion
 
@@ -179,12 +191,29 @@ snapshotRefreshCommand.SetHandler(async (connection, configPath, verbose, provid
         var dbVersion = await GetDatabaseVersionAsync(config, provider, console);
         var schemaHash = ComputeSchemaHash(violations);
 
+        // Persist ground-truth schema so Snapshot mode can validate offline.
+        IReadOnlyList<SnapshotTable>? snapshotSchema = null;
+        if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(config.ConnectionString))
+        {
+            var owner = config.DefaultSchema ?? config.Oracle?.Owner;
+            if (!string.IsNullOrEmpty(owner))
+            {
+                var columnsReader = new AllTabColumnsReader(config.ConnectionString);
+                var allColumns = await columnsReader.GetAllColumnsAsync(owner);
+                snapshotSchema = allColumns
+                    .Select(kv => new SnapshotTable(kv.Key,
+                        kv.Value.Select(c => new SnapshotColumn(c.Name, c.DataType, c.MaxLength, c.CharLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed)).ToList()))
+                    .ToList();
+            }
+        }
+
         var baseline = await baselineManager.CreateBaselineAsync(
             violations,
             GetSchemaVersion(),
             GroundTruthMode.Snapshot.ToString(),
             dbVersion,
-            schemaHash);
+            schemaHash,
+            snapshotSchema);
 
         console.Out.WriteLine($"Snapshot refreshed with {baseline.Violations.Count} violations");
         console.Out.WriteLine($"Database version: {dbVersion}");
@@ -238,10 +267,10 @@ snapshotShowCommand.SetHandler(async (configPath) =>
 
 var snapshotDiffCommand = new Command("diff", "Compare current schema with snapshot")
 {
-    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption
+    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption
 };
 
-snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider, schema, package) =>
+snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider, schema, package, failOnDrift) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
@@ -294,8 +323,8 @@ snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider,
     console.Out.WriteLine();
     console.Out.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
 
-    Environment.ExitCode = 0;
-}, connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption);
+    Environment.ExitCode = failOnDrift ? 1 : 0;
+}, connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption);
 
 snapshotCommand.AddCommand(snapshotRefreshCommand);
 snapshotCommand.AddCommand(snapshotShowCommand);
@@ -597,7 +626,32 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
     var allViolations = new List<ContractViolation>();
     var contracts = new List<ContractDescriptor>();
 
-    if (provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
+    // Snapshot mode reads the persisted schema only when offline (no connection);
+    // snapshot refresh must query the live database first.
+    if (config.GroundTruthMode == GroundTruthMode.Snapshot &&
+        string.IsNullOrEmpty(config.ConnectionString) &&
+        !string.IsNullOrEmpty(config.SnapshotFilePath) && File.Exists(config.SnapshotFilePath))
+    {
+        // Offline validation: rebuild ground truth from the committed snapshot schema.
+        var snapshotManager = new BaselineManager(config.SnapshotFilePath);
+        var snapshot = await snapshotManager.LoadAsync();
+        if (snapshot?.Schema != null && snapshot.Schema.Count > 0)
+        {
+            contracts.Add(new DatabaseSchemaDescriptor(
+                Id: "snapshot-schema",
+                Tables: snapshot.Schema
+                    .Select(t => new DatabaseTableDescriptor(t.Name,
+                        t.Columns.Select(c => new ColumnDescriptor(c.Name, c.DataType, c.MaxLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed, c.CharLength)).ToList()))
+                    .ToList(),
+                LengthSemantics: "CHAR"));
+        }
+    }
+    else if (config.GroundTruthMode == GroundTruthMode.Manual && !string.IsNullOrEmpty(config.ManualAssemblyPath))
+    {
+        var manualSource = new ManualContractSource(config.ManualAssemblyPath);
+        contracts.AddRange(await manualSource.ExtractContractsAsync());
+    }
+    else if (provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
     {
         if (!string.IsNullOrEmpty(config.ConnectionString))
         {
@@ -608,7 +662,46 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
     }
     else if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
     {
-        // Oracle contract extraction runs through RunOracleValidationAsync.
+        if (!string.IsNullOrEmpty(config.ConnectionString))
+        {
+            var argumentsReader = new AllArgumentsReader(config.ConnectionString, config.Oracle ?? new OracleConfiguration(), null);
+            var owner = config.DefaultSchema ?? config.Oracle?.Owner;
+            var packageName = config.DefaultPackage ?? "";
+            if (!string.IsNullOrEmpty(owner))
+            {
+                foreach (var procName in await argumentsReader.GetProcedureNamesAsync(owner, string.IsNullOrEmpty(packageName) ? null : packageName, CancellationToken.None))
+                {
+                    foreach (var proc in await argumentsReader.GetOverloadsAsync(owner, packageName, procName, CancellationToken.None))
+                    {
+                        contracts.Add(new StoredProcedureDescriptor(
+                            Id: $"oracle:{owner}.{procName}:{proc.SignatureKey}",
+                            Name: procName,
+                            Schema: owner,
+                            PackageName: packageName,
+                            Parameters: proc.Parameters,
+                            ResultColumns: new List<ColumnDescriptor>(),
+                            ReturnsRefCursor: false));
+                    }
+                }
+            }
+        }
+    }
+    else if (provider.Equals("mysql", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!string.IsNullOrEmpty(config.ConnectionString))
+        {
+            var spParser = new MySqlStoredProcedureParser(config.ConnectionString, config.DefaultSchema ?? "");
+            contracts.AddRange(await spParser.ExtractContractsAsync());
+        }
+    }
+    else if (provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase) ||
+             provider.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+    {
+        if (!string.IsNullOrEmpty(config.ConnectionString))
+        {
+            var spParser = new PostgreSqlStoredProcedureParser(config.ConnectionString, config.DefaultSchema ?? "public");
+            contracts.AddRange(await spParser.ExtractContractsAsync());
+        }
     }
 
     var rules = GetRulesForProvider(provider);
@@ -707,7 +800,8 @@ static List<IContractRule> GetRulesForProvider(string provider)
     {
         rules.Add(new OracleSyntaxInNonOracleContextRule());
         rules.Add(new NonOracleFunctionInOracleContextRule());
-        rules.Add(new ProviderOptionMismatchRule());
+        // ProviderOptionMismatchRule (DG012) is intentionally not wired: it needs
+        // Roslyn DbContext provider registration context, unavailable in the engine.
         rules.Add(new SqlServerSyntaxLeakRule());
         rules.Add(new RawSqlUnmappedTypeUsageRule());
         rules.Add(new LengthExceedsColumnRule());

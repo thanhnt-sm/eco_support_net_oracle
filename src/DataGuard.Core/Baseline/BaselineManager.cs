@@ -43,6 +43,7 @@ public class BaselineManager
         string groundTruthMode,
         string? databaseVersion = null,
         string? schemaHash = null,
+        IReadOnlyList<SnapshotTable>? schema = null,
         CancellationToken cancellationToken = default)
     {
         var baselineViolations = violations.Select(v => new BaselineViolation(
@@ -69,7 +70,8 @@ public class BaselineManager
             GroundTruthMode: groundTruthMode,
             DatabaseVersion: dbVersion,
             SchemaHash: computedSchemaHash,
-            Violations: baselineViolations
+            Violations: baselineViolations,
+            Schema: schema
         );
 
         await SaveAsync(baseline);
@@ -297,7 +299,27 @@ public record BaselineFile(
     string GroundTruthMode,
     string DatabaseVersion,
     string SchemaHash,
-    IReadOnlyList<BaselineViolation> Violations
+    IReadOnlyList<BaselineViolation> Violations,
+    IReadOnlyList<SnapshotTable>? Schema = null
+);
+
+/// <summary>
+/// Serializable ground-truth table snapshot (used by Snapshot mode offline validation).
+/// </summary>
+public record SnapshotTable(
+    string Name,
+    IReadOnlyList<SnapshotColumn> Columns
+);
+
+public record SnapshotColumn(
+    string Name,
+    string DataType,
+    int? MaxLength,
+    int? CharLength,
+    int? Precision,
+    int? Scale,
+    bool IsNullable,
+    string? CharUsed
 );
 
 /// <summary>

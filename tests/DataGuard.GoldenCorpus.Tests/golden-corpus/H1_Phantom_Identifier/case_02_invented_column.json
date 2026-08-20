@@ -9,7 +9,7 @@
         { "name": "Id", "type": "int", "isPrimaryKey": true },
         { "name": "FullName", "type": "string", "maxLength": 100 },
         { "name": "Email", "type": "string", "maxLength": 255 },
-        { "name": "PhoneNumber", "type": "string", "maxLength": 20 }
+        { "name": "Phone", "type": "string", "maxLength": 20 }
       ]
     },
     "sql": "SELECT id, full_name, email, phone, address FROM customers WHERE id = :id",

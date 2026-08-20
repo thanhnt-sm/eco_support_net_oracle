@@ -152,11 +152,20 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
             return storedConnection;
         }
 
-        // Priority 6: Configuration file (dev only, with warning)
+        // Priority 6: Configuration file (dev only, fail-closed unless explicitly allowed)
         var configValue = _configuration.GetConnectionString(credentialName) 
                        ?? _configuration[credentialName];
         if (!string.IsNullOrEmpty(configValue))
         {
+            if (!_config.AllowPlaintextConfigFallback)
+            {
+                throw new InvalidOperationException(
+                    $"Credential '{credentialName}' could not be resolved from any secure source " +
+                    "(environment variable, Key Vault, AWS Secrets Manager, HashiCorp Vault, or encrypted store). " +
+                    "Plaintext config-file credentials are disabled by default; set " +
+                    "AllowPlaintextConfigFallback=true only in Development.");
+            }
+
             // WARNING: Config file credentials are not secure for production
             Console.Error.WriteLine($"⚠ WARNING: Using credential from config file for '{credentialName}'. " +
                                   "This is not secure for production. Use environment variables or secret managers.");

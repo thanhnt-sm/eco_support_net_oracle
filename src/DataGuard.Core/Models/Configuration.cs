@@ -28,6 +28,10 @@ public record DataGuardConfiguration(
     string? VaultAddress = null,
     bool EnableAuditLogging = true,
     string? AuditLogPath = null,
+    // Fail closed: plaintext config-file credentials are only used when explicitly
+    // allowed (Development). Default false prevents silent credential downgrade.
+    bool AllowPlaintextConfigFallback = false,
+    string? ManualAssemblyPath = null,
     
     // Smart defaults / Auto-detection
     bool AutoDetectProvider = true,

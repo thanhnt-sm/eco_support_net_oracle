@@ -86,15 +86,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
                 "DataGuard.AddSkipContractCheck"),
             diagnostic);
 
-        // Fix 2: Add expected parameter attributes
-        context.RegisterCodeFix(
-            CodeAction.Create(
-                "Add expected parameter attributes",
-                c => AddExpectedParameterAttributesAsync(context.Document, root!, node, c),
-                "DataGuard.AddExpectedParameters"),
-            diagnostic);
-
-        // Fix 3: Run full validation in CI (mark as intentional)
+        // Fix 2: Run full validation in CI (mark as intentional)
         context.RegisterCodeFix(
             CodeAction.Create(
                 "Mark as 'validate in CI only' (add comment)",
@@ -107,14 +99,6 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
         
-        // Fix: Add expected parameter attribute
-        context.RegisterCodeFix(
-            CodeAction.Create(
-                "Add [ExpectedSpParameter] attribute",
-                c => AddExpectedSpParameterAsync(context.Document, root!, node, c),
-                "DataGuard.AddExpectedSpParameter"),
-            diagnostic);
-
         // Fix: Update SQL to match expected parameters
         context.RegisterCodeFix(
             CodeAction.Create(
@@ -339,7 +323,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
 
     private static AttributeListSyntax CreateSkipContractCheckAttribute(string reason)
     {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("SkipContractCheck"))
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
                 SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
                     SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(reason)))
@@ -349,7 +333,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
 
     private static AttributeListSyntax CreateExpectedSpParameterAttribute(string name)
     {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("ExpectedSpParameter"))
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.ExpectedSpParameter"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
                 SyntaxFactory.SeparatedList<AttributeArgumentSyntax>(new[]
                 {
@@ -365,7 +349,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
 
     private static AttributeListSyntax CreateColumnAttribute(string name)
     {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("Column"))
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.Schema.Column"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
                 SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
                     SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(name))))));
@@ -374,7 +358,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
 
     private static AttributeListSyntax CreateMaxLengthAttribute(int length)
     {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("MaxLength"))
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.MaxLength"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
                 SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
                     SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(length))))));
@@ -393,7 +377,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     {
         return string.Concat(snakeCase.Split('_', '-', '.')
             .Where(s => !string.IsNullOrEmpty(s))
-            .Select(s => char.ToUpperInvariant(s[0]) + s[1..]));
+            .Select(s => char.ToUpperInvariant(s[0]) + s.Substring(1)));
     }
 }
 
@@ -429,50 +413,11 @@ public class AddMaxLengthAttributeFixProvider : CodeFixProvider
         var property = node.FirstAncestorOrSelf<PropertyDeclarationSyntax>();
         if (property == null) return document;
 
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("MaxLength"))
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.MaxLength"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
                 SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("2000"))))));
+                    SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(2000))))));
         editor.AddAttribute(property, SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr)));
-        return editor.GetChangedDocument();
-    }
-}
-
-/// <summary>
-/// Code fix for adding missing UseOracle() registration.
-/// </summary>
-[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(AddUseOracleFixProvider)), Shared]
-public class AddUseOracleFixProvider : CodeFixProvider
-{
-    public sealed override ImmutableArray<string> FixableDiagnosticIds
-        => ImmutableArray.Create(DiagnosticIds.ProviderOptionMismatch);
-
-    public sealed override FixAllProvider GetFixAllProvider()
-        => WellKnownFixAllProviders.BatchFixer;
-
-    public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
-    {
-        var diagnostic = context.Diagnostics.First();
-        var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
-        var node = root.FindNode(diagnostic.Location.SourceSpan);
-
-        context.RegisterCodeFix(
-            CodeAction.Create(
-                "Add .UseOracle() to DbContextOptionsBuilder",
-                c => AddUseOracleToContextAsync(context.Document, root!, node, c),
-                "DataGuard.AddUseOracle"),
-            diagnostic);
-    }
-
-    private async Task<Document> AddUseOracleToContextAsync(Document document, SyntaxNode root, SyntaxNode node, CancellationToken c)
-    {
-        var editor = await DocumentEditor.CreateAsync(document, c);
-        var invocation = node.FirstAncestorOrSelf<InvocationExpressionSyntax>();
-        if (invocation == null) return document;
-
-        var useOracle = SyntaxFactory.InvocationExpression(
-            SyntaxFactory.MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, invocation, SyntaxFactory.IdentifierName("UseOracle")));
-        editor.ReplaceNode(invocation, useOracle);
         return editor.GetChangedDocument();
     }
 }
@@ -509,7 +454,7 @@ public class SkipContractCheckFixProvider : CodeFixProvider
         var target = node.FirstAncestorOrSelf<MemberDeclarationSyntax>();
         if (target == null) return document;
 
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("SkipContractCheck"))
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
                 SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
                     SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("Dynamic SQL - manual review required"))))));

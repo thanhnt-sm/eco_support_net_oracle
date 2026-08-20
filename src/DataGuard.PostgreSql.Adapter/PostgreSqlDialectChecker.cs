@@ -9,7 +9,7 @@ namespace DataGuard.PostgreSql.Adapter;
 /// </summary>
 public sealed class PostgreSqlDialectChecker
 {
-    private static readonly string[] PostgreSqlOnly = { "SERIAL", "BIGSERIAL", "ILIKE", "RETURNING", "::", "GENERATED ALWAYS AS IDENTITY" };
+    private static readonly string[] PostgreSqlOnly = { "SERIAL", "BIGSERIAL", "ILIKE", "::" };
     private static readonly string[] NonPostgreSql = { "NVL", "TOP ", "ROWNUM", "GETDATE", "CONVERT(", "DATEPART" };
 
     public IReadOnlyList<ContractViolation> CheckPostgreSqlSyntaxInNonPostgreSqlContext(string sqlText, bool isPostgreSqlContext, Location? location = null)

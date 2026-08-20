@@ -10,15 +10,15 @@ using Microsoft.SqlServer.TransactSql.ScriptDom;
 /// </summary>
 public class OracleDialectChecker
 {
+    // Only genuinely Oracle-exclusive constructs. Standard SQL (window functions,
+    // PIVOT, PARTITION BY, KEEP, MODEL) is valid in modern SQL Server/PostgreSQL too
+    // and must not be flagged as "Oracle-only".
     private static readonly HashSet<string> OracleKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "DECODE", "NVL", "NVL2", "DUAL", "ROWNUM", "CONNECT BY", "START WITH",
-        "SYSDATE", "SYSTIMESTAMP", "NEXTVAL", "CURRVAL", "ROWID", "ROWNUM",
+        "SYSDATE", "SYSTIMESTAMP", "NEXTVAL", "CURRVAL", "ROWID",
         "LISTAGG", "WM_CONCAT", "XMLAGG", "XMLFOREST", "XMLELEMENT",
-        "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR",
-        "PIVOT", "UNPIVOT", "MODEL", "PARTITION BY", "KEEP", "DENSE_RANK",
-        "FIRST_VALUE", "LAST_VALUE", "LAG", "LEAD", "NTILE",
-        "ROW_NUMBER", "RANK", "DENSE_RANK", "CUME_DIST", "PERCENT_RANK"
+        "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR"
     };
 
     private static readonly HashSet<string> OracleOperators = new(StringComparer.OrdinalIgnoreCase)
@@ -28,12 +28,9 @@ public class OracleDialectChecker
 
     private static readonly HashSet<string> SqlServerKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ISNULL", "TOP", "GETDATE", "GETUTCDATE", "DATEADD", "DATEDIFF",
+        "ISNULL", "GETDATE", "GETUTCDATE", "DATEADD", "DATEDIFF",
         "DATEPART", "DATENAME", "IDENTITY", "NEWID", "NEWSEQUENTIALID",
-        "IIF", "CHOOSE", "FORMAT", "TRY_CAST", "TRY_CONVERT", "TRY_PARSE",
-        "OFFSET", "FETCH", "ROW_NUMBER", "RANK", "DENSE_RANK", "NTILE",
-        "LEAD", "LAG", "FIRST_VALUE", "LAST_VALUE", "PERCENT_RANK",
-        "CUME_DIST", "NTILE", "PIVOT", "UNPIVOT", "MERGE"
+        "IIF", "CHOOSE", "FORMAT", "TRY_CAST", "TRY_CONVERT", "TRY_PARSE"
     };
 
     /// <summary>
@@ -107,8 +104,8 @@ public class OracleDialectChecker
             }
         }
 
-        // Check for SQL Server operators
-        if (sqlText.Contains("TOP", StringComparison.OrdinalIgnoreCase))
+        // Check for SQL Server operators (word-boundary: TOP n / LIMIT n, not TOPIC/LIMITED)
+        if (System.Text.RegularExpressions.Regex.IsMatch(sqlText, @"\bTOP\s+\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             violations.Add(new ContractViolation(
                 "DG011",
@@ -118,7 +115,7 @@ public class OracleDialectChecker
             ));
         }
 
-        if (sqlText.Contains("LIMIT", StringComparison.OrdinalIgnoreCase))
+        if (System.Text.RegularExpressions.Regex.IsMatch(sqlText, @"\bLIMIT\s+\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             violations.Add(new ContractViolation(
                 "DG011",

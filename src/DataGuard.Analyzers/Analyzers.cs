@@ -12,8 +12,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
-using DataGuard.Core.Abstractions;
-using DataGuard.Core.Rules;
+using DataGuard.Contracts;
 
 namespace DataGuard.Analyzers;
 
@@ -449,6 +448,8 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.ProviderOptionMismatch,
         DiagnosticDescriptors.SqlServerSyntaxLeak,
         DiagnosticDescriptors.UnmappedTypeUsage,
+        DiagnosticDescriptors.PhantomTable,
+        DiagnosticDescriptors.PhantomColumn,
         DiagnosticDescriptors.MissingFromClause,
         DiagnosticDescriptors.SqlInjectionPattern
     ];
@@ -497,9 +498,9 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
     private static bool HasSkipContractCheckAttribute(IMethodSymbol method)
     {
-        return method.GetAttributes().Any(attr => 
+        return method.GetAttributes().Any(attr =>
             attr.AttributeClass?.Name == "SkipContractCheckAttribute" ||
-            attr.AttributeClass?.ToDisplayString() == "DataGuard.Attributes.SkipContractCheckAttribute");
+            attr.AttributeClass?.ToDisplayString() == "DataGuard.Contracts.SkipContractCheckAttribute");
     }
 
     private static bool IsEfCoreFromSqlMethod(IMethodSymbol method)
@@ -529,25 +530,14 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         if (string.IsNullOrEmpty(sqlText) || entityType == null)
             return;
 
-        // Real validation: Extract SQL, resolve entity, run validation rules
+        // Real validation: extract SQL, run IDE-layer checks (no DB ground truth)
         var cancellationToken = context.CancellationToken;
-        
-        // Extract SQL parameters and entity info
+
         var sqlTextLower = sqlText.ToLowerInvariant();
         var isStoredProc = sqlTextLower.TrimStart().StartsWith("exec ") || sqlTextLower.TrimStart().StartsWith("execute ");
-        
-        // For FromSqlRaw/FromSqlInterpolated, we validate the entity against the SQL
-        var entityTypeSymbol = entityType;
-        var entityName = entityTypeSymbol.Name;
-        var entityNamespace = entityTypeSymbol.ContainingNamespace?.ToDisplayString() ?? "";
-        
-        // Create a contract descriptor for the entity
-        var entityContract = CreateEntityContractDescriptor(entityTypeSymbol, context);
-        if (entityContract == null)
-            return;
 
-        // Validate using the rules
-        var violations = ValidateEntityContract(entityContract, sqlText, isStoredProc, context.CancellationToken);
+        // Validate using the inline checks (the heavy rules engine runs in the CLI)
+        var violations = ValidateEntityContract(sqlText, isStoredProc, context.CancellationToken);
         
         foreach (var violation in violations)
         {
@@ -605,135 +595,33 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private EntityDescriptor? CreateEntityContractDescriptor(ITypeSymbol entityType, OperationAnalysisContext context)
+    private List<AnalyzerViolation> ValidateEntityContract(string sqlText, bool isStoredProc, CancellationToken cancellationToken)
     {
-        try
-        {
-            var properties = new List<PropertyDescriptor>();
-            
-            foreach (var member in entityType.GetMembers())
-            {
-                if (member is IPropertySymbol prop && !prop.IsStatic && !prop.IsIndexer)
-                {
-                    var propertyDescriptor = new PropertyDescriptor(
-                        Name: prop.Name,
-                        ClrTypeName: prop.Type.ToDisplayString(),
-                        ColumnName: ToSnakeCase(prop.Name),
-                        ColumnType: GetColumnType(prop.Type),
-                        IsNullable: prop.NullableAnnotation == Microsoft.CodeAnalysis.NullableAnnotation.Annotated || prop.Type.IsReferenceType,
-                        MaxLength: GetMaxLength(prop),
-                        IsPrimaryKey: IsPrimaryKey(prop),
-                        IsForeignKey: IsForeignKey(prop),
-                        Annotations: ImmutableDictionary<string, object?>.Empty
-                    );
-                    properties.Add(propertyDescriptor);
-                }
-            }
+        var violations = new List<AnalyzerViolation>();
 
-            var entityDescriptor = new EntityDescriptor(
-                Id: $"entity:{entityType.ToDisplayString()}",
-                Name: entityType.Name,
-                ClrTypeName: entityType.ToDisplayString(),
-                TableName: ToSnakeCase(entityType.Name),
-                Properties: properties,
-                Location: entityType.Locations.FirstOrDefault()
-            );
+        // The heavy rules engine (parameter count/type/direction, column shape,
+        // nullability, phantom identifiers) runs in the CLI against database ground
+        // truth. The IDE layer only performs syntax-level checks that need no DB.
+        if (!isStoredProc && ContainsSqlInjectionPatterns(sqlText))
+        {
+            violations.Add(new AnalyzerViolation(
+                "DG099",
+                "Potential SQL injection pattern detected",
+                DiagnosticSeverity.Warning,
+                Location.None));
+        }
 
-            return entityDescriptor;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private List<ContractViolation> ValidateEntityContract(EntityDescriptor entity, string sqlText, bool isStoredProc, CancellationToken cancellationToken)
-    {
-        var violations = new List<ContractViolation>();
-        
-        // Check if this is a stored procedure call
-        if (isStoredProc)
-        {
-            // For stored procedures, validate parameter count and types
-            var sqlLower = sqlText.ToLowerInvariant();
-            
-            // Check for EXEC or EXECUTE prefix
-            if (sqlLower.StartsWith("exec ") || sqlLower.StartsWith("execute "))
-            {
-                // Basic validation: if we can't determine the expected parameter count from metadata,
-                // at least verify the SQL structure is valid
-
-                if (string.IsNullOrWhiteSpace(sqlText.Trim()))
-                {
-                    violations.Add(new ContractViolation(
-                        "DG001",
-                        "Empty stored procedure call",
-                        DiagnosticSeverity.Error,
-                        Location.None));
-                }
-            }
-        }
-        else
-        {
-            // For raw SQL validation
-            if (string.IsNullOrWhiteSpace(sqlText))
-            {
-                violations.Add(new ContractViolation(
-                    "DG001",
-                    "Empty SQL text",
-                    DiagnosticSeverity.Error,
-                    Location.None));
-            }
-            
-            // Check for SQL injection patterns
-            if (ContainsSqlInjectionPatterns(sqlText))
-            {
-                violations.Add(new ContractViolation(
-                    "DG099",
-                    "Potential SQL injection pattern detected",
-                    DiagnosticSeverity.Warning,
-                    Location.None));
-            }
-        }
-        
-        // Run validation rules from the rule engine
-        foreach (var rule in GetValidationRules())
-        {
-            try
-            {
-                var ruleViolations = rule.ValidateAsync(
-                    entity,
-                    new List<ContractDescriptor>(),
-                    cancellationToken).GetAwaiter().GetResult();
-                violations.AddRange(ruleViolations);
-            }
-            catch
-            {
-                // Skip rules that fail to execute
-            }
-        }
-        
         return violations;
     }
 
-    private List<ContractViolation> ValidateRawSqlContract(string sqlText, bool isStoredProc, CancellationToken cancellationToken)
+    private List<AnalyzerViolation> ValidateRawSqlContract(string sqlText, bool isStoredProc, CancellationToken cancellationToken)
     {
-        var violations = new List<ContractViolation>();
-        
-        // Basic SQL validation
-        if (string.IsNullOrWhiteSpace(sqlText))
-        {
-            violations.Add(new ContractViolation(
-                "DG001",
-                "Empty SQL text",
-                DiagnosticSeverity.Error,
-                Location.None));
-        }
+        var violations = new List<AnalyzerViolation>();
         
         // Check for potential SQL injection patterns
         if (ContainsSqlInjectionPatterns(sqlText))
         {
-            violations.Add(new ContractViolation(
+            violations.Add(new AnalyzerViolation(
                 "DG099",
                 "Potential SQL injection pattern detected",
                 DiagnosticSeverity.Warning,
@@ -747,7 +635,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             var sqlLower = sqlText.ToLowerInvariant();
             if (!sqlLower.StartsWith("exec ") && !sqlLower.StartsWith("execute "))
             {
-                violations.Add(new ContractViolation(
+                violations.Add(new AnalyzerViolation(
                     "DG002",
                     "Stored procedure call must start with EXEC or EXECUTE",
                     DiagnosticSeverity.Warning,
@@ -757,13 +645,13 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         }
         
         // Check for common raw SQL patterns
-        if (sqlText.Contains("SELECT", StringComparison.OrdinalIgnoreCase))
+        if (sqlText.IndexOf("SELECT", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             // For SELECT queries, verify they reference valid entities
             var hasFromClause = sqlText.IndexOf("FROM", StringComparison.OrdinalIgnoreCase) >= 0;
             if (!hasFromClause)
             {
-                violations.Add(new ContractViolation(
+                violations.Add(new AnalyzerViolation(
                     "DG098",
                     "Raw SQL query missing FROM clause",
                     DiagnosticSeverity.Warning,
@@ -828,67 +716,6 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             ?? DiagnosticDescriptors.ParameterMismatch;
     }
 
-    private List<IContractRule> GetValidationRules()
-    {
-        return new List<IContractRule>
-        {
-            new ParameterCountRule(),
-            new ParameterTypeMatchRule(),
-            new ParameterDirectionRule(),
-            new ColumnShapeMatchRule(),
-            new NullableMismatchRule(),
-            new NamingConventionRule()
-        };
-    }
-
-    private string GetColumnType(ITypeSymbol typeSymbol)
-    {
-        var typeName = typeSymbol.ToDisplayString();
-        return typeName switch
-        {
-            "string" => "nvarchar(max)",
-            "int" => "int",
-            "long" => "bigint",
-            "short" => "smallint",
-            "byte" => "tinyint",
-            "bool" => "bit",
-            "decimal" => "decimal(18,2)",
-            "double" => "float",
-            "float" => "real",
-            "DateTime" => "datetime2",
-            "DateTimeOffset" => "datetimeoffset",
-            "Guid" => "uniqueidentifier",
-            "byte[]" => "varbinary(max)",
-            _ => "nvarchar(max)"
-        };
-    }
-
-    private int? GetMaxLength(IPropertySymbol prop)
-    {
-        var attributes = prop.GetAttributes();
-        foreach (var attr in attributes)
-        {
-            if (attr.AttributeClass?.Name == "MaxLengthAttribute" || attr.AttributeClass?.Name == "StringLengthAttribute")
-            {
-                if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is int maxLen)
-                    return maxLen;
-            }
-        }
-        return null;
-    }
-
-    private bool IsPrimaryKey(IPropertySymbol prop)
-    {
-        var attributes = prop.GetAttributes();
-        return attributes.Any(a => a.AttributeClass?.Name == "KeyAttribute");
-    }
-
-    private bool IsForeignKey(IPropertySymbol prop)
-    {
-        var attributes = prop.GetAttributes();
-        return attributes.Any(a => a.AttributeClass?.Name == "ForeignKeyAttribute");
-    }
-
     private string ToSnakeCase(string pascalCase)
     {
         if (string.IsNullOrEmpty(pascalCase)) return pascalCase;
@@ -906,49 +733,22 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 }
 
 /// <summary>
-/// Attribute to skip contract validation for dynamic SQL or complex cases.
+/// IDE-layer violation produced by syntax-level checks. The heavy rules engine
+/// lives in DataGuard.Core and runs in the CLI (net9.0); this netstandard2.0
+/// analyzer only reports checks that need no database ground truth.
 /// </summary>
-[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
-public sealed class SkipContractCheckAttribute : Attribute
+internal sealed class AnalyzerViolation
 {
-    public string? Reason { get; set; }
-}
-
-/// <summary>
-/// Attribute to declare expected column for manual mode ground truth.
-/// </summary>
-[AttributeUsage(AttributeTargets.Property, AllowMultiple = true)]
-public sealed class ExpectedColumnAttribute : Attribute
-{
-    public ExpectedColumnAttribute(string columnName, string clrTypeName)
+    public AnalyzerViolation(string ruleId, string message, DiagnosticSeverity severity, Location? location)
     {
-        ColumnName = columnName;
-        ClrTypeName = clrTypeName;
+        RuleId = ruleId;
+        Message = message;
+        Severity = severity;
+        Location = location;
     }
 
-    public string ColumnName { get; }
-    public string ClrTypeName { get; }
-    public bool IsNullable { get; set; }
-    public int? MaxLength { get; set; }
-}
-
-/// <summary>
-/// Attribute to declare expected stored procedure parameter.
-/// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
-public sealed class ExpectedSpParameterAttribute : Attribute
-{
-    public ExpectedSpParameterAttribute(string name, string dbType, string direction)
-    {
-        Name = name;
-        DbType = dbType;
-        Direction = Enum.Parse<ParameterDirection>(direction);
-    }
-
-    public string Name { get; }
-    public string DbType { get; }
-    public ParameterDirection Direction { get; set; }
-    public int? MaxLength { get; set; }
-    public byte? Precision { get; set; }
-    public byte? Scale { get; set; }
+    public string RuleId { get; }
+    public string Message { get; }
+    public DiagnosticSeverity Severity { get; }
+    public Location? Location { get; }
 }

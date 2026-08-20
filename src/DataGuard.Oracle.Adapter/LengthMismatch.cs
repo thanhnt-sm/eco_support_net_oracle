@@ -188,7 +188,11 @@ public class LengthMismatchDetector
             }
 
             // 2. Byte semantics overflow risk
-            if (sessionSemantics == LengthSemantics.Byte &&
+            // Prefer the authoritative per-column char_used (B=BYTE, C=CHAR); fall
+            // back to the session NLS length semantics only when the column is silent.
+            var columnIsByteSemantics = column.CharUsed == "B"
+                || (string.IsNullOrEmpty(column.CharUsed) && sessionSemantics == LengthSemantics.Byte);
+            if (columnIsByteSemantics &&
                 property.MaxLength.HasValue &&
                 column.MaxLength.HasValue)
             {

@@ -48,7 +48,7 @@ public abstract class ContractRuleBase : IContractRule
 /// </summary>
 public class ParameterCountRule : ContractRuleBase
 {
-    public override string RuleId => "DG001";
+    public override string RuleId => "DG101"; // engine-only id; DG001 is the IDE UnvalidatedSqlCall id
     public override string Name => "Parameter Count Match";
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
     public override string Description => "Stored procedure parameter count must match call site";
@@ -254,7 +254,12 @@ public class ColumnShapeMatchRule : ContractRuleBase
                         return;
 
                     // Check for missing required columns
-                    var missingColumns = entityPropertyNames.Where(p => !columnNames.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList();
+                    var missingColumns = entityDesc.Properties
+                        .Where(p => !columnNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase) &&
+                                    (string.IsNullOrEmpty(p.ColumnName) ||
+                                     !columnNames.Contains(p.ColumnName, StringComparer.OrdinalIgnoreCase)))
+                        .Select(p => p.Name)
+                        .ToList();
 
                     if (missingColumns.Count > 0)
                     {

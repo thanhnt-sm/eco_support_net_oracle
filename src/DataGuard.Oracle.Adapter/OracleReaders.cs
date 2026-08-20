@@ -53,8 +53,8 @@ public class AllArgumentsReader
                 type_name,
                 type_subname
             FROM all_arguments
-            WHERE owner = :owner
-              AND package_name = :packageName
+            WHERE owner = UPPER(:owner)
+              AND (@packageName IS NULL OR package_name = :packageName)
               AND object_name = :procedureName";
 
         if (sequence.HasValue)
@@ -69,7 +69,7 @@ public class AllArgumentsReader
 
         await using var command = new OracleCommand(sql, connection);
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-        command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = packageName;
+        command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
         command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
         if (sequence.HasValue)
         {
@@ -79,15 +79,18 @@ public class AllArgumentsReader
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var name = reader.IsDBNull(0) ? "" : reader.GetString(0);
+            var position = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
+            if (reader.IsDBNull(0) || position == 0)
+                continue; // function return-value row - not a real parameter
+
+            var name = reader.GetString(0);
             var inOut = reader.IsDBNull(1) ? "" : reader.GetString(1);
             var dataType = reader.IsDBNull(2) ? "" : reader.GetString(2);
             var dataLength = reader.IsDBNull(3) ? null : (int?)reader.GetInt32(3);
             var precision = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4);
             var scale = reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5);
-            var position = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
             var seq = reader.IsDBNull(7) ? 0 : reader.GetInt32(7);
-            var overload = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
+            var overload = ReadOverload(reader, 8);
             var typeOwner = reader.IsDBNull(9) ? null : reader.GetString(9);
             var typeName = reader.IsDBNull(10) ? null : reader.GetString(10);
             var typeSubname = reader.IsDBNull(11) ? null : reader.GetString(11);
@@ -126,6 +129,37 @@ public class AllArgumentsReader
     /// <summary>
     /// Gets all overloads for a procedure.
     /// </summary>
+    /// <summary>
+    /// Lists distinct procedure/function names in a schema (from ALL_PROCEDURES).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetProcedureNamesAsync(
+        string owner,
+        string? packageName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var sql = "SELECT DISTINCT object_name FROM all_procedures WHERE owner = UPPER(:owner)";
+        if (!string.IsNullOrEmpty(packageName))
+            sql += " AND package_name = UPPER(:packageName)";
+        sql += " ORDER BY object_name";
+
+        await using var connection = new OracleConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = new OracleCommand(sql, connection);
+        command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
+        if (!string.IsNullOrEmpty(packageName))
+            command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
+
+        var names = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(0))
+                names.Add(reader.GetString(0));
+        }
+        return names;
+    }
+
     public async Task<IReadOnlyList<ProcedureOverloadInfo>> GetOverloadsAsync(
         string owner,
         string packageName,
@@ -144,33 +178,36 @@ public class AllArgumentsReader
                 data_length,
                 data_precision,
                 data_scale,
-                position
+                position,
+                subprogram_id
             FROM all_arguments
-            WHERE owner = :owner
-              AND package_name = :packageName
+            WHERE owner = UPPER(:owner)
+              AND (@packageName IS NULL OR package_name = :packageName)
               AND object_name = :procedureName
-            ORDER BY sequence, overload, position";
+            ORDER BY overload, sequence, position";
 
         await using var connection = new OracleConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
         await using var command = new OracleCommand(sql, connection);
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-        command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = packageName;
+        command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
         command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         
         var currentOverload = new ProcedureOverloadInfo();
-        int? lastSequence = null;
         int? lastOverload = null;
 
         while (await reader.ReadAsync(cancellationToken))
         {
             var seq = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
-            var overload = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+            var overload = ReadOverload(reader, 1);
+            // SUBPROGRAM_ID is NUMBER and unique per overload; fall back to the
+            // (possibly string-typed) OVERLOAD column when it is null.
+            var groupKey = reader.IsDBNull(9) ? overload : reader.GetInt32(9);
 
-            if (lastSequence != seq || lastOverload != overload)
+            if (lastOverload != groupKey)
             {
                 if (currentOverload.Parameters.Count > 0)
                 {
@@ -179,19 +216,21 @@ public class AllArgumentsReader
                 currentOverload = new ProcedureOverloadInfo
                 {
                     Sequence = seq,
-                    Overload = overload
+                    Overload = groupKey
                 };
-                lastSequence = seq;
-                lastOverload = overload;
+                lastOverload = groupKey;
             }
 
-            var name = reader.IsDBNull(2) ? "" : reader.GetString(2);
+            var position = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
+            if (reader.IsDBNull(2) || position == 0)
+                continue; // function return-value row - not a real parameter
+
+            var name = reader.GetString(2);
             var inOut = reader.IsDBNull(3) ? "" : reader.GetString(3);
             var dataType = reader.IsDBNull(4) ? "" : reader.GetString(4);
             var dataLength = reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5);
             var precision = reader.IsDBNull(6) ? null : (int?)reader.GetInt32(6);
             var scale = reader.IsDBNull(7) ? null : (int?)reader.GetInt32(7);
-            var position = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
 
             var direction = inOut switch
             {
@@ -221,6 +260,17 @@ public class AllArgumentsReader
         }
 
         return overloads;
+    }
+
+    /// <summary>
+    /// Reads ALL_ARGUMENTS.OVERLOAD safely: the column is reported as NUMBER in some
+    /// Oracle versions and VARCHAR2 in others, so convert defensively (0 = not overloaded).
+    /// </summary>
+    private static int ReadOverload(global::Oracle.ManagedDataAccess.Client.OracleDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal)) return 0;
+        var raw = Convert.ToString(reader.GetValue(ordinal));
+        return int.TryParse(raw, out var value) ? value : 0;
     }
 
     private static string BuildFullTypeName(string? typeOwner, string? typeName, string? typeSubname, string fallback)
@@ -291,8 +341,8 @@ public class AllTabColumnsReader
                 data_default,
                 column_id
             FROM all_tab_columns
-            WHERE owner = :owner
-              AND table_name = :tableName
+            WHERE owner = UPPER(:owner)
+              AND table_name = UPPER(:tableName)
             ORDER BY column_id";
 
         await using var connection = new OracleConnection(_connectionString);
@@ -349,7 +399,7 @@ public class AllTabColumnsReader
             SELECT table_name, column_name, data_type, data_length, char_length,
                    data_precision, data_scale, nullable, char_used, data_default, column_id
             FROM all_tab_columns
-            WHERE owner = :owner
+            WHERE owner = UPPER(:owner)
             ORDER BY table_name, column_id";
 
         await using var connection = new OracleConnection(_connectionString);
@@ -561,12 +611,27 @@ public class RefCursorDescriber
         string packageName,
         string procedureName,
         IReadOnlyDictionary<string, object> sampleParameters,
+        string? refCursorParameterName = null,
         CancellationToken cancellationToken = default)
     {
-        var paramNames = string.Join(", ", sampleParameters.Keys.Select(k => $":{k}"));
+        // Named PL/SQL notation so the OUT cursor can sit at any parameter position.
+        // Identifiers are interpolated into PL/SQL, so reject anything that is not
+        // a plain Oracle identifier (bind parameters only protect values).
+        ValidateIdentifier(packageName, nameof(packageName));
+        ValidateIdentifier(procedureName, nameof(procedureName));
+        if (!string.IsNullOrEmpty(refCursorParameterName))
+            ValidateIdentifier(refCursorParameterName, nameof(refCursorParameterName));
+        foreach (var key in sampleParameters.Keys)
+            ValidateIdentifier(key, "sample parameter");
 
-        // PL/SQL block: call the function/procedure that returns a SYS_REFCURSOR,
-        // then describe the result set with DBMS_SQL.DESCRIBE_COLUMNS3.
+        var paramNames = string.Join(", ", sampleParameters.Keys.Select(k => $"{k} => :{k}"));
+
+        // PL/SQL block: call the function/procedure that returns a SYS_REFCURSOR
+        // (either as a FUNCTION return value or through an OUT SYS_REFCURSOR
+        // parameter), then describe the result set with DBMS_SQL.DESCRIBE_COLUMNS3.
+        var invocation = string.IsNullOrEmpty(refCursorParameterName)
+            ? $"v_cursor := {packageName}.{procedureName}({paramNames});"
+            : $"{packageName}.{procedureName}({refCursorParameterName} => :cursor_out{(paramNames.Length > 0 ? ", " + paramNames : "")});" + "\n    v_cursor := :cursor_out;";
         var plsql = $@"
 DECLARE
     v_cursor SYS_REFCURSOR;
@@ -574,7 +639,7 @@ DECLARE
     v_col_cnt INTEGER;
     v_desc DBMS_SQL.DESC_TAB3;
 BEGIN
-    v_cursor := {packageName}.{procedureName}({paramNames});
+    {invocation}
     v_cursor_id := DBMS_SQL.TO_CURSOR_NUMBER(v_cursor);
     DBMS_SQL.DESCRIBE_COLUMNS3(v_cursor_id, v_col_cnt, v_desc);
     :cnt := v_col_cnt;
@@ -585,8 +650,7 @@ BEGIN
         :precisions(i) := v_desc(i).col_precision;
         :scales(i) := v_desc(i).col_scale;
         :nullables(i) := CASE WHEN v_desc(i).col_null_ok THEN 1 ELSE 0 END;
-        :charused(i) := NVL(v_desc(i).col_char_used, 'N');
-        :charlens(i) := NVL(v_desc(i).col_char_length, 0);
+        :charsetforms(i) := NVL(v_desc(i).col_charsetform, 1);
     END LOOP;
     DBMS_SQL.CLOSE_CURSOR(v_cursor_id);
 END;";
@@ -596,11 +660,21 @@ END;";
 
         await using var command = connection.CreateCommand();
         command.CommandText = plsql;
+        // Named notation is used in the PL/SQL block; bind by name, not position.
+        command.BindByName = true;
         command.CommandType = CommandType.Text;
 
         foreach (var param in sampleParameters)
         {
             command.Parameters.Add(new OracleParameter(param.Key, param.Value));
+        }
+
+        if (!string.IsNullOrEmpty(refCursorParameterName))
+        {
+            command.Parameters.Add(new OracleParameter("cursor_out", OracleDbType.RefCursor)
+            {
+                Direction = System.Data.ParameterDirection.Output
+            });
         }
 
         const int MaxColumns = 1000;
@@ -625,8 +699,7 @@ END;";
         command.Parameters.Add(NewArrayParam("precisions", OracleDbType.Int32, sizeof(int)));
         command.Parameters.Add(NewArrayParam("scales", OracleDbType.Int32, sizeof(int)));
         command.Parameters.Add(NewArrayParam("nullables", OracleDbType.Int32, sizeof(int)));
-        command.Parameters.Add(NewArrayParam("charused", OracleDbType.Char, 1));
-        command.Parameters.Add(NewArrayParam("charlens", OracleDbType.Int32, sizeof(int)));
+        command.Parameters.Add(NewArrayParam("charsetforms", OracleDbType.Int32, sizeof(int)));
 
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -637,42 +710,53 @@ END;";
         var precisions = (int[])command.Parameters["precisions"].Value;
         var scales = (int[])command.Parameters["scales"].Value;
         var nullables = (int[])command.Parameters["nullables"].Value;
-        var charused = (string[])command.Parameters["charused"].Value;
-        var charlens = (int[])command.Parameters["charlens"].Value;
+        var charsetforms = (int[])command.Parameters["charsetforms"].Value;
 
         var columns = new List<ColumnDescriptor>(colCount);
         for (var i = 0; i < colCount; i++)
         {
             columns.Add(new ColumnDescriptor(
                 names[i],
-                MapOracleDbType(types[i]),
+                MapOracleDbType(types[i], charsetforms[i]),
                 maxlens[i] > 0 ? maxlens[i] : null,
                 precisions[i] > 0 ? precisions[i] : null,
                 scales[i] >= 0 ? scales[i] : null,
                 nullables[i] == 1,
-                charused[i],
-                charlens[i] > 0 ? charlens[i] : null
+                null,
+                null
             ));
         }
 
         return columns;
     }
 
-    private static string MapOracleDbType(int dbmsSqlType)
+    private static void ValidateIdentifier(string identifier, string what)
     {
-        // DBMS_SQL col_type codes -> Oracle type names.
+        if (string.IsNullOrEmpty(identifier) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(identifier, @"^[A-Za-z_][A-Za-z0-9_$#]*$"))
+        {
+            throw new ArgumentException($"Invalid Oracle identifier for {what}: '{identifier}'");
+        }
+    }
+
+    private static string MapOracleDbType(int dbmsSqlType, int charsetForm = 1)
+    {
+        // DBMS_SQL col_type codes -> Oracle type names. charsetform=2 means the
+        // column uses the National character set (NVARCHAR2/NCHAR/NCLOB); the raw
+        // code alone cannot distinguish them from VARCHAR2/CHAR/CLOB.
+        var national = charsetForm == 2;
         return dbmsSqlType switch
         {
-            1 => "VARCHAR2",
+            1 => national ? "NVARCHAR2" : "VARCHAR2",
             2 => "NUMBER",
             8 => "LONG",
             12 => "DATE",
             23 => "RAW",
             24 => "LONG RAW",
-            96 => "CHAR",
+            96 => national ? "NCHAR" : "CHAR",
             100 => "BINARY_FLOAT",
             101 => "BINARY_DOUBLE",
-            112 => "CLOB",
+            112 => national ? "NCLOB" : "CLOB",
             113 => "BLOB",
             114 => "BFILE",
             180 => "TIMESTAMP",

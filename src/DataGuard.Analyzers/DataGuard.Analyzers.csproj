@@ -1,15 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.Analyzers</PackageId>
     <Version>0.1.0-alpha.1</Version>
     <Authors>DataGuard Contributors</Authors>
-    <Description>Roslyn analyzers for DataGuard contract validation.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>Roslyn analyzers and quick fixes for DataGuard contract validation (IDE light layer).</Description>
+    <PackageTags>efcore;stored-procedure;contract-validation;analyzers;roslyn</PackageTags>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>
     <IncludeBuildOutput>true</IncludeBuildOutput>
-    <DevelopmentDependency>true</DevelopmentDependency>
+    <!-- Not a DevelopmentDependency: consumers need DataGuard.Contracts as a
+         compile reference so quick-fix attributes ([SkipContractCheck], ...)
+         actually compile. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
@@ -20,18 +23,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
+    <ProjectReference Include="..\DataGuard.Contracts\DataGuard.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The compiler does not resolve NuGet dependencies of analyzer/generator assemblies,
-         so bundle DataGuard.Core (and its non-framework, non-Roslyn dependencies) into the
-         analyzer path. Without this the analyzer throws FileNotFoundException when loaded. -->
+    <!-- The compiler does not resolve NuGet dependencies of analyzer/generator
+         assemblies; bundle DataGuard.Contracts (netstandard2.0) so attribute
+         types resolve at load time. netstandard2.0 loads in both csc and VS. -->
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false" />
-    <None Include="$(OutputPath)\*.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"
-          Exclude="$(OutputPath)\$(AssemblyName).dll;$(OutputPath)\Microsoft.CodeAnalysis*.dll" />
-    <None Include="$(OutputPath)\*.dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false"
-          Exclude="$(OutputPath)\$(AssemblyName).dll;$(OutputPath)\Microsoft.CodeAnalysis*.dll" />
+    <None Include="$(OutputPath)\DataGuard.Contracts.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\DataGuard.Contracts.dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false" />
   </ItemGroup>
 </Project>

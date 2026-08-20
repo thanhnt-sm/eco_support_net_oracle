@@ -60,11 +60,15 @@ public class GoldenCorpusTests
                 $"Actual violations: {string.Join(", ", violations.Select(v => $"{v.RuleId}: {v.Message}"))}");
         }
 
-        // Verify no unexpected errors (optional - can be strict or lenient)
+        // Strict mode: any Error-severity diagnostic outside the expected set fails
+        // the fixture. Over-detection (false positives) must not slip through.
         var unexpectedErrors = violations
             .Where(v => v.Severity == DiagnosticSeverity.Error && 
                        !testCase.ExpectedDiagnostics.Any(e => e.RuleId == v.RuleId && e.Severity == "Error"))
             .ToList();
+
+        unexpectedErrors.Should().BeEmpty(
+            $"Unexpected Error-severity diagnostics: {string.Join(", ", unexpectedErrors.Select(v => $"{v.RuleId}: {v.Message}"))}");
 
         // Log all violations for debugging
         foreach (var v in violations)

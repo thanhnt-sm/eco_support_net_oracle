@@ -7,6 +7,7 @@ using DataGuard.Core.Abstractions;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Plugins;
 using DataGuard.Core.Security;
 using DataGuard.Core.Telemetry;
 
@@ -47,9 +48,9 @@ public static class DataGuardApi
 /// </summary>
 public sealed class ValidationPipeline : IDisposable
 {
-    private readonly DataGuardConfiguration _config;
+    private DataGuardConfiguration _config;
     private readonly RuleDependencyGraph _ruleGraph;
-    private readonly TelemetryCollector? _telemetry;
+    private TelemetryCollector? _telemetry;
     private readonly CredentialManager _credentialManager;
     private readonly IAuditLogger _auditLogger;
     private bool _disposed;
@@ -80,7 +81,12 @@ public sealed class ValidationPipeline : IDisposable
     /// </summary>
     public ValidationPipeline WithPlugins(string pluginDirectory)
     {
-        // Plugin manager would be created here
+        var manager = new RulePluginManager(pluginDirectory, logger: null);
+        var plugins = manager.GetAllRules(_ruleGraph.GetExecutionOrder());
+        foreach (var rule in plugins)
+        {
+            _ruleGraph.AddRule(rule);
+        }
         return this;
     }
 
@@ -89,7 +95,17 @@ public sealed class ValidationPipeline : IDisposable
     /// </summary>
     public ValidationPipeline WithTelemetry(TelemetryConfig? config = null)
     {
-        // Telemetry would be enabled here
+        _telemetry?.Dispose();
+        _telemetry = new TelemetryCollector(config ?? new TelemetryConfig(Enabled: true));
+        return this;
+    }
+
+    /// <summary>
+    /// Enables baseline mode for legacy codebases.
+    /// </summary>
+    public ValidationPipeline WithBaselineFile(string baselinePath = ".dataguard-baseline.json")
+    {
+        _config = _config with { BaselineFilePath = baselinePath, EnableBaseline = true };
         return this;
     }
 
@@ -158,7 +174,7 @@ public sealed class ValidationPipeline : IDisposable
         CancellationToken cancellationToken = default)
     {
         var baselineManager = new BaselineManager(_config.BaselineFilePath ?? ".dataguard-baseline.json");
-        return await baselineManager.CreateBaselineAsync(violations, schemaVersion, _config.GroundTruthMode.ToString(), null, null, cancellationToken);
+        return await baselineManager.CreateBaselineAsync(violations, schemaVersion, _config.GroundTruthMode.ToString(), null, null, null, cancellationToken);
     }
 
     /// <summary>
@@ -256,35 +272,11 @@ public sealed record DriftReport(
 public static class ValidationPipelineExtensions
 {
     /// <summary>
-    /// Configures the pipeline for SQL Server.
-    /// </summary>
-    public static ValidationPipeline ForSqlServer(this ValidationPipeline pipeline, string connectionString)
-    {
-        return pipeline; // Configuration would be applied here
-    }
-
-    /// <summary>
-    /// Configures the pipeline for Oracle.
-    /// </summary>
-    public static ValidationPipeline ForOracle(this ValidationPipeline pipeline, string connectionString)
-    {
-        return pipeline; // Configuration would be applied here
-    }
-
-    /// <summary>
     /// Enables baseline mode for legacy codebases.
     /// </summary>
     public static ValidationPipeline WithBaseline(this ValidationPipeline pipeline, string baselinePath = ".dataguard-baseline.json")
     {
-        return pipeline; // Configuration would be applied here
-    }
-
-    /// <summary>
-    /// Enables snapshot mode for drift detection.
-    /// </summary>
-    public static ValidationPipeline WithSnapshot(this ValidationPipeline pipeline, string snapshotPath = ".dataguard-snapshot.json")
-    {
-        return pipeline; // Configuration would be applied here
+        return pipeline.WithBaselineFile(baselinePath);
     }
 }
 

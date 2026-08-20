@@ -31,6 +31,11 @@ public sealed class RuleDependencyGraph
             _dependencies[ruleId] = new HashSet<string>();
             _dependents[ruleId] = new HashSet<string>();
         }
+        else if (_nodes[ruleId].Rule == null)
+        {
+            // The node existed as a dependency placeholder - upgrade it to the real rule.
+            _nodes[ruleId] = new RuleNode(rule);
+        }
 
         if (dependsOn != null)
         {
@@ -60,7 +65,7 @@ public sealed class RuleDependencyGraph
         var visiting = new HashSet<string>();
         var result = new List<IContractRule>();
 
-        foreach (var nodeId in _nodes.Keys)
+        foreach (var nodeId in _nodes.Keys.OrderBy(id => id, StringComparer.Ordinal))
         {
             if (!visited.Contains(nodeId))
             {
@@ -113,8 +118,9 @@ public sealed class RuleDependencyGraph
         while (remaining.Count > 0)
         {
             var currentLevel = new List<IContractRule>();
-            
-            foreach (var nodeId in remaining.ToList())
+            var completedThisRound = new List<string>();
+
+            foreach (var nodeId in remaining.OrderBy(id => id, StringComparer.Ordinal).ToList())
             {
                 var deps = _dependencies.GetValueOrDefault(nodeId, new HashSet<string>());
                 if (deps.IsSubsetOf(completed))
@@ -124,19 +130,24 @@ public sealed class RuleDependencyGraph
                         currentLevel.Add(_nodes[nodeId].Rule);
                     }
                     completed.Add(nodeId);
+                    completedThisRound.Add(nodeId);
                 }
             }
 
+            // Remove every completed node (including dependency placeholders) from
+            // the remaining set; otherwise placeholders spin forever.
+            remaining.RemoveWhere(completed.Contains);
+
             if (currentLevel.Count == 0)
             {
-                // Circular dependency or missing dependency
-                var stuck = remaining.Except(completed).ToList();
-                throw new InvalidOperationException($"Cannot resolve dependencies for rules: {string.Join(", ", stuck)}");
-            }
-
-            foreach (var nodeId in currentLevel.Select(r => r.RuleId))
-            {
-                remaining.Remove(nodeId);
+                if (completedThisRound.Count == 0)
+                {
+                    // Circular dependency or missing dependency
+                    var stuck = remaining.Except(completed).ToList();
+                    throw new InvalidOperationException($"Cannot resolve dependencies for rules: {string.Join(", ", stuck)}");
+                }
+                // Only placeholders were resolved this round - continue with the next level.
+                continue;
             }
 
             levels.Add(currentLevel);
@@ -326,16 +337,16 @@ public static class BuiltInRuleDependencies
         graph.AddRule(new ParameterTypeMatchRule());
 
         // Level 2: Parameter direction (depends on parameter existence)
-        graph.AddRule(new ParameterDirectionRule(), "ParameterCountRule");
+        graph.AddRule(new ParameterDirectionRule(), "DG101");
 
         // Level 3: Column shape (depends on parameter existence)
-        graph.AddRule(new ColumnShapeMatchRule(), "ParameterCountRule");
+        graph.AddRule(new ColumnShapeMatchRule(), "DG101");
 
         // Level 4: Nullable and type matching (depends on parameter type info)
-        graph.AddRule(new NullableMismatchRule(), "ParameterTypeMatchRule");
+        graph.AddRule(new NullableMismatchRule(), "DG002");
 
         // Level 5: Naming convention (depends on parameter/column names)
-        graph.AddRule(new NamingConventionRule(), "ParameterCountRule", "ColumnShapeMatchRule");
+        graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
 
         // Level 6: Phantom identifiers (schema ground truth)
         graph.AddRule(new PhantomIdentifierRule());

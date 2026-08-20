@@ -24,15 +24,19 @@ public sealed class SupplyChainVerifier
     {
         var checks = new List<SupplyChainCheck>();
 
-        // 1. Verify assembly integrity
+        // 1. Verify assembly integrity. Fail closed: without an expected-hash anchor
+        //    the integrity check cannot pass (a self-hash comparison is meaningless).
         var assembly = typeof(SupplyChainVerifier).Assembly;
         var assemblyHash = await ComputeAssemblyHashAsync(assembly, cancellationToken);
+        var hasAnchor = !string.IsNullOrEmpty(expectedHashFile) && File.Exists(expectedHashFile);
         
         var assemblyCheck = new SupplyChainCheck(
             "AssemblyIntegrity",
             "Verify assembly hash matches expected",
-            true,
-            $"Assembly: {assembly.GetName().Name}, Hash: {assemblyHash}");
+            hasAnchor,
+            hasAnchor
+                ? $"Assembly: {assembly.GetName().Name}, Hash: {assemblyHash}"
+                : $"No expected-hash anchor available for '{assembly.GetName().Name}' - integrity unverifiable");
         
         checks.Add(assemblyCheck);
 
@@ -40,17 +44,28 @@ public sealed class SupplyChainVerifier
         var dependencyChecks = await VerifyDependenciesAsync(assembly, cancellationToken);
         checks.AddRange(dependencyChecks);
 
-        // 3. Verify expected hash file if provided
-        if (!string.IsNullOrEmpty(expectedHashFile) && File.Exists(expectedHashFile))
+        // 3. Verify expected hash file if provided (fail closed if it is missing).
+        if (!string.IsNullOrEmpty(expectedHashFile))
         {
-            var expectedHash = await File.ReadAllTextAsync(expectedHashFile, cancellationToken);
-            var matches = expectedHash.Trim().Equals(assemblyHash, StringComparison.OrdinalIgnoreCase);
-            
-            checks.Add(new SupplyChainCheck(
-                "ExpectedHashMatch",
-                "Verify assembly matches expected hash from SLSA provenance",
-                matches,
-                matches ? "Hash matches expected" : $"Expected: {expectedHash}, Actual: {assemblyHash}"));
+            if (File.Exists(expectedHashFile))
+            {
+                var expectedHash = await File.ReadAllTextAsync(expectedHashFile, cancellationToken);
+                var matches = expectedHash.Trim().Equals(assemblyHash, StringComparison.OrdinalIgnoreCase);
+                
+                checks.Add(new SupplyChainCheck(
+                    "ExpectedHashMatch",
+                    "Verify assembly matches expected hash from SLSA provenance",
+                    matches,
+                    matches ? "Hash matches expected" : $"Expected: {expectedHash}, Actual: {assemblyHash}"));
+            }
+            else
+            {
+                checks.Add(new SupplyChainCheck(
+                    "ExpectedHashMatch",
+                    "Verify assembly matches expected hash from SLSA provenance",
+                    false,
+                    $"Expected hash file '{expectedHashFile}' does not exist - integrity unverifiable"));
+            }
         }
 
         // 4. Check for tampering indicators
