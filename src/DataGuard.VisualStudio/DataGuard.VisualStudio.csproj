@@ -8,11 +8,17 @@
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
     <IncludeDebugSymbolsInVSIXContainer>true</IncludeDebugSymbolsInVSIXContainer>
     <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>
+    <VSSDKBuildToolsAutoSetup>true</VSSDKBuildToolsAutoSetup>
+    <VsixDeployOnDebug>true</VsixDeployOnDebug>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
-    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.14.2142" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.38461" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectCapability Include="CreateVsixContainer" />
   </ItemGroup>
 
   <ItemGroup>
