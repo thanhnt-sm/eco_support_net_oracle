@@ -38,4 +38,7 @@
     <None Include="$(OutputPath)\DataGuard.Contracts.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(OutputPath)\DataGuard.Contracts.dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false" />
   </ItemGroup>
+  <ItemGroup>
+    <AdditionalFiles Include="stylecop.json" />
+  </ItemGroup>
 </Project>

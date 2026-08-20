@@ -85,6 +85,56 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         }
     }
 
+    private static AttributeListSyntax CreateSkipContractCheckAttribute(string reason)
+    {
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
+            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
+                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
+                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(reason)))
+                    .WithNameEquals(SyntaxFactory.NameEquals(SyntaxFactory.IdentifierName("Reason"))))));
+        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
+    }
+
+    private static AttributeListSyntax CreateExpectedSpParameterAttribute(string name)
+    {
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.ExpectedSpParameter"))
+            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
+                SyntaxFactory.SeparatedList<AttributeArgumentSyntax>(new[]
+                {
+                    SyntaxFactory.AttributeArgument(
+                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(name))),
+                    SyntaxFactory.AttributeArgument(
+                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty))),
+                    SyntaxFactory.AttributeArgument(
+                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty))),
+                })));
+        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
+    }
+
+    private static AttributeListSyntax CreateColumnAttribute(string name)
+    {
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.Schema.Column"))
+            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
+                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
+                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(name))))));
+        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
+    }
+
+    private static AttributeListSyntax CreateMaxLengthAttribute(int length)
+    {
+        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.MaxLength"))
+            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
+                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
+                    SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(length))))));
+        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
+    }
+
+    private static string ToSnakeCase(string pascalCase)
+        => DataGuard.Contracts.NameConventions.ToSnakeCase(pascalCase);
+
+    private static string ToPascalCase(string snakeCase)
+        => DataGuard.Contracts.NameConventions.ToPascalCase(snakeCase);
+
     private void RegisterUnvalidatedSqlCallFixes(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
     {
         var node = root.FindNode(diagnostic.Location.SourceSpan);
@@ -379,56 +429,6 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         editor.ReplaceNode(useSqlServer, renamed);
         return editor.GetChangedDocument();
     }
-
-    private static AttributeListSyntax CreateSkipContractCheckAttribute(string reason)
-    {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
-            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(reason)))
-                    .WithNameEquals(SyntaxFactory.NameEquals(SyntaxFactory.IdentifierName("Reason"))))));
-        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
-    }
-
-    private static AttributeListSyntax CreateExpectedSpParameterAttribute(string name)
-    {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.ExpectedSpParameter"))
-            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-                SyntaxFactory.SeparatedList<AttributeArgumentSyntax>(new[]
-                {
-                    SyntaxFactory.AttributeArgument(
-                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(name))),
-                    SyntaxFactory.AttributeArgument(
-                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty))),
-                    SyntaxFactory.AttributeArgument(
-                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(string.Empty))),
-                })));
-        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
-    }
-
-    private static AttributeListSyntax CreateColumnAttribute(string name)
-    {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.Schema.Column"))
-            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(name))))));
-        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
-    }
-
-    private static AttributeListSyntax CreateMaxLengthAttribute(int length)
-    {
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.MaxLength"))
-            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-                    SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(length))))));
-        return SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr));
-    }
-
-    private static string ToSnakeCase(string pascalCase)
-        => DataGuard.Contracts.NameConventions.ToSnakeCase(pascalCase);
-
-    private static string ToPascalCase(string snakeCase)
-        => DataGuard.Contracts.NameConventions.ToPascalCase(snakeCase);
 }
 
 /// <summary>
