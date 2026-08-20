@@ -9,7 +9,6 @@ import { redactSensitiveText, resolveWorkspaceConfigPath } from "./security";
 const RUN_VALIDATION_COMMAND = "dataguard.runValidation";
 const CANCEL_VALIDATION_COMMAND = "dataguard.cancelValidation";
 const OUTPUT_CHANNEL_NAME = "DataGuard";
-const MAX_OUTPUT_CHARS = 256 * 1024;
 
 interface SarifLog {
     runs?: SarifRun[];
@@ -45,8 +44,6 @@ interface ValidationRun {
     readonly outputPath: string;
     timedOut: boolean;
     cancelled: boolean;
-    outputCharacters: number;
-    outputTruncated: boolean;
     timeout: NodeJS.Timeout;
 }
 
@@ -130,7 +127,7 @@ async function runValidation(): Promise<void> {
     const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "dataguard-"));
     const outputPath = path.join(outputDirectory, "validation.sarif");
     const args = ["validate", "--config", configPath, "--format", "sarif", "--output", outputPath];
-    channel.appendLine(`$ ${cliPath} ${args.map((argument) => /\s/.test(argument) ? `"${argument}"` : argument).join(" ")}`);
+    channel.appendLine("[DataGuard] Validation started. Detailed CLI output is not displayed to prevent credential disclosure.");
 
     let child: ChildProcess;
     try {
@@ -152,8 +149,6 @@ async function runValidation(): Promise<void> {
         outputPath,
         timedOut: false,
         cancelled: false,
-        outputCharacters: 0,
-        outputTruncated: false,
         timeout: setTimeout(() => {
             run.timedOut = true;
             terminateProcessTree(child);
@@ -163,7 +158,7 @@ async function runValidation(): Promise<void> {
     setStatus("running");
 
     try {
-        const exitCode = await waitForExit(child, channel, run);
+        const exitCode = await waitForExit(child, channel);
         if (run.timedOut) {
             channel.appendLine(`\n[DataGuard] validation timed out after ${timeoutSeconds} seconds.`);
             setStatus("error");
@@ -236,11 +231,9 @@ async function selectWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefin
     return selected?.folder;
 }
 
-async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel, run: ValidationRun): Promise<number | null> {
-    child.stdout?.setEncoding("utf8");
-    child.stderr?.setEncoding("utf8");
-    child.stdout?.on("data", (chunk: string) => appendOutput(channel, run, chunk));
-    child.stderr?.on("data", (chunk: string) => appendOutput(channel, run, chunk));
+async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<number | null> {
+    child.stdout?.resume();
+    child.stderr?.resume();
 
     try {
         const [code] = await once(child, "close");
@@ -338,25 +331,6 @@ function terminateProcessTree(child: ChildProcess): void {
     }, 3000).unref();
 }
 
-function appendOutput(channel: vscode.OutputChannel, run: ValidationRun, value: string): void {
-    const text = redactSensitiveText(value);
-    const remaining = MAX_OUTPUT_CHARS - run.outputCharacters;
-    if (remaining <= 0) {
-        if (!run.outputTruncated) {
-            channel.append("\n[DataGuard] output truncated\n");
-            run.outputTruncated = true;
-        }
-        return;
-    }
-
-    const visible = text.slice(0, remaining);
-    channel.append(visible);
-    run.outputCharacters += visible.length;
-    if (visible.length < text.length && !run.outputTruncated) {
-        channel.append("\n[DataGuard] output truncated\n");
-        run.outputTruncated = true;
-    }
-}
 
 function showStartError(error: unknown, channel: vscode.OutputChannel): void {
     const err = error as NodeJS.ErrnoException;

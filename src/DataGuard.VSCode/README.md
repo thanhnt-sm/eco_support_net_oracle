@@ -7,7 +7,7 @@ DataGuard detects **database contract drift** between .NET code, stored procedur
 - **Run Validation** from the status bar or Command Palette.
 - Runs the local `dataguard` CLI once per trusted workspace with a bounded timeout.
 - Writes SARIF to a private temporary file, maps violations into **Problems**, then deletes the file.
-- Streams redacted CLI output to the **DataGuard** Output channel.
+- Drains CLI streams without displaying them; the Output channel contains safe lifecycle status only.
 - Supports cancellation and terminates the process tree owned by the extension.
 - Never runs in untrusted or virtual workspaces. It does not send telemetry or connect to a database itself.
 
@@ -41,7 +41,7 @@ Commit a `.dataguard.yml` in the trusted workspace. Use snapshot/manual mode for
 
 - The extension invokes a fixed argument vector with `shell: false`.
 - It never stores connection strings, passwords, tokens, or SARIF output in workspace settings.
-- CLI output is redacted before it reaches the Output channel; generated SARIF is deleted after diagnostics load.
+- Raw CLI output is never displayed. Generated SARIF is deleted after diagnostics load.
 - DataGuard source is [MIT licensed](LICENSE). These controls help operate in regulated environments but are not a compliance certification.
 
 ## Development

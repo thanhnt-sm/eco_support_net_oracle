@@ -94,6 +94,15 @@ public sealed class DataGuardPackage : AsyncPackage
             "[REDACTED]");
     }
 
+    private static async Task DrainAsync(StreamReader reader)
+    {
+        var buffer = new char[4096];
+        while (await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false) > 0)
+        {
+            // Drain without retaining potentially sensitive CLI output.
+        }
+    }
+
     private async Task RunValidationAsync()
     {
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
@@ -145,10 +154,10 @@ public sealed class DataGuardPackage : AsyncPackage
             }
 
             process.Start();
-            await this.WriteOutputAsync("[DataGuard] Validation started.\r\n");
+            await this.WriteOutputAsync("[DataGuard] Validation started. Detailed CLI output is not displayed to prevent credential disclosure.\r\n");
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
+            var stdoutDrainTask = DrainAsync(process.StandardOutput);
+            var stderrDrainTask = DrainAsync(process.StandardError);
             var exitTask = Task.Run(() => process.WaitForExit());
             var completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(60)));
             if (completed != exitTask)
@@ -160,9 +169,7 @@ public sealed class DataGuardPackage : AsyncPackage
                 return;
             }
 
-            await Task.WhenAll(stdoutTask, stderrTask);
-            var output = Redact(await stdoutTask + await stderrTask);
-            await this.WriteOutputAsync(output);
+            await Task.WhenAll(stdoutDrainTask, stderrDrainTask);
             await this.WriteOutputAsync("[DataGuard] Validation exited with code " + process.ExitCode + ".\r\n");
         }
         catch (Exception ex)

@@ -3,6 +3,8 @@
 // The IDE layer uses IIncrementalGenerator for syntax-only, fast analysis.
 // The CI layer uses full semantic analysis with database connection.
 
+#nullable enable annotations
+
 using System;
 using System.Collections.Immutable;
 using System.Linq;
@@ -21,10 +23,15 @@ namespace DataGuard.Analyzers;
 /// </summary>
 public static class DiagnosticIds
 {
+    /// <summary>Diagnostic ID for an SQL call lacking DataGuard validation.</summary>
     public const string UnvalidatedSqlCall = "DG001";       // IDE light: marks unvalidated SQL calls
+    /// <summary>Diagnostic ID for stored-procedure parameter mismatch.</summary>
     public const string ParameterMismatch = "DG002";         // CI heavy: parameter count/type mismatch
+    /// <summary>Diagnostic ID for stored-procedure parameter direction mismatch.</summary>
     public const string DirectionMismatch = "DG003";         // CI heavy: IN/OUT/INOUT direction mismatch
+    /// <summary>Diagnostic ID for result-set column-shape mismatch.</summary>
     public const string ColumnShapeMismatch = "DG004";       // CI heavy: result set column mismatch
+    /// <summary>Diagnostic ID for nullable contract mismatch.</summary>
     public const string NullableMismatch = "DG005";          // CI heavy: nullable mismatch
     public const string NamingConvention = "DG006";          // CI heavy: naming convention violation
     public const string LengthExceedsColumn = "DG007";       // CI heavy: entity length > column length

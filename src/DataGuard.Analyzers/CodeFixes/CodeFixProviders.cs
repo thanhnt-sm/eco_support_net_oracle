@@ -390,6 +390,8 @@ public class AddMaxLengthAttributeFixProvider : CodeFixProvider
     {
         var diagnostic = context.Diagnostics.First();
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+        if (root == null)
+            return;
         var node = root.FindNode(diagnostic.Location.SourceSpan);
 
         context.RegisterCodeFix(
@@ -431,6 +433,8 @@ public class SkipContractCheckFixProvider : CodeFixProvider
     {
         var diagnostic = context.Diagnostics.First();
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+        if (root == null)
+            return;
         var node = root.FindNode(diagnostic.Location.SourceSpan);
 
         context.RegisterCodeFix(
