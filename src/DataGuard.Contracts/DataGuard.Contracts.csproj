@@ -9,4 +9,8 @@
     <PackageTags>efcore;stored-procedure;contract-validation;analyzers</PackageTags>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="stylecop.json" />
+  </ItemGroup>
 </Project>

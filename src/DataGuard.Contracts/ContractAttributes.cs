@@ -1,6 +1,10 @@
-using System;
+// <copyright file="ContractAttributes.cs" company="Than Nguyen">
+// Copyright (c) 2026 Than Nguyen. All rights reserved.
+// </copyright>
 
 namespace DataGuard.Contracts;
+
+using System;
 
 /// <summary>
 /// Parameter direction for a stored procedure parameter (used by ExpectedSpParameter).
@@ -11,12 +15,15 @@ public enum ParameterDirection
 {
     /// <summary>Input-only parameter (default).</summary>
     Input,
+
     /// <summary>Output parameter (call site uses out).</summary>
     Output,
+
     /// <summary>Input/output parameter (call site uses ref).</summary>
     InputOutput,
+
     /// <summary>Function return value.</summary>
-    ReturnValue
+    ReturnValue,
 }
 
 /// <summary>
@@ -27,7 +34,7 @@ public enum ParameterDirection
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
 public sealed class SkipContractCheckAttribute : Attribute
 {
-    /// <summary>Optional reason the check was skipped (shown in diagnostics).</summary>
+    /// <summary>Gets or sets optional reason the check was skipped (shown in diagnostics).</summary>
     public string? Reason { get; set; }
 }
 
@@ -38,23 +45,27 @@ public sealed class SkipContractCheckAttribute : Attribute
 public sealed class ExpectedColumnAttribute : Attribute
 {
     /// <summary>
+    /// Initializes a new instance of the <see cref="ExpectedColumnAttribute"/> class.
     /// Initializes an expected-column declaration.
     /// </summary>
     /// <param name="columnName">Database column name.</param>
     /// <param name="clrTypeName">Expected CLR type name.</param>
     public ExpectedColumnAttribute(string columnName, string clrTypeName)
     {
-        ColumnName = columnName;
-        ClrTypeName = clrTypeName;
+        this.ColumnName = columnName;
+        this.ClrTypeName = clrTypeName;
     }
 
-    /// <summary>Expected database column name.</summary>
+    /// <summary>Gets expected database column name.</summary>
     public string ColumnName { get; }
-    /// <summary>CLR type name of the expected value.</summary>
+
+    /// <summary>Gets cLR type name of the expected value.</summary>
     public string ClrTypeName { get; }
-    /// <summary>Whether the database column allows NULL.</summary>
+
+    /// <summary>Gets or sets a value indicating whether whether the database column allows NULL.</summary>
     public bool IsNullable { get; set; }
-    /// <summary>Maximum length of the column (0 = unspecified).</summary>
+
+    /// <summary>Gets or sets maximum length of the column (0 = unspecified).</summary>
     public int MaxLength { get; set; }
 }
 
@@ -66,6 +77,7 @@ public sealed class ExpectedColumnAttribute : Attribute
 public sealed class ExpectedSpParameterAttribute : Attribute
 {
     /// <summary>
+    /// Initializes a new instance of the <see cref="ExpectedSpParameterAttribute"/> class.
     /// Initializes an expected stored-procedure parameter declaration.
     /// </summary>
     /// <param name="name">Parameter name.</param>
@@ -73,23 +85,28 @@ public sealed class ExpectedSpParameterAttribute : Attribute
     /// <param name="direction">Expected parameter direction.</param>
     public ExpectedSpParameterAttribute(string name, string dbType, string direction)
     {
-        Name = name;
-        DbType = dbType;
-        Direction = Enum.TryParse(direction, true, out ParameterDirection parsed)
+        this.Name = name;
+        this.DbType = dbType;
+        this.Direction = Enum.TryParse(direction, true, out ParameterDirection parsed)
             ? parsed
             : ParameterDirection.Input;
     }
 
-    /// <summary>Expected parameter name.</summary>
+    /// <summary>Gets expected parameter name.</summary>
     public string Name { get; }
-    /// <summary>Expected database type name.</summary>
+
+    /// <summary>Gets expected database type name.</summary>
     public string DbType { get; }
-    /// <summary>Expected parameter direction.</summary>
+
+    /// <summary>Gets or sets expected parameter direction.</summary>
     public ParameterDirection Direction { get; set; }
-    /// <summary>Maximum parameter length (0 = unspecified).</summary>
+
+    /// <summary>Gets or sets maximum parameter length (0 = unspecified).</summary>
     public int MaxLength { get; set; }
-    /// <summary>Expected numeric precision, if applicable.</summary>
+
+    /// <summary>Gets or sets expected numeric precision, if applicable.</summary>
     public byte? Precision { get; set; }
-    /// <summary>Expected numeric scale, if applicable.</summary>
+
+    /// <summary>Gets or sets expected numeric scale, if applicable.</summary>
     public byte? Scale { get; set; }
 }

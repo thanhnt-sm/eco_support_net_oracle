@@ -1,7 +1,11 @@
-using System;
-using System.Text;
+// <copyright file="NameConventions.cs" company="Than Nguyen">
+// Copyright (c) 2026 Than Nguyen. All rights reserved.
+// </copyright>
 
 namespace DataGuard.Contracts;
+
+using System;
+using System.Text;
 
 /// <summary>
 /// Shared snake_case / PascalCase conversions used by the analyzer, code fixes and
@@ -16,15 +20,23 @@ public static class NameConventions
     /// <returns>The snake_case identifier.</returns>
     public static string ToSnakeCase(string pascalCase)
     {
-        if (string.IsNullOrEmpty(pascalCase)) return pascalCase;
+        if (string.IsNullOrEmpty(pascalCase))
+        {
+            return pascalCase;
+        }
+
         var result = new StringBuilder();
         for (int i = 0; i < pascalCase.Length; i++)
         {
             char c = pascalCase[i];
             if (i > 0 && char.IsUpper(c))
+            {
                 result.Append('_');
+            }
+
             result.Append(char.ToLowerInvariant(c));
         }
+
         return result.ToString();
     }
 
@@ -35,15 +47,24 @@ public static class NameConventions
     /// <returns>The PascalCase identifier.</returns>
     public static string ToPascalCase(string snakeCase)
     {
-        if (string.IsNullOrEmpty(snakeCase)) return snakeCase;
+        if (string.IsNullOrEmpty(snakeCase))
+        {
+            return snakeCase;
+        }
+
         var parts = snakeCase.Split('_', '-', '.');
         var result = new StringBuilder();
         foreach (var part in parts)
         {
-            if (part.Length == 0) continue;
+            if (part.Length == 0)
+            {
+                continue;
+            }
+
             result.Append(char.ToUpperInvariant(part[0]));
             result.Append(part.Substring(1).ToLowerInvariant());
         }
+
         return result.ToString();
     }
 }
