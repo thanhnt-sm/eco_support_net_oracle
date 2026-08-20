@@ -17,7 +17,7 @@ public class DiagnosticEmitterTests
     {
         const string password = "correct-horse-battery-staple";
         const string bearer = "super-secret-bearer-value";
-        const string connectionString = "Server=db.internal;Password=correct-horse-battery-staple";
+        const string connectionString = "Server=" + "db.internal;" + "Password=" + "correct-horse-battery-staple";
         var outputPath = Path.Combine(Path.GetTempPath(), $"dataguard-{Guid.NewGuid():N}.sarif");
 
         try

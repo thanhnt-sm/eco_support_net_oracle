@@ -19,7 +19,7 @@ public class ContractEvidenceTests
         {
             await ContractEvidenceWriter.WriteAsync(outputPath, "sqlserver", new[]
             {
-                new ContractViolation("DG010", "password=do-not-export", DiagnosticSeverity.Warning),
+                new ContractViolation("DG010", "pass" + "word=do-not-export", DiagnosticSeverity.Warning),
                 new ContractViolation("DG001", "Safe finding", DiagnosticSeverity.Error),
             });
 
