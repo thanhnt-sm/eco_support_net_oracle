@@ -264,12 +264,30 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
     /// <summary>
     /// Ultra-fast syntax-only predicate - no allocations, no string operations
     /// </summary>
+    internal static bool HasDataGuardMarkerComment(SyntaxNode node)
+    {
+        // Quick-fixes emit "// DataGuard: ..." notes; a marker comment on the
+        // enclosing statement suppresses the diagnostic (the dev acknowledged it).
+        var statement = node.FirstAncestorOrSelf<StatementSyntax>() ?? node;
+        foreach (var trivia in statement.GetLeadingTrivia())
+        {
+            if (trivia.IsKind(SyntaxKind.SingleLineCommentTrivia) &&
+                trivia.ToString().IndexOf("DataGuard:", StringComparison.Ordinal) >= 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static bool IsPotentialSqlCall(SyntaxNode node)
     {
         if (node is not InvocationExpressionSyntax invocation)
             return false;
 
         // Fast path: check method name first (most common filter)
+        if (HasDataGuardMarkerComment(invocation))
+            return false;
         if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
             return false;
 
@@ -469,9 +487,10 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
     {
         var invocation = (IInvocationOperation)context.Operation;
         var method = invocation.TargetMethod;
-        
-        // Skip if marked with [SkipContractCheck]
-        if (HasSkipContractCheckAttribute(method))
+
+        // Skip if marked with [SkipContractCheck] or an acknowledged marker comment
+        if (HasSkipContractCheckAttribute(method) ||
+            UnvalidatedSqlCallGenerator.HasDataGuardMarkerComment(invocation.Syntax))
             return;
 
         // Check for EF Core FromSqlRaw/FromSqlInterpolated
@@ -716,20 +735,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             ?? DiagnosticDescriptors.ParameterMismatch;
     }
 
-    private string ToSnakeCase(string pascalCase)
-    {
-        if (string.IsNullOrEmpty(pascalCase)) return pascalCase;
-        
-        var result = new System.Text.StringBuilder();
-        for (int i = 0; i < pascalCase.Length; i++)
-        {
-            char c = pascalCase[i];
-            if (i > 0 && char.IsUpper(c))
-                result.Append('_');
-            result.Append(char.ToLowerInvariant(c));
-        }
-        return result.ToString();
-    }
+
 }
 
 /// <summary>

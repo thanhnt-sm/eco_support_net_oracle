@@ -59,9 +59,13 @@ public class PhantomIdentifierRule : ContractRuleBase
 
         var sql = rawSql.SqlText;
 
-        var tables = schema.Tables.ToDictionary(
-            t => t.Name.ToUpperInvariant(),
-            t => t.Columns.Select(c => c.Name.ToUpperInvariant()).ToHashSet());
+        var tables = schema.Tables
+            .Where(t => !string.IsNullOrEmpty(t.Name))
+            .GroupBy(t => t.Name!.ToUpperInvariant(), StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g.SelectMany(t => t.Columns).Select(c => c.Name.ToUpperInvariant()).ToHashSet(),
+                StringComparer.Ordinal);
 
         // 0. Collect CTE names (WITH clause) so they are not reported as phantom tables.
         var cteNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

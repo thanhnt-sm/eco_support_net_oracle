@@ -56,12 +56,12 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore DataGuard.sln
+        run: dotnet restore DataGuard.sln --locked-mode
 
       - name: Build solution
         run: dotnet build DataGuard.sln --configuration Release --no-restore
@@ -114,7 +114,7 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
-        run: dotnet restore DataGuard.sln
+        run: dotnet restore DataGuard.sln --locked-mode
 
       # `dotnet list package --vulnerable` always exits 0 even when vulnerable
       # packages are found — parse the JSON and fail explicitly. Also fails on

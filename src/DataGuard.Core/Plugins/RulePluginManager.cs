@@ -51,6 +51,7 @@ public sealed class RulePluginManager : IDisposable
     private readonly CompositionHost _container;
     private readonly ILogger<RulePluginManager>? _logger;
     private readonly ImmutableArray<Lazy<IContractRule, IRuleMetadata>> _rulePlugins;
+    private readonly List<System.Runtime.Loader.AssemblyLoadContext> _pluginContexts = new();
 
     public RulePluginManager(
         string? pluginDirectory = null,
@@ -70,7 +71,12 @@ public sealed class RulePluginManager : IDisposable
             {
                 try
                 {
-                    var assembly = Assembly.LoadFrom(assemblyFile);
+                    // Load into an isolated collectible context so plugins can be
+                    // unloaded and cannot influence the host's type resolution.
+                    var alc = new System.Runtime.Loader.AssemblyLoadContext(
+                        $"DataGuard.Plugin:{Path.GetFileName(assemblyFile)}", isCollectible: true);
+                    _pluginContexts.Add(alc);
+                    var assembly = alc.LoadFromAssemblyPath(assemblyFile);
                     config = config.WithAssembly(assembly);
                 }
                 catch (Exception ex)
@@ -139,16 +145,33 @@ public sealed class RulePluginManager : IDisposable
 
     private bool IsCompatible(IRuleMetadata metadata)
     {
-        // Check version compatibility
+        // Check version compatibility (lenient parse: malformed metadata must not crash).
         var currentVersion = Assembly.GetExecutingAssembly().GetName().Version;
-        var minVersion = new Version(metadata.MinDataGuardVersion ?? "1.0.0");
-        
+        if (currentVersion == null)
+            return false;
+        if (!Version.TryParse(metadata.MinDataGuardVersion ?? "", out var minVersion))
+            minVersion = new Version(1, 0, 0);
         return currentVersion >= minVersion;
     }
 
     public void Dispose()
     {
         _container?.Dispose();
+        // Release plugin assemblies: drop container/export references first, then
+        // unload each collectible context so plugin code cannot linger in the host.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        foreach (var context in _pluginContexts)
+        {
+            try
+            {
+                context.Unload();
+            }
+            catch (Exception)
+            {
+                // Best-effort unload; a plugin may still be referenced by a caller.
+            }
+        }
     }
 }
 

@@ -2,7 +2,6 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.Core</PackageId>
-    <Version>0.1.0-alpha.1</Version>
     <Authors>DataGuard Contributors</Authors>
     <Company>DataGuard</Company>
     <Description>Core contract validation engine for Entity ↔ Stored Procedure/Raw SQL. Zero vendor dependencies.</Description>

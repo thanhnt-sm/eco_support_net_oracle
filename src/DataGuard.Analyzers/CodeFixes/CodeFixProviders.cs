@@ -368,17 +368,10 @@ public class DataGuardCodeFixProvider : CodeFixProvider
 
 
     private static string ToSnakeCase(string pascalCase)
-    {
-        return string.Concat(pascalCase.Select((ch, i) =>
-            i > 0 && char.IsUpper(ch) ? "_" + char.ToUpperInvariant(ch) : char.ToUpperInvariant(ch).ToString()));
-    }
+        => DataGuard.Contracts.NameConventions.ToSnakeCase(pascalCase);
 
     private static string ToPascalCase(string snakeCase)
-    {
-        return string.Concat(snakeCase.Split('_', '-', '.')
-            .Where(s => !string.IsNullOrEmpty(s))
-            .Select(s => char.ToUpperInvariant(s[0]) + s.Substring(1)));
-    }
+        => DataGuard.Contracts.NameConventions.ToPascalCase(snakeCase);
 }
 
 /// <summary>

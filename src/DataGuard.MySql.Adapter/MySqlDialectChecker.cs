@@ -17,17 +17,15 @@ public sealed class MySqlDialectChecker
         var violations = new List<ContractViolation>();
         if (isMySqlContext) return violations;
 
-        foreach (var syntax in MySqlOnly)
+        if (DataGuard.Core.Sources.SqlKeywordMatcher.ContainsAny(sqlText, MySqlOnly))
         {
-            if (sqlText.Contains(syntax, StringComparison.OrdinalIgnoreCase))
-            {
-                violations.Add(new ContractViolation(
-                    "MY001",
-                    $"MySQL-specific syntax '{syntax}' used in non-MySQL context",
-                    DiagnosticSeverity.Warning,
-                    location,
-                    new Dictionary<string, object?> { { "syntax", syntax } }));
-            }
+            var matched = MySqlOnly.FirstOrDefault(k => sqlText.Contains(k, StringComparison.OrdinalIgnoreCase)) ?? "";
+            violations.Add(new ContractViolation(
+                "MY001",
+                $"MySQL-specific syntax '{matched}' used in non-MySQL context",
+                DiagnosticSeverity.Warning,
+                location,
+                new Dictionary<string, object?> { { "syntax", matched } }));
         }
         return violations;
     }
@@ -37,17 +35,15 @@ public sealed class MySqlDialectChecker
         var violations = new List<ContractViolation>();
         if (!isMySqlContext) return violations;
 
-        foreach (var syntax in NonMySql)
+        if (DataGuard.Core.Sources.SqlKeywordMatcher.ContainsAny(sqlText, NonMySql))
         {
-            if (sqlText.Contains(syntax, StringComparison.OrdinalIgnoreCase))
-            {
-                violations.Add(new ContractViolation(
-                    "MY002",
-                    $"Non-MySQL syntax '{syntax}' used in MySQL context",
-                    DiagnosticSeverity.Warning,
-                    location,
-                    new Dictionary<string, object?> { { "syntax", syntax } }));
-            }
+            var matched = NonMySql.FirstOrDefault(k => sqlText.Contains(k, StringComparison.OrdinalIgnoreCase)) ?? "";
+            violations.Add(new ContractViolation(
+                "MY002",
+                $"Non-MySQL syntax '{matched}' used in MySQL context",
+                DiagnosticSeverity.Warning,
+                location,
+                new Dictionary<string, object?> { { "syntax", matched } }));
         }
         return violations;
     }

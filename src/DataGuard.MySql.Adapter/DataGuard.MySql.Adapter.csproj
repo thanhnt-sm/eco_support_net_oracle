@@ -2,7 +2,6 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.MySql.Adapter</PackageId>
-    <Version>0.1.0-alpha.1</Version>
     <Authors>DataGuard Contributors</Authors>
     <Description>MySQL adapter for DataGuard contract validation. Requires MySqlConnector (MIT License).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

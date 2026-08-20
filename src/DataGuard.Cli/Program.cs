@@ -299,13 +299,15 @@ snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider,
         return;
     }
 
-    // Warn (not fail) when the live database version differs from the snapshot's version.
+    // Warn (not fail) when the major.minor database version differs from the
+    // snapshot's version (patch/CU differences are ignored).
     var currentVersion = await GetDatabaseVersionAsync(config, provider, console);
-    if (!string.IsNullOrEmpty(baseline.DatabaseVersion) &&
-        currentVersion != "unknown" &&
-        !string.Equals(baseline.DatabaseVersion, currentVersion, StringComparison.OrdinalIgnoreCase))
+    var snapshotMajorMinor = System.Text.RegularExpressions.Regex.Match(baseline.DatabaseVersion ?? "", @"(\d+)\.(\d+)");
+    var liveMajorMinor = System.Text.RegularExpressions.Regex.Match(currentVersion, @"(\d+)\.(\d+)");
+    if (snapshotMajorMinor.Success && liveMajorMinor.Success &&
+        !string.Equals(snapshotMajorMinor.Value, liveMajorMinor.Value, StringComparison.Ordinal))
     {
-        console.Out.WriteLine($"Warning: snapshot was taken against database '{baseline.DatabaseVersion}' but the live database reports '{currentVersion}'.");
+        console.Out.WriteLine($"Warning: snapshot was taken against database version {snapshotMajorMinor.Value} but the live database reports {liveMajorMinor.Value}.");
         console.Out.WriteLine("Validation results are only guaranteed for the database version the snapshot was taken from.");
     }
     var currentViolations = await RunValidationAsync(config, provider, verbose, console);
@@ -558,36 +560,66 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
         ExcludedEntities = Array.Empty<string>()
     };
 
-    var lines = yaml.Split('\n');
-    foreach (var line in lines)
+    // Typed round-trip via YamlDotNet: handles comments, quotes, lists and nested
+    // blocks, and preserves every configuration field (including Excluded*/Oracle/SqlServer).
+    try
     {
-        var trimmed = line.Trim();
-        var separatorIndex = trimmed.IndexOf(':');
-        if (separatorIndex <= 0)
-            continue;
+        var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().Build();
+        var typed = deserializer.Deserialize<DataGuardConfiguration>(yaml);
+        if (typed != null)
+            return typed;
+    }
+    catch
+    {
+        // Fall through to the scalar mapping below for partially valid files.
+    }
 
-        var key = trimmed[..separatorIndex].Trim();
-        var value = trimmed[(separatorIndex + 1)..].Trim();
+    var stream = new YamlDotNet.RepresentationModel.YamlStream();
+    stream.Load(new StringReader(yaml));
+    var root = stream.Documents.FirstOrDefault()?.RootNode as YamlDotNet.RepresentationModel.YamlMappingNode;
+    if (root == null)
+        return config;
+
+    foreach (var entry in root.Children)
+    {
+        if (entry.Key is not YamlDotNet.RepresentationModel.YamlScalarNode keyNode ||
+            entry.Value is not YamlDotNet.RepresentationModel.YamlScalarNode valueNode)
+            continue;
+        var key = keyNode.Value ?? "";
+        var value = valueNode.Value ?? "";
+
+        bool B() => bool.Parse(value);
+        int I() => int.Parse(value);
 
         config = key switch
         {
             "GroundTruthMode" => config with { GroundTruthMode = Enum.Parse<GroundTruthMode>(value) },
             "NamingConvention" => config with { NamingConvention = Enum.Parse<NamingConvention>(value) },
-            "EnableBaseline" => config with { EnableBaseline = bool.Parse(value) },
+            "EnableBaseline" => config with { EnableBaseline = B() },
             "DefaultSchema" => config with { DefaultSchema = value },
             "DefaultPackage" => config with { DefaultPackage = value },
             "SnapshotFilePath" => config with { SnapshotFilePath = value },
             "BaselineFilePath" => config with { BaselineFilePath = value },
             "ConnectionString" => config with { ConnectionString = value },
-            "EnableConcurrentValidation" => config with { EnableConcurrentValidation = bool.Parse(value) },
-            "MaxDegreeOfParallelism" => config with { MaxDegreeOfParallelism = int.Parse(value) },
-            "MaxViolationQueueSize" => config with { MaxViolationQueueSize = int.Parse(value) },
-            "EncryptConnectionStringAtRest" => config with { EncryptConnectionStringAtRest = bool.Parse(value) },
+            "EnableConcurrentValidation" => config with { EnableConcurrentValidation = B() },
+            "MaxDegreeOfParallelism" => config with { MaxDegreeOfParallelism = I() },
+            "MaxViolationQueueSize" => config with { MaxViolationQueueSize = I() },
+            "ValidationTimeoutSeconds" => config with { ValidationTimeoutSeconds = I() },
+            "EnableCredentialRotationDetection" => config with { EnableCredentialRotationDetection = B() },
+            "CredentialRotationWarningDays" => config with { CredentialRotationWarningDays = I() },
+            "EncryptConnectionStringAtRest" => config with { EncryptConnectionStringAtRest = B() },
             "KeyVaultUri" => config with { KeyVaultUri = value },
             "AwsRegion" => config with { AwsRegion = value },
             "VaultAddress" => config with { VaultAddress = value },
-            "EnableAuditLogging" => config with { EnableAuditLogging = bool.Parse(value) },
+            "EnableAuditLogging" => config with { EnableAuditLogging = B() },
             "AuditLogPath" => config with { AuditLogPath = value },
+            "AllowPlaintextConfigFallback" => config with { AllowPlaintextConfigFallback = B() },
+            "ManualAssemblyPath" => config with { ManualAssemblyPath = value },
+            "AutoDetectProvider" => config with { AutoDetectProvider = B() },
+            "AutoDetectEFContext" => config with { AutoDetectEFContext = B() },
+            "AutoDetectDapper" => config with { AutoDetectDapper = B() },
+            "EnableSmartDefaults" => config with { EnableSmartDefaults = B() },
+            "EnableTelemetry" => config with { EnableTelemetry = B() },
             _ => config
         };
     }
@@ -597,24 +629,12 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
 
 static string SerializeConfig(DataGuardConfiguration config)
 {
-    return $@"# DataGuard Configuration
-GroundTruthMode: {config.GroundTruthMode}
-NamingConvention: {config.NamingConvention}
-EnableBaseline: {config.EnableBaseline}
-DefaultSchema: {config.DefaultSchema ?? ""}
-DefaultPackage: {config.DefaultPackage ?? ""}
-SnapshotFilePath: {config.SnapshotFilePath ?? ".dataguard-snapshot.json"}
-BaselineFilePath: {config.BaselineFilePath ?? ".dataguard-baseline.json"}
-EnableConcurrentValidation: {config.EnableConcurrentValidation}
-MaxDegreeOfParallelism: {config.MaxDegreeOfParallelism}
-MaxViolationQueueSize: {config.MaxViolationQueueSize}
-EncryptConnectionStringAtRest: {config.EncryptConnectionStringAtRest}
-KeyVaultUri: {config.KeyVaultUri ?? ""}
-AwsRegion: {config.AwsRegion ?? ""}
-VaultAddress: {config.VaultAddress ?? ""}
-EnableAuditLogging: {config.EnableAuditLogging}
-AuditLogPath: {config.AuditLogPath ?? ""}
-";
+    // Full round-trip via YamlDotNet: serializes every configuration field,
+    // including nested Oracle/SqlServer blocks and excluded lists.
+    var serializer = new YamlDotNet.Serialization.SerializerBuilder()
+        .WithIndentedSequences()
+        .Build();
+    return serializer.Serialize(config);
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(

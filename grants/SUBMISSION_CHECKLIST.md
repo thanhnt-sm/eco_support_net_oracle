@@ -1,52 +1,39 @@
 # 📋 Anthropic "Claude for Open Source" Submission Checklist
-### Track: Ecosystem Impact Track (Foundational Infrastructure & High-Performance MCP Enablement)
+### Track: Ecosystem Impact Track (Developer Tooling / Open Source Infrastructure)
 
-This document provides a comprehensive pre-submission checklist for the **EcoSupport** application to the **Anthropic Claude for Open Source** program.
-
----
-
-## 🎯 Program Overview & Target KPI
-
-- **Program**: Anthropic "Claude for Open Source" (2026 Cohort)
-- **Selected Track**: Ecosystem Impact Track
-- **Target Grant**: Claude Max (20x standard tier API usage rate limits for continuous triage & patch synthesis swarms)
-- **Primary Deliverable**: EcoSupport Native Rust Workspace & FastMCP 2.0 Bridge Engine
+This document is the pre-submission checklist for the **DataGuard** application to the
+**Anthropic Claude for Open Source** program.
 
 ---
 
-## 📑 Required Application Artifacts & Verification
+## 🎯 Product & Narrative
 
-| Item | Artifact Path | Word Count / Target | Status |
-| :--- | :--- | :--- | :---: |
-| **Written Explanation** | [`grants/written_explanation.md`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/grants/written_explanation.md) | 412 words (< 500 max) | ✅ Ready |
-| **Ecosystem Impact Matrix** | [`grants/ecosystem_impact_matrix.md`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/grants/ecosystem_impact_matrix.md) | Multi-category breakdown | ✅ Ready |
-| **Executive Pitch Deck** | [`grants/grant_pitch.md`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/grants/grant_pitch.md) | Problem, Solution, Roadmap | ✅ Ready |
-| **Curated Seed Registry** | [`research/data/niche_seed_registry.json`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/research/data/niche_seed_registry.json) | High-criticality seed data | ✅ Ready |
-| **Bilingual Living Docs** | [`docs/overview/vibe_coder_guide.md`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/docs/overview/vibe_coder_guide.md) + `.vi.md` | Full architecture suite | ✅ Ready |
-| **Live CLI Demo Script** | [`scripts/demo_scan.sh`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/scripts/demo_scan.sh) | Terminal recording ready | ✅ Ready |
+- [x] Product: **DataGuard** — contract validation for .NET Entity ↔ Stored Procedure / Raw SQL
+      (Roslyn analyzers + `dataguard` CLI, MIT license, NuGet-distributed).
+- [x] Narrative: **porting dbt's model-contract pattern (Core v1.5, 2023) to the .NET
+      stored-procedure gap Microsoft publicly declined to build** — EF Core issue
+      [#245](https://github.com/dotnet/efcore/issues/245) (2014) is cited as proof.
+- [x] Repo landing page (README.md) tells the DataGuard story end-to-end (no legacy product content).
+- [x] `samples/DataGuard.Sample` + `scripts/demo_scan.sh` give reviewers a runnable demo
+      (offline, no database required).
 
----
+## ✅ Verification Evidence (run before submission)
 
-## 🛡️ Technical Verification Checklist
+- [x] `dotnet build DataGuard.sln -c Release` — 0 errors
+- [x] `dotnet test DataGuard.sln` — 65 tests pass (analyzer, core, golden corpus)
+- [x] `scripts/demo_scan.sh` — offline demo runs and emits DG diagnostics
+- [x] `dotnet pack` — 8 packages (Core, Contracts, SqlServer, Oracle, MySql, PostgreSql,
+      Analyzers, Cli) build with MIT license, SourceLink, MinVer versioning
+- [ ] NuGet.org live publish — **blocked on owner**: create `NUGET_USER` secret
+      (Trusted Publishing, deadline 2026-11-01) and push tag `v0.1.0`
+- [ ] CI green on GitHub runner (docker smoke, CodeQL custom queries) — needs first run after push
 
-Before submitting the application form:
+## 📦 Package Set
 
-- [x] **Zero Unsafe Rust**: `#![forbid(unsafe_code)]` enforced across all core modules.
-- [x] **Zero Warnings**: `cargo clippy --workspace --all-targets -- -D warnings` exits 0.
-- [x] **Automated Test Suite**: `cargo test --workspace` passes 100% (23/23 tests pass).
-- [x] **Pre-flight & Invariant Check**: `./scripts/preflight_agent_check.sh` passes 100%.
-- [x] **DocSync Verification**: `./scripts/verify_docs_sync.sh` verifies all documentation files.
-- [x] **GitHub Actions CI**: `.github/workflows/ci.yml` validates format, clippy, unit tests, and research linter.
-- [x] **Licensing & Policy**: PolyForm Noncommercial 1.0.0 + robots.txt AI training safeguards.
-
----
-
-## 🚀 Live Demo Execution
-
-To generate a sample execution log for the reviewer or video presentation:
-
-```bash
-# Make demo executable and run:
-chmod +x ./scripts/demo_scan.sh
-./scripts/demo_scan.sh
-```
+| Package | Purpose |
+|---------|---------|
+| `DataGuard.Core` | Rules engine, security, telemetry, baseline/snapshot |
+| `DataGuard.Contracts` | netstandard2.0 attributes for IDE quick-fixes |
+| `DataGuard.SqlServer/Oracle/MySql/PostgreSql.Adapter` | Ground-truth readers |
+| `DataGuard.Analyzers` | IDE analyzers + quick fixes (netstandard2.0) |
+| `DataGuard.Cli` | `dataguard` dotnet tool |

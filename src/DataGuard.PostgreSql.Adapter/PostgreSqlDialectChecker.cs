@@ -17,17 +17,15 @@ public sealed class PostgreSqlDialectChecker
         var violations = new List<ContractViolation>();
         if (isPostgreSqlContext) return violations;
 
-        foreach (var syntax in PostgreSqlOnly)
+        if (DataGuard.Core.Sources.SqlKeywordMatcher.ContainsAny(sqlText, PostgreSqlOnly))
         {
-            if (sqlText.Contains(syntax, StringComparison.OrdinalIgnoreCase))
-            {
-                violations.Add(new ContractViolation(
-                    "PG001",
-                    $"PostgreSQL-specific syntax '{syntax}' used in non-PostgreSQL context",
-                    DiagnosticSeverity.Warning,
-                    location,
-                    new Dictionary<string, object?> { { "syntax", syntax } }));
-            }
+            var matched = PostgreSqlOnly.FirstOrDefault(k => sqlText.Contains(k, StringComparison.OrdinalIgnoreCase)) ?? "";
+            violations.Add(new ContractViolation(
+                "PG001",
+                $"PostgreSQL-specific syntax '{matched}' used in non-PostgreSQL context",
+                DiagnosticSeverity.Warning,
+                location,
+                new Dictionary<string, object?> { { "syntax", matched } }));
         }
         return violations;
     }
@@ -37,17 +35,15 @@ public sealed class PostgreSqlDialectChecker
         var violations = new List<ContractViolation>();
         if (!isPostgreSqlContext) return violations;
 
-        foreach (var syntax in NonPostgreSql)
+        if (DataGuard.Core.Sources.SqlKeywordMatcher.ContainsAny(sqlText, NonPostgreSql))
         {
-            if (sqlText.Contains(syntax, StringComparison.OrdinalIgnoreCase))
-            {
-                violations.Add(new ContractViolation(
-                    "PG002",
-                    $"Non-PostgreSQL syntax '{syntax}' used in PostgreSQL context",
-                    DiagnosticSeverity.Warning,
-                    location,
-                    new Dictionary<string, object?> { { "syntax", syntax } }));
-            }
+            var matched = NonPostgreSql.FirstOrDefault(k => sqlText.Contains(k, StringComparison.OrdinalIgnoreCase)) ?? "";
+            violations.Add(new ContractViolation(
+                "PG002",
+                $"Non-PostgreSQL syntax '{matched}' used in PostgreSQL context",
+                DiagnosticSeverity.Warning,
+                location,
+                new Dictionary<string, object?> { { "syntax", matched } }));
         }
         return violations;
     }

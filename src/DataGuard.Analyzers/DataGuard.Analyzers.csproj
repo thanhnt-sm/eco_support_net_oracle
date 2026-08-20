@@ -3,7 +3,6 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.Analyzers</PackageId>
-    <Version>0.1.0-alpha.1</Version>
     <Authors>DataGuard Contributors</Authors>
     <Description>Roslyn analyzers and quick fixes for DataGuard contract validation (IDE light layer).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;analyzers;roslyn</PackageTags>

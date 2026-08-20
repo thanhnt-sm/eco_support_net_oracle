@@ -1,27 +1,38 @@
-# EcoSupport Native: Claude for Open Source Executive Pitch
+# DataGuard — Grant Pitch
 
-## Pitch Statement for Anthropic Review Committee
+**Track**: Anthropic Claude for Open Source — Ecosystem Impact (developer tooling)
 
-> "The true resilience of the global AI ecosystem is determined not by frontier foundation models alone, but by the health of the unseen, single-maintainer dependencies at the foundation."
+## The gap
 
-**EcoSupport Native** is the first ultra-high-performance, native Rust ecosystem guardian engineered to protect the long-tail of open-source software and accelerate the secure adoption of Anthropic's **Model Context Protocol (MCP)**.
+Since **2014**, EF Core has tracked the missing ability to validate that a .NET entity matches the
+stored procedure / raw SQL it depends on — parameters, result-set shape, nullability, length
+semantics — and **Microsoft declined to build it** ([EF issue #245](https://github.com/dotnet/efcore/issues/245)).
 
----
+Legacy .NET codebases drift silently: a DBA renames a column or changes `VARCHAR2(4000 BYTE)` to
+`VARCHAR2(100 CHAR)`, and the first sign of trouble is an `ORA-12899` or `SqlException` in production.
 
-## 🌟 Why EcoSupport Native Wins the Ecosystem Impact Track
+## The proven pattern
 
-1. **Foundational Focus, Not Vanity Metrics**:
-   We prioritize the critical long-tail: single-maintainer C-extensions, specialized scientific encoders, and system libraries upon which frontier AI frameworks quietly depend.
+**dbt** proved that *model contracts* — preflight column/parameter checks at compile time — prevent
+exactly this class of data-engineering failure (dbt Core v1.5, 2023). DataGuard ports that pattern to
+the .NET stored-procedure world, where it did not exist:
 
-2. **Full Embracement of Claude 3.7 Extended Thinking**:
-   EcoSupport utilizes Anthropic's extended thinking tokens (up to 16k tokens per run) to trace intricate multi-file call graphs, reproduce memory bugs, and produce verifiable, zero-hallucination code fixes.
+- **IDE layer** (netstandard2.0 Roslyn analyzer): flags unvalidated SQL calls on every keystroke,
+  with safe quick fixes.
+- **CLI layer** (`dataguard` dotnet tool): full diff engine against database ground truth in three modes —
+  **Full** (live DB), **Snapshot** (offline JSON, zero CI credentials), **Manual** (attributes).
+- **CI integration**: SARIF output, baseline freeze for legacy drift, `snapshot diff --fail-on-drift`.
 
-3. **High-Performance Rust Native Architecture**:
-   Packaged as a lightweight 3.7MB single binary consuming < 10MB of RAM, EcoSupport runs seamlessly as a non-intrusive background daemon on developer machines and CI pipelines.
+## Why it matters for the ecosystem
 
-4. **Standard-Bearer for FastMCP 2.0 & `rmcp`**:
-   We don't just consume MCP; we synthesize and audit it. EcoSupport provides an automated engine that converts any niche open-source library into an audited, secure, and production-grade FastMCP 2.0 server.
+- Stored-procedure-heavy .NET codebases are the most fragile, least-tooled part of the ecosystem;
+  AI-generated SQL (a growing failure mode) makes phantom-table/column detection
+  (DG015/DG016) more valuable every day.
+- MIT-licensed, NuGet-distributed, SQL Server + Oracle + MySQL + PostgreSQL, no vendor lock-in.
+- The grant would fund real-DB integration testing (Testcontainers), NuGet publishing, and docs —
+  the exact parts a solo maintainer cannot do alone.
 
----
+## What we ask
 
-*Private Source Protected. High-Performance Rust. Powered by Claude 3.7 Sonnet.*
+Claude Max usage to complete: container-based integration tests, NuGet Trusted Publishing rollout,
+and the companion Claude skill for DataGuard.
