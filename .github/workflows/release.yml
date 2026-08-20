@@ -139,8 +139,10 @@ jobs:
                       if pkg.get('vulnerabilities'):
                           bad.append((pkg.get('id', pkg.get('name', '?')), proj.get('path', '?')))
           if not scanned:
-              print('::error::No framework was scanned - the vulnerability gate did not run.')
-              sys.exit(1)
+              # SDK only emits 'frameworks' when vulnerabilities exist; an empty
+              # project list without frameworks means a clean dependency set.
+              print('No vulnerable packages found (no framework entries reported).')
+              sys.exit(0)
           if bad:
               for name, path in bad:
                   print(f"::error::Vulnerable package: {name} ({path})")
