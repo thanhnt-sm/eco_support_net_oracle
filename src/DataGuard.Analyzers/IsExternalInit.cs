@@ -1,5 +1,5 @@
-// <copyright file="IsExternalInit.cs" company="PlaceholderCompany">
-// Copyright (c) PlaceholderCompany. All rights reserved.
+// <copyright file="IsExternalInit.cs" company="Than Nguyen">
+// Copyright (c) 2026 Than Nguyen. All rights reserved.
 // </copyright>
 
 namespace System.Runtime.CompilerServices;

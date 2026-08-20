@@ -1,5 +1,5 @@
-// <copyright file="CodeFixProviders.cs" company="PlaceholderCompany">
-// Copyright (c) PlaceholderCompany. All rights reserved.
+// <copyright file="CodeFixProviders.cs" company="Than Nguyen">
+// Copyright (c) 2026 Than Nguyen. All rights reserved.
 // </copyright>
 
 namespace DataGuard.Analyzers.CodeFixes;
