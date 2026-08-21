@@ -7,9 +7,9 @@ We take the security of DataGuard and the downstream .NET/EF Core ecosystems it 
 If you discover a potential vulnerability in DataGuard (Core, adapters, analyzers, CLI, or the VS Code
 extension), please report it privately:
 
-- **Email**: `security@ecosupport.dev`
-- Or open a **private GitHub Security Advisory** at
+- Open a **private GitHub Security Advisory** at
   `https://github.com/thanhnt-sm/eco_support_net_oracle/security/advisories`
+  (preferred — the advisory stays private until a fix is released)
 
 Please include:
 

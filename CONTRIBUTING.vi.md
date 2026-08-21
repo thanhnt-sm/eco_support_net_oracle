@@ -1,15 +1,16 @@
 [English](CONTRIBUTING.md) | [Tiếng Việt](CONTRIBUTING.vi.md)
 
-# Hướng Dẫn Đóng Góp Cho EcoSupport
+# Hướng Dẫn Đóng Góp Cho DataGuard
 
-Cảm ơn bạn đã quan tâm đến việc đóng góp cho **EcoSupport**! Chúng tôi cam kết xây dựng một nền tảng hạ tầng minh bạch, an toàn và đặt cộng đồng open-source maintainer lên hàng đầu.
+Cảm ơn bạn đã quan tâm đến việc đóng góp cho **DataGuard**! DataGuard là contract validation engine cho .NET — phát hiện drift giữa entity và SQL mà code phụ thuộc (tham số stored procedure, result-set shape, nullability, length semantics, dialect mismatch) ngay tại thời điểm thiết kế và trong CI.
 
 ---
 
-## 🧭 Quy Tắc Ứng Xử & Nguyên Tắc Tôn Trọng Maintainer
+## 🧭 Quy Tắc Ứng Xử & Nguyên Tắc Sơ Cấp
 
-1. **Sự Đồng Thuận & Tôn Trọng Maintainer**: Các agent của EcoSupport được thiết kế để giảm tải gánh nặng cho maintainer, tuyệt đối không tạo ra các bình luận spam tự động vô nghĩa. Toàn bộ quá trình khám nghiệm (triage) và tạo Pull Request (PR) phải có thể kiểm chứng độc lập và đạt chất lượng cao.
-2. **Tiêu Chuẩn An Toàn Anthropic**: Chúng tôi tuân thủ các nguyên tắc Constitutional AI của Anthropic. Không bao giờ tạo ra các công cụ hoặc prompt thực thi mã nguồn từ xa không được kiểm duyệt khi chưa có môi trường sandbox độc lập.
+1. **Evidence-first**: mọi claim (tài liệu, mô tả PR, commit message) phải kiểm chứng được — lệnh + output. Bug fix nên kèm test đã fail trước khi fix.
+2. **Tư thế enterprise**: mặc định không telemetry, không để secret trong log/argv/SARIF, xử lý credential fail-closed. Nếu thay đổi chạm các vùng này, nêu rõ cách các đảm bảo được giữ nguyên.
+3. **Một PR một mục đích**: giữ pull request nhỏ và tập trung; tuân theo conventional commits (`fix:`, `feat:`, `test:`, `docs:`, `ci:`).
 
 ---
 
@@ -20,14 +21,37 @@ Cảm ơn bạn đã quan tâm đến việc đóng góp cho **EcoSupport**! Ch�
    git clone https://github.com/thanhnt-sm/eco_support_net_oracle.git
    cd eco_support_net_oracle
    ```
-2. **Biên Dịch và Kiểm Thử (Rust Native Engine)**:
+2. **Build, Test, Format** (.NET 9):
    ```bash
-   cargo check --workspace
-   cargo test --workspace
-   cargo clippy --workspace --all-targets -- -D warnings
-   cargo fmt --check
+   dotnet build DataGuard.sln                 # phải 0 errors, 0 warnings
+   dotnet test DataGuard.sln                  # toàn bộ test phải pass
+   dotnet format DataGuard.sln --verify-no-changes
    ```
+   Integration test cần Docker (Testcontainers) sẽ tự skip khi không có Docker daemon.
 3. **Gửi Pull Request (PR)**:
-   - Đảm bảo tất cả các tính năng mới đều có unit test đi kèm trong `crates/eco-cli/tests/` hoặc test suite của crate tương ứng.
-   - Duy trì tài liệu song ngữ cho mọi tài liệu hướng dẫn mới hoặc cập nhật (`.md` và `.vi.md`).
-   - Chạy `./scripts/verify_docs_sync.sh` và `./scripts/anti_garbage_guard.sh` trước khi đẩy commit lên Git.
+   - Đảm bảo feature/rule mới có unit test đi kèm trong `tests/`.
+   - Chú ý public API surface: `DataGuard.Contracts` (netstandard2.0) được project người dùng reference — breaking change cần ADR trong `plans/adr/`.
+   - Chạy `dotnet list DataGuard.sln package --vulnerable --include-transitive` và đảm bảo không đưa vào package có lỗ hổng.
+
+---
+
+## 📐 Bố Cục Dự Án
+
+| Đường dẫn | Nội dung |
+|---|---|
+| `src/DataGuard.Contracts` | Contract attributes dùng chung với IDE analyzers (netstandard2.0, zero deps) |
+| `src/DataGuard.Core` | Rules engine, baseline, security, sources, reporting |
+| `src/DataGuard.*.Adapter` | Ground-truth readers cho SQL Server / Oracle / MySQL / PostgreSQL |
+| `src/DataGuard.Analyzers` / `CodeFixes` | Roslyn analyzer (IDE-light) và code fixes |
+| `src/DataGuard.Cli` | `dotnet tool` — validate/snapshot/baseline/oracle-check |
+| `src/DataGuard.VSCode` / `DataGuard.VisualStudio` | Editor extensions (CLI là authority; host giữ mỏng) |
+| `tests/` | Core.Tests, GoldenCorpus.Tests, Analyzers.Tests |
+| `plans/` | Kế hoạch và ADR (xem `plans/ACTIVE_SESSION_REGISTER.md`) |
+
+---
+
+## 📖 Đọc Tiếp
+
+- Quyết định kiến trúc: `plans/adr/`
+- Roadmap và công việc đang mở: `plans/ACTIVE_SESSION_REGISTER.md`
+- Chính sách bảo mật: [SECURITY.md](SECURITY.md)

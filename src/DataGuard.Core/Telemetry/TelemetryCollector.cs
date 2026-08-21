@@ -184,12 +184,23 @@ public sealed class TelemetryCollector : IDisposable
         }
     }
 
+    // Shared process-lifetime client (SEC-005): per-call instantiation causes
+    // socket exhaustion when the flush timer fires repeatedly.
+    private static readonly HttpClient ExportHttpClient = new();
+
     private static async Task ExportEventsAsync(string ndjson, string endpoint)
     {
         // NDJSON export - one JSON object per line, compatible with OTLP/HTTP collectors.
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         using var content = new StringContent(ndjson, System.Text.Encoding.UTF8, "application/x-ndjson");
-        await client.PostAsync(endpoint, content);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await ExportHttpClient.PostAsync(endpoint, content, timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Best-effort export; never throw from a timer callback.
+        }
     }
 
     public void Dispose()

@@ -1,15 +1,16 @@
 [English](CONTRIBUTING.md) | [Tiếng Việt](CONTRIBUTING.vi.md)
 
-# Contributing to EcoSupport
+# Contributing to DataGuard
 
-Thank you for your interest in contributing to **EcoSupport**! We are committed to building a transparent, safe, and community-first infrastructure platform for open-source maintainers.
+Thank you for your interest in contributing to **DataGuard**! DataGuard is a contract validation engine for .NET — it detects drift between your entities and the SQL they depend on (stored procedure parameters, result-set shapes, nullability, length semantics, dialect mismatches) at design time and in CI.
 
 ---
 
-## 🧭 Code of Conduct & Maintainer First Principles
+## 🧭 Code of Conduct & First Principles
 
-1. **Maintainer Consent & Respect**: EcoSupport agents are designed to reduce maintainer burden, never to generate spammy automated comments. All triage and PR generation must be verifiable and high-signal.
-2. **Anthropic Safety Standards**: We follow Anthropic's Constitutional AI guidelines. Never generate tools or prompts that execute unvetted remote code without explicit sandboxing.
+1. **Evidence-first**: every claim (docs, PR description, commit message) should be verifiable — command + output. Bug fixes should come with a test that failed before the fix.
+2. **Enterprise posture**: no telemetry by default, no secret material in logs/argv/SARIF, fail-closed credential handling. If your change touches these areas, state explicitly how the guarantees are preserved.
+3. **One concern per PR**: keep pull requests small and focused; follow conventional commits (`fix:`, `feat:`, `test:`, `docs:`, `ci:`).
 
 ---
 
@@ -20,15 +21,37 @@ Thank you for your interest in contributing to **EcoSupport**! We are committed 
    git clone https://github.com/thanhnt-sm/eco_support_net_oracle.git
    cd eco_support_net_oracle
    ```
-2. **Compile and Test (Rust Native Engine)**:
+2. **Build, Test, Format** (.NET 9):
    ```bash
-   cargo check --workspace
-   cargo test --workspace
-   cargo clippy --workspace --all-targets -- -D warnings
-   cargo fmt --check
+   dotnet build DataGuard.sln                 # must be 0 errors, 0 warnings
+   dotnet test DataGuard.sln                  # all tests must pass
+   dotnet format DataGuard.sln --verify-no-changes
    ```
+   Integration tests that need Docker (Testcontainers) are skipped automatically when no Docker daemon is available.
 3. **Submitting a Pull Request**:
-   - Ensure all new features have accompanying unit tests in `crates/eco-cli/tests/` or relevant crate test suites.
-   - Maintain bilingual documentation for any new/updated human guides (`.md` and `.vi.md`).
-   - Run `./scripts/verify_docs_sync.sh` and `./scripts/anti_garbage_guard.sh` before pushing.
+   - Ensure new features/rules have accompanying unit tests under `tests/`.
+   - Keep the public API surface in mind: `DataGuard.Contracts` (netstandard2.0) is referenced by consumer projects — breaking changes need an ADR in `plans/adr/`.
+   - Run `dotnet list DataGuard.sln package --vulnerable --include-transitive` and make sure no vulnerable packages are introduced.
 
+---
+
+## 📐 Project Layout
+
+| Path | Contents |
+|---|---|
+| `src/DataGuard.Contracts` | Contract attributes shared with IDE analyzers (netstandard2.0, zero deps) |
+| `src/DataGuard.Core` | Rules engine, baseline, security, sources, reporting |
+| `src/DataGuard.*.Adapter` | SQL Server / Oracle / MySQL / PostgreSQL ground-truth readers |
+| `src/DataGuard.Analyzers` / `CodeFixes` | Roslyn analyzer (IDE-light) and code fixes |
+| `src/DataGuard.Cli` | `dotnet tool` — validate/snapshot/baseline/oracle-check |
+| `src/DataGuard.VSCode` / `DataGuard.VisualStudio` | Editor extensions (CLI is the authority; hosts stay thin) |
+| `tests/` | Core.Tests, GoldenCorpus.Tests, Analyzers.Tests |
+| `plans/` | Plans and ADRs (see `plans/ACTIVE_SESSION_REGISTER.md`) |
+
+---
+
+## 📖 Where to Look Next
+
+- Architecture decisions: `plans/adr/`
+- Current roadmap and open work: `plans/ACTIVE_SESSION_REGISTER.md`
+- Security policy: [SECURITY.md](SECURITY.md)

@@ -29,6 +29,11 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     private readonly IAuditLogger _auditLogger;
     private readonly DataGuardConfiguration _config;
 
+    // Shared process-lifetime client: per-call instantiation causes socket
+    // exhaustion under repeated resolution (SEC-005). HttpClient is thread-safe
+    // for concurrent requests; per-request headers go on HttpRequestMessage.
+    private static readonly HttpClient SharedHttpClient = new();
+
     public ZeroTrustCredentialProvider(
         IConfiguration configuration,
         DataGuardConfiguration config,
@@ -192,7 +197,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 
         try
         {
-            using var client = new HttpClient();
+            var client = SharedHttpClient;
 
             // Azure managed identity token (IMDS endpoint) for Key Vault.
             using var tokenRequest = new HttpRequestMessage(
@@ -265,11 +270,13 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 
         try
         {
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("X-Vault-Token", token);
-
             var url = $"{_config.VaultAddress!.TrimEnd('/')}/v1/secret/data/{Uri.EscapeDataString(credentialName)}";
-            var response = await client.GetAsync(url, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+            // Per-request header: the client is shared process-wide, so
+            // DefaultRequestHeaders would accumulate tokens across calls.
+            request.Headers.Add("X-Vault-Token", token);
+            var response = await SharedHttpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return string.Empty;
