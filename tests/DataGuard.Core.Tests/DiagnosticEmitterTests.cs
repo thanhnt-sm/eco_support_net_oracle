@@ -33,7 +33,7 @@ public class DiagnosticEmitterTests
                 ["password"] = password,
                 ["token"] = bearer,
                 ["api-key"] = bearer,
-                ["unexpected"] = "must not leave the process"
+                ["unexpected"] = "must not leave the process",
             };
             var violation = new ContractViolation(
                 "DG001",
@@ -53,7 +53,9 @@ public class DiagnosticEmitterTests
         finally
         {
             if (File.Exists(outputPath))
+            {
                 File.Delete(outputPath);
+            }
         }
     }
 }

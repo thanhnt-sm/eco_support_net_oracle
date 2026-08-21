@@ -1,13 +1,13 @@
-using Xunit;
-using FluentAssertions;
+using System.IO;
 using DataGuard.Core.Abstractions;
-using Microsoft.CodeAnalysis;
+using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
 using DataGuard.Core.Rules;
-using DataGuard.Core.Baseline;
 using DataGuard.Core.Security;
 using DataGuard.Core.Validation;
-using System.IO;
+using FluentAssertions;
+using Microsoft.CodeAnalysis;
+using Xunit;
 
 namespace DataGuard.Core.Tests;
 
@@ -17,7 +17,7 @@ public class ConfigurationTests
     public void DataGuardConfiguration_Defaults_AreCorrect()
     {
         var config = new DataGuardConfiguration();
-        
+
         config.GroundTruthMode.Should().Be(GroundTruthMode.Snapshot);
         config.NamingConvention.Should().Be(NamingConvention.SnakeCaseToPascalCase);
         config.EnableBaseline.Should().BeTrue();
@@ -27,7 +27,7 @@ public class ConfigurationTests
     public void OracleConfiguration_Defaults_AreCorrect()
     {
         var config = new OracleConfiguration();
-        
+
         config.UseRefCursorDescribe.Should().BeTrue();
         config.UseAllArguments.Should().BeTrue();
         config.UseAllTabColumns.Should().BeTrue();
@@ -37,7 +37,7 @@ public class ConfigurationTests
     public void SqlServerConfiguration_Defaults_AreCorrect()
     {
         var config = new SqlServerConfiguration();
-        
+
         config.Schema.Should().Be("dbo");
         config.UseFirstResultSet.Should().BeTrue();
     }
@@ -107,11 +107,11 @@ public class BaselineManagerTests
             var violations = new[]
             {
                 new ContractViolation("DG001", "Test violation", DiagnosticSeverity.Error),
-                new ContractViolation("DG002", "Another violation", DiagnosticSeverity.Warning)
+                new ContractViolation("DG002", "Another violation", DiagnosticSeverity.Warning),
             };
 
             var baseline = await manager.CreateBaselineAsync(violations, "1.0", "Snapshot");
-            
+
             baseline.Version.Should().Be(2);
             baseline.Violations.Should().HaveCount(2);
             baseline.SchemaVersion.Should().Be("1.0");
@@ -119,7 +119,10 @@ public class BaselineManagerTests
         }
         finally
         {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
         }
     }
 
@@ -132,7 +135,7 @@ public class BaselineManagerTests
             var manager = new BaselineManager(tempFile);
             var violations = new[]
             {
-                new ContractViolation("DG001", "Test violation", DiagnosticSeverity.Error)
+                new ContractViolation("DG001", "Test violation", DiagnosticSeverity.Error),
             };
 
             await manager.CreateBaselineAsync(violations, "1.0", "Snapshot");
@@ -144,7 +147,10 @@ public class BaselineManagerTests
         }
         finally
         {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
         }
     }
 
@@ -157,7 +163,7 @@ public class BaselineManagerTests
             var manager = new BaselineManager(tempFile);
             var baselineViolations = new[]
             {
-                new ContractViolation("DG001", "Baseline violation", DiagnosticSeverity.Error)
+                new ContractViolation("DG001", "Baseline violation", DiagnosticSeverity.Error),
             };
 
             var baseline = await manager.CreateBaselineAsync(baselineViolations, "1.0", "Snapshot");
@@ -165,17 +171,20 @@ public class BaselineManagerTests
             var newViolations = new[]
             {
                 new ContractViolation("DG001", "Baseline violation", DiagnosticSeverity.Error), // same as baseline
-                new ContractViolation("DG002", "New violation", DiagnosticSeverity.Error) // new
+                new ContractViolation("DG002", "New violation", DiagnosticSeverity.Error), // new
             };
 
             var filtered = manager.FilterNewViolations(newViolations, baseline);
-            
+
             filtered.Should().HaveCount(1);
             filtered.First().RuleId.Should().Be("DG002");
         }
         finally
         {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
         }
     }
 }
@@ -196,7 +205,10 @@ public class AuditLoggerTests
         }
         finally
         {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
         }
     }
 
@@ -209,14 +221,18 @@ public class AuditLoggerTests
             var logger = new FileAuditLogger(tempFile);
             await logger.LogCredentialAccessAsync("test", "provider", "hash1");
 
-            await File.AppendAllTextAsync(tempFile,
+            await File.AppendAllTextAsync(
+                tempFile,
                 "{\"Timestamp\":\"2020-01-01T00:00:00+00:00\",\"EventType\":\"Forged\",\"Hash\":\"deadbeef\",\"PreviousHash\":null}\n");
 
             (await logger.VerifyIntegrityAsync()).Should().BeFalse();
         }
         finally
         {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
         }
     }
 
@@ -228,7 +244,9 @@ public class AuditLoggerTests
         {
             var logger = new FileAuditLogger(tempFile);
             for (var i = 0; i < 10; i++)
+            {
                 await logger.LogCredentialAccessAsync("test", "provider", $"hash{i}");
+            }
 
             // Tail truncation attack: drop the last entry so the chain no longer
             // reaches the checkpoint written after each append.
@@ -240,10 +258,14 @@ public class AuditLoggerTests
         }
         finally
         {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
         }
     }
 }
+
 public class ConcurrentValidationEngineTests
 {
     [Fact]
@@ -253,7 +275,7 @@ public class ConcurrentValidationEngineTests
             "e1", "Customer", "Customer", "CUSTOMERS",
             new List<PropertyDescriptor>
             {
-                new PropertyDescriptor("FullName", "string", "FULL_NAME", "VARCHAR2(100)", false, 200, false, false)
+                new PropertyDescriptor("FullName", "string", "FULL_NAME", "VARCHAR2(100)", false, 200, false, false),
             });
         var contracts = new List<ContractDescriptor> { entity };
         var rules = new List<IContractRule> { new NamingConventionRule() };
@@ -263,7 +285,9 @@ public class ConcurrentValidationEngineTests
 
         var sequential = new List<ContractViolation>();
         foreach (var rule in rules)
+        {
             sequential.AddRange(await rule.ValidateAsync(entity, contracts));
+        }
 
         var concurrentSet = concurrent.Select(v => $"{v.RuleId}|{v.Message}").OrderBy(s => s, StringComparer.Ordinal).ToList();
         var sequentialSet = sequential.Select(v => $"{v.RuleId}|{v.Message}").OrderBy(s => s, StringComparer.Ordinal).ToList();

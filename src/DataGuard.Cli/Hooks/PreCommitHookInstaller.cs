@@ -14,6 +14,7 @@ public static class PreCommitHookInstaller
     /// <summary>
     /// Installs pre-commit hook for the current repository.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static async Task<InstallResult> InstallAsync(
         string? repoRoot = null,
         HookType hookType = HookType.Auto,
@@ -44,11 +45,17 @@ public static class PreCommitHookInstaller
                 default:
                     // Try all in order of preference
                     var huskyResult = await InstallHuskyHookAsync(root, huskyDir, force, cancellationToken);
-                    if (huskyResult.Success) return huskyResult;
-                    
+                    if (huskyResult.Success)
+                    {
+                        return huskyResult;
+                    }
+
                     var lefthookResult = await InstallLefthookConfigAsync(root, lefthookPath, force, cancellationToken);
-                    if (lefthookResult.Success) return lefthookResult;
-                    
+                    if (lefthookResult.Success)
+                    {
+                        return lefthookResult;
+                    }
+
                     return await InstallNativeGitHookAsync(root, hookPath, force, cancellationToken);
             }
         }
@@ -61,6 +68,7 @@ public static class PreCommitHookInstaller
     /// <summary>
     /// Uninstalls pre-commit hooks.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static async Task<UninstallResult> UninstallAsync(
         string? repoRoot = null,
         CancellationToken cancellationToken = default)
@@ -107,6 +115,7 @@ public static class PreCommitHookInstaller
     /// <summary>
     /// Gets status of installed hooks.
     /// </summary>
+    /// <returns></returns>
     public static HookStatus GetStatus(string? repoRoot = null)
     {
         var root = repoRoot ?? FindGitRoot();
@@ -131,7 +140,7 @@ public static class PreCommitHookInstaller
             Husky = husky,
             Lefthook = lefthook,
             AnyInstalled = nativeGitHook || husky || lefthook,
-            DataGuardManaged = dataGuardManaged
+            DataGuardManaged = dataGuardManaged,
         };
     }
 
@@ -141,21 +150,35 @@ public static class PreCommitHookInstaller
         while (!string.IsNullOrEmpty(current))
         {
             if (Directory.Exists(Path.Combine(current, ".git")))
+            {
                 return current;
+            }
+
             var parent = Directory.GetParent(current);
-            if (parent == null) break;
+            if (parent == null)
+            {
+                break;
+            }
+
             current = parent.FullName;
         }
+
         return null;
     }
 
     private static HookType DetectHookType(string repoRoot)
     {
         var huskyDir = Path.Combine(repoRoot, ".husky");
-        if (Directory.Exists(huskyDir)) return HookType.Husky;
+        if (Directory.Exists(huskyDir))
+        {
+            return HookType.Husky;
+        }
 
         var lefthookPath = Path.Combine(repoRoot, "lefthook.yml");
-        if (File.Exists(lefthookPath)) return HookType.Lefthook;
+        if (File.Exists(lefthookPath))
+        {
+            return HookType.Lefthook;
+        }
 
         return HookType.NativeGit;
     }
@@ -167,7 +190,7 @@ public static class PreCommitHookInstaller
         {
             Directory.CreateDirectory(huskyDir);
             var hookPath = Path.Combine(huskyDir, "pre-commit");
-            
+
             if (File.Exists(hookPath) && !force)
             {
                 return InstallResult.Failed("Husky pre-commit hook already exists. Use --force to overwrite.");
@@ -175,10 +198,10 @@ public static class PreCommitHookInstaller
 
             var hookContent = GenerateHuskyHook();
             await File.WriteAllTextAsync(hookPath, hookPath, cancellationToken);
-            
+
             // Make executable
             File.SetAttributes(hookPath, File.GetAttributes(hookPath) | FileAttributes.ReadOnly);
-            
+
             return InstallResult.Succeeded("Husky pre-commit hook installed at .husky/pre-commit");
         }
         catch (Exception ex)
@@ -199,7 +222,7 @@ public static class PreCommitHookInstaller
 
             var config = GenerateLefthookConfig();
             await File.WriteAllTextAsync(lefthookPath, config, cancellationToken);
-            
+
             return InstallResult.Succeeded("Lefthook configuration installed at lefthook.yml");
         }
         catch (Exception ex)
@@ -213,9 +236,9 @@ public static class PreCommitHookInstaller
     {
         try
         {
-            var hooksDir = Path.GetDirectoryName(hookPath)!;
+            var hooksDir = Path.GetDirectoryName(hookPath) !;
             Directory.CreateDirectory(hooksDir);
-            
+
             if (File.Exists(hookPath) && !force)
             {
                 return InstallResult.Failed("Native git pre-commit hook already exists. Use --force to overwrite.");
@@ -223,12 +246,12 @@ public static class PreCommitHookInstaller
 
             var hookContent = GenerateNativeGitHook();
             await File.WriteAllTextAsync(hookPath, hookContent, cancellationToken);
-            
+
             // Make executable
             var fileInfo = new FileInfo(hookPath);
             fileInfo.IsReadOnly = false;
             fileInfo.Attributes |= FileAttributes.ReadOnly;
-            
+
             return InstallResult.Succeeded("Native git pre-commit hook installed at .git/hooks/pre-commit");
         }
         catch (Exception ex)
@@ -324,10 +347,10 @@ public sealed record InstallResult(
     HookType InstalledType = HookType.None)
 {
     public static InstallResult Succeeded(string message, HookType type = HookType.NativeGit)
-        => new(true, message, type);
+        => new (true, message, type);
 
     public static InstallResult Failed(string message)
-        => new(false, message, HookType.None);
+        => new (false, message, HookType.None);
 }
 
 /// <summary>
@@ -338,10 +361,10 @@ public sealed record UninstallResult(
     string Message)
 {
     public static UninstallResult Succeeded(string message)
-        => new(true, message);
+        => new (true, message);
 
     public static UninstallResult Failed(string message)
-        => new(false, message);
+        => new (false, message);
 }
 
 /// <summary>
@@ -357,15 +380,29 @@ public sealed record HookStatus(
 {
     public override string ToString()
     {
-        if (!IsGitRepo) return "Not a git repository";
-        
+        if (!IsGitRepo)
+        {
+            return "Not a git repository";
+        }
+
         var parts = new List<string>();
-        if (NativeGitHook) parts.Add("Native Git");
-        if (Husky) parts.Add("Husky");
-        if (Lefthook) parts.Add("Lefthook");
-        
+        if (NativeGitHook)
+        {
+            parts.Add("Native Git");
+        }
+
+        if (Husky)
+        {
+            parts.Add("Husky");
+        }
+
+        if (Lefthook)
+        {
+            parts.Add("Lefthook");
+        }
+
         var managed = DataGuardManaged ? " (DataGuard-managed)" : "";
-        return parts.Count > 0 
+        return parts.Count > 0
             ? $"Installed: {string.Join(", ", parts)}{managed}"
             : "No pre-commit hooks installed";
     }
@@ -380,5 +417,5 @@ public enum HookType
     NativeGit,
     Husky,
     Lefthook,
-    None
+    None,
 }

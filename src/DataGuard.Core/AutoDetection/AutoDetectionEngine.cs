@@ -20,8 +20,11 @@ namespace DataGuard.Core.AutoDetection;
 public interface IConsole
 {
     void Write(string value);
+
     void WriteLine(string value);
+
     string? ReadLine();
+
     ConsoleKeyInfo ReadKey(bool intercept);
 }
 
@@ -31,8 +34,11 @@ public interface IConsole
 public sealed class SystemConsole : IConsole
 {
     public void Write(string value) => Console.Write(value);
+
     public void WriteLine(string value) => Console.WriteLine(value);
+
     public string? ReadLine() => Console.ReadLine();
+
     public ConsoleKeyInfo ReadKey(bool intercept) => Console.ReadKey(intercept);
 }
 
@@ -53,6 +59,7 @@ public sealed class AutoDetectionEngine
     /// <summary>
     /// Runs full auto-detection and returns a configured DataGuardConfiguration.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<DataGuardConfiguration> DetectAsync(CancellationToken cancellationToken = default)
     {
         var config = new DataGuardConfiguration();
@@ -111,7 +118,10 @@ public sealed class AutoDetectionEngine
         {
             var content = await File.ReadAllTextAsync(appSettingsPath, cancellationToken);
             var provider = ParseProviderFromJson(content);
-            if (provider.HasValue) return provider.Value;
+            if (provider.HasValue)
+            {
+                return provider.Value;
+            }
         }
 
         // Check appsettings.Development.json
@@ -120,7 +130,10 @@ public sealed class AutoDetectionEngine
         {
             var content = await File.ReadAllTextAsync(devSettingsPath, cancellationToken);
             var provider = ParseProviderFromJson(content);
-            if (provider.HasValue) return provider.Value;
+            if (provider.HasValue)
+            {
+                return provider.Value;
+            }
         }
 
         // Check .dataguard.yml
@@ -129,7 +142,10 @@ public sealed class AutoDetectionEngine
         {
             var content = await File.ReadAllTextAsync(dataguardConfigPath, cancellationToken);
             var provider = ParseProviderFromYaml(content);
-            if (provider.HasValue) return provider.Value;
+            if (provider.HasValue)
+            {
+                return provider.Value;
+            }
         }
 
         // Check environment variable
@@ -156,23 +172,34 @@ public sealed class AutoDetectionEngine
                 {
                     var value = prop.Value.GetString()?.ToLowerInvariant() ?? "";
                     if (value.Contains("sqlserver") || value.Contains("sql server") || value.Contains("mssql"))
+                    {
                         return DatabaseProvider.SqlServer;
+                    }
+
                     if (value.Contains("oracle") || value.Contains("oraclemanaged"))
+                    {
                         return DatabaseProvider.Oracle;
+                    }
                 }
             }
 
             // Check for provider in logging or other sections
             var jsonStr = json.ToLowerInvariant();
             if (jsonStr.Contains("usesqlserver") || jsonStr.Contains("sqlserver"))
+            {
                 return DatabaseProvider.SqlServer;
+            }
+
             if (jsonStr.Contains("useoracle") || jsonStr.Contains("oracle"))
+            {
                 return DatabaseProvider.Oracle;
+            }
         }
         catch
         {
             // Ignore parse errors
         }
+
         return null;
     }
 
@@ -188,11 +215,15 @@ public sealed class AutoDetectionEngine
                 {
                     var value = trimmed.Split(':')[1].Trim();
                     if (Enum.TryParse<DatabaseProvider>(value, true, out var provider))
+                    {
                         return provider;
+                    }
                 }
             }
         }
-        catch { }
+        catch
+        {
+        }
         return null;
     }
 
@@ -203,7 +234,7 @@ public sealed class AutoDetectionEngine
     {
         // Check for EF Core packages in csproj files
         var csprojFiles = Directory.GetFiles(_projectRoot, "*.csproj", SearchOption.AllDirectories);
-        
+
         foreach (var csproj in csprojFiles)
         {
             var content = await File.ReadAllTextAsync(csproj, cancellationToken);
@@ -213,14 +244,16 @@ public sealed class AutoDetectionEngine
                 return true;
             }
         }
-        
+
         // Also check for DbContext in source files
         var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
         foreach (var csFile in csFiles)
         {
             var content = await File.ReadAllTextAsync(csFile, cancellationToken);
             if (content.Contains("DbContext", StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
 
         return false;
@@ -232,21 +265,25 @@ public sealed class AutoDetectionEngine
     private async Task<bool> DetectDapperAsync(CancellationToken cancellationToken)
     {
         var csprojFiles = Directory.GetFiles(_projectRoot, "*.csproj", SearchOption.AllDirectories);
-        
+
         foreach (var csproj in csprojFiles)
         {
             var content = await File.ReadAllTextAsync(csproj, cancellationToken);
             if (content.Contains("Dapper", StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
-        
+
         // Also check for Dapper usage in source files
         var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
         foreach (var csFile in csFiles)
         {
             var content = await File.ReadAllTextAsync(csFile, cancellationToken);
             if (content.Contains("Dapper.", StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
 
         return false;
@@ -262,18 +299,25 @@ public sealed class AutoDetectionEngine
             ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
             ?? Environment.GetEnvironmentVariable("ConnectionStrings__Default");
         if (!string.IsNullOrEmpty(envConn))
+        {
             return envConn;
+        }
 
         // 2. appsettings.json + appsettings.Development.json
         foreach (var fileName in new[] { "appsettings.json", "appsettings.Development.json" })
         {
             var appSettingsPath = FindFile(fileName);
             if (appSettingsPath == null)
+            {
                 continue;
+            }
+
             var content = await File.ReadAllTextAsync(appSettingsPath, cancellationToken);
             var connStr = ExtractConnectionStringFromJson(content);
             if (!string.IsNullOrEmpty(connStr))
+            {
                 return connStr;
+            }
         }
 
         // 3. .dataguard.yml
@@ -283,7 +327,9 @@ public sealed class AutoDetectionEngine
             var content = await File.ReadAllTextAsync(dataguardConfigPath, cancellationToken);
             var connStr = ExtractConnectionStringFromYaml(content);
             if (!string.IsNullOrEmpty(connStr))
+            {
                 return connStr;
+            }
         }
 
         return null;
@@ -301,7 +347,7 @@ public sealed class AutoDetectionEngine
                 foreach (var prop in connStrings.EnumerateObject())
                 {
                     var value = prop.Value.GetString();
-                    if (!string.IsNullOrEmpty(value) && 
+                    if (!string.IsNullOrEmpty(value) &&
                         (value.Contains("Server=", StringComparison.OrdinalIgnoreCase) ||
                          value.Contains("Data Source=", StringComparison.OrdinalIgnoreCase)))
                     {
@@ -310,7 +356,9 @@ public sealed class AutoDetectionEngine
                 }
             }
         }
-        catch { }
+        catch
+        {
+        }
         return null;
     }
 
@@ -329,7 +377,9 @@ public sealed class AutoDetectionEngine
                 }
             }
         }
-        catch { }
+        catch
+        {
+        }
         return null;
     }
 
@@ -345,7 +395,7 @@ public sealed class AutoDetectionEngine
         foreach (var csFile in csFiles)
         {
             var content = await File.ReadAllTextAsync(csFile, cancellationToken);
-            
+
             // Count snake_case identifiers
             var snakeMatches = Regex.Matches(content, @"\b[a-z]+_[a-z]+\b");
             snakeCaseCount += snakeMatches.Count;
@@ -356,9 +406,14 @@ public sealed class AutoDetectionEngine
         }
 
         if (snakeCaseCount > pascalCaseCount * 2)
+        {
             return NamingConvention.SnakeCaseToPascalCase;
+        }
+
         if (pascalCaseCount > snakeCaseCount * 2)
+        {
             return NamingConvention.PascalCaseToSnakeCase;
+        }
 
         return null; // Could not determine
     }
@@ -369,11 +424,11 @@ public sealed class AutoDetectionEngine
     private async Task<string?> DetectEfCoreContextAsync(CancellationToken cancellationToken)
     {
         var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
-        
+
         foreach (var csFile in csFiles)
         {
             var content = await File.ReadAllTextAsync(csFile, cancellationToken);
-            
+
             // Look for class that inherits from DbContext
             var matches = Regex.Matches(content, @"class\s+(\w+)\s*:\s*DbContext");
             if (matches.Count > 0)
@@ -420,7 +475,7 @@ public enum DatabaseProvider
     SqlServer,
     Oracle,
     PostgreSQL,
-    MySQL
+    MySQL,
 }
 
 /// <summary>
@@ -431,6 +486,7 @@ public static class InteractiveConfigBuilder
     /// <summary>
     /// Runs interactive configuration wizard for legacy onboarding.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static async Task<DataGuardConfiguration> RunWizardAsync(
         string projectRoot,
         IConsole console,
@@ -482,13 +538,13 @@ public static class InteractiveConfigBuilder
         {
             GroundTruthMode = groundTruthMode,
             EnableSmartDefaults = true,
-            EnableBaseline = groundTruthMode == GroundTruthMode.Snapshot
+            EnableBaseline = groundTruthMode == GroundTruthMode.Snapshot,
         };
 
         // Save config
         var configPath = Path.Combine(projectRoot, ".dataguard.yml");
         await SaveConfigAsync(config, configPath, cancellationToken);
-        
+
         console.WriteLine($"✅ Configuration saved to {configPath}");
         console.WriteLine("");
         console.WriteLine("Next steps:");
@@ -514,6 +570,7 @@ public static class InteractiveConfigBuilder
         {
             return Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING") ?? "";
         }
+
         return input;
     }
 
@@ -524,8 +581,11 @@ public static class InteractiveConfigBuilder
         {
             var content = await File.ReadAllTextAsync(csproj, ct);
             if (content.Contains("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
+
         return false;
     }
 
@@ -536,8 +596,11 @@ public static class InteractiveConfigBuilder
         {
             var content = await File.ReadAllTextAsync(csproj, ct);
             if (content.Contains("Dapper", StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
+
         return false;
     }
 
@@ -549,7 +612,7 @@ public static class InteractiveConfigBuilder
         console.WriteLine("   3. Exact match");
         console.Write("   Choice [1-3, default 1]: ");
         var choice = console.ReadLine() ?? "1";
-        
+
         return choice switch
         {
             "2" => NamingConvention.PascalCaseToSnakeCase,

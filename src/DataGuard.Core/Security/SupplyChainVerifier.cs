@@ -18,6 +18,7 @@ public sealed class SupplyChainVerifier
     /// <summary>
     /// Verifies the integrity of the current assembly against known good hashes.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<SupplyChainVerificationResult> VerifyAsync(
         string? expectedHashFile = null,
         CancellationToken cancellationToken = default)
@@ -29,7 +30,7 @@ public sealed class SupplyChainVerifier
         var assembly = typeof(SupplyChainVerifier).Assembly;
         var assemblyHash = await ComputeAssemblyHashAsync(assembly, cancellationToken);
         var hasAnchor = !string.IsNullOrEmpty(expectedHashFile) && File.Exists(expectedHashFile);
-        
+
         var assemblyCheck = new SupplyChainCheck(
             "AssemblyIntegrity",
             "Verify assembly hash matches expected",
@@ -37,7 +38,7 @@ public sealed class SupplyChainVerifier
             hasAnchor
                 ? $"Assembly: {assembly.GetName().Name}, Hash: {assemblyHash}"
                 : $"No expected-hash anchor available for '{assembly.GetName().Name}' - integrity unverifiable");
-        
+
         checks.Add(assemblyCheck);
 
         // 2. Verify dependencies
@@ -51,7 +52,7 @@ public sealed class SupplyChainVerifier
             {
                 var expectedHash = await File.ReadAllTextAsync(expectedHashFile, cancellationToken);
                 var matches = expectedHash.Trim().Equals(assemblyHash, StringComparison.OrdinalIgnoreCase);
-                
+
                 checks.Add(new SupplyChainCheck(
                     "ExpectedHashMatch",
                     "Verify assembly matches expected hash from SLSA provenance",
@@ -73,8 +74,8 @@ public sealed class SupplyChainVerifier
         checks.AddRange(tamperingChecks);
 
         var overallPassed = checks.All(c => c.Passed);
-        var summary = overallPassed 
-            ? "All supply chain checks passed" 
+        var summary = overallPassed
+            ? "All supply chain checks passed"
             : $"{checks.Count(c => !c.Passed)} of {checks.Count} checks failed";
 
         return new SupplyChainVerificationResult(
@@ -94,21 +95,21 @@ public sealed class SupplyChainVerifier
     }
 
     private async Task<List<SupplyChainCheck>> VerifyDependenciesAsync(
-        Assembly assembly, 
+        Assembly assembly,
         CancellationToken cancellationToken)
     {
         var checks = new List<SupplyChainCheck>();
-        
+
         foreach (var refName in assembly.GetReferencedAssemblies())
         {
             // Check if dependency is from trusted source (Microsoft, approved vendors)
             var isTrusted = IsTrustedDependency(refName.Name!);
-            
+
             checks.Add(new SupplyChainCheck(
                 $"Dependency_{refName.Name}",
                 $"Verify dependency {refName.Name} v{refName.Version} is from trusted source",
                 isTrusted,
-                isTrusted 
+                isTrusted
                     ? $"Trusted dependency: {refName.FullName}"
                     : $"UNTRUSTED dependency: {refName.FullName} - review required"));
         }
@@ -179,7 +180,7 @@ public sealed class SupplyChainVerifier
             "Bogus",
             "Testcontainers",
             "Testcontainers.Oracle",
-            "Coverlet.Collector"
+            "Coverlet.Collector",
         };
 
         return trustedPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
@@ -189,7 +190,6 @@ public sealed class SupplyChainVerifier
     {
         var checks = new List<SupplyChainCheck>();
 
-
         // Check for strong name signing (informational: unsigned assemblies are common in OSS).
         var assembly = typeof(SupplyChainVerifier).Assembly;
         var strongName = assembly.GetName().GetPublicKey();
@@ -197,7 +197,7 @@ public sealed class SupplyChainVerifier
             "StrongNameSigning",
             "Verify assembly is strong-name signed",
             true,
-            strongName.Length > 0 ? "Assembly is strong-name signed" : "Assembly is NOT strong-name signed (informational)"));
+            (strongName?.Length ?? 0) > 0 ? "Assembly is strong-name signed" : "Assembly is NOT strong-name signed (informational)"));
 
         // Check for debug symbols: Roslyn emits DebuggableAttribute in every build, so
         // detect debug builds via IsJITTrackingEnabled (true in Debug, false in Release).

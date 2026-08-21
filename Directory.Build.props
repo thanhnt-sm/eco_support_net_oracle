@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
     <LangVersion>latest</LangVersion>
     <AnalysisLevel>latest</AnalysisLevel>
     <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>

@@ -18,6 +18,7 @@ public sealed class ManualContractSource : IContractSource
     }
 
     public string SourceId => "manual";
+
     public string DisplayName => "Manual Attributes";
 
     public Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(CancellationToken cancellationToken = default)
@@ -62,7 +63,9 @@ public sealed class ManualContractSource : IContractSource
             {
                 var expectedParams = method.GetCustomAttributes<ExpectedSpParameterAttribute>().ToList();
                 if (expectedParams.Count == 0)
+                {
                     continue;
+                }
 
                 var parameters = expectedParams.Select(p => new ParameterDescriptor(
                     Name: p.Name,
@@ -83,7 +86,7 @@ public sealed class ManualContractSource : IContractSource
                 contracts.Add(new StoredProcedureDescriptor(
                     Id: $"manual-sp:{type.FullName}.{method.Name}",
                     Name: method.Name,
-                    Schema: null,
+                    Schema: string.Empty,
                     PackageName: "",
                     Parameters: parameters,
                     ResultColumns: new List<ColumnDescriptor>(),

@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
-using Microsoft.CodeAnalysis;
 using System.Text.RegularExpressions;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
+using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Rules;
 
@@ -12,8 +12,11 @@ namespace DataGuard.Core.Rules;
 public abstract class ContractRuleBase : IContractRule
 {
     public abstract string RuleId { get; }
+
     public abstract string Name { get; }
+
     public abstract DiagnosticSeverity Severity { get; }
+
     public abstract string Description { get; }
 
     public virtual async Task<IReadOnlyList<ContractViolation>> ValidateAsync(
@@ -49,8 +52,11 @@ public abstract class ContractRuleBase : IContractRule
 public class ParameterCountRule : ContractRuleBase
 {
     public override string RuleId => "DG101"; // engine-only id; DG001 is the IDE UnvalidatedSqlCall id
+
     public override string Name => "Parameter Count Match";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Stored procedure parameter count must match call site";
 
     protected override async Task ValidateCoreAsync(
@@ -64,7 +70,10 @@ public class ParameterCountRule : ContractRuleBase
         {
             var sqlText = sqlDesc.SqlText;
 
-            if (string.IsNullOrEmpty(sqlText)) return;
+            if (string.IsNullOrEmpty(sqlText))
+            {
+                return;
+            }
 
             // Count parameters in SQL
             var paramMatches = Regex.Matches(sqlText, @"@\w+");
@@ -91,8 +100,11 @@ public class ParameterCountRule : ContractRuleBase
 public class ParameterTypeMatchRule : ContractRuleBase
 {
     public override string RuleId => "DG002";
+
     public override string Name => "Parameter Type Match";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Parameter CLR types must match database types";
 
     private static readonly ImmutableDictionary<string, string[]> SqlServerTypeMap = ImmutableDictionary<string, string[]>.Empty
@@ -137,7 +149,6 @@ public class ParameterTypeMatchRule : ContractRuleBase
         {
             var isOracle = sqlDesc.Parameters?.Any(p => p.DataType?.Contains("NUMBER", StringComparison.OrdinalIgnoreCase) == true) == true;
 
-
             foreach (var param in sqlDesc.Parameters ?? Array.Empty<ParameterDescriptor>())
             {
                 var clrType = InferClrType(param.DataType);
@@ -176,7 +187,10 @@ public class ParameterTypeMatchRule : ContractRuleBase
     {
         var map = isOracle ? OracleTypeMap : SqlServerTypeMap;
         if (!map.TryGetValue(clrType, out var compatibleDbTypes))
+        {
             return false;
+        }
+
         return compatibleDbTypes.Any(t => dbType.Contains(t, StringComparison.OrdinalIgnoreCase));
     }
 }
@@ -187,8 +201,11 @@ public class ParameterTypeMatchRule : ContractRuleBase
 public class ParameterDirectionRule : ContractRuleBase
 {
     public override string RuleId => "DG003";
+
     public override string Name => "Parameter Direction Match";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Parameter direction must match call site (in/out/ref)";
 
     protected override async Task ValidateCoreAsync(
@@ -223,8 +240,11 @@ public class ParameterDirectionRule : ContractRuleBase
 public class ColumnShapeMatchRule : ContractRuleBase
 {
     public override string RuleId => "DG004";
+
     public override string Name => "Column Shape Match";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Result set columns must match entity properties";
 
     protected override async Task ValidateCoreAsync(
@@ -251,7 +271,9 @@ public class ColumnShapeMatchRule : ContractRuleBase
 
                     // If no columns could be extracted (SELECT *, expressions only), skip shape comparison.
                     if (columnNames.Count == 0)
+                    {
                         return;
+                    }
 
                     // Check for missing required columns
                     var missingColumns = entityDesc.Properties
@@ -292,26 +314,36 @@ public class ColumnShapeMatchRule : ContractRuleBase
             sqlText, @"SELECT\s+(.+?)\s+FROM", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
         if (!selectMatch.Success)
+        {
             return columns;
+        }
 
         var selectClause = selectMatch.Groups[1].Value;
         if (selectClause.Trim() == "*")
+        {
             return columns; // SELECT *: column list is unknown, skip shape comparison.
+        }
 
         foreach (var part in selectClause.Split(','))
         {
             var trimmed = part.Trim();
             if (trimmed.Length == 0 || trimmed == "*")
+            {
                 continue;
+            }
 
             // Skip expressions: function calls, qualified refs, literals, operators.
             if (trimmed.Contains('(') || trimmed.Contains('.') ||
                 trimmed.Contains('+') || trimmed.Contains('-') || trimmed.Contains('*') || trimmed.Contains('/'))
+            {
                 continue;
+            }
 
-            var tokens = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            var tokens = trimmed.Split((char[] ?)null, StringSplitOptions.RemoveEmptyEntries);
             if (tokens.Length == 0)
+            {
                 continue;
+            }
 
             // "column AS alias" -> use the alias; otherwise use the last token (handles "column alias").
             var asIndex = Array.FindIndex(tokens, t => t.Equals("AS", StringComparison.OrdinalIgnoreCase));
@@ -320,7 +352,9 @@ public class ColumnShapeMatchRule : ContractRuleBase
                 : tokens[tokens.Length - 1];
 
             if (string.IsNullOrEmpty(columnName) || IsSqlKeyword(columnName))
+            {
                 continue;
+            }
 
             columns.Add(columnName);
         }
@@ -342,8 +376,11 @@ public class ColumnShapeMatchRule : ContractRuleBase
 public class NullableMismatchRule : ContractRuleBase
 {
     public override string RuleId => "DG005";
+
     public override string Name => "Nullable Match";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "Database NOT NULL columns should match non-nullable entity properties";
 
     protected override async Task ValidateCoreAsync(
@@ -357,7 +394,9 @@ public class NullableMismatchRule : ContractRuleBase
         {
             var schema = allContracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault();
             if (schema == null)
+            {
                 return;
+            }
 
             var columnNullability = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             foreach (var table in schema.Tables)
@@ -373,10 +412,14 @@ public class NullableMismatchRule : ContractRuleBase
                 var hasRequired = prop.Annotations?.Any(a => a.Key == "Required") == true;
                 var columnName = prop.ColumnName;
                 if (string.IsNullOrEmpty(columnName))
+                {
                     continue;
+                }
 
                 if (!columnNullability.TryGetValue(columnName, out var columnIsNullable))
+                {
                     continue;
+                }
 
                 if (hasRequired && columnIsNullable)
                 {
@@ -405,8 +448,11 @@ public class NamingConventionRule : ContractRuleBase
     private readonly NamingConvention _convention;
 
     public override string RuleId => "DG006";
+
     public override string Name => "Naming Convention";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Info;
+
     public override string Description => "Database column names should follow naming convention vs C# properties";
 
     public NamingConventionRule(NamingConvention convention = NamingConvention.SnakeCaseToPascalCase)
@@ -429,7 +475,10 @@ public class NamingConventionRule : ContractRuleBase
                 var snakeCaseName = ToSnakeCase(prop.Name);
 
                 var columnName = prop.ColumnName;
-                if (string.IsNullOrEmpty(columnName)) continue;
+                if (string.IsNullOrEmpty(columnName))
+                {
+                    continue;
+                }
 
                 var matchesSnake = columnName.Equals(snakeCaseName, StringComparison.OrdinalIgnoreCase);
                 var matchesPascal = columnName.Equals(pascalCaseName, StringComparison.OrdinalIgnoreCase);

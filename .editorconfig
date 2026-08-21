@@ -1,0 +1,72 @@
+root = true
+
+[*.cs]
+# Style preferences that do not apply to this codebase. Disabling these keeps
+# the remaining StyleCop rules meaningful (formatting + real XML-doc issues).
+
+# this. prefix on local calls (modern C# omits it)
+dotnet_diagnostic.SA1101.severity = none
+
+# using-directive placement inside namespace (file-scoped namespaces are the norm here)
+dotnet_diagnostic.SA1200.severity = none
+
+# record positional parameter casing (PascalCase positional params are idiomatic)
+dotnet_diagnostic.SA1313.severity = none
+
+# field naming convention
+dotnet_diagnostic.SA1309.severity = none
+
+# string literal quote style
+dotnet_diagnostic.SA1122.severity = none
+
+# do not place regions within elements
+dotnet_diagnostic.SA1124.severity = none
+
+# same line element order
+dotnet_diagnostic.SA1137.severity = none
+
+# XML documentation of every element (too noisy for internal/record surface)
+dotnet_diagnostic.SA1600.severity = none
+
+# enum item documentation
+dotnet_diagnostic.SA1602.severity = none
+
+# file header required on every file
+dotnet_diagnostic.SA1633.severity = none
+
+
+# XML documentation completeness (project does not require full public-API docs)
+dotnet_diagnostic.SA1611.severity = none
+dotnet_diagnostic.SA1615.severity = none
+dotnet_diagnostic.SA1616.severity = none
+dotnet_diagnostic.SA1618.severity = none
+dotnet_diagnostic.SA1623.severity = none
+dotnet_diagnostic.SA1629.severity = none
+dotnet_diagnostic.SA1651.severity = none
+
+# member ordering preferences
+dotnet_diagnostic.SA1201.severity = none
+dotnet_diagnostic.SA1202.severity = none
+dotnet_diagnostic.SA1204.severity = none
+dotnet_diagnostic.SA1214.severity = none
+
+# layout preferences already normalized once by dotnet format
+dotnet_diagnostic.SA1111.severity = none
+dotnet_diagnostic.SA1117.severity = none
+dotnet_diagnostic.SA1118.severity = none
+dotnet_diagnostic.SA1413.severity = none
+dotnet_diagnostic.SA1009.severity = none
+dotnet_diagnostic.SA1018.severity = none
+dotnet_diagnostic.SA1024.severity = none
+dotnet_diagnostic.SA1513.severity = none
+dotnet_diagnostic.SA1516.severity = none
+
+# IContractRule.ValidateAsync is Task-returning by contract; many rules validate
+# synchronously and do not await. CS1998 is intentional noise here.
+dotnet_diagnostic.CS1998.severity = none
+
+# SA1011 conflicts with the null-forgiving idiom `arr[i]!` (a space after `]`
+# would be invalid C#).
+dotnet_diagnostic.SA1011.severity = none
+# using directive ordering (dotnet format handles it)
+dotnet_diagnostic.SA1210.severity = none

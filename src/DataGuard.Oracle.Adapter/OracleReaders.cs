@@ -26,6 +26,7 @@ public class AllArgumentsReader
     /// <summary>
     /// Gets parameters for a specific procedure, handling overloads via sequence/overload.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<IReadOnlyList<ParameterDescriptor>> GetParametersAsync(
         string owner,
         string packageName,
@@ -81,7 +82,9 @@ public class AllArgumentsReader
         {
             var position = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
             if (reader.IsDBNull(0) || position == 0)
+            {
                 continue; // function return-value row - not a real parameter
+            }
 
             var name = reader.GetString(0);
             var inOut = reader.IsDBNull(1) ? "" : reader.GetString(1);
@@ -119,8 +122,7 @@ public class AllArgumentsReader
                 Sequence: seq,
                 TypeOwner: typeOwner,
                 TypeName: typeName,
-                TypeSubname: typeSubname
-            ));
+                TypeSubname: typeSubname));
         }
 
         return parameters;
@@ -132,6 +134,7 @@ public class AllArgumentsReader
     /// <summary>
     /// Lists distinct procedure/function names in a schema (from ALL_PROCEDURES).
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<IReadOnlyList<string>> GetProcedureNamesAsync(
         string owner,
         string? packageName = null,
@@ -139,7 +142,10 @@ public class AllArgumentsReader
     {
         var sql = "SELECT DISTINCT object_name FROM all_procedures WHERE owner = UPPER(:owner)";
         if (!string.IsNullOrEmpty(packageName))
+        {
             sql += " AND package_name = UPPER(:packageName)";
+        }
+
         sql += " ORDER BY object_name";
 
         await using var connection = new OracleConnection(_connectionString);
@@ -148,15 +154,20 @@ public class AllArgumentsReader
         await using var command = new OracleCommand(sql, connection);
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
         if (!string.IsNullOrEmpty(packageName))
+        {
             command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
+        }
 
         var names = new List<string>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
             if (!reader.IsDBNull(0))
+            {
                 names.Add(reader.GetString(0));
+            }
         }
+
         return names;
     }
 
@@ -195,7 +206,7 @@ public class AllArgumentsReader
         command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        
+
         var currentOverload = new ProcedureOverloadInfo();
         int? lastOverload = null;
 
@@ -203,6 +214,7 @@ public class AllArgumentsReader
         {
             var seq = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
             var overload = ReadOverload(reader, 1);
+
             // SUBPROGRAM_ID is NUMBER and unique per overload; fall back to the
             // (possibly string-typed) OVERLOAD column when it is null.
             var groupKey = reader.IsDBNull(9) ? overload : reader.GetInt32(9);
@@ -213,17 +225,20 @@ public class AllArgumentsReader
                 {
                     overloads.Add(currentOverload);
                 }
+
                 currentOverload = new ProcedureOverloadInfo
                 {
                     Sequence = seq,
-                    Overload = groupKey
+                    Overload = groupKey,
                 };
                 lastOverload = groupKey;
             }
 
             var position = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
             if (reader.IsDBNull(2) || position == 0)
+            {
                 continue; // function return-value row - not a real parameter
+            }
 
             var name = reader.GetString(2);
             var inOut = reader.IsDBNull(3) ? "" : reader.GetString(3);
@@ -250,8 +265,7 @@ public class AllArgumentsReader
                 IsNullable: true,
                 OrdinalPosition: position,
                 Overload: overload,
-                Sequence: seq
-            ));
+                Sequence: seq));
         }
 
         if (currentOverload.Parameters.Count > 0)
@@ -268,7 +282,11 @@ public class AllArgumentsReader
     /// </summary>
     private static int ReadOverload(global::Oracle.ManagedDataAccess.Client.OracleDataReader reader, int ordinal)
     {
-        if (reader.IsDBNull(ordinal)) return 0;
+        if (reader.IsDBNull(ordinal))
+        {
+            return 0;
+        }
+
         var raw = Convert.ToString(reader.GetValue(ordinal));
         return int.TryParse(raw, out var value) ? value : 0;
     }
@@ -278,11 +296,20 @@ public class AllArgumentsReader
         if (!string.IsNullOrEmpty(typeName))
         {
             var parts = new List<string>();
-            if (!string.IsNullOrEmpty(typeOwner)) parts.Add(typeOwner);
+            if (!string.IsNullOrEmpty(typeOwner))
+            {
+                parts.Add(typeOwner);
+            }
+
             parts.Add(typeName);
-            if (!string.IsNullOrEmpty(typeSubname)) parts.Add(typeSubname);
+            if (!string.IsNullOrEmpty(typeSubname))
+            {
+                parts.Add(typeSubname);
+            }
+
             return string.Join(".", parts);
         }
+
         return fallback;
     }
 
@@ -300,9 +327,11 @@ public class AllArgumentsReader
 public sealed class ProcedureOverloadInfo
 {
     public int Sequence { get; init; }
+
     public int Overload { get; init; }
-    public List<ParameterDescriptor> Parameters { get; init; } = new();
-    
+
+    public List<ParameterDescriptor> Parameters { get; init; } = new ();
+
     public string SignatureKey => $"{Sequence}:{Overload}";
 }
 
@@ -379,8 +408,7 @@ public class AllTabColumnsReader
                 IsNullable: nullable == "Y",
                 CharUsed: normalizedCharUsed,
                 DataDefault: dataDefault,
-                ColumnId: columnId
-            ));
+                ColumnId: columnId));
         }
 
         return columns;
@@ -389,6 +417,7 @@ public class AllTabColumnsReader
     /// <summary>
     /// Reads all tables' columns for an owner, grouped by table name.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<Dictionary<string, List<ColumnDescriptor>>> GetAllColumnsAsync(
         string owner,
         CancellationToken cancellationToken = default)
@@ -428,6 +457,7 @@ public class AllTabColumnsReader
                 list = new List<ColumnDescriptor>();
                 result[tableName] = list;
             }
+
             list.Add(column);
         }
 
@@ -476,6 +506,7 @@ public class NlsSessionReader
     /// <summary>
     /// Gets database version information.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<DatabaseVersionInfo> GetDatabaseVersionAsync(CancellationToken cancellationToken = default)
     {
         const string sql = @"
@@ -495,6 +526,7 @@ public class NlsSessionReader
     /// <summary>
     /// Gets all NLS parameters relevant to length semantics and character set.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<NlsParameters> GetNlsParametersAsync(CancellationToken cancellationToken = default)
     {
         const string sql = @"
@@ -524,13 +556,13 @@ public class NlsSessionReader
 
         return new NlsParameters
         {
-            LengthSemantics = parameters.GetValueOrDefault("NLS_LENGTH_SEMANTICS") == "CHAR" 
+            LengthSemantics = parameters.GetValueOrDefault("NLS_LENGTH_SEMANTICS") == "CHAR"
                 ? LengthSemantics.Char : LengthSemantics.Byte,
             CharacterSet = parameters.GetValueOrDefault("NLS_CHARACTERSET") ?? "UNKNOWN",
             NCharCharacterSet = parameters.GetValueOrDefault("NLS_NCHAR_CHARACTERSET") ?? "UNKNOWN",
             Language = parameters.GetValueOrDefault("NLS_LANGUAGE") ?? "UNKNOWN",
             Territory = parameters.GetValueOrDefault("NLS_TERRITORY") ?? "UNKNOWN",
-            AllParameters = parameters
+            AllParameters = parameters,
         };
     }
 
@@ -538,7 +570,7 @@ public class NlsSessionReader
     {
         // Parse Oracle banner like "Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Production"
         var info = new DatabaseVersionInfo { Banner = banner };
-        
+
         // Extract version number
         var versionMatch = System.Text.RegularExpressions.Regex.Match(banner, @"Release\s+(\d+\.\d+\.\d+\.\d+\.\d+)");
         if (versionMatch.Success)
@@ -557,13 +589,21 @@ public class NlsSessionReader
 
         // Extract edition
         if (banner.Contains("Enterprise", StringComparison.OrdinalIgnoreCase))
+        {
             info.Edition = "Enterprise";
+        }
         else if (banner.Contains("Standard", StringComparison.OrdinalIgnoreCase))
+        {
             info.Edition = "Standard";
+        }
         else if (banner.Contains("Express", StringComparison.OrdinalIgnoreCase) || banner.Contains("XE", StringComparison.OrdinalIgnoreCase))
+        {
             info.Edition = "Express (XE)";
+        }
         else if (banner.Contains("Personal", StringComparison.OrdinalIgnoreCase))
+        {
             info.Edition = "Personal";
+        }
 
         return info;
     }
@@ -575,9 +615,11 @@ public class NlsSessionReader
 public sealed class DatabaseVersionInfo
 {
     public string Version { get; set; } = "unknown";
+
     public string Edition { get; set; } = "unknown";
+
     public string Banner { get; set; } = "";
-    
+
     public override string ToString() => $"{Edition} {Version}";
 }
 
@@ -587,11 +629,16 @@ public sealed class DatabaseVersionInfo
 public sealed class NlsParameters
 {
     public LengthSemantics LengthSemantics { get; init; }
+
     public string CharacterSet { get; init; } = "UNKNOWN";
+
     public string NCharCharacterSet { get; init; } = "UNKNOWN";
+
     public string Language { get; init; } = "UNKNOWN";
+
     public string Territory { get; init; } = "UNKNOWN";
-    public Dictionary<string, string> AllParameters { get; init; } = new();
+
+    public Dictionary<string, string> AllParameters { get; init; } = new ();
 }
 
 /// <summary>
@@ -620,9 +667,14 @@ public class RefCursorDescriber
         ValidateIdentifier(packageName, nameof(packageName));
         ValidateIdentifier(procedureName, nameof(procedureName));
         if (!string.IsNullOrEmpty(refCursorParameterName))
+        {
             ValidateIdentifier(refCursorParameterName, nameof(refCursorParameterName));
+        }
+
         foreach (var key in sampleParameters.Keys)
+        {
             ValidateIdentifier(key, "sample parameter");
+        }
 
         var paramNames = string.Join(", ", sampleParameters.Keys.Select(k => $"{k} => :{k}"));
 
@@ -660,6 +712,7 @@ END;";
 
         await using var command = connection.CreateCommand();
         command.CommandText = plsql;
+
         // Named notation is used in the PL/SQL block; bind by name, not position.
         command.BindByName = true;
         command.CommandType = CommandType.Text;
@@ -673,7 +726,7 @@ END;";
         {
             command.Parameters.Add(new OracleParameter("cursor_out", OracleDbType.RefCursor)
             {
-                Direction = System.Data.ParameterDirection.Output
+                Direction = System.Data.ParameterDirection.Output,
             });
         }
 
@@ -689,7 +742,7 @@ END;";
                 Direction = System.Data.ParameterDirection.Output,
                 CollectionType = OracleCollectionType.PLSQLAssociativeArray,
                 Size = MaxColumns,
-                ArrayBindSize = Enumerable.Repeat(bindSize, MaxColumns).ToArray()
+                ArrayBindSize = Enumerable.Repeat(bindSize, MaxColumns).ToArray(),
             };
         }
 
@@ -723,8 +776,7 @@ END;";
                 scales[i] >= 0 ? scales[i] : null,
                 nullables[i] == 1,
                 null,
-                null
-            ));
+                null));
         }
 
         return columns;

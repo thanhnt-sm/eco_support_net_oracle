@@ -35,6 +35,7 @@ public class EfModelSource : IContractSource
     }
 
     public string SourceId => "ef-model";
+
     public string DisplayName => "EF Core Model";
 
     public async Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(CancellationToken cancellationToken = default)
@@ -45,17 +46,23 @@ public class EfModelSource : IContractSource
         foreach (var entityType in model.GetEntityTypes())
         {
             if (_config.ExcludedEntities?.Contains(entityType.ClrType.FullName ?? "") == true)
+            {
                 continue;
+            }
 
             if (entityType.IsOwned())
+            {
                 continue;
+            }
 
             var properties = new List<PropertyDescriptor>();
 
             foreach (var property in entityType.GetProperties())
             {
                 if (property.IsShadowProperty())
+                {
                     continue;
+                }
 
                 var columnName = property.GetColumnName() ?? property.Name;
                 var columnType = property.GetColumnType();
@@ -87,7 +94,7 @@ public class EfModelSource : IContractSource
             var viewName = entityType.GetViewName();
             var viewSchema = entityType.GetViewSchema();
 
-            var fullTableName = BuildFullName(schema, tableName);
+            var fullTableName = BuildFullName(schema, tableName!);
             var fullViewName = viewName != null ? BuildFullName(viewSchema, viewName) : null;
 
             // Get table comments/description
@@ -122,7 +129,7 @@ public class EfModelSource : IContractSource
                 var classDecl = root.DescendantNodes()
                     .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax>()
                     .FirstOrDefault(c => c.Identifier.ValueText == clrType.Name);
-                
+
                 if (classDecl != null)
                 {
                     return Location.Create(syntaxTree, classDecl.Span);
@@ -133,10 +140,11 @@ public class EfModelSource : IContractSource
         {
             // Ignore location errors
         }
+
         return null;
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> SourceFileCache = new(StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> SourceFileCache = new (StringComparer.Ordinal);
 
     private static Task<Microsoft.CodeAnalysis.SyntaxTree?> GetSyntaxTreeForTypeAsync(Type type, CancellationToken cancellationToken)
     {
@@ -146,7 +154,9 @@ public class EfModelSource : IContractSource
         var fileName = $"{type.Name}.cs";
         var sourceFile = SourceFileCache.GetOrAdd(fileName, _ => LocateSourceFile(type, fileName));
         if (sourceFile == null)
+        {
             return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(null);
+        }
 
         var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(File.ReadAllText(sourceFile));
         return Task.FromResult<Microsoft.CodeAnalysis.SyntaxTree?>(tree);
@@ -156,14 +166,21 @@ public class EfModelSource : IContractSource
     {
         var assemblyDir = Path.GetDirectoryName(type.Assembly.Location);
         if (string.IsNullOrEmpty(assemblyDir))
+        {
             return null;
+        }
 
         // Walk up out of bin/obj to the project root, then scan source files once.
         var dir = assemblyDir;
         while (dir != null && new DirectoryInfo(dir).Name is "bin" or "obj")
+        {
             dir = Path.GetDirectoryName(dir);
+        }
+
         if (dir == null)
+        {
             return null;
+        }
 
         return Directory.EnumerateFiles(dir, fileName, SearchOption.AllDirectories)
             .FirstOrDefault(f =>
@@ -175,20 +192,23 @@ public class EfModelSource : IContractSource
     /// Alternative: Extract from ModelSnapshot.cs file (design-time, no runtime needed).
     /// Parses the EF Core model snapshot JSON structure.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static async Task<IReadOnlyList<EntityDescriptor>> ExtractFromModelSnapshotAsync(
         string snapshotFilePath,
         DataGuardConfiguration? config = null,
         CancellationToken cancellationToken = default)
     {
         if (!File.Exists(snapshotFilePath))
+        {
             return new List<EntityDescriptor>();
+        }
 
         var json = await File.ReadAllTextAsync(snapshotFilePath, cancellationToken);
         return ParseModelSnapshot(json, config);
     }
 
     /// <summary>
-    /// Parse EF Core ModelSnapshot JSON (from <Context>ModelSnapshot.cs).
+    /// Parses the EF Core ModelSnapshot JSON emitted by the generated DbContext ModelSnapshot file.
     /// </summary>
     public static IReadOnlyList<EntityDescriptor> ParseModelSnapshot(
         string json,
@@ -199,20 +219,28 @@ public class EfModelSource : IContractSource
         try
         {
             var jsonNode = JsonNode.Parse(json);
-            if (jsonNode == null) return entities;
+            if (jsonNode == null)
+            {
+                return entities;
+            }
 
             // EF Core ModelSnapshot has a specific structure
             // Look for the modelBuilder.Entity<...>() calls in the BuildModel method
             var buildModel = FindBuildModelMethod(jsonNode);
-            if (buildModel == null) return entities;
+            if (buildModel == null)
+            {
+                return entities;
+            }
 
             var entityConfigs = ExtractEntityConfigurations(buildModel);
-            
+
             foreach (var entityConfig in entityConfigs)
             {
                 var entity = ParseEntityConfiguration(entityConfig, config);
                 if (entity != null)
+                {
                     entities.Add(entity);
+                }
             }
         }
         catch
@@ -231,28 +259,35 @@ public class EfModelSource : IContractSource
         {
             // Look for common patterns in EF Core snapshot JSON
             if (obj.TryGetPropertyValue("BuildModel", out var buildModel))
+            {
                 return buildModel;
-            
+            }
+
             // Sometimes it's nested
             foreach (var prop in obj)
             {
                 if (prop.Value is JsonObject nested && nested.TryGetPropertyValue("BuildModel", out var bm))
+                {
                     return bm;
+                }
             }
         }
+
         return root;
     }
 
     private static IEnumerable<JsonNode> ExtractEntityConfigurations(JsonNode? buildModel)
     {
         var results = new List<JsonNode>();
-        
+
         if (buildModel is JsonArray array)
         {
             foreach (var item in array)
             {
                 if (IsEntityCall(item))
-                    results.Add(item);
+                {
+                    results.Add(item!);
+                }
                 else if (item is JsonObject obj)
                 {
                     // Recurse into nested objects
@@ -278,9 +313,13 @@ public class EfModelSource : IContractSource
                 foreach (var item in arr)
                 {
                     if (IsEntityCall(item))
-                        results.Add(item);
+                    {
+                        results.Add(item!);
+                    }
                     else if (item is JsonObject nested)
+                    {
                         results.AddRange(ExtractEntityConfigurationsFromObject(nested));
+                    }
                 }
             }
             else if (prop.Value is JsonObject nested)
@@ -288,6 +327,7 @@ public class EfModelSource : IContractSource
                 results.AddRange(ExtractEntityConfigurationsFromObject(nested));
             }
         }
+
         return results;
     }
 
@@ -298,6 +338,7 @@ public class EfModelSource : IContractSource
             var methodName = methodNode?.GetValue<string>() ?? "";
             return methodName == "Entity" || methodName.StartsWith("Entity<", StringComparison.Ordinal);
         }
+
         return false;
     }
 
@@ -320,7 +361,7 @@ public class EfModelSource : IContractSource
                     {
                         if (arg is JsonObject argObj && argObj.TryGetPropertyValue("Name", out var nameNode))
                         {
-                            clrTypeName = nameNode.GetValue<string>();
+                            clrTypeName = nameNode!.GetValue<string>();
                             break;
                         }
                     }
@@ -332,11 +373,16 @@ public class EfModelSource : IContractSource
                     if (tableArgs.Count > 0 && tableArgs[0] is JsonObject tObj)
                     {
                         if (tObj.TryGetPropertyValue("Value", out var tableNameNode))
-                            tableName = tableNameNode.GetValue<string>();
+                        {
+                            tableName = tableNameNode!.GetValue<string>();
+                        }
+
                         if (tableArgs.Count > 1 && tableArgs[1] is JsonObject sObj)
                         {
                             if (sObj.TryGetPropertyValue("Value", out var schemaNode))
-                                schema = schemaNode.GetValue<string>();
+                            {
+                                schema = schemaNode!.GetValue<string>();
+                            }
                         }
                     }
                 }
@@ -346,20 +392,26 @@ public class EfModelSource : IContractSource
                 {
                     foreach (var prop in propArray)
                     {
-                        var property = ParsePropertyConfiguration(prop);
+                        var property = ParsePropertyConfiguration(prop!);
                         if (property != null)
+                        {
                             properties.Add(property);
+                        }
                     }
                 }
             }
 
             if (string.IsNullOrEmpty(clrTypeName))
+            {
                 return null;
+            }
 
             if (config?.ExcludedEntities?.Contains(clrTypeName) == true)
+            {
                 return null;
+            }
 
-            var fullTableName = BuildFullName(schema, tableName);
+            var fullTableName = BuildFullName(schema, tableName!);
 
             return new EntityDescriptor(
                 Id: $"entity:{clrTypeName}",
@@ -379,7 +431,10 @@ public class EfModelSource : IContractSource
     {
         try
         {
-            if (propConfig is not JsonObject obj) return null;
+            if (propConfig is not JsonObject obj)
+            {
+                return null;
+            }
 
             string? name = null;
             string? clrType = null;
@@ -392,10 +447,14 @@ public class EfModelSource : IContractSource
             var annotations = ImmutableDictionary<string, object?>.Empty;
 
             if (obj.TryGetPropertyValue("Name", out var nameNode))
-                name = nameNode.GetValue<string>();
+            {
+                name = nameNode!.GetValue<string>();
+            }
 
             if (obj.TryGetPropertyValue("ClrType", out var clrTypeNode))
-                clrType = clrTypeNode.GetValue<string>();
+            {
+                clrType = clrTypeNode!.GetValue<string>();
+            }
 
             // Parse HasColumnName, HasColumnType, IsRequired, HasMaxLength, etc.
             if (obj.TryGetPropertyValue("Calls", out var calls) && calls is JsonArray callArray)
@@ -406,35 +465,53 @@ public class EfModelSource : IContractSource
                     {
                         if (callObj.TryGetPropertyValue("Method", out var methodNode))
                         {
-                            var method = methodNode.GetValue<string>() ?? "";
+                            var method = methodNode!.GetValue<string>() ?? "";
                             switch (method)
                             {
                                 case "HasColumnName":
-                                {
-                                    if (callObj.TryGetPropertyValue("Arguments", out var hcnArgs) && hcnArgs is JsonArray hcnArr && hcnArr.Count > 0)
-                                        columnName = hcnArr[0].GetValue<string>();
-                                    break;
-                                }
+                                    {
+                                        if (callObj.TryGetPropertyValue("Arguments", out var hcnArgs) && hcnArgs is JsonArray hcnArr && hcnArr.Count > 0)
+                                        {
+                                            columnName = hcnArr[0]!.GetValue<string>();
+                                        }
+
+                                        break;
+                                    }
+
                                 case "HasColumnType":
-                                {
-                                    if (callObj.TryGetPropertyValue("Arguments", out var hctArgs) && hctArgs is JsonArray hctArr && hctArr.Count > 0)
-                                        columnType = hctArr[0].GetValue<string>();
-                                    break;
-                                }
+                                    {
+                                        if (callObj.TryGetPropertyValue("Arguments", out var hctArgs) && hctArgs is JsonArray hctArr && hctArr.Count > 0)
+                                        {
+                                            columnType = hctArr[0]!.GetValue<string>();
+                                        }
+
+                                        break;
+                                    }
+
                                 case "IsRequired":
-                                {
-                                    if (callObj.TryGetPropertyValue("Arguments", out var irArgs) && irArgs is JsonArray irArr && irArr.Count > 0)
-                                        isNullable = !irArr[0].GetValue<bool>();
-                                    else
-                                        isNullable = false;
-                                    break;
-                                }
+                                    {
+                                        if (callObj.TryGetPropertyValue("Arguments", out var irArgs) && irArgs is JsonArray irArr && irArr.Count > 0)
+                                        {
+                                            isNullable = !irArr[0]!.GetValue<bool>();
+                                        }
+                                        else
+                                        {
+                                            isNullable = false;
+                                        }
+
+                                        break;
+                                    }
+
                                 case "HasMaxLength":
-                                {
-                                    if (callObj.TryGetPropertyValue("Arguments", out var hmlArgs) && hmlArgs is JsonArray hmlArr && hmlArr.Count > 0)
-                                        maxLength = hmlArr[0].GetValue<int?>();
-                                    break;
-                                }
+                                    {
+                                        if (callObj.TryGetPropertyValue("Arguments", out var hmlArgs) && hmlArgs is JsonArray hmlArr && hmlArr.Count > 0)
+                                        {
+                                            maxLength = hmlArr[0]!.GetValue<int?>();
+                                        }
+
+                                        break;
+                                    }
+
                                 case "IsPrimaryKey":
                                     isPrimaryKey = true;
                                     break;
@@ -448,7 +525,9 @@ public class EfModelSource : IContractSource
             }
 
             if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(clrType))
+            {
                 return null;
+            }
 
             return new PropertyDescriptor(
                 Name: name,
@@ -470,6 +549,7 @@ public class EfModelSource : IContractSource
     /// <summary>
     /// Create EF Model Source from DbContext options (for design-time services).
     /// </summary>
+    /// <returns></returns>
     public static EfModelSource CreateFromOptions(
         DbContextOptions options,
         DataGuardConfiguration config)
@@ -482,6 +562,7 @@ public class EfModelSource : IContractSource
     /// <summary>
     /// Create EF Model Source using IDesignTimeServices for design-time model extraction.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static async Task<IReadOnlyList<EntityDescriptor>> ExtractFromDesignTimeAsync(
         string projectPath,
         string contextTypeName,
@@ -494,7 +575,10 @@ public class EfModelSource : IContractSource
         {
             var entities = await ExtractFromModelSnapshotAsync(snapshotPath, config, cancellationToken);
             if (entities.Count > 0)
+            {
                 return entities;
+            }
+
             // Snapshot parsing produced no entities - fall through to the built assembly.
         }
 
@@ -510,7 +594,9 @@ public class EfModelSource : IContractSource
     {
         var outputDir = Path.Combine(projectPath, "bin");
         if (!Directory.Exists(outputDir))
+        {
             return new List<EntityDescriptor>();
+        }
 
         foreach (var dll in Directory.GetFiles(outputDir, "*.dll", SearchOption.AllDirectories))
         {
@@ -519,10 +605,16 @@ public class EfModelSource : IContractSource
                 var assembly = Assembly.LoadFrom(dll);
                 var contextType = assembly.GetTypes()
                     .FirstOrDefault(t => t.Name == contextTypeName && typeof(DbContext).IsAssignableFrom(t));
-                if (contextType == null) continue;
+                if (contextType == null)
+                {
+                    continue;
+                }
 
                 var context = (DbContext?)Activator.CreateInstance(contextType);
-                if (context == null) continue;
+                if (context == null)
+                {
+                    continue;
+                }
 
                 using (context)
                 {
@@ -544,16 +636,22 @@ public class EfModelSource : IContractSource
     {
         var migrationsDir = Path.Combine(projectPath, "Migrations");
         if (!Directory.Exists(migrationsDir))
+        {
             return null;
+        }
 
         var snapshotFiles = Directory.GetFiles(migrationsDir, "*ModelSnapshot.cs");
+
         // Find the one matching our context
         foreach (var file in snapshotFiles)
         {
             var content = File.ReadAllText(file);
             if (content.Contains(contextTypeName, StringComparison.OrdinalIgnoreCase))
+            {
                 return file;
+            }
         }
+
         return snapshotFiles.FirstOrDefault();
     }
 }

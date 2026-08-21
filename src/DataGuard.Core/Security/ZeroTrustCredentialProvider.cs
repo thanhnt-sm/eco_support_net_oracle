@@ -1,16 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using DataGuard.Core.Models;
-using System.Net.Http;
-using System.Text.Json;
-using System.Net.Http.Headers;
 using Amazon;
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
-using System.Security.Cryptography;
+using DataGuard.Core.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -49,13 +49,14 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     /// Gets a credential without ever exposing it in logs, memory dumps, or serialization.
     /// The credential is fetched just-in-time and cleared from memory after use.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<CredentialHandle> GetCredentialAsync(
         string credentialName,
         CredentialType type,
         CancellationToken cancellationToken = default)
     {
         var handle = new CredentialHandle(credentialName, type);
-        
+
         try
         {
             await _auditLogger.LogCredentialAccessAsync(
@@ -65,7 +66,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
                 cancellationToken);
 
             var value = await ResolveCredentialAsync(credentialName, type, cancellationToken);
-            
+
             if (string.IsNullOrEmpty(value))
             {
                 throw new InvalidOperationException($"Credential '{credentialName}' not found in any source");
@@ -85,6 +86,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     /// Gets the database connection string using zero-trust principles.
     /// Never logs the connection string, fetches from secure sources only.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<CredentialHandle> GetDatabaseConnectionAsync(CancellationToken cancellationToken = default)
     {
         return await GetCredentialAsync("DatabaseConnection", CredentialType.DatabaseConnection, cancellationToken);
@@ -95,7 +97,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     /// 1. Environment variable (highest priority - CI/CD injection)
     /// 2. Azure Key Vault / AWS Secrets Manager / HashiCorp Vault
     /// 3. Local encrypted credential store
-    /// 4. Configuration file (lowest priority - dev only)
+    /// 4. Configuration file (lowest priority - dev only).
     /// </summary>
     private async Task<string> ResolveCredentialAsync(
         string credentialName,
@@ -153,7 +155,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         }
 
         // Priority 6: Configuration file (dev only, fail-closed unless explicitly allowed)
-        var configValue = _configuration.GetConnectionString(credentialName) 
+        var configValue = _configuration.GetConnectionString(credentialName)
                        ?? _configuration[credentialName];
         if (!string.IsNullOrEmpty(configValue))
         {
@@ -184,32 +186,43 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     private async Task<string> GetFromKeyVaultAsync(string credentialName, CancellationToken cancellationToken)
     {
         if (!IsAzureKeyVaultUri(_config.KeyVaultUri))
+        {
             return string.Empty;
+        }
+
         try
         {
             using var client = new HttpClient();
 
             // Azure managed identity token (IMDS endpoint) for Key Vault.
-            using var tokenRequest = new HttpRequestMessage(HttpMethod.Get,
+            using var tokenRequest = new HttpRequestMessage(
+                HttpMethod.Get,
                 "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net");
             tokenRequest.Headers.Add("Metadata", "true");
             var tokenResponse = await client.SendAsync(tokenRequest, cancellationToken);
             if (!tokenResponse.IsSuccessStatusCode)
+            {
                 return string.Empty;
+            }
 
             var tokenJson = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
             using var tokenDoc = JsonDocument.Parse(tokenJson);
             var accessToken = tokenDoc.RootElement.GetProperty("access_token").GetString();
             if (string.IsNullOrEmpty(accessToken))
+            {
                 return string.Empty;
+            }
 
             // Key Vault REST: GET secrets/{name}?api-version=7.4
-            using var secretRequest = new HttpRequestMessage(HttpMethod.Get,
+            using var secretRequest = new HttpRequestMessage(
+                HttpMethod.Get,
                 $"{_config.KeyVaultUri!.TrimEnd('/')}/secrets/{Uri.EscapeDataString(credentialName)}?api-version=7.4");
             secretRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             var secretResponse = await client.SendAsync(secretRequest, cancellationToken);
             if (!secretResponse.IsSuccessStatusCode)
+            {
                 return string.Empty;
+            }
 
             var secretJson = await secretResponse.Content.ReadAsStringAsync(cancellationToken);
             using var secretDoc = JsonDocument.Parse(secretJson);
@@ -240,10 +253,15 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     private async Task<string> GetFromHashiCorpVaultAsync(string credentialName, CancellationToken cancellationToken)
     {
         if (!IsHttpsUri(_config.VaultAddress))
+        {
             return string.Empty;
+        }
+
         var token = Environment.GetEnvironmentVariable("VAULT_TOKEN");
         if (string.IsNullOrEmpty(token))
+        {
             return string.Empty;
+        }
 
         try
         {
@@ -253,7 +271,9 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
             var url = $"{_config.VaultAddress!.TrimEnd('/')}/v1/secret/data/{Uri.EscapeDataString(credentialName)}";
             var response = await client.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
+            {
                 return string.Empty;
+            }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc = JsonDocument.Parse(json);
@@ -263,6 +283,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
             {
                 return value.GetString() ?? string.Empty;
             }
+
             return string.Empty;
         }
         catch (Exception ex)
@@ -297,7 +318,6 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(hash)[..16];
     }
-
 }
 
 /// <summary>
@@ -306,6 +326,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 public interface ICredentialProvider
 {
     Task<CredentialHandle> GetCredentialAsync(string credentialName, CredentialType type, CancellationToken cancellationToken = default);
+
     Task<CredentialHandle> GetDatabaseConnectionAsync(CancellationToken cancellationToken = default);
 }
 
@@ -317,7 +338,7 @@ public sealed class CredentialHandle : IDisposable
 {
     private readonly string _credentialName;
     private readonly CredentialType _type;
-    private char[]? _value;
+    private char[] ? _value;
     private bool _disposed;
 
     public CredentialHandle(string credentialName, CredentialType type)
@@ -328,7 +349,11 @@ public sealed class CredentialHandle : IDisposable
 
     internal void SetValue(string value)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(CredentialHandle));
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(CredentialHandle));
+        }
+
         _value = value.ToCharArray();
     }
 
@@ -336,11 +361,19 @@ public sealed class CredentialHandle : IDisposable
     /// Executes an action with the credential value without exposing it directly.
     /// The value is passed as a char array and cleared after the action completes.
     /// </summary>
+    /// <returns></returns>
     public T Use<T>(Func<char[], T> action)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(CredentialHandle));
-        if (_value == null) throw new InvalidOperationException("Credential not set");
-        
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(CredentialHandle));
+        }
+
+        if (_value == null)
+        {
+            throw new InvalidOperationException("Credential not set");
+        }
+
         try
         {
             return action(_value);
@@ -354,10 +387,19 @@ public sealed class CredentialHandle : IDisposable
     /// <summary>
     /// Gets the credential as a string (use with caution - prefer Use()).
     /// </summary>
+    /// <returns></returns>
     public string GetString()
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(CredentialHandle));
-        if (_value == null) throw new InvalidOperationException("Credential not set");
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(CredentialHandle));
+        }
+
+        if (_value == null)
+        {
+            throw new InvalidOperationException("Credential not set");
+        }
+
         return new string(_value);
     }
 
@@ -370,6 +412,7 @@ public sealed class CredentialHandle : IDisposable
             _value = null;
             _disposed = true;
         }
+
         GC.SuppressFinalize(this);
     }
 
@@ -388,5 +431,5 @@ public enum CredentialType
     ApiKey,
     Certificate,
     Token,
-    UsernamePassword
+    UsernamePassword,
 }

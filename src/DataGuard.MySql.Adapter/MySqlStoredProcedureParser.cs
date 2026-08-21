@@ -9,7 +9,9 @@ namespace DataGuard.MySql.Adapter;
 public sealed class MySqlStoredProcedureParser : IContractSource
 {
     public string SourceId => "mysql-sp";
+
     public string DisplayName => "MySQL Stored Procedures";
+
     private readonly string _connectionString;
     private readonly string _schema;
 
@@ -44,7 +46,9 @@ public sealed class MySqlStoredProcedureParser : IContractSource
         {
             var name = reader.IsDBNull(0) ? "" : reader.GetString(0);
             if (reader.IsDBNull(1))
+            {
                 continue; // LEFT JOIN filler row for a procedure without parameters - skip.
+            }
 
             var paramName = reader.GetString(1);
             var dataType = reader.IsDBNull(2) ? "" : reader.GetString(2);
@@ -61,6 +65,7 @@ public sealed class MySqlStoredProcedureParser : IContractSource
                 entry = (name, routineSchema, new List<ParameterDescriptor>());
                 procedures[key] = entry;
             }
+
             entry.Parameters.Add(new ParameterDescriptor(
                 Name: paramName,
                 DataType: dataType,

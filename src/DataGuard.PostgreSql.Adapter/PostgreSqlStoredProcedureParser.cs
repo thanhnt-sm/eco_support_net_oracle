@@ -9,7 +9,9 @@ namespace DataGuard.PostgreSql.Adapter;
 public sealed class PostgreSqlStoredProcedureParser : IContractSource
 {
     public string SourceId => "postgresql-sp";
+
     public string DisplayName => "PostgreSQL Stored Procedures";
+
     private readonly string _connectionString;
     private readonly string _schema;
 
@@ -44,7 +46,10 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
         {
             var name = reader.IsDBNull(0) ? "" : reader.GetString(0);
             if (reader.IsDBNull(4))
+            {
                 continue; // LEFT JOIN filler row for a procedure without parameters - skip (ordinal_position IS NULL).
+            }
+
             var paramName = reader.IsDBNull(1) ? "" : reader.GetString(1);
             var dataType = reader.IsDBNull(2) ? "" : reader.GetString(2);
             var mode = reader.IsDBNull(3) ? "IN" : reader.GetString(3);
@@ -61,6 +66,7 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 entry = (name, new List<ParameterDescriptor>());
                 procedures[key] = entry;
             }
+
             entry.Parameters.Add(new ParameterDescriptor(
                 Name: paramName,
                 DataType: dataType,

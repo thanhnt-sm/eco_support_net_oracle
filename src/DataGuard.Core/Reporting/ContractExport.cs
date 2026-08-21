@@ -13,41 +13,51 @@ namespace DataGuard.Core.Reporting;
 /// <summary>Machine-readable export of validated contracts (entity, stored procedure, schema).</summary>
 public sealed class ContractExport
 {
-    /// <summary>Export schema version.</summary>
+    /// <summary>Gets or sets export schema version.</summary>
     public int SchemaVersion { get; set; } = 1;
 
-    /// <summary>Database provider used to collect contracts.</summary>
+    /// <summary>Gets or sets database provider used to collect contracts.</summary>
     public string Provider { get; set; } = string.Empty;
 
-    /// <summary>Entity contracts.</summary>
-    public List<EntityExport> Entities { get; set; } = new();
+    /// <summary>Gets or sets entity contracts.</summary>
+    public List<EntityExport> Entities { get; set; } = new ();
 
-    /// <summary>Stored-procedure contracts.</summary>
-    public List<StoredProcedureExport> StoredProcedures { get; set; } = new();
+    /// <summary>Gets or sets stored-procedure contracts.</summary>
+    public List<StoredProcedureExport> StoredProcedures { get; set; } = new ();
 
-    /// <summary>Database ground-truth tables.</summary>
-    public List<TableExport> Tables { get; set; } = new();
+    /// <summary>Gets or sets database ground-truth tables.</summary>
+    public List<TableExport> Tables { get; set; } = new ();
 }
 
 /// <summary>An exported entity contract.</summary>
 public sealed class EntityExport
 {
     public string Name { get; set; } = string.Empty;
+
     public string ClrTypeName { get; set; } = string.Empty;
+
     public string? TableName { get; set; }
-    public List<PropertyExport> Properties { get; set; } = new();
+
+    public List<PropertyExport> Properties { get; set; } = new ();
 }
 
 /// <summary>An exported entity property.</summary>
 public sealed class PropertyExport
 {
     public string Name { get; set; } = string.Empty;
+
     public string ClrTypeName { get; set; } = string.Empty;
+
     public string? ColumnName { get; set; }
+
     public string? ColumnType { get; set; }
+
     public bool IsNullable { get; set; }
+
     public int? MaxLength { get; set; }
+
     public bool IsPrimaryKey { get; set; }
+
     public bool IsForeignKey { get; set; }
 }
 
@@ -55,22 +65,33 @@ public sealed class PropertyExport
 public sealed class StoredProcedureExport
 {
     public string Name { get; set; } = string.Empty;
+
     public string Schema { get; set; } = string.Empty;
+
     public string PackageName { get; set; } = string.Empty;
-    public List<ParameterExport> Parameters { get; set; } = new();
-    public List<ColumnExport> ResultColumns { get; set; } = new();
+
+    public List<ParameterExport> Parameters { get; set; } = new ();
+
+    public List<ColumnExport> ResultColumns { get; set; } = new ();
 }
 
 /// <summary>An exported stored-procedure parameter.</summary>
 public sealed class ParameterExport
 {
     public string Name { get; set; } = string.Empty;
+
     public string DataType { get; set; } = string.Empty;
+
     public string Direction { get; set; } = string.Empty;
+
     public int? MaxLength { get; set; }
+
     public int? Precision { get; set; }
+
     public int? Scale { get; set; }
+
     public bool IsNullable { get; set; }
+
     public int OrdinalPosition { get; set; }
 }
 
@@ -78,10 +99,15 @@ public sealed class ParameterExport
 public sealed class ColumnExport
 {
     public string Name { get; set; } = string.Empty;
+
     public string DataType { get; set; } = string.Empty;
+
     public int? MaxLength { get; set; }
+
     public int? Precision { get; set; }
+
     public int? Scale { get; set; }
+
     public bool IsNullable { get; set; }
 }
 
@@ -89,19 +115,21 @@ public sealed class ColumnExport
 public sealed class TableExport
 {
     public string Name { get; set; } = string.Empty;
-    public List<ColumnExport> Columns { get; set; } = new();
+
+    public List<ColumnExport> Columns { get; set; } = new ();
 }
 
 /// <summary>Serializes contracts without arbitrary location or annotation metadata.</summary>
 public static class ContractExportWriter
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOptions = new ()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
     /// <summary>Builds a deterministic export from a set of contracts.</summary>
+    /// <returns></returns>
     public static ContractExport Build(string provider, IEnumerable<ContractDescriptor> contracts)
     {
         var export = new ContractExport { Provider = provider };
@@ -172,13 +200,14 @@ public static class ContractExportWriter
     }
 
     /// <summary>Writes the export as deterministic JSON.</summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static async Task WriteJsonAsync(string outputPath, string provider, IEnumerable<ContractDescriptor> contracts, CancellationToken cancellationToken = default)
     {
         var json = JsonSerializer.Serialize(Build(provider, contracts), JsonOptions);
         await File.WriteAllTextAsync(outputPath, json, cancellationToken).ConfigureAwait(false);
     }
 
-    private static ColumnExport ToColumnExport(ColumnDescriptor column) => new()
+    private static ColumnExport ToColumnExport(ColumnDescriptor column) => new ()
     {
         Name = column.Name,
         DataType = column.DataType,
@@ -212,6 +241,7 @@ public static class TypeScriptContractWriter
     };
 
     /// <summary>Renders TypeScript interfaces for the entity contracts.</summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static async Task WriteAsync(string outputPath, IEnumerable<EntityDescriptor> entities, CancellationToken cancellationToken = default)
     {
         var builder = new StringBuilder();
@@ -227,6 +257,7 @@ public static class TypeScriptContractWriter
                 var optional = property.IsNullable ? "?" : string.Empty;
                 builder.AppendLine($"  {ToTypeScriptIdentifier(property.Name)}{optional}: {tsType};");
             }
+
             builder.AppendLine("}");
             builder.AppendLine();
         }

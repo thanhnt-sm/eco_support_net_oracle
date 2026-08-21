@@ -20,7 +20,7 @@ public class RuleCoverageTests
     }
 
     private static RawSqlDescriptor Raw(string sql, params ParameterDescriptor[] parameters) =>
-        new($"raw:{Guid.NewGuid():N}", sql, parameters, new List<ColumnDescriptor>());
+        new ($"raw:{Guid.NewGuid():N}", sql, parameters, new List<ColumnDescriptor>());
 
     // ---- DG003 Direction ----
     [Fact]
@@ -45,8 +45,8 @@ public class RuleCoverageTests
     {
         var entity = new EntityDescriptor("e1", "Order", "Order", "ORDERS", new List<PropertyDescriptor>
         {
-            new("Id", "int", "ID", null, false, null, true, false),
-            new("Total", "decimal", "TOTAL", null, false, null, false, false)
+            new ("Id", "int", "ID", null, false, null, true, false),
+            new ("Total", "decimal", "TOTAL", null, false, null, false, false),
         });
         var raw = Raw("SELECT id FROM orders");
         var vs = await RunAsync(new ColumnShapeMatchRule(), entity, entity, raw);
@@ -58,7 +58,7 @@ public class RuleCoverageTests
     {
         var entity = new EntityDescriptor("e1", "Customer", "Customer", "CUSTOMERS", new List<PropertyDescriptor>
         {
-            new("FullName", "string", "FULL_NAME", null, true, 100, false, false)
+            new ("FullName", "string", "FULL_NAME", null, true, 100, false, false),
         });
         var raw = Raw("SELECT full_name FROM customers");
         var vs = await RunAsync(new ColumnShapeMatchRule(), entity, entity, raw);
@@ -71,12 +71,12 @@ public class RuleCoverageTests
     {
         var entity = new EntityDescriptor("e1", "Customer", "Customer", "CUSTOMERS", new List<PropertyDescriptor>
         {
-            new("Name", "string", "NAME", null, true, 100, false, false,
-                new Dictionary<string, object?> { ["Required"] = true })
+            new ("Name", "string", "NAME", null, true, 100, false, false,
+                new Dictionary<string, object?> { ["Required"] = true }),
         });
         var schema = new DatabaseSchemaDescriptor("s1", new List<DatabaseTableDescriptor>
         {
-            new("CUSTOMERS", new List<ColumnDescriptor> { new("NAME", "VARCHAR2", 100, null, null, true, "C", 100) })
+            new ("CUSTOMERS", new List<ColumnDescriptor> { new ("NAME", "VARCHAR2", 100, null, null, true, "C", 100) }),
         }, "CHAR");
         var vs = await RunAsync(new NullableMismatchRule(), entity, entity, schema);
         vs.Should().Contain(v => v.RuleId == "DG005");
@@ -153,11 +153,11 @@ public class RuleCoverageTests
     {
         var entity = new EntityDescriptor("e1", "C", "C", "T", new List<PropertyDescriptor>
         {
-            new("Name", "string", "NAME", null, true, 200, false, false)
+            new ("Name", "string", "NAME", null, true, 200, false, false),
         });
         var schema = new DatabaseSchemaDescriptor("s1", new List<DatabaseTableDescriptor>
         {
-            new("T", new List<ColumnDescriptor> { new("NAME", "VARCHAR", 100, null, null, true, null, null) })
+            new ("T", new List<ColumnDescriptor> { new ("NAME", "VARCHAR", 100, null, null, true, null, null) }),
         }, "CHAR");
         var vs = await RunAsync(new MySqlLengthExceedsColumnRule(), entity, entity, schema);
         vs.Should().Contain(v => v.RuleId == "MY003");
@@ -185,11 +185,11 @@ public class RuleCoverageTests
     {
         var entity = new EntityDescriptor("e1", "C", "C", "T", new List<PropertyDescriptor>
         {
-            new("Name", "string", "NAME", null, true, 300, false, false)
+            new ("Name", "string", "NAME", null, true, 300, false, false),
         });
         var schema = new DatabaseSchemaDescriptor("s1", new List<DatabaseTableDescriptor>
         {
-            new("T", new List<ColumnDescriptor> { new("NAME", "varchar", 150, null, null, true, null, null) })
+            new ("T", new List<ColumnDescriptor> { new ("NAME", "varchar", 150, null, null, true, null, null) }),
         }, "CHAR");
         var vs = await RunAsync(new PostgreSqlLengthExceedsColumnRule(), entity, entity, schema);
         vs.Should().Contain(v => v.RuleId == "PG003");

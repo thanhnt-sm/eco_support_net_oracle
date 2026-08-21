@@ -38,7 +38,7 @@ public sealed class ConcurrentValidationEngine
             new ParallelOptions
             {
                 MaxDegreeOfParallelism = _maxDegreeOfParallelism,
-                CancellationToken = cancellationToken
+                CancellationToken = cancellationToken,
             },
             async (job, ct) =>
             {
@@ -46,7 +46,10 @@ public sealed class ConcurrentValidationEngine
                 foreach (var violation in violations)
                 {
                     if (Interlocked.Increment(ref addedCount) > _maxViolationQueueSize)
+                    {
                         return; // Backpressure: stop adding beyond the bound (atomic).
+                    }
+
                     results.Add(violation);
                 }
             });

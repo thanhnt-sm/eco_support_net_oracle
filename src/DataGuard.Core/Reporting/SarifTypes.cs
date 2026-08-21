@@ -21,7 +21,7 @@ public class SarifLog
     public string SchemaUri { get; set; } = "https://schemastore.org/schemas/json/sarif-2.1.0.json";
 
     [JsonPropertyName("runs")]
-    public List<Run> Runs { get; set; } = new();
+    public List<Run> Runs { get; set; } = new ();
 
     public string ToJson()
     {
@@ -32,16 +32,16 @@ public class SarifLog
 public class Run
 {
     [JsonPropertyName("tool")]
-    public Tool Tool { get; set; } = new();
+    public Tool Tool { get; set; } = new ();
 
     [JsonPropertyName("results")]
-    public List<Result> Results { get; set; } = new();
+    public List<Result> Results { get; set; } = new ();
 }
 
 public class Tool
 {
     [JsonPropertyName("driver")]
-    public ToolComponent Driver { get; set; } = new();
+    public ToolComponent Driver { get; set; } = new ();
 }
 
 public class ToolComponent
@@ -56,7 +56,7 @@ public class ToolComponent
     public string InformationUri { get; set; } = "https://github.com/DataGuard/DataGuard";
 
     [JsonPropertyName("rules")]
-    public List<ReportingDescriptor> Rules { get; set; } = new();
+    public List<ReportingDescriptor> Rules { get; set; } = new ();
 }
 
 public class ReportingDescriptor
@@ -68,10 +68,10 @@ public class ReportingDescriptor
     public string Name { get; set; } = "";
 
     [JsonPropertyName("shortDescription")]
-    public MultiformatMessageString ShortDescription { get; set; } = new();
+    public MultiformatMessageString ShortDescription { get; set; } = new ();
 
     [JsonPropertyName("defaultConfiguration")]
-    public ReportingConfiguration DefaultConfiguration { get; set; } = new();
+    public ReportingConfiguration DefaultConfiguration { get; set; } = new ();
 }
 
 public class MultiformatMessageString
@@ -92,16 +92,16 @@ public class Result
     public string RuleId { get; set; } = "";
 
     [JsonPropertyName("message")]
-    public Message Message { get; set; } = new();
+    public Message Message { get; set; } = new ();
 
     [JsonPropertyName("level")]
     public string Level { get; set; } = "error";
 
     [JsonPropertyName("locations")]
-    public List<SarifLocation> Locations { get; set; } = new();
+    public List<SarifLocation> Locations { get; set; } = new ();
 
     [JsonPropertyName("properties")]
-    public PropertyBag Properties { get; set; } = new();
+    public PropertyBag Properties { get; set; } = new ();
 }
 
 public class Message
@@ -113,16 +113,16 @@ public class Message
 public class SarifLocation
 {
     [JsonPropertyName("physicalLocation")]
-    public PhysicalLocation PhysicalLocation { get; set; } = new();
+    public PhysicalLocation PhysicalLocation { get; set; } = new ();
 }
 
 public class PhysicalLocation
 {
     [JsonPropertyName("artifactLocation")]
-    public ArtifactLocation ArtifactLocation { get; set; } = new();
+    public ArtifactLocation ArtifactLocation { get; set; } = new ();
 
     [JsonPropertyName("region")]
-    public Region Region { get; set; } = new();
+    public Region Region { get; set; } = new ();
 }
 
 public class ArtifactLocation
@@ -151,9 +151,13 @@ public class Region
 
 public class PropertyBag : Dictionary<string, object>
 {
-    public PropertyBag() : base() { }
+    public PropertyBag()
+        : base()
+    {
+    }
 
-    public PropertyBag(IDictionary<string, object?> dictionary) : base(
+    public PropertyBag(IDictionary<string, object?> dictionary)
+        : base(
         dictionary.ToDictionary(k => k.Key, v => v.Value!))
     {
     }

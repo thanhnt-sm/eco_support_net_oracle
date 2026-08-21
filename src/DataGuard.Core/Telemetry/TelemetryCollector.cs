@@ -19,9 +19,9 @@ public sealed class TelemetryCollector : IDisposable
 {
     private readonly Meter _meter;
     private readonly TelemetryConfig _config;
-    private readonly ConcurrentDictionary<string, Counter<long>> _counters = new();
-    private readonly ConcurrentDictionary<string, Histogram<double>> _histograms = new();
-    private readonly ConcurrentQueue<TelemetryEvent> _eventQueue = new();
+    private readonly ConcurrentDictionary<string, Counter<long>> _counters = new ();
+    private readonly ConcurrentDictionary<string, Histogram<double>> _histograms = new ();
+    private readonly ConcurrentQueue<TelemetryEvent> _eventQueue = new ();
     private readonly Timer? _flushTimer;
     private bool _disposed;
 
@@ -42,9 +42,12 @@ public sealed class TelemetryCollector : IDisposable
     /// </summary>
     public void IncrementCounter(string name, long value = 1, IEnumerable<KeyValuePair<string, object?>>? tags = null)
     {
-        if (!_config.Enabled) return;
+        if (!_config.Enabled)
+        {
+            return;
+        }
 
-        var counter = _counters.GetOrAdd(name, n => 
+        var counter = _counters.GetOrAdd(name, n =>
             _meter.CreateCounter<long>(n, description: $"Counter for {n}"));
 
         var tagsList = tags?.ToList() ?? new List<KeyValuePair<string, object?>>();
@@ -56,7 +59,10 @@ public sealed class TelemetryCollector : IDisposable
     /// </summary>
     public void RecordHistogram(string name, double value, IEnumerable<KeyValuePair<string, object?>>? tags = null)
     {
-        if (!_config.Enabled) return;
+        if (!_config.Enabled)
+        {
+            return;
+        }
 
         var histogram = _histograms.GetOrAdd(name, n =>
             _meter.CreateHistogram<double>(n, unit: "ms", description: $"Histogram for {n}"));
@@ -68,6 +74,7 @@ public sealed class TelemetryCollector : IDisposable
     /// <summary>
     /// Records a timed operation with automatic histogram recording.
     /// </summary>
+    /// <returns></returns>
     public IDisposable MeasureOperation(string operationName, IEnumerable<KeyValuePair<string, object?>>? tags = null)
     {
         return new TimedOperation(this, operationName, tags);
@@ -78,14 +85,16 @@ public sealed class TelemetryCollector : IDisposable
     /// </summary>
     public void RecordEvent(string eventType, string details, IDictionary<string, object?>? properties = null)
     {
-        if (!_config.Enabled) return;
+        if (!_config.Enabled)
+        {
+            return;
+        }
 
         var evt = new TelemetryEvent(
             DateTimeOffset.UtcNow,
             eventType,
             details,
-            properties?.ToImmutableDictionary() ?? ImmutableDictionary<string, object?>.Empty
-        );
+            properties?.ToImmutableDictionary() ?? ImmutableDictionary<string, object?>.Empty);
 
         _eventQueue.Enqueue(evt);
     }
@@ -95,18 +104,21 @@ public sealed class TelemetryCollector : IDisposable
     /// </summary>
     public void RecordRuleExecution(string ruleId, bool success, TimeSpan duration)
     {
-        if (!_config.Enabled) return;
+        if (!_config.Enabled)
+        {
+            return;
+        }
 
         IncrementCounter("rule.executions", 1, new[]
         {
             new KeyValuePair<string, object?>("rule", ruleId),
-            new KeyValuePair<string, object?>("success", success.ToString())
+            new KeyValuePair<string, object?>("success", success.ToString()),
         });
 
         RecordHistogram("rule.duration", duration.TotalMilliseconds, new[]
         {
             new KeyValuePair<string, object?>("rule", ruleId),
-            new KeyValuePair<string, object?>("success", success.ToString())
+            new KeyValuePair<string, object?>("success", success.ToString()),
         });
     }
 
@@ -115,7 +127,10 @@ public sealed class TelemetryCollector : IDisposable
     /// </summary>
     public void RecordValidationSummary(int contractCount, int violationCount, int errorCount, int warningCount, TimeSpan totalDuration)
     {
-        if (!_config.Enabled) return;
+        if (!_config.Enabled)
+        {
+            return;
+        }
 
         IncrementCounter("validations.total", 1);
         IncrementCounter("violations.total", violationCount);
@@ -127,7 +142,10 @@ public sealed class TelemetryCollector : IDisposable
 
     private void FlushEvents(object? state)
     {
-        if (_eventQueue.IsEmpty) return;
+        if (_eventQueue.IsEmpty)
+        {
+            return;
+        }
 
         var events = new List<TelemetryEvent>();
         while (_eventQueue.TryDequeue(out var evt))

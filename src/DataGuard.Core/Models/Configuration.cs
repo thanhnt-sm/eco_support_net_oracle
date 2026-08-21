@@ -18,7 +18,7 @@ public record DataGuardConfiguration(
     bool EnableConcurrentValidation = true,
     int ValidationTimeoutSeconds = 300,
     int MaxViolationQueueSize = 100000,
-    
+
     // Security settings
     bool EnableCredentialRotationDetection = true,
     int CredentialRotationWarningDays = 30,
@@ -28,11 +28,12 @@ public record DataGuardConfiguration(
     string? VaultAddress = null,
     bool EnableAuditLogging = true,
     string? AuditLogPath = null,
+
     // Fail closed: plaintext config-file credentials are only used when explicitly
     // allowed (Development). Default false prevents silent credential downgrade.
     bool AllowPlaintextConfigFallback = false,
     string? ManualAssemblyPath = null,
-    
+
     // Smart defaults / Auto-detection
     bool AutoDetectProvider = true,
     bool AutoDetectEFContext = true,
@@ -40,8 +41,7 @@ public record DataGuardConfiguration(
     bool EnableSmartDefaults = true,
     string? DefaultSchema = null,
     string? DefaultPackage = null,
-    bool EnableTelemetry = false
-);
+    bool EnableTelemetry = false);
 
 /// <summary>
 /// Ground truth retrieval mode.
@@ -50,7 +50,7 @@ public enum GroundTruthMode
 {
     Full,
     Snapshot,
-    Manual
+    Manual,
 }
 
 /// <summary>
@@ -60,7 +60,7 @@ public enum NamingConvention
 {
     SnakeCaseToPascalCase,
     PascalCaseToSnakeCase,
-    ExactMatch
+    ExactMatch,
 }
 
 /// <summary>
@@ -70,8 +70,7 @@ public record OracleConfiguration(
     string? Owner = null,
     bool UseRefCursorDescribe = true,
     bool UseAllArguments = true,
-    bool UseAllTabColumns = true
-);
+    bool UseAllTabColumns = true);
 
 /// <summary>
 /// Extension methods for smart defaults.
@@ -81,6 +80,7 @@ public static class DataGuardConfigurationExtensions
     /// <summary>
     /// Creates a default configuration with sensible defaults.
     /// </summary>
+    /// <returns></returns>
     public static DataGuardConfiguration Default()
     {
         return new DataGuardConfiguration
@@ -90,16 +90,20 @@ public static class DataGuardConfigurationExtensions
             EnableSmartDefaults = true,
             AutoDetectProvider = true,
             AutoDetectEFContext = true,
-            AutoDetectDapper = true
+            AutoDetectDapper = true,
         };
     }
 
     /// <summary>
     /// Creates a configuration with smart defaults applied.
     /// </summary>
+    /// <returns></returns>
     public static DataGuardConfiguration WithSmartDefaults(this DataGuardConfiguration config)
     {
-        if (!config.EnableSmartDefaults) return config;
+        if (!config.EnableSmartDefaults)
+        {
+            return config;
+        }
 
         var builder = config with { };
 
@@ -110,7 +114,7 @@ public static class DataGuardConfigurationExtensions
         }
 
         // Set default schema if not specified
-        if (string.IsNullOrEmpty(builder.DefaultSchema) && 
+        if (string.IsNullOrEmpty(builder.DefaultSchema) &&
             (builder.SqlServer?.Schema == null || builder.SqlServer.Schema == "dbo"))
         {
             builder = builder with { DefaultSchema = "dbo" };
@@ -134,21 +138,21 @@ public static class DataGuardConfigurationExtensions
     private static DataGuardConfiguration DetectProvider(DataGuardConfiguration config)
     {
         var connStr = config.ConnectionString?.ToLowerInvariant() ?? "";
-        
+
         if (connStr.Contains("data source") || connStr.Contains("server=") || connStr.Contains("server ="))
         {
             // Likely SQL Server
-            return config with 
-            { 
+            return config with
+            {
                 SqlServer = config.SqlServer ?? new SqlServerConfiguration(),
                 Oracle = null
             };
         }
-        else if (connStr.Contains("oracle") || connStr.Contains("data source") && connStr.Contains("service_name"))
+        else if (connStr.Contains("oracle") || (connStr.Contains("data source") && connStr.Contains("service_name")))
         {
             // Likely Oracle
-            return config with 
-            { 
+            return config with
+            {
                 Oracle = config.Oracle ?? new OracleConfiguration(),
                 SqlServer = null
             };
@@ -163,5 +167,4 @@ public static class DataGuardConfigurationExtensions
 /// </summary>
 public record SqlServerConfiguration(
     string? Schema = "dbo",
-    bool UseFirstResultSet = true
-);
+    bool UseFirstResultSet = true);

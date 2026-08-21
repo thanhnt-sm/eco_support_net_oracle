@@ -14,6 +14,7 @@ public class EfCoreInferenceSimulator
     /// <summary>
     /// Predicts the Oracle column type that EF Core would infer for a property.
     /// </summary>
+    /// <returns></returns>
     public OracleColumnType Predict(PropertyDescriptor property, string? sqlFragment = null)
     {
         var maxLen = property.MaxLength;
@@ -46,34 +47,47 @@ public class EfCoreInferenceSimulator
 
         if (isUnicode)
         {
-            return OracleColumnTypeFactory.NVarchar2(maxLen.Value);
+            return OracleColumnTypeFactory.NVarchar2(maxLen!.Value);
         }
 
-        return OracleColumnTypeFactory.Varchar2(maxLen.Value);
+        return OracleColumnTypeFactory.Varchar2(maxLen!.Value);
     }
 
     /// <summary>
     /// Predicts the Oracle column type for a raw SQL parameter.
     /// </summary>
+    /// <returns></returns>
     public OracleColumnType PredictForParameter(ParameterDescriptor parameter)
     {
         var isUnicode = parameter.DataType.StartsWith("N", StringComparison.OrdinalIgnoreCase);
         var maxLen = parameter.MaxLength;
 
         if (maxLen is null && isUnicode)
+        {
             return OracleColumnTypeFactory.NVarchar2(2000);
+        }
 
         if (maxLen is null && !isUnicode)
+        {
             return OracleColumnTypeFactory.Varchar2(2000);
+        }
 
         if (isUnicode)
         {
-            if (maxLen > 4000) return OracleColumnType.NClob;
-            return OracleColumnTypeFactory.NVarchar2(maxLen.Value);
+            if (maxLen > 4000)
+            {
+                return OracleColumnType.NClob;
+            }
+
+            return OracleColumnTypeFactory.NVarchar2(maxLen!.Value);
         }
 
-        if (maxLen > 4000) return OracleColumnType.Clob;
-        return OracleColumnTypeFactory.Varchar2(maxLen.Value);
+        if (maxLen > 4000)
+        {
+            return OracleColumnType.Clob;
+        }
+
+        return OracleColumnTypeFactory.Varchar2(maxLen!.Value);
     }
 
     private static bool IsUnicodeType(string clrTypeName)
@@ -104,14 +118,17 @@ public enum OracleColumnType
     TimestampWithTimeZone,
     Raw,
     Blob,
-    RowId
+    RowId,
 }
 
 public static class OracleColumnTypeFactory
 {
     public static OracleColumnType Varchar2(int length) => OracleColumnType.Varchar2;
+
     public static OracleColumnType NVarchar2(int length) => OracleColumnType.NVarchar2;
+
     public static OracleColumnType Clob() => OracleColumnType.Clob;
+
     public static OracleColumnType NClob() => OracleColumnType.NClob;
 }
 
@@ -149,7 +166,7 @@ public class LengthSemanticsResolver
 /// </summary>
 public class LengthMismatchDetector
 {
-    private readonly EfCoreInferenceSimulator _inferenceSimulator = new();
+    private readonly EfCoreInferenceSimulator _inferenceSimulator = new ();
 
     public IEnumerable<ContractViolation> Detect(
         EntityDescriptor entity,
@@ -158,11 +175,14 @@ public class LengthMismatchDetector
     {
         foreach (var property in entity.Properties)
         {
-            var column = columns.FirstOrDefault(c => 
+            var column = columns.FirstOrDefault(c =>
                 string.Equals(c.Name, property.ColumnName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(c.Name, ToOracleColumnName(property.Name), StringComparison.OrdinalIgnoreCase));
 
-            if (column == null) continue;
+            if (column == null)
+            {
+                continue;
+            }
 
             // 1. Direct length mismatch: entity MaxLength (chars) > column char length.
             //    ColumnDescriptor.MaxLength holds DATA_LENGTH (bytes); CharLength holds CHAR_LENGTH (chars).
@@ -182,7 +202,7 @@ public class LengthMismatchDetector
                         {
                             { "property", property.Name },
                             { "entityMaxLength", property.MaxLength.Value },
-                            { "columnMaxLength", columnCharLength.Value }
+                            { "columnMaxLength", columnCharLength.Value },
                         });
                 }
             }
@@ -212,7 +232,7 @@ public class LengthMismatchDetector
                             { "property", property.Name },
                             { "entityMaxBytes", entityMaxBytes },
                             { "columnMaxBytes", column.MaxLength.Value },
-                            { "semantics", sessionSemantics.ToString() }
+                            { "semantics", sessionSemantics.ToString() },
                         });
                 }
             }
@@ -236,7 +256,7 @@ public class LengthMismatchDetector
                             { "property", property.Name },
                             { "inferredType", "NVARCHAR2(2000)" },
                             { "dbColumnType", column.DataType },
-                            { "referencedIssue", "dotnet/efcore#33218" }
+                            { "referencedIssue", "dotnet/efcore#33218" },
                         });
                 }
             }
@@ -267,7 +287,7 @@ public class LengthMismatchDetector
 public enum LengthSemantics
 {
     Char,
-    Byte
+    Byte,
 }
 
 /// <summary>
@@ -276,8 +296,11 @@ public enum LengthSemantics
 public class LengthExceedsColumnRule : ContractRuleBase
 {
     public override string RuleId => "DG007";
+
     public override string Name => "Entity Length Exceeds Column Length";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Entity property MaxLength exceeds Oracle column MaxLength";
 
     protected override Task ValidateCoreAsync(
@@ -297,8 +320,11 @@ public class LengthExceedsColumnRule : ContractRuleBase
 public class ByteLengthOverflowRiskRule : ContractRuleBase
 {
     public override string RuleId => "DG008";
+
     public override string Name => "Byte Length Overflow Risk";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "Entity property may exceed Oracle column byte capacity in BYTE semantics";
 
     protected override Task ValidateCoreAsync(
@@ -318,8 +344,11 @@ public class ByteLengthOverflowRiskRule : ContractRuleBase
 public class InferredSizeFallbackRule : ContractRuleBase
 {
     public override string RuleId => "DG009";
+
     public override string Name => "Inferred Size Fallback Risk";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "EF Core infers NVARCHAR2(2000) which may cause ORA-12899";
 
     protected override Task ValidateCoreAsync(
@@ -344,16 +373,22 @@ internal static class LengthMismatchRuleHelper
         string ruleId)
     {
         if (contract is not EntityDescriptor entity || string.IsNullOrEmpty(entity.TableName))
+        {
             return Array.Empty<ContractViolation>();
+        }
 
         var schema = allContracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault();
         if (schema == null)
+        {
             return Array.Empty<ContractViolation>();
+        }
 
         var table = schema.Tables.FirstOrDefault(t =>
             string.Equals(t.Name, entity.TableName, StringComparison.OrdinalIgnoreCase));
         if (table == null)
+        {
             return Array.Empty<ContractViolation>();
+        }
 
         var semantics = string.Equals(schema.LengthSemantics, "BYTE", StringComparison.OrdinalIgnoreCase)
             ? LengthSemantics.Byte : LengthSemantics.Char;

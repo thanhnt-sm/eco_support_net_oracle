@@ -28,6 +28,7 @@ public static class DataGuardApi
     /// <summary>
     /// Creates a new validation pipeline with the specified configuration.
     /// </summary>
+    /// <returns></returns>
     public static ValidationPipeline CreatePipeline(DataGuardConfiguration config)
     {
         return new ValidationPipeline(config);
@@ -36,6 +37,7 @@ public static class DataGuardApi
     /// <summary>
     /// Creates a validation pipeline with default configuration.
     /// </summary>
+    /// <returns></returns>
     public static ValidationPipeline CreatePipeline()
     {
         return new ValidationPipeline(new DataGuardConfiguration());
@@ -67,18 +69,21 @@ public sealed class ValidationPipeline : IDisposable
     /// <summary>
     /// Adds custom rules to the pipeline.
     /// </summary>
+    /// <returns></returns>
     public ValidationPipeline WithRules(params IContractRule[] rules)
     {
         foreach (var rule in rules)
         {
             _ruleGraph.AddRule(rule);
         }
+
         return this;
     }
 
     /// <summary>
     /// Adds a plugin directory for custom rule discovery.
     /// </summary>
+    /// <returns></returns>
     public ValidationPipeline WithPlugins(string pluginDirectory)
     {
         var manager = new RulePluginManager(pluginDirectory, logger: null);
@@ -87,12 +92,14 @@ public sealed class ValidationPipeline : IDisposable
         {
             _ruleGraph.AddRule(rule);
         }
+
         return this;
     }
 
     /// <summary>
     /// Enables telemetry collection (opt-in).
     /// </summary>
+    /// <returns></returns>
     public ValidationPipeline WithTelemetry(TelemetryConfig? config = null)
     {
         _telemetry?.Dispose();
@@ -103,6 +110,7 @@ public sealed class ValidationPipeline : IDisposable
     /// <summary>
     /// Enables baseline mode for legacy codebases.
     /// </summary>
+    /// <returns></returns>
     public ValidationPipeline WithBaselineFile(string baselinePath = ".dataguard-baseline.json")
     {
         _config = _config with { BaselineFilePath = baselinePath, EnableBaseline = true };
@@ -112,6 +120,7 @@ public sealed class ValidationPipeline : IDisposable
     /// <summary>
     /// Runs validation on the specified contracts.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<ValidationResult> ValidateAsync(
         IReadOnlyList<ContractDescriptor> contracts,
         CancellationToken cancellationToken = default)
@@ -161,13 +170,13 @@ public sealed class ValidationPipeline : IDisposable
             Infos: allViolations.Count(v => v.Severity == DiagnosticSeverity.Info),
             Violations: allViolations.ToImmutableArray(),
             Duration: timeSpan,
-            SchemaVersion: "1.0"
-        );
+            SchemaVersion: "1.0");
     }
 
     /// <summary>
     /// Creates a baseline from current violations.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<BaselineFile> CreateBaselineAsync(
         IReadOnlyList<ContractViolation> violations,
         string schemaVersion = "1.0",
@@ -180,6 +189,7 @@ public sealed class ValidationPipeline : IDisposable
     /// <summary>
     /// Loads an existing baseline.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<BaselineFile?> LoadBaselineAsync(CancellationToken cancellationToken = default)
     {
         var baselineManager = new BaselineManager(_config.BaselineFilePath ?? ".dataguard-baseline.json");
@@ -189,6 +199,7 @@ public sealed class ValidationPipeline : IDisposable
     /// <summary>
     /// Checks for schema drift against baseline.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<DriftReport> CheckDriftAsync(
         IReadOnlyList<ContractViolation> currentViolations,
         CancellationToken cancellationToken = default)
@@ -209,7 +220,7 @@ public sealed class ValidationPipeline : IDisposable
         }
 
         var filtered = new BaselineManager("").FilterNewViolations(currentViolations, baseline).ToList();
-        
+
         return new DriftReport(
             HasBaseline: true,
             DriftDetected: filtered.Count > 0,
@@ -274,6 +285,7 @@ public static class ValidationPipelineExtensions
     /// <summary>
     /// Enables baseline mode for legacy codebases.
     /// </summary>
+    /// <returns></returns>
     public static ValidationPipeline WithBaseline(this ValidationPipeline pipeline, string baselinePath = ".dataguard-baseline.json")
     {
         return pipeline.WithBaselineFile(baselinePath);
@@ -288,6 +300,7 @@ public static class DataGuardFactory
     /// <summary>
     /// Creates a credential manager with the specified configuration.
     /// </summary>
+    /// <returns></returns>
     public static CredentialManager CreateCredentialManager(DataGuardConfiguration config)
     {
         return new CredentialManager(config);
@@ -296,16 +309,18 @@ public static class DataGuardFactory
     /// <summary>
     /// Creates an audit logger.
     /// </summary>
+    /// <returns></returns>
     public static IAuditLogger CreateAuditLogger(DataGuardConfiguration config)
     {
-        return config.EnableAuditLogging 
-            ? new FileAuditLogger(config.AuditLogPath) 
+        return config.EnableAuditLogging
+            ? new FileAuditLogger(config.AuditLogPath)
             : new NullAuditLogger();
     }
 
     /// <summary>
     /// Creates a telemetry collector.
     /// </summary>
+    /// <returns></returns>
     public static TelemetryCollector? CreateTelemetryCollector(TelemetryConfig config)
     {
         return config.Enabled ? new TelemetryCollector(config) : null;
@@ -314,6 +329,7 @@ public static class DataGuardFactory
     /// <summary>
     /// Creates a rule dependency graph with defaults.
     /// </summary>
+    /// <returns></returns>
     public static RuleDependencyGraph CreateRuleGraph()
     {
         return BuiltInRuleDependencies.CreateDefault();
@@ -322,6 +338,7 @@ public static class DataGuardFactory
     /// <summary>
     /// Validates the rule dependency graph.
     /// </summary>
+    /// <returns></returns>
     public static ValidationResult ValidateGraph(RuleDependencyGraph graph)
     {
         var result = graph.Validate();

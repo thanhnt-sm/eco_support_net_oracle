@@ -15,6 +15,7 @@ public interface IAuditLogger
     /// <summary>
     /// Logs a database operation for audit trail.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     Task LogDatabaseOperationAsync(
         string operation,
         string provider,
@@ -27,6 +28,7 @@ public interface IAuditLogger
     /// <summary>
     /// Logs a credential access event.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     Task LogCredentialAccessAsync(
         string operation,
         string provider,
@@ -36,6 +38,7 @@ public interface IAuditLogger
     /// <summary>
     /// Logs a configuration change.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     Task LogConfigurationChangeAsync(
         string setting,
         string? oldValue,
@@ -49,8 +52,9 @@ public interface IAuditLogger
 public sealed class FileAuditLogger : IAuditLogger
 {
     private readonly string _logPath;
-    private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly SemaphoreSlim _writeLock = new (1, 1);
     private string? _lastHash;
+
     private string CheckpointPath => _logPath + ".checkpoint";
 
     public FileAuditLogger(string? logPath = null)
@@ -59,8 +63,8 @@ public sealed class FileAuditLogger : IAuditLogger
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "DataGuard",
             "audit.log");
-        
-        Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(_logPath) !);
     }
 
     public async Task LogDatabaseOperationAsync(
@@ -134,8 +138,16 @@ public sealed class FileAuditLogger : IAuditLogger
 
     private static string MaskValue(string? value)
     {
-        if (string.IsNullOrEmpty(value)) return "<empty>";
-        if (value.Length <= 8) return "****";
+        if (string.IsNullOrEmpty(value))
+        {
+            return "<empty>";
+        }
+
+        if (value.Length <= 8)
+        {
+            return "****";
+        }
+
         return value[..4] + "****" + value[^4..];
     }
 
@@ -165,15 +177,22 @@ public sealed class FileAuditLogger : IAuditLogger
     /// <summary>
     /// Verifies the hash-chain integrity of the audit log. Returns false on any tampering.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<bool> VerifyIntegrityAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(_logPath)) return true;
+        if (!File.Exists(_logPath))
+        {
+            return true;
+        }
 
         var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
         string? previousHash = null;
         foreach (var line in lines)
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
 
             AuditEntry? entry;
             try
@@ -184,43 +203,64 @@ public sealed class FileAuditLogger : IAuditLogger
             {
                 return false;
             }
-            if (entry == null) return false;
+
+            if (entry == null)
+            {
+                return false;
+            }
 
             var content = JsonSerializer.Serialize(entry with { Hash = null, PreviousHash = null });
             var expected = ComputeHash((previousHash ?? "") + content);
             if (!string.Equals(entry.Hash, expected, StringComparison.Ordinal))
+            {
                 return false;
+            }
 
             previousHash = entry.Hash;
         }
+
         // Detect tail truncation: the log's last hash must match the checkpoint.
         if (File.Exists(CheckpointPath))
         {
             var checkpoint = (await File.ReadAllTextAsync(CheckpointPath, cancellationToken)).Trim();
             if (!string.Equals(checkpoint, previousHash, StringComparison.Ordinal))
+            {
                 return false;
+            }
         }
+
         return true;
     }
 
     private async Task<string?> ReadLastHashAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_logPath)) return null;
+        if (!File.Exists(_logPath))
+        {
+            return null;
+        }
 
         try
         {
             var lines = await File.ReadAllLinesAsync(_logPath, cancellationToken);
             for (var i = lines.Length - 1; i >= 0; i--)
             {
-                if (string.IsNullOrWhiteSpace(lines[i])) continue;
+                if (string.IsNullOrWhiteSpace(lines[i]))
+                {
+                    continue;
+                }
+
                 var entry = JsonSerializer.Deserialize<AuditEntry>(lines[i]);
-                if (entry?.Hash != null) return entry.Hash;
+                if (entry?.Hash != null)
+                {
+                    return entry.Hash;
+                }
             }
         }
         catch (JsonException)
         {
             // One corrupt line must not take down the whole logger.
         }
+
         return null;
     }
 
@@ -262,5 +302,4 @@ public sealed record AuditEntry(
     string UserName = "",
     int ProcessId = 0,
     string? Hash = null,
-    string? PreviousHash = null
-);
+    string? PreviousHash = null);

@@ -42,7 +42,9 @@ public class ContractExportTests
         finally
         {
             if (File.Exists(outputPath))
+            {
                 File.Delete(outputPath);
+            }
         }
     }
 
@@ -70,7 +72,9 @@ public class ContractExportTests
         finally
         {
             if (File.Exists(outputPath))
+            {
                 File.Delete(outputPath);
+            }
         }
     }
 }

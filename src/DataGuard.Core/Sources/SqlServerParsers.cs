@@ -28,6 +28,7 @@ public class SqlServerStoredProcedureParser : IContractSource
     }
 
     public string SourceId => "sqlserver-sp";
+
     public string DisplayName => "SQL Server Stored Procedures";
 
     public async Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(CancellationToken cancellationToken = default)
@@ -56,8 +57,7 @@ public class SqlServerStoredProcedureParser : IContractSource
             procedures.Add((
                 reader.GetInt32(0),
                 reader.GetString(1),
-                reader.GetString(2)
-            ));
+                reader.GetString(2)));
         }
 
         // Process each procedure
@@ -74,8 +74,7 @@ public class SqlServerStoredProcedureParser : IContractSource
                 Parameters: parameters,
                 ResultColumns: resultColumns,
                 ReturnsRefCursor: false,
-                Location: Location.None
-            ));
+                Location: Location.None));
         }
 
         return contracts;
@@ -130,8 +129,7 @@ public class SqlServerStoredProcedureParser : IContractSource
                 Precision: precision,
                 Scale: scale,
                 IsNullable: isNullable,
-                OrdinalPosition: ordinal
-            ));
+                OrdinalPosition: ordinal));
         }
 
         return parameters;
@@ -170,8 +168,8 @@ public class SqlServerStoredProcedureParser : IContractSource
                     Precision: precision,
                     Scale: scale,
                     IsNullable: isNullable,
-                    CharUsed: null // SQL Server doesn't have CHAR/BYTE semantics
-                ));
+                    CharUsed: null) // SQL Server doesn't have CHAR/BYTE semantics
+);
             }
         }
         catch (SqlException ex) when (ex.Number is 11512 or 11513)
@@ -200,13 +198,14 @@ public class RawSqlParser : IContractSource
     }
 
     public string SourceId => "raw-sql";
+
     public string DisplayName => "Raw SQL";
 
-   public Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(CancellationToken cancellationToken = default)
-   {
-       var parser = new TSql160Parser(true);
-       IList<ParseError> errors = new List<ParseError>();
-       var fragment = parser.Parse(new StringReader(_sqlText), out errors);
+    public Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(CancellationToken cancellationToken = default)
+    {
+        var parser = new TSql160Parser(true);
+        IList<ParseError> errors = new List<ParseError>();
+        var fragment = parser.Parse(new StringReader(_sqlText), out errors);
 
         // Extract parameters from the parsed fragment
         var visitor = new SqlParameterVisitor();
@@ -220,8 +219,7 @@ public class RawSqlParser : IContractSource
             Precision: p.Precision,
             Scale: p.Scale,
             IsNullable: true,
-            OrdinalPosition: p.Ordinal
-        )).ToList();
+            OrdinalPosition: p.Ordinal)).ToList();
 
         // Create a location from the file path and text span
         var lineSpan = new LinePositionSpan(
@@ -236,8 +234,7 @@ public class RawSqlParser : IContractSource
                 SqlText: _sqlText,
                 Parameters: parameters,
                 ResultColumns: new List<ColumnDescriptor>(),
-                Location: location
-            )
+                Location: location),
         };
 
         return Task.FromResult<IReadOnlyList<ContractDescriptor>>(contracts);
@@ -246,7 +243,7 @@ public class RawSqlParser : IContractSource
 
 internal class SqlParameterVisitor : TSqlFragmentVisitor
 {
-    public List<SqlParameterInfo> Parameters { get; } = new();
+    public List<SqlParameterInfo> Parameters { get; } = new ();
 
     public override void Visit(ProcedureParameter parameter)
     {
@@ -273,9 +270,13 @@ internal class SqlParameterVisitor : TSqlFragmentVisitor
                 && int.TryParse(firstLiteral.Value, out var first))
             {
                 if (isNumeric)
+                {
                     precision = first > 0 ? (byte)first : (byte?)null;
+                }
                 else
+                {
                     maxLength = first > 0 ? first : (int?)null;
+                }
             }
 
             if (isNumeric && literals.Count > 1 && literals[1] is IntegerLiteral scaleLiteral
@@ -303,5 +304,4 @@ internal record SqlParameterInfo(
     int? MaxLength,
     byte? Precision,
     byte? Scale,
-    int Ordinal
-);
+    int Ordinal);

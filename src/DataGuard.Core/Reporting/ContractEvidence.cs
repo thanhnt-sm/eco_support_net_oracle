@@ -15,14 +15,14 @@ namespace DataGuard.Core.Reporting;
 /// </summary>
 public sealed class ContractEvidence
 {
-    /// <summary>Evidence schema version.</summary>
+    /// <summary>Gets or sets evidence schema version.</summary>
     public int SchemaVersion { get; set; } = 1;
 
-    /// <summary>Database provider used for validation.</summary>
+    /// <summary>Gets or sets database provider used for validation.</summary>
     public string Provider { get; set; } = string.Empty;
 
-    /// <summary>Stable, sorted validation findings.</summary>
-    public List<ContractEvidenceViolation> Violations { get; set; } = new();
+    /// <summary>Gets or sets stable, sorted validation findings.</summary>
+    public List<ContractEvidenceViolation> Violations { get; set; } = new ();
 }
 
 /// <summary>
@@ -30,13 +30,13 @@ public sealed class ContractEvidence
 /// </summary>
 public sealed class ContractEvidenceViolation
 {
-    /// <summary>DataGuard rule identifier.</summary>
+    /// <summary>Gets or sets dataGuard rule identifier.</summary>
     public string RuleId { get; set; } = string.Empty;
 
-    /// <summary>Normalized severity.</summary>
+    /// <summary>Gets or sets normalized severity.</summary>
     public string Severity { get; set; } = string.Empty;
 
-    /// <summary>Redacted diagnostic text.</summary>
+    /// <summary>Gets or sets redacted diagnostic text.</summary>
     public string Message { get; set; } = string.Empty;
 }
 
@@ -46,6 +46,7 @@ public sealed class ContractEvidenceViolation
 public static class ContractEvidenceWriter
 {
     /// <summary>Writes a versioned JSON evidence artifact.</summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public static Task WriteAsync(string outputPath, string provider, IEnumerable<ContractViolation> violations, CancellationToken cancellationToken = default)
     {
         var evidence = new ContractEvidence

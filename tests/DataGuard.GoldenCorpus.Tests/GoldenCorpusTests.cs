@@ -24,7 +24,7 @@ namespace DataGuard.GoldenCorpus.Tests;
 /// - H2: Column/Table Mismatch
 /// - H3: Dialect Confusion
 /// - Length_Mismatch: char/byte semantics, NVARCHAR2(2000) fallback
-/// - Vietnamese_Data: Unicode byte vs char semantics
+/// - Vietnamese_Data: Unicode byte vs char semantics.
 /// </summary>
 public class GoldenCorpusTests
 {
@@ -50,7 +50,7 @@ public class GoldenCorpusTests
         // Verify expected diagnostics
         foreach (var expected in testCase.ExpectedDiagnostics)
         {
-            var matchingViolations = violations.Where(v => 
+            var matchingViolations = violations.Where(v =>
                 v.RuleId == expected.RuleId &&
                 v.Message.Contains(expected.MessageContains, StringComparison.OrdinalIgnoreCase) &&
                 v.Severity.ToString().Equals(expected.Severity, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -63,7 +63,7 @@ public class GoldenCorpusTests
         // Strict mode: any Error-severity diagnostic outside the expected set fails
         // the fixture. Over-detection (false positives) must not slip through.
         var unexpectedErrors = violations
-            .Where(v => v.Severity == DiagnosticSeverity.Error && 
+            .Where(v => v.Severity == DiagnosticSeverity.Error &&
                        !testCase.ExpectedDiagnostics.Any(e => e.RuleId == v.RuleId && e.Severity == "Error"))
             .ToList();
 
@@ -91,7 +91,7 @@ public class GoldenCorpusTests
         }
 
         var jsonFiles = Directory.GetFiles(corpusRoot, "*.json", SearchOption.AllDirectories);
-        
+
         foreach (var file in jsonFiles)
         {
             GoldenCorpusTestCase? testCase = null;
@@ -100,7 +100,7 @@ public class GoldenCorpusTests
                 var json = File.ReadAllText(file);
                 testCase = JsonSerializer.Deserialize<GoldenCorpusTestCase>(json, new JsonSerializerOptions
                 {
-                    PropertyNameCaseInsensitive = true
+                    PropertyNameCaseInsensitive = true,
                 });
             }
             catch (Exception ex)
@@ -157,10 +157,8 @@ public class GoldenCorpusTests
                     IsNullable: !p.IsPrimaryKey,
                     MaxLength: p.MaxLength,
                     IsPrimaryKey: p.IsPrimaryKey,
-                    IsForeignKey: p.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase) && !p.IsPrimaryKey
-                )).ToList(),
-                Location: null
-            );
+                    IsForeignKey: p.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase) && !p.IsPrimaryKey)).ToList(),
+                Location: null);
             contracts.Add(entity);
         }
 
@@ -184,8 +182,7 @@ public class GoldenCorpusTests
                     null,
                     c.Nullable,
                     c.CharUsed,
-                    c.CharLength
-                )).ToList()))
+                    c.CharLength)).ToList()))
             .ToList();
 
         contracts.Add(new DatabaseSchemaDescriptor(
@@ -200,8 +197,8 @@ public class GoldenCorpusTests
     {
         // Convert entity name to Oracle table name convention (UPPER_SNAKE_CASE)
         var tableName = ToUpperSnakeCase(entityName) + "S";
-        return schema.Tables.Any(t => t.Name.Equals(tableName, StringComparison.OrdinalIgnoreCase)) 
-            ? tableName 
+        return schema.Tables.Any(t => t.Name.Equals(tableName, StringComparison.OrdinalIgnoreCase))
+            ? tableName
             : schema.Tables.FirstOrDefault()?.Name ?? tableName;
     }
 
@@ -210,9 +207,13 @@ public class GoldenCorpusTests
         if (clrType == "string")
         {
             if (isUnicode)
+            {
                 return maxLength.HasValue ? $"NVARCHAR2({maxLength})" : "NVARCHAR2(2000)";
+            }
+
             return maxLength.HasValue ? $"VARCHAR2({maxLength})" : "VARCHAR2(2000)";
         }
+
         return clrType switch
         {
             "int" => "NUMBER(10)",
@@ -229,15 +230,14 @@ public class GoldenCorpusTests
     {
         // Simplified - in real implementation would parse SQL and extract table/column references
         var contracts = new List<ContractDescriptor>();
-        
+
         // For testing, create a raw SQL descriptor that will trigger dialect rules
         var rawSql = new RawSqlDescriptor(
             Id: $"raw-sql:test",
             SqlText: sql,
             Parameters: new List<ParameterDescriptor>(),
             ResultColumns: new List<ColumnDescriptor>(),
-            Location: null
-        );
+            Location: null);
         contracts.Add(rawSql);
         return contracts;
     }
@@ -252,7 +252,7 @@ public class GoldenCorpusTests
             new ColumnShapeMatchRule(),
             new NullableMismatchRule(),
             new NamingConventionRule(),
-            new PhantomIdentifierRule()
+            new PhantomIdentifierRule(),
         };
 
         // Add provider-specific rules
@@ -273,14 +273,22 @@ public class GoldenCorpusTests
 
     private static string ToSnakeCase(string input)
     {
-        if (string.IsNullOrEmpty(input)) return input;
+        if (string.IsNullOrEmpty(input))
+        {
+            return input;
+        }
+
         var result = new System.Text.StringBuilder();
         for (int i = 0; i < input.Length; i++)
         {
             if (i > 0 && char.IsUpper(input[i]))
+            {
                 result.Append('_');
+            }
+
             result.Append(char.ToUpperInvariant(input[i]));
         }
+
         return result.ToString();
     }
 
@@ -296,57 +304,77 @@ public class GoldenCorpusTests
 public class GoldenCorpusTestCase
 {
     public string TestCase { get; set; } = "";
+
     public string Category { get; set; } = "";
+
     public string Description { get; set; } = "";
-    public GoldenCorpusInput Input { get; set; } = new();
-    public List<ExpectedDiagnostic> ExpectedDiagnostics { get; set; } = new();
+
+    public GoldenCorpusInput Input { get; set; } = new ();
+
+    public List<ExpectedDiagnostic> ExpectedDiagnostics { get; set; } = new ();
+
     public string? Notes { get; set; }
 }
 
 public class GoldenCorpusInput
 {
     public GoldenCorpusEntity? Entity { get; set; }
+
     public string Sql { get; set; } = "";
-    public DatabaseSchema DatabaseSchema { get; set; } = new();
+
+    public DatabaseSchema DatabaseSchema { get; set; } = new ();
+
     public string Provider { get; set; } = "Oracle";
+
     public string LengthSemantics { get; set; } = "CHAR";
 }
 
 public class GoldenCorpusEntity
 {
     public string Name { get; set; } = "";
-    public List<GoldenCorpusProperty> Properties { get; set; } = new();
+
+    public List<GoldenCorpusProperty> Properties { get; set; } = new ();
 }
 
 public class GoldenCorpusProperty
 {
     public string Name { get; set; } = "";
+
     public string Type { get; set; } = "";
+
     public int? MaxLength { get; set; }
+
     public bool IsPrimaryKey { get; set; }
+
     public bool IsUnicode { get; set; }
 }
+
 public class DatabaseColumn
 {
     public string Name { get; set; } = "";
+
     public string Type { get; set; } = "";
+
     [JsonPropertyName("char_length")]
     public int? CharLength { get; set; }
+
     [JsonPropertyName("char_used")]
     public string? CharUsed { get; set; }
+
     public bool Nullable { get; set; }
 }
 
 public class DatabaseSchema
 {
-    public List<DatabaseTable> Tables { get; set; } = new();
+    public List<DatabaseTable> Tables { get; set; } = new ();
 }
 
 [JsonConverter(typeof(DatabaseTableConverter))]
 public class DatabaseTable
 {
     public string Name { get; set; } = "";
-    public List<DatabaseColumn> Columns { get; set; } = new();
+
+    public List<DatabaseColumn> Columns { get; set; } = new ();
 }
 
 public class DatabaseTableConverter : JsonConverter<DatabaseTable>
@@ -356,8 +384,15 @@ public class DatabaseTableConverter : JsonConverter<DatabaseTable>
         var table = new DatabaseTable();
         while (reader.Read())
         {
-            if (reader.TokenType == JsonTokenType.EndObject) break;
-            if (reader.TokenType != JsonTokenType.PropertyName) continue;
+            if (reader.TokenType == JsonTokenType.EndObject)
+            {
+                break;
+            }
+
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                continue;
+            }
 
             var prop = reader.GetString();
             reader.Read();
@@ -374,13 +409,17 @@ public class DatabaseTableConverter : JsonConverter<DatabaseTable>
                     break;
             }
         }
+
         return table;
     }
 
     private static List<DatabaseColumn> ReadColumns(ref Utf8JsonReader reader, JsonSerializerOptions options)
     {
         var columns = new List<DatabaseColumn>();
-        if (reader.TokenType != JsonTokenType.StartArray) return columns;
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            return columns;
+        }
 
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
         {
@@ -391,9 +430,13 @@ public class DatabaseTableConverter : JsonConverter<DatabaseTable>
             else if (reader.TokenType == JsonTokenType.StartObject)
             {
                 var col = JsonSerializer.Deserialize<DatabaseColumn>(ref reader, options);
-                if (col != null) columns.Add(col);
+                if (col != null)
+                {
+                    columns.Add(col);
+                }
             }
         }
+
         return columns;
     }
 
@@ -403,16 +446,20 @@ public class DatabaseTableConverter : JsonConverter<DatabaseTable>
         writer.WriteString("name", value.Name);
         writer.WriteStartArray("columns");
         foreach (var c in value.Columns)
+        {
             JsonSerializer.Serialize(writer, c, options);
+        }
+
         writer.WriteEndArray();
         writer.WriteEndObject();
     }
 }
 
-
 public class ExpectedDiagnostic
 {
     public string RuleId { get; set; } = "";
+
     public string MessageContains { get; set; } = "";
+
     public string Severity { get; set; } = "";
 }

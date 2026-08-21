@@ -15,7 +15,10 @@ public sealed class MySqlDialectChecker
     public IReadOnlyList<ContractViolation> CheckMySqlSyntaxInNonMySqlContext(string sqlText, bool isMySqlContext, Location? location = null)
     {
         var violations = new List<ContractViolation>();
-        if (isMySqlContext) return violations;
+        if (isMySqlContext)
+        {
+            return violations;
+        }
 
         if (DataGuard.Core.Sources.SqlKeywordMatcher.ContainsAny(sqlText, MySqlOnly))
         {
@@ -27,13 +30,17 @@ public sealed class MySqlDialectChecker
                 location,
                 new Dictionary<string, object?> { { "syntax", matched } }));
         }
+
         return violations;
     }
 
     public IReadOnlyList<ContractViolation> CheckNonMySqlSyntaxInMySqlContext(string sqlText, bool isMySqlContext, Location? location = null)
     {
         var violations = new List<ContractViolation>();
-        if (!isMySqlContext) return violations;
+        if (!isMySqlContext)
+        {
+            return violations;
+        }
 
         if (DataGuard.Core.Sources.SqlKeywordMatcher.ContainsAny(sqlText, NonMySql))
         {
@@ -45,6 +52,7 @@ public sealed class MySqlDialectChecker
                 location,
                 new Dictionary<string, object?> { { "syntax", matched } }));
         }
+
         return violations;
     }
 }
@@ -52,8 +60,11 @@ public sealed class MySqlDialectChecker
 public class MySqlSyntaxRule : ContractRuleBase
 {
     public override string RuleId => "MY001";
+
     public override string Name => "MySQL Syntax in Non-MySQL Context";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "MySQL-specific syntax detected in non-MySQL context";
 
     protected override Task ValidateCoreAsync(ContractDescriptor contract, IReadOnlyList<ContractDescriptor> allContracts, List<ContractViolation> violations, CancellationToken cancellationToken)
@@ -62,6 +73,7 @@ public class MySqlSyntaxRule : ContractRuleBase
         {
             violations.AddRange(new MySqlDialectChecker().CheckMySqlSyntaxInNonMySqlContext(rawSql.SqlText, false, contract.Location));
         }
+
         return Task.CompletedTask;
     }
 }
@@ -69,8 +81,11 @@ public class MySqlSyntaxRule : ContractRuleBase
 public class NonMySqlSyntaxRule : ContractRuleBase
 {
     public override string RuleId => "MY002";
+
     public override string Name => "Non-MySQL Syntax in MySQL Context";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "Non-MySQL syntax detected in MySQL context";
 
     protected override Task ValidateCoreAsync(ContractDescriptor contract, IReadOnlyList<ContractDescriptor> allContracts, List<ContractViolation> violations, CancellationToken cancellationToken)
@@ -79,6 +94,7 @@ public class NonMySqlSyntaxRule : ContractRuleBase
         {
             violations.AddRange(new MySqlDialectChecker().CheckNonMySqlSyntaxInMySqlContext(rawSql.SqlText, true, contract.Location));
         }
+
         return Task.CompletedTask;
     }
 }

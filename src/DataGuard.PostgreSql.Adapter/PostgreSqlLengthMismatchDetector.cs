@@ -15,7 +15,10 @@ public sealed class PostgreSqlLengthMismatchDetector
         {
             var column = columns.FirstOrDefault(c =>
                 string.Equals(c.Name, property.ColumnName, StringComparison.OrdinalIgnoreCase));
-            if (column == null || !property.MaxLength.HasValue || !column.MaxLength.HasValue) continue;
+            if (column == null || !property.MaxLength.HasValue || !column.MaxLength.HasValue)
+            {
+                continue;
+            }
 
             if (property.MaxLength.Value > column.MaxLength.Value)
             {
@@ -28,7 +31,7 @@ public sealed class PostgreSqlLengthMismatchDetector
                     {
                         { "property", property.Name },
                         { "entityMaxLength", property.MaxLength.Value },
-                        { "columnMaxLength", column.MaxLength.Value }
+                        { "columnMaxLength", column.MaxLength.Value },
                     });
             }
         }
@@ -38,8 +41,11 @@ public sealed class PostgreSqlLengthMismatchDetector
 public class PostgreSqlLengthExceedsColumnRule : ContractRuleBase
 {
     public override string RuleId => "PG003";
+
     public override string Name => "Entity Length Exceeds PostgreSQL Column Length";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Entity property MaxLength exceeds PostgreSQL column length";
 
     protected override Task ValidateCoreAsync(ContractDescriptor contract, IReadOnlyList<ContractDescriptor> allContracts, List<ContractViolation> violations, CancellationToken cancellationToken)
@@ -53,6 +59,7 @@ public class PostgreSqlLengthExceedsColumnRule : ContractRuleBase
                 violations.AddRange(new PostgreSqlLengthMismatchDetector().Detect(entity, table.Columns));
             }
         }
+
         return Task.CompletedTask;
     }
 }

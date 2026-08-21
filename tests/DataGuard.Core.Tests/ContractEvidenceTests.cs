@@ -33,7 +33,9 @@ public class ContractEvidenceTests
         finally
         {
             if (File.Exists(outputPath))
+            {
                 File.Delete(outputPath);
+            }
         }
     }
 }

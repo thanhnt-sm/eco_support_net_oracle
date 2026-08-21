@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -29,13 +30,14 @@ public sealed class CredentialManager
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "DataGuard",
             "credentials.json");
-        
-        Directory.CreateDirectory(Path.GetDirectoryName(_credentialStorePath)!);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(_credentialStorePath) !);
     }
 
     /// <summary>
     /// Gets the connection string, checking for rotation and decrypting if needed.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<string> GetConnectionStringAsync(CancellationToken cancellationToken = default)
     {
         var stored = await LoadFromCredentialStoreAsync(cancellationToken);
@@ -55,27 +57,30 @@ public sealed class CredentialManager
         }
 
         // Decrypt if encrypted
-        if (_config.EncryptConnectionStringAtRest && IsEncrypted(connectionString))
+        if (_config.EncryptConnectionStringAtRest && IsEncrypted(connectionString) && OperatingSystem.IsWindows())
         {
             connectionString = DecryptConnectionString(connectionString);
         }
 
         await LogAuditAsync("ConnectionStringAccessed", new { HasConnectionString = true }, cancellationToken);
-        
+
         return connectionString;
     }
 
     /// <summary>
     /// Stores connection string securely with optional encryption.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task StoreConnectionStringAsync(string connectionString, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(connectionString))
+        {
             throw new ArgumentException("Connection string cannot be empty", nameof(connectionString));
+        }
 
         string storedValue = connectionString;
-        
-        if (_config.EncryptConnectionStringAtRest)
+
+        if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsWindows())
         {
             storedValue = EncryptConnectionString(connectionString);
         }
@@ -85,7 +90,7 @@ public sealed class CredentialManager
             ConnectionString = storedValue,
             CreatedAt = DateTimeOffset.UtcNow,
             LastAccessedAt = DateTimeOffset.UtcNow,
-            IsEncrypted = _config.EncryptConnectionStringAtRest
+            IsEncrypted = _config.EncryptConnectionStringAtRest,
         };
 
         await SaveToCredentialStoreAsync(credentialData, cancellationToken);
@@ -105,14 +110,14 @@ public sealed class CredentialManager
                 var warning = $"⚠ Credential rotation detected: connection string has changed since last run. " +
                              $"If this was intentional, run 'dataguard baseline' to update. " +
                              $"Otherwise, verify your credential source hasn't been compromised.";
-                
+
                 _logger?.LogWarning(warning);
                 Console.Error.WriteLine(warning);
-                
-                await LogAuditAsync("CredentialRotationDetected", new 
-                { 
+
+                await LogAuditAsync("CredentialRotationDetected", new
+                {
                     OldHash = ComputeHash(stored!.ConnectionString),
-                    NewHash = ComputeHash(currentConnectionString)
+                    NewHash = ComputeHash(currentConnectionString),
                 });
             }
         }
@@ -122,6 +127,7 @@ public sealed class CredentialManager
         }
     }
 
+    [SupportedOSPlatform("windows")]
     private string EncryptConnectionString(string connectionString)
     {
         // Use DPAPI (Windows) or libsecret (Linux) for platform-appropriate encryption
@@ -130,10 +136,13 @@ public sealed class CredentialManager
         return "ENC:" + Convert.ToBase64String(encrypted);
     }
 
+    [SupportedOSPlatform("windows")]
     private string DecryptConnectionString(string encryptedConnectionString)
     {
         if (!encryptedConnectionString.StartsWith("ENC:"))
+        {
             return encryptedConnectionString;
+        }
 
         var encrypted = Convert.FromBase64String(encryptedConnectionString[4..]);
         var decrypted = ProtectedData.Unprotect(encrypted, _entropy, DataProtectionScope.CurrentUser);
@@ -153,7 +162,9 @@ public sealed class CredentialManager
     private async Task<CredentialData?> LoadFromCredentialStoreAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_credentialStorePath))
+        {
             return null;
+        }
 
         try
         {
@@ -170,15 +181,20 @@ public sealed class CredentialManager
     /// Gets the connection string from the local encrypted credential store, decrypting if necessary.
     /// Returns null when no credential is stored.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<string?> GetStoredConnectionStringAsync(CancellationToken cancellationToken = default)
     {
         var stored = await LoadFromCredentialStoreAsync(cancellationToken);
         if (stored == null || string.IsNullOrEmpty(stored.ConnectionString))
+        {
             return null;
+        }
 
         var value = stored.ConnectionString;
-        if (stored.IsEncrypted && IsEncrypted(value))
+        if (stored.IsEncrypted && IsEncrypted(value) && OperatingSystem.IsWindows())
+        {
             value = DecryptConnectionString(value);
+        }
 
         return value;
     }
@@ -192,7 +208,9 @@ public sealed class CredentialManager
     private async Task LogAuditAsync(string eventType, object details, CancellationToken cancellationToken = default)
     {
         if (!_config.EnableAuditLogging)
+        {
             return;
+        }
 
         var auditEntry = new AuditLogEntry(
             DateTimeOffset.UtcNow,
@@ -207,8 +225,8 @@ public sealed class CredentialManager
             "DataGuard",
             "audit.log");
 
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-        
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath) !);
+
         var logLine = JsonSerializer.Serialize(auditEntry);
         await File.AppendAllTextAsync(logPath, logLine + Environment.NewLine);
     }
@@ -220,8 +238,11 @@ public sealed class CredentialManager
 internal sealed class CredentialData
 {
     public string ConnectionString { get; set; } = "";
+
     public DateTimeOffset CreatedAt { get; set; }
+
     public DateTimeOffset LastAccessedAt { get; set; }
+
     public bool IsEncrypted { get; set; }
 }
 
@@ -234,5 +255,4 @@ public sealed record AuditLogEntry(
     string Details,
     string MachineName,
     string UserName,
-    int ProcessId
-);
+    int ProcessId);

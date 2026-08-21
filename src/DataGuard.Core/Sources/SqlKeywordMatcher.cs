@@ -11,8 +11,11 @@ public static class SqlKeywordMatcher
         foreach (var keyword in keywords)
         {
             if (sqlText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
                 return true;
+            }
         }
+
         return false;
     }
 }

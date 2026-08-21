@@ -13,35 +13,39 @@ public class OracleDialectChecker
     // Only genuinely Oracle-exclusive constructs. Standard SQL (window functions,
     // PIVOT, PARTITION BY, KEEP, MODEL) is valid in modern SQL Server/PostgreSQL too
     // and must not be flagged as "Oracle-only".
-    private static readonly HashSet<string> OracleKeywords = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> OracleKeywords = new (StringComparer.OrdinalIgnoreCase)
     {
         "DECODE", "NVL", "NVL2", "DUAL", "ROWNUM", "CONNECT BY", "START WITH",
         "SYSDATE", "SYSTIMESTAMP", "NEXTVAL", "CURRVAL", "ROWID",
         "LISTAGG", "WM_CONCAT", "XMLAGG", "XMLFOREST", "XMLELEMENT",
-        "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR"
+        "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR",
     };
 
-    private static readonly HashSet<string> OracleOperators = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> OracleOperators = new (StringComparer.OrdinalIgnoreCase)
     {
-        "(+)", "||", "**", "CONCAT"
+        "(+)", "||", "**", "CONCAT",
     };
 
-    private static readonly HashSet<string> SqlServerKeywords = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SqlServerKeywords = new (StringComparer.OrdinalIgnoreCase)
     {
         "ISNULL", "GETDATE", "GETUTCDATE", "DATEADD", "DATEDIFF",
         "DATEPART", "DATENAME", "IDENTITY", "NEWID", "NEWSEQUENTIALID",
-        "IIF", "CHOOSE", "FORMAT", "TRY_CAST", "TRY_CONVERT", "TRY_PARSE"
+        "IIF", "CHOOSE", "FORMAT", "TRY_CAST", "TRY_CONVERT", "TRY_PARSE",
     };
 
     /// <summary>
     /// Checks for Oracle syntax in non-Oracle context.
     /// </summary>
+    /// <returns></returns>
     public IReadOnlyList<ContractViolation> CheckOracleSyntaxInNonOracleContext(
         string sqlText,
         bool isOracleContext,
         Location? location = null)
     {
-        if (isOracleContext) return Array.Empty<ContractViolation>();
+        if (isOracleContext)
+        {
+            return Array.Empty<ContractViolation>();
+        }
 
         var violations = new List<ContractViolation>();
 
@@ -55,8 +59,7 @@ public class OracleDialectChecker
                     $"Oracle-specific keyword '{keyword}' used in non-Oracle context",
                     DiagnosticSeverity.Warning,
                     location,
-                    new Dictionary<string, object?> { { "keyword", keyword } }
-                ));
+                    new Dictionary<string, object?> { { "keyword", keyword } }));
             }
         }
 
@@ -70,8 +73,7 @@ public class OracleDialectChecker
                     $"Oracle-specific operator '{op}' used in non-Oracle context",
                     DiagnosticSeverity.Warning,
                     location,
-                    new Dictionary<string, object?> { { "operator", op } }
-                ));
+                    new Dictionary<string, object?> { { "operator", op } }));
             }
         }
 
@@ -81,12 +83,16 @@ public class OracleDialectChecker
     /// <summary>
     /// Checks for non-Oracle (SQL Server) syntax in Oracle context.
     /// </summary>
+    /// <returns></returns>
     public IReadOnlyList<ContractViolation> CheckNonOracleSyntaxInOracleContext(
         string sqlText,
         bool isOracleContext,
         Location? location = null)
     {
-        if (!isOracleContext) return Array.Empty<ContractViolation>();
+        if (!isOracleContext)
+        {
+            return Array.Empty<ContractViolation>();
+        }
 
         var violations = new List<ContractViolation>();
 
@@ -99,8 +105,7 @@ public class OracleDialectChecker
                     $"SQL Server-specific keyword '{keyword}' used in Oracle context",
                     DiagnosticSeverity.Warning,
                     location,
-                    new Dictionary<string, object?> { { "keyword", keyword } }
-                ));
+                    new Dictionary<string, object?> { { "keyword", keyword } }));
             }
         }
 
@@ -111,8 +116,7 @@ public class OracleDialectChecker
                 "DG011",
                 "SQL Server TOP clause used in Oracle context (use FETCH FIRST n ROWS ONLY)",
                 DiagnosticSeverity.Warning,
-                location
-            ));
+                location));
         }
 
         if (System.Text.RegularExpressions.Regex.IsMatch(sqlText, @"\bLIMIT\s+\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
@@ -121,8 +125,7 @@ public class OracleDialectChecker
                 "DG011",
                 "LIMIT clause not supported in Oracle, use FETCH FIRST n ROWS ONLY",
                 DiagnosticSeverity.Warning,
-                location
-            ));
+                location));
         }
 
         if (sqlText.Contains("GROUP_CONCAT", StringComparison.OrdinalIgnoreCase))
@@ -132,8 +135,7 @@ public class OracleDialectChecker
                 "Non-Oracle function 'GROUP_CONCAT' used in Oracle context - use LISTAGG",
                 DiagnosticSeverity.Warning,
                 location,
-                new Dictionary<string, object?> { { "function", "GROUP_CONCAT" }, { "suggestion", "LISTAGG" } }
-            ));
+                new Dictionary<string, object?> { { "function", "GROUP_CONCAT" }, { "suggestion", "LISTAGG" } }));
         }
 
         return violations;
@@ -142,6 +144,7 @@ public class OracleDialectChecker
     /// <summary>
     /// Checks for provider option mismatch.
     /// </summary>
+    /// <returns></returns>
     public IReadOnlyList<ContractViolation> CheckProviderOptionMismatch(
         bool isOracleContext,
         string providerName,
@@ -155,8 +158,7 @@ public class OracleDialectChecker
                     "DG012",
                     $"Oracle context detected but provider is '{providerName}'. Expected Oracle provider.",
                     DiagnosticSeverity.Error,
-                    location
-                )
+                    location),
             };
         }
 
@@ -166,12 +168,16 @@ public class OracleDialectChecker
     /// <summary>
     /// Checks for SQL Server EXEC syntax in Oracle context.
     /// </summary>
+    /// <returns></returns>
     public IReadOnlyList<ContractViolation> CheckSqlServerSyntaxLeak(
         string sqlText,
         bool isOracleContext,
         Location? location = null)
     {
-        if (!isOracleContext) return Array.Empty<ContractViolation>();
+        if (!isOracleContext)
+        {
+            return Array.Empty<ContractViolation>();
+        }
 
         var violations = new List<ContractViolation>();
 
@@ -182,8 +188,7 @@ public class OracleDialectChecker
                 "DG013",
                 "SQL Server EXEC dbo.Procedure syntax used in Oracle context. Use BEGIN ... END; block or CALL.",
                 DiagnosticSeverity.Warning,
-                location
-            ));
+                location));
         }
 
         return violations;
@@ -192,6 +197,7 @@ public class OracleDialectChecker
     /// <summary>
     /// Checks for unmapped type usage in raw SQL.
     /// </summary>
+    /// <returns></returns>
     public IReadOnlyList<ContractViolation> CheckRawSqlUnmappedTypeUsage(
         string sqlText,
         bool isOracleContext,
@@ -200,7 +206,9 @@ public class OracleDialectChecker
         var violations = new List<ContractViolation>();
 
         if (!isOracleContext)
+        {
             return violations; // Non-Oracle context detection is not wired yet - no false positives.
+        }
 
         // SQL Server types that Oracle EF Core does not map
         string[] sqlServerTypes = { "UNIQUEIDENTIFIER", "MONEY", "SMALLMONEY", "DATETIME2", "DATETIMEOFFSET", "GEOGRAPHY", "GEOMETRY", "HIERARCHYID", "SQL_VARIANT" };
@@ -233,11 +241,14 @@ public class OracleDialectChecker
 /// </summary>
 public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 {
-    private readonly OracleDialectChecker _checker = new();
+    private readonly OracleDialectChecker _checker = new ();
 
     public override string RuleId => "DG010";
+
     public override string Name => "Oracle Syntax in Non-Oracle Context";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "Oracle-specific syntax detected in non-Oracle context";
 
     protected override Task ValidateCoreAsync(
@@ -252,6 +263,7 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
             var isOracle = false; // This rule detects Oracle syntax leaking into non-Oracle (SQL Server) context
             violations.AddRange(checker.CheckOracleSyntaxInNonOracleContext(rawSql.SqlText, isOracle, contract.Location));
         }
+
         return Task.CompletedTask;
     }
 }
@@ -262,8 +274,11 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 public class NonOracleFunctionInOracleContextRule : ContractRuleBase
 {
     public override string RuleId => "DG011";
+
     public override string Name => "Non-Oracle Function in Oracle Context";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "SQL Server/MySQL function used in Oracle context";
 
     protected override Task ValidateCoreAsync(
@@ -277,6 +292,7 @@ public class NonOracleFunctionInOracleContextRule : ContractRuleBase
             var checker = new OracleDialectChecker();
             violations.AddRange(checker.CheckNonOracleSyntaxInOracleContext(rawSql.SqlText, true, contract.Location));
         }
+
         return Task.CompletedTask;
     }
 }
@@ -287,8 +303,11 @@ public class NonOracleFunctionInOracleContextRule : ContractRuleBase
 public class ProviderOptionMismatchRule : ContractRuleBase
 {
     public override string RuleId => "DG012";
+
     public override string Name => "Provider Option Mismatch";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Database context doesn't match configured provider";
 
     protected override Task ValidateCoreAsync(
@@ -308,8 +327,11 @@ public class ProviderOptionMismatchRule : ContractRuleBase
 public class SqlServerSyntaxLeakRule : ContractRuleBase
 {
     public override string RuleId => "DG013";
+
     public override string Name => "SQL Server Syntax Leak";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "SQL Server EXEC syntax used in Oracle context";
 
     protected override Task ValidateCoreAsync(
@@ -323,6 +345,7 @@ public class SqlServerSyntaxLeakRule : ContractRuleBase
             var checker = new OracleDialectChecker();
             violations.AddRange(checker.CheckSqlServerSyntaxLeak(rawSql.SqlText, true, contract.Location));
         }
+
         return Task.CompletedTask;
     }
 }
@@ -333,8 +356,11 @@ public class SqlServerSyntaxLeakRule : ContractRuleBase
 public class RawSqlUnmappedTypeUsageRule : ContractRuleBase
 {
     public override string RuleId => "DG014";
+
     public override string Name => "Raw SQL Unmapped Type Usage";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
     public override string Description => "Raw SQL uses type not mapped by Oracle EF Core provider";
 
     protected override Task ValidateCoreAsync(
@@ -348,6 +374,7 @@ public class RawSqlUnmappedTypeUsageRule : ContractRuleBase
             var checker = new OracleDialectChecker();
             violations.AddRange(checker.CheckRawSqlUnmappedTypeUsage(rawSql.SqlText, true, contract.Location));
         }
+
         return Task.CompletedTask;
     }
 }

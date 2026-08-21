@@ -12,36 +12,39 @@ namespace DataGuard.Core.Rules;
 public class PhantomIdentifierRule : ContractRuleBase
 {
     public override string RuleId => "DG015";
+
     public override string Name => "Phantom Identifier Detection";
+
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
     public override string Description => "Raw SQL references a table or column that does not exist in the database schema";
 
-    private static readonly Regex TableRefRegex = new(
+    private static readonly Regex TableRefRegex = new (
         @"\b(?:FROM|JOIN)\s+([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)?)(?:\s+(?:AS\s+)?([A-Za-z_][\w]*))?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex CteNameRegex = new(
+    private static readonly Regex CteNameRegex = new (
         @"\bWITH\s+([A-Za-z_][\w]*)\s+AS\s*\(",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex SimpleIdentifierRegex = new(
+    private static readonly Regex SimpleIdentifierRegex = new (
         @"^[A-Za-z_]\w*$",
         RegexOptions.Compiled);
 
-    private static readonly Regex QualifiedColumnRegex = new(
+    private static readonly Regex QualifiedColumnRegex = new (
         @"\b([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex SelectListRegex = new(
+    private static readonly Regex SelectListRegex = new (
         @"\bSELECT\s+(.+?)\s+FROM\b",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
-    private static readonly HashSet<string> SqlKeywords = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SqlKeywords = new (StringComparer.OrdinalIgnoreCase)
     {
         "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "ON",
         "AND", "OR", "NOT", "NULL", "AS", "ORDER", "GROUP", "BY", "HAVING", "LIMIT",
         "OFFSET", "FETCH", "UNION", "DISTINCT", "INTO", "VALUES", "SET", "CASE",
-        "WHEN", "THEN", "ELSE", "END", "EXISTS", "BETWEEN", "LIKE", "IN", "IS"
+        "WHEN", "THEN", "ELSE", "END", "EXISTS", "BETWEEN", "LIKE", "IN", "IS",
     };
 
     protected override Task ValidateCoreAsync(
@@ -51,11 +54,15 @@ public class PhantomIdentifierRule : ContractRuleBase
         CancellationToken cancellationToken)
     {
         if (contract is not RawSqlDescriptor rawSql || string.IsNullOrWhiteSpace(rawSql.SqlText))
+        {
             return Task.CompletedTask;
+        }
 
         var schema = allContracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault();
         if (schema == null || schema.Tables.Count == 0)
+        {
             return Task.CompletedTask;
+        }
 
         var sql = rawSql.SqlText;
 
@@ -84,11 +91,15 @@ public class PhantomIdentifierRule : ContractRuleBase
             // Strip schema qualifier: FROM dbo.Users -> table "Users".
             var dotIdx = table.LastIndexOf('.');
             if (dotIdx >= 0)
-                table = table[(dotIdx + 1)..];
+            {
+                table = table[(dotIdx + 1) ..];
+            }
 
             // A SQL keyword following the table name is not an alias.
             if (SqlKeywords.Contains(alias))
+            {
                 alias = string.Empty;
+            }
 
             tableRefs.Add((table, alias));
         }
@@ -96,7 +107,9 @@ public class PhantomIdentifierRule : ContractRuleBase
         foreach (var (table, _) in tableRefs)
         {
             if (cteNames.Contains(table))
+            {
                 continue;
+            }
 
             if (!tables.ContainsKey(table.ToUpperInvariant()))
             {
@@ -118,7 +131,9 @@ public class PhantomIdentifierRule : ContractRuleBase
                 t.Alias.Equals(alias, StringComparison.OrdinalIgnoreCase) ||
                 t.Table.Equals(alias, StringComparison.OrdinalIgnoreCase));
             if (entry == default || string.IsNullOrEmpty(entry.Table))
+            {
                 continue;
+            }
 
             var upperTable = entry.Table.ToUpperInvariant();
             if (tables.TryGetValue(upperTable, out var cols) && !cols.Contains(column.ToUpperInvariant()))
@@ -143,24 +158,33 @@ public class PhantomIdentifierRule : ContractRuleBase
                 {
                     var col = rawCol.Trim();
                     if (col.Length == 0 || col == "*" || col.Contains('.') || col.Contains('('))
+                    {
                         continue;
+                    }
 
                     // Skip literals and operators that indicate expressions.
                     if (col.Contains('+') || col.Contains('-') || col.Contains('*') || col.Contains('/'))
+                    {
                         continue;
+                    }
 
                     // Take the alias if present ("expr AS alias"), else the last whitespace token.
                     var asIdx = col.IndexOf(" AS ", StringComparison.OrdinalIgnoreCase);
-                    var clean = asIdx >= 0 ? col[(asIdx + 4)..].Trim() : col;
+                    var clean = asIdx >= 0 ? col[(asIdx + 4) ..].Trim() : col;
 
-                    var tokens = clean.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    var tokens = clean.Split((char[] ?)null, StringSplitOptions.RemoveEmptyEntries);
                     if (tokens.Length == 0)
+                    {
                         continue;
+                    }
+
                     var candidate = tokens[tokens.Length - 1];
 
                     // Only compare simple identifiers (skip keywords, literals, expressions).
                     if (!SimpleIdentifierRegex.IsMatch(candidate) || SqlKeywords.Contains(candidate))
+                    {
                         continue;
+                    }
 
                     if (!primaryCols.Contains(candidate.ToUpperInvariant()))
                     {

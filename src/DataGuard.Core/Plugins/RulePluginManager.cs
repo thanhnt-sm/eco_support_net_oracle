@@ -21,12 +21,19 @@ namespace DataGuard.Core.Plugins;
 public class RulePluginMetadata : IRuleMetadata
 {
     public string RuleId { get; }
+
     public string Name { get; }
+
     public string Description { get; }
+
     public string Category { get; }
+
     public string DefaultSeverity { get; }
+
     public string MinDataGuardVersion { get; }
+
     public string Author { get; }
+
     public string[] Tags { get; }
 
     public RulePluginMetadata(IDictionary<string, object> metadata)
@@ -51,14 +58,14 @@ public sealed class RulePluginManager : IDisposable
     private readonly CompositionHost _container;
     private readonly ILogger<RulePluginManager>? _logger;
     private readonly ImmutableArray<Lazy<IContractRule, IRuleMetadata>> _rulePlugins;
-    private readonly List<System.Runtime.Loader.AssemblyLoadContext> _pluginContexts = new();
+    private readonly List<System.Runtime.Loader.AssemblyLoadContext> _pluginContexts = new ();
 
     public RulePluginManager(
         string? pluginDirectory = null,
         ILogger<RulePluginManager>? logger = null)
     {
         _logger = logger;
-        
+
         var config = new ContainerConfiguration()
             .WithDefaultConventions(new ConventionBuilder());
 
@@ -87,22 +94,24 @@ public sealed class RulePluginManager : IDisposable
         }
 
         _container = config.CreateContainer();
-        
-        // GetExports<T, TMetadata> doesn't exist in MEF 2, use GetExports<T>() 
+
+        // GetExports<T, TMetadata> doesn't exist in MEF 2, use GetExports<T>()
         // and create Lazy with metadata manually
         _rulePlugins = _container.GetExports<IContractRule>()
             .Select(e => new Lazy<IContractRule, IRuleMetadata>(
                 () => e,
                 new RulePluginMetadata(e.GetType().GetCustomAttributes<ExportMetadataAttribute>().ToDictionary(a => a.Name, a => a.Value))))
             .ToImmutableArray();
-        
-        _logger?.LogInformation("Loaded {Count} rule plugins from {Directory}", 
+
+        _logger?.LogInformation(
+            "Loaded {Count} rule plugins from {Directory}",
             _rulePlugins.Length, pluginDirectory ?? GetDefaultPluginDirectory());
     }
 
     /// <summary>
     /// Gets all available rules including built-in and plugin rules.
     /// </summary>
+    /// <returns></returns>
     public ImmutableArray<IContractRule> GetAllRules(ImmutableArray<IContractRule> builtInRules)
     {
         var pluginRules = _rulePlugins
@@ -116,10 +125,14 @@ public sealed class RulePluginManager : IDisposable
     /// <summary>
     /// Gets a specific rule by ID (checks both built-in and plugins).
     /// </summary>
+    /// <returns></returns>
     public IContractRule? GetRuleById(string ruleId, ImmutableArray<IContractRule> builtInRules)
     {
         var builtIn = builtInRules.FirstOrDefault(r => r.RuleId == ruleId);
-        if (builtIn != null) return builtIn;
+        if (builtIn != null)
+        {
+            return builtIn;
+        }
 
         return _rulePlugins
             .Where(p => p.Metadata.RuleId == ruleId && IsCompatible(p.Metadata))
@@ -130,6 +143,7 @@ public sealed class RulePluginManager : IDisposable
     /// <summary>
     /// Gets all rule metadata for discovery/UI purposes.
     /// </summary>
+    /// <returns></returns>
     public ImmutableArray<IRuleMetadata> GetRuleMetadata()
     {
         return _rulePlugins.Select(p => p.Metadata).ToImmutableArray();
@@ -148,15 +162,22 @@ public sealed class RulePluginManager : IDisposable
         // Check version compatibility (lenient parse: malformed metadata must not crash).
         var currentVersion = Assembly.GetExecutingAssembly().GetName().Version;
         if (currentVersion == null)
+        {
             return false;
+        }
+
         if (!Version.TryParse(metadata.MinDataGuardVersion ?? "", out var minVersion))
+        {
             minVersion = new Version(1, 0, 0);
+        }
+
         return currentVersion >= minVersion;
     }
 
     public void Dispose()
     {
         _container?.Dispose();
+
         // Release plugin assemblies: drop container/export references first, then
         // unload each collectible context so plugin code cannot linger in the host.
         GC.Collect();
@@ -181,12 +202,19 @@ public sealed class RulePluginManager : IDisposable
 public interface IRuleMetadata
 {
     string RuleId { get; }
+
     string Name { get; }
+
     string Description { get; }
+
     string Category { get; }
+
     string DefaultSeverity { get; }
+
     string MinDataGuardVersion { get; }
+
     string Author { get; }
+
     string[] Tags { get; }
 }
 
@@ -197,38 +225,49 @@ public interface IRuleMetadata
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
 public sealed class ExportRuleAttribute : ExportAttribute, IRuleMetadata
 {
-    public ExportRuleAttribute(string ruleId) : base(typeof(IContractRule))
+    public ExportRuleAttribute(string ruleId)
+        : base(typeof(IContractRule))
     {
         RuleId = ruleId;
     }
 
     public string RuleId { get; }
+
     public string Name { get; set; } = "";
+
     public string Description { get; set; } = "";
+
     public string Category { get; set; } = "Custom";
+
     public string DefaultSeverity { get; set; } = "Warning";
+
     public string MinDataGuardVersion { get; set; } = "1.0.0";
+
     public string Author { get; set; } = "";
+
     public string[] Tags { get; set; } = Array.Empty<string>();
 }
 
 /// <summary>
 /// Example custom rule plugin.
 /// </summary>
-[ExportRule("CUSTOM001",
+[ExportRule(
+    "CUSTOM001",
     Name = "Custom Naming Convention",
     Description = "Enforces custom naming convention for specific schemas",
     Category = "Naming",
     DefaultSeverity = "Warning",
     MinDataGuardVersion = "1.0.0",
     Author = "DataGuard Team",
-    Tags = new[] { "naming", "custom" }
-)]
+    Tags = new[] { "naming", "custom" })]
 public sealed class CustomNamingConventionRule : IContractRule
 {
     public string RuleId => "CUSTOM001";
+
     public string Name => "Custom Naming Convention";
+
     public Microsoft.CodeAnalysis.DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Warning;
+
     public string Description => "Enforces custom naming convention for specific schemas";
 
     public async Task<IReadOnlyList<ContractViolation>> ValidateAsync(
@@ -237,7 +276,7 @@ public sealed class CustomNamingConventionRule : IContractRule
         CancellationToken cancellationToken = default)
     {
         var violations = new List<ContractViolation>();
-        
+
         // Example: Check for specific naming pattern in Oracle schemas
         if (contract is StoredProcedureDescriptor sp && sp.Schema.StartsWith("LEGACY_", StringComparison.OrdinalIgnoreCase))
         {
@@ -263,7 +302,9 @@ public sealed class CustomNamingConventionRule : IContractRule
 public interface IExternalToolPlugin
 {
     string ToolName { get; }
+
     string Version { get; }
+
     Task<PluginAnalysisResult> AnalyzeAsync(
         IReadOnlyList<ContractDescriptor> contracts,
         CancellationToken cancellationToken = default);

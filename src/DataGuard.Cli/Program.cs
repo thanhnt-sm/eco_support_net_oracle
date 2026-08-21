@@ -43,7 +43,7 @@ var baselinePathOption = new Option<string>("--baseline", () => ".dataguard-base
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption,
 };
 
 validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext context) =>
@@ -87,12 +87,13 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
     };
 
     var normalizedFormat = format.Trim().ToLowerInvariant();
-    if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "typescript"))
+    if (normalizedFormat is not("text" or "sarif" or "evidence" or "contracts" or "typescript"))
     {
         console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence, contracts, typescript.");
         Environment.ExitCode = 2;
         return;
     }
+
     if (normalizedFormat is not "text" && string.IsNullOrWhiteSpace(output))
     {
         console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
@@ -139,7 +140,6 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
 
         var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
 
-
         if (verbose)
         {
             console.Out.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings)");
@@ -152,8 +152,9 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
         console.Error.WriteLine($"Validation failed: {ex.Message}");
         if (verbose)
         {
-            console.Error.WriteLine(ex.StackTrace);
+            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
         }
+
         Environment.ExitCode = 1;
     }
 });
@@ -164,10 +165,11 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
 
 var baselineCommand = new Command("baseline", "Create baseline from current violations")
 {
-    connectionOption, configOption, outputOption, verboseOption, providerOption, schemaOption, packageOption
+    connectionOption, configOption, outputOption, verboseOption, providerOption, schemaOption, packageOption,
 };
 
-baselineCommand.SetHandler(async (connection, configPath, output, verbose, provider, schema, package) =>
+baselineCommand.SetHandler(
+    async (connection, configPath, output, verbose, provider, schema, package) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
@@ -202,7 +204,11 @@ baselineCommand.SetHandler(async (connection, configPath, output, verbose, provi
     catch (Exception ex)
     {
         console.Error.WriteLine($"Baseline creation failed: {ex.Message}");
-        if (verbose) console.Error.WriteLine(ex.StackTrace);
+        if (verbose)
+        {
+            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+        }
+
         Environment.ExitCode = 1;
     }
 }, connectionOption, configOption, outputOption, verboseOption, providerOption, schemaOption, packageOption);
@@ -214,10 +220,11 @@ baselineCommand.SetHandler(async (connection, configPath, output, verbose, provi
 var snapshotCommand = new Command("snapshot", "Manage schema snapshots");
 var snapshotRefreshCommand = new Command("refresh", "Refresh snapshot from database")
 {
-    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption
+    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption,
 };
 
-snapshotRefreshCommand.SetHandler(async (connection, configPath, verbose, provider, schema, package) =>
+snapshotRefreshCommand.SetHandler(
+    async (connection, configPath, verbose, provider, schema, package) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
@@ -248,7 +255,8 @@ snapshotRefreshCommand.SetHandler(async (connection, configPath, verbose, provid
                 var columnsReader = new AllTabColumnsReader(config.ConnectionString);
                 var allColumns = await columnsReader.GetAllColumnsAsync(owner);
                 snapshotSchema = allColumns
-                    .Select(kv => new SnapshotTable(kv.Key,
+                    .Select(kv => new SnapshotTable(
+                        kv.Key,
                         kv.Value.Select(c => new SnapshotColumn(c.Name, c.DataType, c.MaxLength, c.CharLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed)).ToList()))
                     .ToList();
             }
@@ -269,17 +277,22 @@ snapshotRefreshCommand.SetHandler(async (connection, configPath, verbose, provid
     catch (Exception ex)
     {
         console.Error.WriteLine($"Snapshot refresh failed: {ex.Message}");
-        if (verbose) console.Error.WriteLine(ex.StackTrace);
+        if (verbose)
+        {
+            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+        }
+
         Environment.ExitCode = 1;
     }
 }, connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption);
 
 var snapshotShowCommand = new Command("show", "Show current snapshot info")
 {
-    configOption
+    configOption,
 };
 
-snapshotShowCommand.SetHandler(async (configPath) =>
+snapshotShowCommand.SetHandler(
+    async (configPath) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
@@ -314,10 +327,11 @@ snapshotShowCommand.SetHandler(async (configPath) =>
 
 var snapshotDiffCommand = new Command("diff", "Compare current schema with snapshot")
 {
-    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption
+    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption,
 };
 
-snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider, schema, package, failOnDrift) =>
+snapshotDiffCommand.SetHandler(
+    async (connection, configPath, verbose, provider, schema, package, failOnDrift) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
@@ -357,6 +371,7 @@ snapshotDiffCommand.SetHandler(async (connection, configPath, verbose, provider,
         console.Out.WriteLine($"Warning: snapshot was taken against database version {snapshotMajorMinor.Value} but the live database reports {liveMajorMinor.Value}.");
         console.Out.WriteLine("Validation results are only guaranteed for the database version the snapshot was taken from.");
     }
+
     var currentViolations = await RunValidationAsync(config, provider, verbose, console);
     var currentHash = ComputeSchemaHash(currentViolations);
 
@@ -387,10 +402,11 @@ var initOutputOption = new Option<string>("--output", () => ".dataguard.yml", "O
 var initProviderOption = new Option<string>("--provider", () => "sqlserver", "Default provider: sqlserver, oracle");
 var initCommand = new Command("init", "Initialize DataGuard configuration")
 {
-    initOutputOption, initProviderOption
+    initOutputOption, initProviderOption,
 };
 
-initCommand.SetHandler(async (output, provider) =>
+initCommand.SetHandler(
+    async (output, provider) =>
 {
     var console = new SystemConsole();
     var config = new DataGuardConfiguration
@@ -399,7 +415,7 @@ initCommand.SetHandler(async (output, provider) =>
         SnapshotFilePath = ".dataguard-snapshot.json",
         BaselineFilePath = ".dataguard-baseline.json",
         NamingConvention = NamingConvention.SnakeCaseToPascalCase,
-        EnableBaseline = true
+        EnableBaseline = true,
     };
 
     var yaml = SerializeConfig(config);
@@ -415,10 +431,11 @@ initCommand.SetHandler(async (output, provider) =>
 var configCommand = new Command("config", "Manage DataGuard configuration");
 var configShowCommand = new Command("show", "Show current configuration")
 {
-    configOption
+    configOption,
 };
 
-configShowCommand.SetHandler((configPath) =>
+configShowCommand.SetHandler(
+    (configPath) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
@@ -435,10 +452,11 @@ configShowCommand.SetHandler((configPath) =>
 
 var configValidateCommand = new Command("validate", "Validate configuration file")
 {
-    configOption
+    configOption,
 };
 
-configValidateCommand.SetHandler((configPath) =>
+configValidateCommand.SetHandler(
+    (configPath) =>
 {
     var console = new SystemConsole();
     try
@@ -466,10 +484,11 @@ configCommand.AddCommand(configValidateCommand);
 
 var oracleCheckCommand = new Command("oracle-check", "Run Oracle-specific dialect and length checks")
 {
-    connectionOption, configOption, outputOption, formatOption, verboseOption, schemaOption, packageOption
+    connectionOption, configOption, outputOption, formatOption, verboseOption, schemaOption, packageOption,
 };
 
-oracleCheckCommand.SetHandler(async (connection, configPath, output, format, verbose, schema, package) =>
+oracleCheckCommand.SetHandler(
+    async (connection, configPath, output, format, verbose, schema, package) =>
 {
     var console = new SystemConsole();
     var config = LoadConfig(configPath);
@@ -505,7 +524,11 @@ oracleCheckCommand.SetHandler(async (connection, configPath, output, format, ver
     catch (Exception ex)
     {
         console.Error.WriteLine($"Oracle check failed: {ex.Message}");
-        if (verbose) console.Error.WriteLine(ex.StackTrace);
+        if (verbose)
+        {
+            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+        }
+
         Environment.ExitCode = 1;
     }
 }, connectionOption, configOption, outputOption, formatOption, verboseOption, schemaOption, packageOption);
@@ -540,10 +563,11 @@ versionCommand.SetHandler(() =>
 
 var migrateCommand = new Command("migrate", "Migrate a legacy baseline file (v1) to v2")
 {
-    baselinePathOption
+    baselinePathOption,
 };
 
-migrateCommand.SetHandler(async (baselinePath) =>
+migrateCommand.SetHandler(
+    async (baselinePath) =>
 {
     var console = new SystemConsole();
     var path = baselinePath ?? ".dataguard-baseline.json";
@@ -604,7 +628,7 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
     var config = new DataGuardConfiguration
     {
         ExcludedProcedures = Array.Empty<string>(),
-        ExcludedEntities = Array.Empty<string>()
+        ExcludedEntities = Array.Empty<string>(),
     };
 
     // Typed round-trip via YamlDotNet: handles comments, quotes, lists and nested
@@ -614,7 +638,9 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
         var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().Build();
         var typed = deserializer.Deserialize<DataGuardConfiguration>(yaml);
         if (typed != null)
+        {
             return typed;
+        }
     }
     catch
     {
@@ -625,13 +651,18 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
     stream.Load(new StringReader(yaml));
     var root = stream.Documents.FirstOrDefault()?.RootNode as YamlDotNet.RepresentationModel.YamlMappingNode;
     if (root == null)
+    {
         return config;
+    }
 
     foreach (var entry in root.Children)
     {
         if (entry.Key is not YamlDotNet.RepresentationModel.YamlScalarNode keyNode ||
             entry.Value is not YamlDotNet.RepresentationModel.YamlScalarNode valueNode)
+        {
             continue;
+        }
+
         var key = keyNode.Value ?? "";
         var value = valueNode.Value ?? "";
 
@@ -701,7 +732,8 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
             contracts.Add(new DatabaseSchemaDescriptor(
                 Id: "snapshot-schema",
                 Tables: snapshot.Schema
-                    .Select(t => new DatabaseTableDescriptor(t.Name,
+                    .Select(t => new DatabaseTableDescriptor(
+                        t.Name,
                         t.Columns.Select(c => new ColumnDescriptor(c.Name, c.DataType, c.MaxLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed, c.CharLength)).ToList()))
                     .ToList(),
                 LengthSemantics: "CHAR"));
@@ -872,13 +904,14 @@ static List<IContractRule> GetRulesForProvider(string provider)
         new ColumnShapeMatchRule(),
         new NullableMismatchRule(),
         new NamingConventionRule(),
-        new PhantomIdentifierRule()
+        new PhantomIdentifierRule(),
     };
 
     if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
     {
         rules.Add(new OracleSyntaxInNonOracleContextRule());
         rules.Add(new NonOracleFunctionInOracleContextRule());
+
         // ProviderOptionMismatchRule (DG012) is intentionally not wired: it needs
         // Roslyn DbContext provider registration context, unavailable in the engine.
         rules.Add(new SqlServerSyntaxLeakRule());
@@ -934,6 +967,7 @@ static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config,
     {
         console.Error.WriteLine($"Failed to get DB version: {ex.Message}");
     }
+
     return "unknown";
 }
 

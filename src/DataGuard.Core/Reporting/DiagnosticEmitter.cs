@@ -1,6 +1,6 @@
-using Microsoft.CodeAnalysis;
-using DataGuard.Core.Abstractions;
 using System.Text.Json;
+using DataGuard.Core.Abstractions;
+using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Reporting;
 
@@ -9,18 +9,19 @@ namespace DataGuard.Core.Reporting;
 /// </summary>
 public class DiagnosticEmitter
 {
-    private readonly List<ISarifSink> _sarifSinks = new();
-    private readonly List<IDiagnosticSink> _diagnosticSinks = new();
+    private readonly List<ISarifSink> _sarifSinks = new ();
+    private readonly List<IDiagnosticSink> _diagnosticSinks = new ();
 
-    private static readonly HashSet<string> SafePropertyKeys = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> SafePropertyKeys = new (StringComparer.Ordinal)
     {
         "column", "columnMaxBytes", "columnMaxLength", "dbColumnType",
         "entityMaxBytes", "entityMaxLength", "function", "inferredType",
         "keyword", "operator", "property", "referencedIssue", "semantics",
-        "suggestion", "syntax", "table", "type"
+        "suggestion", "syntax", "table", "type",
     };
 
     public void AddSarifSink(ISarifSink sink) => _sarifSinks.Add(sink);
+
     public void AddDiagnosticSink(IDiagnosticSink sink) => _diagnosticSinks.Add(sink);
 
     public async Task EmitAsync(
@@ -72,7 +73,7 @@ public class DiagnosticEmitter
                                 }
                             }
                         }).ToList()
-                }
+                },
             },
             Results = violations.Select(v => new Result
             {
@@ -85,7 +86,7 @@ public class DiagnosticEmitter
                     DiagnosticSeverity.Info => "note",
                     _ => "none"
                 },
-                Locations = v.Location != null 
+                Locations = v.Location != null
                     ? new List<SarifLocation>
                     {
                         new SarifLocation
@@ -109,25 +110,29 @@ public class DiagnosticEmitter
                     }
                     : new List<SarifLocation>(),
                 Properties = CreateSafeProperties(v.Properties)
-            }).ToList()
+            }).ToList(),
         };
 
         return new SarifLog
         {
-            Runs = new List<Run> { run }
+            Runs = new List<Run> { run },
         };
     }
 
     private static PropertyBag CreateSafeProperties(IReadOnlyDictionary<string, object?>? properties)
     {
         if (properties == null)
+        {
             return new PropertyBag();
+        }
 
         var safeProperties = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var (key, value) in properties)
         {
             if (SafePropertyKeys.Contains(key) && IsSafePropertyValue(value))
+            {
                 safeProperties[key] = value;
+            }
         }
 
         return new PropertyBag(safeProperties);
@@ -136,7 +141,9 @@ public class DiagnosticEmitter
     private static bool IsSafePropertyValue(object? value)
     {
         if (ContainsSensitiveValue(value))
+        {
             return false;
+        }
 
         return value is null
             || value is string
@@ -152,7 +159,9 @@ public class DiagnosticEmitter
     private static bool ContainsSensitiveValue(object? value)
     {
         if (value is not string text)
+        {
             return false;
+        }
 
         return text.Contains("password=", StringComparison.OrdinalIgnoreCase)
             || text.Contains("pwd=", StringComparison.OrdinalIgnoreCase)
@@ -230,7 +239,7 @@ public class FileSarifSink : ISarifSink
         foreach (var run in log.Runs ?? Enumerable.Empty<Run>())
         {
             writer.WriteStartObject();
-            
+
             // Tool
             writer.WritePropertyName("tool");
             writer.WriteStartObject();
@@ -239,7 +248,7 @@ public class FileSarifSink : ISarifSink
             writer.WriteString("name", run.Tool?.Driver?.Name ?? "DataGuard");
             writer.WriteString("version", run.Tool?.Driver?.Version ?? "0.1.0");
             writer.WriteString("informationUri", run.Tool?.Driver?.InformationUri ?? "https://github.com/DataGuard/DataGuard");
-            
+
             // Rules
             writer.WritePropertyName("rules");
             writer.WriteStartArray();
@@ -254,6 +263,7 @@ public class FileSarifSink : ISarifSink
                 writer.WriteEndObject();
                 writer.WriteEndObject();
             }
+
             writer.WriteEndArray();
             writer.WriteEndObject();
             writer.WriteEndObject();
@@ -265,7 +275,7 @@ public class FileSarifSink : ISarifSink
             {
                 writer.WriteStartObject();
                 writer.WriteString("ruleId", result.RuleId ?? "");
-                
+
                 writer.WritePropertyName("message");
                 writer.WriteStartObject();
                 writer.WriteString("text", result.Message?.Text ?? "");
@@ -298,6 +308,7 @@ public class FileSarifSink : ISarifSink
                         writer.WriteEndObject();
                         writer.WriteEndObject();
                     }
+
                     writer.WriteEndArray();
                 }
 
@@ -310,16 +321,18 @@ public class FileSarifSink : ISarifSink
                     {
                         writer.WriteString(prop.Key, prop.Value?.ToString() ?? "");
                     }
+
                     writer.WriteEndObject();
                 }
 
                 writer.WriteEndObject();
             }
+
             writer.WriteEndArray();
-            
+
             writer.WriteEndObject();
         }
-        
+
         writer.WriteEndArray();
         writer.WriteEndObject();
         await writer.FlushAsync(cancellationToken);
@@ -376,6 +389,7 @@ public class StreamingSarifSink : ISarifSink
             writer.WriteEndObject();
             writer.WriteEndObject();
         }
+
         writer.WriteEndArray();
         writer.WriteEndObject();
         writer.WriteEndObject();
@@ -387,7 +401,7 @@ public class StreamingSarifSink : ISarifSink
         foreach (var violation in violations)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            
+
             writer.WriteStartObject();
             writer.WriteString("ruleId", violation.RuleId);
             writer.WritePropertyName("message");
@@ -428,12 +442,15 @@ public class StreamingSarifSink : ISarifSink
                 {
                     writer.WriteString(prop.Key, prop.Value?.ToString() ?? "");
                 }
+
                 writer.WriteEndObject();
             }
 
             writer.WriteEndObject();
             if (++flushCounter % 1000 == 0)
+            {
                 await writer.FlushAsync(cancellationToken);
+            }
         }
 
         writer.WriteEndArray();
@@ -449,7 +466,7 @@ public class StreamingSarifSink : ISarifSink
         var violations = log.Runs?.SelectMany(r => r.Results ?? Enumerable.Empty<Result>())
             .Select(r => new ContractViolation(r.RuleId, r.Message?.Text ?? "", Enum.Parse<DiagnosticSeverity>(r.Level, true)))
             ?? Enumerable.Empty<ContractViolation>();
-        
+
         return WriteAsync(violations, cancellationToken);
     }
 }
@@ -469,6 +486,7 @@ public class ConsoleDiagnosticSink : IDiagnosticSink
                 : "";
             Console.WriteLine($"[{severity}] {violation.RuleId}: {violation.Message}{location}");
         }
+
         await Task.CompletedTask;
     }
 }

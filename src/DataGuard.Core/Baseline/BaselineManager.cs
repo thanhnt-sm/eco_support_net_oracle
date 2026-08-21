@@ -25,9 +25,10 @@ public class BaselineManager
     private static readonly MemoryCache _schemaHashCache = new MemoryCache(new MemoryCacheOptions
     {
         SizeLimit = 10000,
-        ExpirationScanFrequency = TimeSpan.FromMinutes(5)
+        ExpirationScanFrequency = TimeSpan.FromMinutes(5),
     });
-    private static readonly ConcurrentDictionary<string, string> _fileHashCache = new();
+
+    private static readonly ConcurrentDictionary<string, string> _fileHashCache = new ();
 
     public BaselineManager(string baselineFilePath)
     {
@@ -37,6 +38,7 @@ public class BaselineManager
     /// <summary>
     /// Creates a new baseline from current violations.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<BaselineFile> CreateBaselineAsync(
         IEnumerable<ContractViolation> violations,
         string schemaVersion,
@@ -55,10 +57,8 @@ public class BaselineManager
                 v.Location.GetLineSpan().StartLinePosition.Line + 1,
                 v.Location.GetLineSpan().StartLinePosition.Character + 1,
                 v.Location.GetLineSpan().EndLinePosition.Line + 1,
-                v.Location.GetLineSpan().EndLinePosition.Character + 1
-            ) : null,
-            v.Properties?.ToImmutableDictionary()
-        )).ToList();
+                v.Location.GetLineSpan().EndLinePosition.Character + 1) : null,
+            v.Properties?.ToImmutableDictionary())).ToList();
 
         var computedSchemaHash = schemaHash ?? ComputeSchemaHash(violations);
         var dbVersion = databaseVersion ?? "unknown";
@@ -71,8 +71,7 @@ public class BaselineManager
             DatabaseVersion: dbVersion,
             SchemaHash: computedSchemaHash,
             Violations: baselineViolations,
-            Schema: schema
-        );
+            Schema: schema);
 
         await SaveAsync(baseline);
         return baseline;
@@ -81,10 +80,13 @@ public class BaselineManager
     /// <summary>
     /// Loads an existing baseline file.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<BaselineFile?> LoadAsync(CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_baselineFilePath))
+        {
             return null;
+        }
 
         var fileInfo = new FileInfo(_baselineFilePath);
         if (fileInfo.Length > 1024 * 1024)
@@ -98,7 +100,7 @@ public class BaselineManager
             var options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
-                Converters = { new JsonStringEnumConverter() }
+                Converters = { new JsonStringEnumConverter() },
             };
             return JsonSerializer.Deserialize<BaselineFile>(json, options);
         }
@@ -118,6 +120,7 @@ public class BaselineManager
             {
                 // Ignore
             }
+
             return null;
         }
     }
@@ -129,16 +132,16 @@ public class BaselineManager
     {
         using var mmf = MemoryMappedFile.CreateFromFile(_baselineFilePath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
         using var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-        
+
         var length = (int)accessor.Capacity;
         var buffer = new byte[length];
         accessor.ReadArray(0, buffer, 0, length);
-        
+
         var json = System.Text.Encoding.UTF8.GetString(buffer);
         var options = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
-            Converters = { new JsonStringEnumConverter() }
+            Converters = { new JsonStringEnumConverter() },
         };
         return JsonSerializer.Deserialize<BaselineFile>(json, options);
     }
@@ -148,11 +151,11 @@ public class BaselineManager
         var options = new JsonSerializerOptions
         {
             WriteIndented = true,
-            Converters = { new JsonStringEnumConverter() }
+            Converters = { new JsonStringEnumConverter() },
         };
         var json = JsonSerializer.Serialize(baseline, options);
         var bytes = System.Text.Encoding.UTF8.GetBytes(json);
-        
+
         if (bytes.Length > 1024 * 1024)
         {
             await SaveWithMemoryMappedFileAsync(bytes);
@@ -169,7 +172,7 @@ public class BaselineManager
         try
         {
             await File.WriteAllBytesAsync(tempPath, data);
-            
+
             if (File.Exists(_baselineFilePath))
             {
                 File.Replace(tempPath, _baselineFilePath, null, false);
@@ -183,7 +186,13 @@ public class BaselineManager
         {
             if (File.Exists(_baselineFilePath + ".tmp"))
             {
-                try { File.Delete(_baselineFilePath + ".tmp"); } catch { }
+                try
+                {
+                    File.Delete(_baselineFilePath + ".tmp");
+                }
+                catch
+                {
+                }
             }
         }
     }
@@ -191,13 +200,14 @@ public class BaselineManager
     /// <summary>
     /// Computes a schema hash for the given violations.
     /// </summary>
+    /// <returns></returns>
     public static string ComputeSchemaHash(IEnumerable<ContractViolation> violations)
     {
         var data = string.Join("|", violations
             .OrderBy(v => v.RuleId)
             .ThenBy(v => v.Message)
             .Select(v => $"{v.RuleId}:{v.Message}"));
-        
+
         using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
         return Convert.ToHexString(hash)[..16];
@@ -206,11 +216,12 @@ public class BaselineManager
     /// <summary>
     /// Filters violations to only return new ones not in baseline.
     /// </summary>
+    /// <returns></returns>
     public IEnumerable<ContractViolation> FilterNewViolations(IEnumerable<ContractViolation> current, BaselineFile baseline)
     {
         var baselineSignatures = new HashSet<string>(
             baseline.Violations.Select(v => $"{v.RuleId}:{v.Message}"));
-        
+
         return current.Where(v => !baselineSignatures.Contains($"{v.RuleId}:{v.Message}"));
     }
 
@@ -221,6 +232,7 @@ public class BaselineManager
         {
             return $"{match.Groups[1]}.{match.Groups[2]}";
         }
+
         return version;
     }
 
@@ -233,18 +245,20 @@ public class BaselineManager
             GroundTruthMode: legacy.GroundTruthMode,
             DatabaseVersion: "unknown",
             SchemaHash: ComputeSchemaHashFromLegacy(legacy),
-            Violations: legacy.Violations
-        );
+            Violations: legacy.Violations);
     }
 
     /// <summary>
     /// Migrates a legacy (v1) baseline file to v2 in-place. Returns the migrated baseline,
     /// or null when the file is missing or already v2.
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<BaselineFile?> MigrateBaselineAsync(CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_baselineFilePath))
+        {
             return null;
+        }
 
         var json = await File.ReadAllTextAsync(_baselineFilePath, cancellationToken);
         LegacyBaselineFile? legacy;
@@ -255,6 +269,11 @@ public class BaselineManager
         catch (JsonException)
         {
             return null; // Corrupt or non-v1 file - treat as "nothing to migrate".
+        }
+
+        if (legacy == null)
+        {
+            return null;
         }
 
         var migrated = MigrateFromLegacy(legacy);
@@ -268,7 +287,7 @@ public class BaselineManager
             .OrderBy(v => v.RuleId)
             .ThenBy(v => v.Message)
             .Select(v => $"{v.RuleId}:{v.Message}"));
-        
+
         using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
         return Convert.ToHexString(hash)[..16];
@@ -284,8 +303,7 @@ internal record LegacyBaselineFile(
     DateTimeOffset CreatedAt,
     string SchemaVersion,
     string GroundTruthMode,
-    IReadOnlyList<BaselineViolation> Violations
-);
+    IReadOnlyList<BaselineViolation> Violations);
 
 /// <summary>
 /// Baseline file format.
@@ -300,16 +318,14 @@ public record BaselineFile(
     string DatabaseVersion,
     string SchemaHash,
     IReadOnlyList<BaselineViolation> Violations,
-    IReadOnlyList<SnapshotTable>? Schema = null
-);
+    IReadOnlyList<SnapshotTable>? Schema = null);
 
 /// <summary>
 /// Serializable ground-truth table snapshot (used by Snapshot mode offline validation).
 /// </summary>
 public record SnapshotTable(
     string Name,
-    IReadOnlyList<SnapshotColumn> Columns
-);
+    IReadOnlyList<SnapshotColumn> Columns);
 
 public record SnapshotColumn(
     string Name,
@@ -319,8 +335,7 @@ public record SnapshotColumn(
     int? Precision,
     int? Scale,
     bool IsNullable,
-    string? CharUsed
-);
+    string? CharUsed);
 
 /// <summary>
 /// A violation in the baseline file.
@@ -330,8 +345,7 @@ public record BaselineViolation(
     string Message,
     string Severity,
     BaselineLocation? Location,
-    IReadOnlyDictionary<string, object?>? Properties
-);
+    IReadOnlyDictionary<string, object?>? Properties);
 
 /// <summary>
 /// Location in baseline file.
@@ -341,8 +355,7 @@ public record BaselineLocation(
     int StartLine,
     int StartColumn,
     int EndLine,
-    int EndColumn
-);
+    int EndColumn);
 
 /// <summary>
 /// Summary information about a baseline file.
@@ -352,8 +365,7 @@ public record BaselineInfo(
     long FileSizeBytes,
     DateTimeOffset LastModified,
     BaselineFile? Baseline,
-    string? ErrorMessage = null
-)
+    string? ErrorMessage = null)
 {
     public bool IsValid => Baseline != null;
     public bool HasViolations => Baseline?.Violations?.Count > 0;

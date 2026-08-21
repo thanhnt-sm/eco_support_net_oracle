@@ -14,9 +14,9 @@ namespace DataGuard.Core.Rules;
 /// </summary>
 public sealed class RuleDependencyGraph
 {
-    private readonly Dictionary<string, RuleNode> _nodes = new();
-    private readonly Dictionary<string, HashSet<string>> _dependencies = new();
-    private readonly Dictionary<string, HashSet<string>> _dependents = new();
+    private readonly Dictionary<string, RuleNode> _nodes = new ();
+    private readonly Dictionary<string, HashSet<string>> _dependencies = new ();
+    private readonly Dictionary<string, HashSet<string>> _dependents = new ();
 
     /// <summary>
     /// Registers a rule with its dependencies.
@@ -24,7 +24,7 @@ public sealed class RuleDependencyGraph
     public void RegisterRule(IContractRule rule, IEnumerable<string>? dependsOn = null)
     {
         var ruleId = rule.RuleId;
-        
+
         if (!_nodes.ContainsKey(ruleId))
         {
             _nodes[ruleId] = new RuleNode(rule);
@@ -59,6 +59,7 @@ public sealed class RuleDependencyGraph
     /// Gets the optimal execution order using topological sort.
     /// Rules with no dependencies come first; rules that depend on others come later.
     /// </summary>
+    /// <returns></returns>
     public ImmutableArray<IContractRule> GetExecutionOrder()
     {
         var visited = new HashSet<string>();
@@ -84,7 +85,9 @@ public sealed class RuleDependencyGraph
         }
 
         if (visited.Contains(nodeId))
+        {
             return;
+        }
 
         visiting.Add(nodeId);
 
@@ -102,13 +105,14 @@ public sealed class RuleDependencyGraph
 
         if (_nodes[nodeId].Rule != null)
         {
-            result.Add(_nodes[nodeId].Rule);
+            result.Add(_nodes[nodeId].Rule!);
         }
     }
 
     /// <summary>
     /// Gets parallelizable groups of rules (rules that can run concurrently).
     /// </summary>
+    /// <returns></returns>
     public ImmutableArray<ImmutableArray<IContractRule>> GetParallelGroups()
     {
         var levels = new List<List<IContractRule>>();
@@ -127,8 +131,9 @@ public sealed class RuleDependencyGraph
                 {
                     if (_nodes[nodeId].Rule != null)
                     {
-                        currentLevel.Add(_nodes[nodeId].Rule);
+                        currentLevel.Add(_nodes[nodeId].Rule!);
                     }
+
                     completed.Add(nodeId);
                     completedThisRound.Add(nodeId);
                 }
@@ -146,6 +151,7 @@ public sealed class RuleDependencyGraph
                     var stuck = remaining.Except(completed).ToList();
                     throw new InvalidOperationException($"Cannot resolve dependencies for rules: {string.Join(", ", stuck)}");
                 }
+
                 // Only placeholders were resolved this round - continue with the next level.
                 continue;
             }
@@ -159,6 +165,7 @@ public sealed class RuleDependencyGraph
     /// <summary>
     /// Validates the dependency graph for circular dependencies and missing dependencies.
     /// </summary>
+    /// <returns></returns>
     public ValidationResult Validate()
     {
         var errors = new List<string>();
@@ -189,7 +196,7 @@ public sealed class RuleDependencyGraph
         // Check for orphaned rules (no dependents, not depended upon)
         var allDepIds = _dependencies.Values.SelectMany(d => d).ToHashSet();
         var allDependentIds = _dependents.Values.SelectMany(d => d).ToHashSet();
-        
+
         foreach (var nodeId in _nodes.Keys)
         {
             if (!allDepIds.Contains(nodeId) && !allDependentIds.Contains(nodeId))
@@ -204,6 +211,7 @@ public sealed class RuleDependencyGraph
     /// <summary>
     /// Gets all rules that depend on the given rule (transitive).
     /// </summary>
+    /// <returns></returns>
     public ImmutableArray<string> GetTransitiveDependents(string ruleId)
     {
         var result = new HashSet<string>();
@@ -231,6 +239,7 @@ public sealed class RuleDependencyGraph
     /// <summary>
     /// Gets all rules that the given rule depends on (transitive).
     /// </summary>
+    /// <returns></returns>
     public ImmutableArray<string> GetTransitiveDependencies(string ruleId)
     {
         var result = new HashSet<string>();
@@ -304,8 +313,11 @@ public static class RuleDependencyGraphExtensions
 internal sealed class DummyRule : IContractRule
 {
     public string RuleId { get; set; }
+
     public string Name => RuleId;
+
     public DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Warning;
+
     public string Description => "Dependency placeholder";
 
     public DummyRule(string ruleId)
