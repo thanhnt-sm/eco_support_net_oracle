@@ -76,6 +76,9 @@ public class ParameterTypeMatchRuleTests
     [InlineData("Guid", "uniqueidentifier", false, true)]
     [InlineData("int", "varchar(50)", false, false)]
     [InlineData("string", "int", false, false)]
+    [InlineData("int", "POINT", false, false)]
+    [InlineData("string", "CHART", false, false)]
+    [InlineData("bool", "NUMBER(1)", true, true)]
     public void IsTypeCompatible_SqlServer_ReturnsExpected(string clrType, string dbType, bool isOracle, bool expected)
     {
         var result = ParameterTypeMatchRule.IsTypeCompatible(clrType, dbType, isOracle);
@@ -186,6 +189,48 @@ public class BaselineManagerTests
                 File.Delete(tempFile);
             }
         }
+    }
+}
+
+public class SchemaHashTests
+{
+    private static SnapshotTable Table(string name, params SnapshotColumn[] columns) => new (name, columns);
+
+    private static SnapshotColumn Col(string name, string type = "NUMBER", bool nullable = false) =>
+        new (name, type, 100, null, 22, 0, nullable, null);
+
+    [Fact]
+    public void SchemaHash_ChangesWhenColumnAdded()
+    {
+        var before = new[] { Table("CUSTOMERS", Col("ID"), Col("NAME")) };
+        var after = new[] { Table("CUSTOMERS", Col("ID"), Col("NAME"), Col("EMAIL")) };
+
+        BaselineManager.ComputeSchemaHash(before).Should().NotBe(BaselineManager.ComputeSchemaHash(after));
+    }
+
+    [Fact]
+    public void SchemaHash_StableAcrossViolationOrdering()
+    {
+        // Same logical schema expressed in a different order must hash identically.
+        var ordered = new[]
+        {
+            Table("CUSTOMERS", Col("ID"), Col("NAME")),
+            Table("ORDERS", Col("ID")),
+        };
+        var reordered = new[]
+        {
+            Table("ORDERS", Col("ID")),
+            Table("CUSTOMERS", Col("NAME"), Col("ID")),
+        };
+
+        BaselineManager.ComputeSchemaHash(ordered).Should().Be(BaselineManager.ComputeSchemaHash(reordered));
+    }
+
+    [Fact]
+    public void SchemaHash_FullHexLength()
+    {
+        var hash = BaselineManager.ComputeSchemaHash(new[] { Table("T", Col("ID")) });
+        hash.Should().HaveLength(64).And.MatchRegex("^[0-9A-F]{64}$");
     }
 }
 

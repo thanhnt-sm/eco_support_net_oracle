@@ -26,7 +26,7 @@ public class RuleCoverageTests
     [Fact]
     public async Task Dg003_OutputParameter_Flags()
     {
-        var raw = Raw("EXEC p @x", new ParameterDescriptor("x", "NUMBER", ParameterDirection.Output, null, null, null, false, 1));
+        var raw = Raw("EXEC p @x", new ParameterDescriptor("x", "NUMBER", ParameterDirection.Output, null, null, null, false, 1) { CallSiteDirection = ParameterDirection.Input });
         var vs = await RunAsync(new ParameterDirectionRule(), raw, raw);
         vs.Should().Contain(v => v.RuleId == "DG003" && v.Message.Contains("x"));
     }

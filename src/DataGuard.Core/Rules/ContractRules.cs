@@ -151,36 +151,33 @@ public class ParameterTypeMatchRule : ContractRuleBase
 
             foreach (var param in sqlDesc.Parameters ?? Array.Empty<ParameterDescriptor>())
             {
-                var clrType = InferClrType(param.DataType);
-                var isCompatible = IsTypeCompatible(clrType, param.DataType, isOracle);
+                // Only check when a real CLR type source is available (attribute or Roslyn call site).
+                // Without one, checking would fabricate violations from inferred types.
+                if (string.IsNullOrEmpty(param.ClrType))
+                {
+                    continue;
+                }
 
-                if (!isCompatible)
+                if (!IsTypeCompatible(param.ClrType, param.DataType, isOracle))
                 {
                     violations.Add(CreateViolation(
                         RuleId,
-                        $"Parameter '{param.Name}' has CLR type '{clrType}' but database type '{param.DataType}' is not compatible",
+                        $"Parameter '{param.Name}' has CLR type '{param.ClrType}' but database type '{param.DataType}' is not compatible",
                         Severity));
                 }
             }
         }
+
+        await Task.CompletedTask;
     }
 
-    private static string InferClrType(string typeStr)
+    /// <summary>
+    /// Splits a database type string into normalized tokens: parentheses contents,
+    /// whitespace and commas are separators, so "nvarchar(50)" → ["nvarchar", "50"].
+    /// </summary>
+    private static IEnumerable<string> TokenizeDbType(string dbType)
     {
-        var t = (typeStr ?? string.Empty).Trim().ToLowerInvariant();
-        return t switch
-        {
-            "int" or "integer" or "number" => "int",
-            "long" or "bigint" => "long",
-            "short" or "smallint" => "short",
-            "float" or "real" or "binary_double" => "double",
-            "decimal" or "numeric" or "money" or "smallmoney" => "decimal",
-            "varchar" or "varchar2" or "char" or "nvarchar" or "nvarchar2" or "nchar" or "text" or "ntext" or "clob" or "nclob" => "string",
-            "datetime" or "datetime2" or "date" or "timestamp" or "smalldatetime" => "DateTime",
-            "uniqueidentifier" or "guid" => "Guid",
-            "byte[]" or "varbinary" or "binary" or "image" or "raw" or "blob" => "byte[]",
-            _ => "string"
-        };
+        return dbType.Split(new[] { '(', ')', ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     public static bool IsTypeCompatible(string clrType, string dbType, bool isOracle)
@@ -191,8 +188,20 @@ public class ParameterTypeMatchRule : ContractRuleBase
             return false;
         }
 
-        return compatibleDbTypes.Any(t => dbType.Contains(t, StringComparison.OrdinalIgnoreCase));
+        // Exact matching only - never substring ("POINT" must not match "int",
+        // "CHART" must not match "char"). Two exact forms: a map entry equals one
+        // type token ("NUMBER" in "NUMBER(10)"), or the whole entry equals the
+        // whole db type with whitespace collapsed ("NUMBER(1)", "RAW(16)",
+        // "TIMESTAMP WITH TIME ZONE").
+        var tokens = TokenizeDbType(dbType).ToList();
+        var full = CollapseWhitespace(dbType);
+        return compatibleDbTypes.Any(t =>
+            tokens.Contains(t, StringComparer.OrdinalIgnoreCase) ||
+            string.Equals(CollapseWhitespace(t), full, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static string CollapseWhitespace(string value) =>
+        string.Concat(value.Where(c => !char.IsWhiteSpace(c)));
 }
 
 /// <summary>
@@ -219,14 +228,24 @@ public class ParameterDirectionRule : ContractRuleBase
         {
             foreach (var param in sqlDesc.Parameters ?? Array.Empty<ParameterDescriptor>())
             {
-                // Check for OUT/INOUT/RETURN directions that require out/ref at the call site.
-                if (param.Direction is ParameterDirection.Output
+                // Only check when call-site direction is known; without a call site
+                // the rule cannot decide and must not flag unconditionally.
+                if (param.CallSiteDirection is null)
+                {
+                    continue;
+                }
+
+                // Flag only when the SP requires out/ref but the call site is input-only.
+                var requiresOutAtCallSite = param.Direction is ParameterDirection.Output
                     or ParameterDirection.InputOutput
-                    or ParameterDirection.ReturnValue)
+                    or ParameterDirection.ReturnValue;
+                var callSiteIsInputOnly = param.CallSiteDirection == ParameterDirection.Input;
+
+                if (requiresOutAtCallSite && callSiteIsInputOnly)
                 {
                     violations.Add(CreateViolation(
                         RuleId,
-                        $"Parameter '{param.Name}' is {param.Direction} - verify call site uses out/ref",
+                        $"Parameter '{param.Name}' is {param.Direction} but call site passes it as {param.CallSiteDirection} (out/ref required)",
                         Severity));
                 }
             }

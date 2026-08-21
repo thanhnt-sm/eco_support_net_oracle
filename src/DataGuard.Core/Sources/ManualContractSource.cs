@@ -81,7 +81,8 @@ public sealed class ManualContractSource : IContractSource
                     Precision: p.Precision > 0 ? (byte?)p.Precision : null,
                     Scale: p.Scale >= 0 ? (byte?)p.Scale : null,
                     IsNullable: true,
-                    OrdinalPosition: 0)).ToList();
+                    OrdinalPosition: 0,
+                    ClrType: p.ClrType)).ToList();
 
                 contracts.Add(new StoredProcedureDescriptor(
                     Id: $"manual-sp:{type.FullName}.{method.Name}",

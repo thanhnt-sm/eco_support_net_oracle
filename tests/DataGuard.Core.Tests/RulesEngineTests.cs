@@ -49,7 +49,10 @@ public class RulesEngineTests
     [Fact]
     public async Task ParameterDirectionRule_OutputParameter_Flags()
     {
-        var parameter = new ParameterDescriptor("OutValue", "nvarchar", ParameterDirection.Output, 100, null, null, false, 1);
+        var parameter = new ParameterDescriptor("OutValue", "nvarchar", ParameterDirection.Output, 100, null, null, false, 1)
+        {
+            CallSiteDirection = ParameterDirection.Input,
+        };
         var violations = await RunAsync(new ParameterDirectionRule(), RawSql("EXEC dbo.GetCustomer @OutValue", parameter));
         violations.Should().ContainSingle().Which.RuleId.Should().Be("DG003");
     }
@@ -57,9 +60,76 @@ public class RulesEngineTests
     [Fact]
     public async Task ParameterDirectionRule_InputParameter_NoViolation()
     {
-        var parameter = new ParameterDescriptor("Id", "int", ParameterDirection.Input, null, null, null, false, 1);
+        var parameter = new ParameterDescriptor("Id", "int", ParameterDirection.Input, null, null, null, false, 1)
+        {
+            CallSiteDirection = ParameterDirection.Input,
+        };
         var violations = await RunAsync(new ParameterDirectionRule(), RawSql("EXEC dbo.GetCustomer @Id", parameter));
         violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DG003_OutParamWithOutputCallSite_Passes()
+    {
+        var parameter = new ParameterDescriptor("OutValue", "nvarchar", ParameterDirection.Output, 100, null, null, false, 1)
+        {
+            CallSiteDirection = ParameterDirection.Output,
+        };
+        var violations = await RunAsync(new ParameterDirectionRule(), RawSql("EXEC dbo.GetCustomer @OutValue", parameter));
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DG003_SkipsWhenNoCallSiteDirection()
+    {
+        var parameter = new ParameterDescriptor("OutValue", "nvarchar", ParameterDirection.Output, 100, null, null, false, 1);
+        var violations = await RunAsync(new ParameterDirectionRule(), RawSql("EXEC dbo.GetCustomer @OutValue", parameter));
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DG002_CatchesRealMismatch()
+    {
+        var parameter = new ParameterDescriptor("Id", "varchar", ParameterDirection.Input, null, null, null, false, 1)
+        {
+            ClrType = "int",
+        };
+        var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetCustomer @Id", parameter));
+        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG002");
+    }
+
+    [Fact]
+    public async Task DG002_PassesCompatiblePair()
+    {
+        var sqlServer = new ParameterDescriptor("Id", "int", ParameterDirection.Input, null, null, null, false, 1)
+        {
+            ClrType = "int",
+        };
+        var oracle = new ParameterDescriptor("Id", "NUMBER", ParameterDirection.Input, null, null, null, false, 1)
+        {
+            ClrType = "int",
+        };
+        (await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetCustomer @Id", sqlServer))).Should().BeEmpty();
+        (await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC p(:Id)", oracle))).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DG002_SkipsWhenNoClrType()
+    {
+        var parameter = new ParameterDescriptor("Id", "varchar", ParameterDirection.Input, null, null, null, false, 1);
+        var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetCustomer @Id", parameter));
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DG002_NoSubstringFalsePositive()
+    {
+        var parameter = new ParameterDescriptor("Loc", "POINT", ParameterDirection.Input, null, null, null, false, 1)
+        {
+            ClrType = "int",
+        };
+        var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetPoint @Loc", parameter));
+        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG002");
     }
 
     [Fact]

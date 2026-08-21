@@ -130,7 +130,9 @@ public record ParameterDescriptor(
     int Sequence = 0,
     string? TypeOwner = null,
     string? TypeName = null,
-    string? TypeSubname = null);
+    string? TypeSubname = null,
+    string? ClrType = null,
+    ParameterDirection? CallSiteDirection = null);
 
 /// <summary>
 /// Parameter direction.

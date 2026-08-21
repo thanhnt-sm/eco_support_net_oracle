@@ -109,4 +109,7 @@ public sealed class ExpectedSpParameterAttribute : Attribute
 
     /// <summary>Gets or sets expected numeric scale, if applicable.</summary>
     public byte? Scale { get; set; }
+
+    /// <summary>Gets or sets expected CLR type name (e.g. "int", "string"); enables DG002 type-compatibility checks. Null = unknown (rule skipped).</summary>
+    public string? ClrType { get; set; }
 }
