@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <PackageId>DataGuard.CodeFixes</PackageId>
+    <Authors>DataGuard Contributors</Authors>
+    <Description>Roslyn code fixes for DataGuard contract validation.</Description>
+    <PackageTags>efcore;stored-procedure;contract-validation;codefix;roslyn</PackageTags>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- NU5128: codefix assemblies live under codefixes/dotnet/cs (Roslyn host
+         convention), not lib; not a packaging defect. -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataGuard.Analyzers\DataGuard.Analyzers.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Code fixes load alongside the analyzer in the IDE; bundle the analyzer
+         assembly and shared Contracts so the quick-fix attribute types resolve. -->
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="codefixes/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\DataGuard.Analyzers.dll" Pack="true" PackagePath="codefixes/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\DataGuard.Contracts.dll" Pack="true" PackagePath="codefixes/dotnet/cs" Visible="false" />
+  </ItemGroup>
+</Project>

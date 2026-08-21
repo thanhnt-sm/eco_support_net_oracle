@@ -29,6 +29,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataGuard.Analyzers.Tests", "tests\DataGuard.Analyzers.Tests\DataGuard.Analyzers.Tests.csproj", "{700CC318-1ACE-46AE-8F37-0241F6E5B066}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataGuard.CodeFixes", "src\DataGuard.CodeFixes\DataGuard.CodeFixes.csproj", "{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -171,6 +173,18 @@ Global
 		{700CC318-1ACE-46AE-8F37-0241F6E5B066}.Release|x64.Build.0 = Release|Any CPU
 		{700CC318-1ACE-46AE-8F37-0241F6E5B066}.Release|x86.ActiveCfg = Release|Any CPU
 		{700CC318-1ACE-46AE-8F37-0241F6E5B066}.Release|x86.Build.0 = Release|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Debug|x64.Build.0 = Debug|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Debug|x86.Build.0 = Debug|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Release|Any CPU.Build.0 = Release|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Release|x64.ActiveCfg = Release|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Release|x64.Build.0 = Release|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Release|x86.ActiveCfg = Release|Any CPU
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -180,5 +194,6 @@ Global
 		{323C49E7-C1B8-486D-8CE5-48E7194A1ED1} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{365A9015-8BCD-4E5E-BF71-9CEA7C829668} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{700CC318-1ACE-46AE-8F37-0241F6E5B066} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{76B7A5AD-786C-40A8-8C4A-C0AC9057AB80} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
