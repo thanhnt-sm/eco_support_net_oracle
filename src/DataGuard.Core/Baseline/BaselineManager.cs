@@ -28,7 +28,7 @@ public class BaselineManager
         ExpirationScanFrequency = TimeSpan.FromMinutes(5),
     });
 
-    private static readonly ConcurrentDictionary<string, string> _fileHashCache = new ();
+    private static readonly ConcurrentDictionary<string, string> _fileHashCache = new();
 
     public BaselineManager(string baselineFilePath)
     {

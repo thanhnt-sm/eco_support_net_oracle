@@ -139,23 +139,28 @@ public static class DataGuardConfigurationExtensions
     {
         var connStr = config.ConnectionString?.ToLowerInvariant() ?? "";
 
+        // An explicitly configured provider always wins over auto-detection.
+        if (config.Oracle is not null || config.SqlServer is not null)
+        {
+            return config;
+        }
+
+        // Oracle signatures are checked first because they are more specific:
+        // an Oracle EZConnect or TNS-style string often contains "data source",
+        // which would otherwise match the SQL Server branch below.
+        var isOracle = connStr.Contains("oracle")
+            || connStr.Contains("service_name")
+            || (connStr.Contains("user id") && connStr.Contains("password"))
+            || connStr.Contains("connect_data");
+
+        if (isOracle)
+        {
+            return config with { Oracle = new OracleConfiguration() };
+        }
+
         if (connStr.Contains("data source") || connStr.Contains("server=") || connStr.Contains("server ="))
         {
-            // Likely SQL Server
-            return config with
-            {
-                SqlServer = config.SqlServer ?? new SqlServerConfiguration(),
-                Oracle = null
-            };
-        }
-        else if (connStr.Contains("oracle") || (connStr.Contains("data source") && connStr.Contains("service_name")))
-        {
-            // Likely Oracle
-            return config with
-            {
-                Oracle = config.Oracle ?? new OracleConfiguration(),
-                SqlServer = null
-            };
+            return config with { SqlServer = new SqlServerConfiguration() };
         }
 
         return config;

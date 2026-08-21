@@ -52,7 +52,7 @@ public interface IAuditLogger
 public sealed class FileAuditLogger : IAuditLogger
 {
     private readonly string _logPath;
-    private readonly SemaphoreSlim _writeLock = new (1, 1);
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private string? _lastHash;
 
     private string CheckpointPath => _logPath + ".checkpoint";
@@ -64,7 +64,7 @@ public sealed class FileAuditLogger : IAuditLogger
             "DataGuard",
             "audit.log");
 
-        Directory.CreateDirectory(Path.GetDirectoryName(_logPath) !);
+        Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!);
     }
 
     public async Task LogDatabaseOperationAsync(

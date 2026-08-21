@@ -49,10 +49,13 @@ jobs:
       - name: Run analyzers
         run: dotnet build DataGuard.sln --configuration Release --no-restore /p:RunAnalyzers=true
 
+      - name: Enforce formatting (dotnet format gate)
+        run: dotnet format DataGuard.sln --verify-no-changes --no-restore
+
       - name: Run tests (fail-fast)
         run: dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
 
-      - name: Code Coverage Gate (Fail under 45%)
+      - name: Code Coverage Gate (Fail under 60%)
         run: |
           python3 - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -74,8 +77,8 @@ jobs:
           cov = sum(1 for v in hits.values() if v)
           rate = (cov / total * 100) if total > 0 else 0
           print(f"Overall Solution Line Coverage: {rate:.2f}% ({cov}/{total} lines)")
-          if rate < 45.0:
-              print(f"::error::Coverage {rate:.2f}% is below required threshold of 45.0%!")
+          if rate < 60.0:
+              print(f"::error::Coverage {rate:.2f}% is below required threshold of 60.0%!")
               sys.exit(1)
           EOF
       - name: Upload test results

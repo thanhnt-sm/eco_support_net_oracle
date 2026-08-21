@@ -22,7 +22,7 @@ public sealed class ContractEvidence
     public string Provider { get; set; } = string.Empty;
 
     /// <summary>Gets or sets stable, sorted validation findings.</summary>
-    public List<ContractEvidenceViolation> Violations { get; set; } = new ();
+    public List<ContractEvidenceViolation> Violations { get; set; } = new();
 }
 
 /// <summary>

@@ -20,13 +20,13 @@ public sealed class ContractExport
     public string Provider { get; set; } = string.Empty;
 
     /// <summary>Gets or sets entity contracts.</summary>
-    public List<EntityExport> Entities { get; set; } = new ();
+    public List<EntityExport> Entities { get; set; } = new();
 
     /// <summary>Gets or sets stored-procedure contracts.</summary>
-    public List<StoredProcedureExport> StoredProcedures { get; set; } = new ();
+    public List<StoredProcedureExport> StoredProcedures { get; set; } = new();
 
     /// <summary>Gets or sets database ground-truth tables.</summary>
-    public List<TableExport> Tables { get; set; } = new ();
+    public List<TableExport> Tables { get; set; } = new();
 }
 
 /// <summary>An exported entity contract.</summary>
@@ -38,7 +38,7 @@ public sealed class EntityExport
 
     public string? TableName { get; set; }
 
-    public List<PropertyExport> Properties { get; set; } = new ();
+    public List<PropertyExport> Properties { get; set; } = new();
 }
 
 /// <summary>An exported entity property.</summary>
@@ -70,9 +70,9 @@ public sealed class StoredProcedureExport
 
     public string PackageName { get; set; } = string.Empty;
 
-    public List<ParameterExport> Parameters { get; set; } = new ();
+    public List<ParameterExport> Parameters { get; set; } = new();
 
-    public List<ColumnExport> ResultColumns { get; set; } = new ();
+    public List<ColumnExport> ResultColumns { get; set; } = new();
 }
 
 /// <summary>An exported stored-procedure parameter.</summary>
@@ -116,13 +116,13 @@ public sealed class TableExport
 {
     public string Name { get; set; } = string.Empty;
 
-    public List<ColumnExport> Columns { get; set; } = new ();
+    public List<ColumnExport> Columns { get; set; } = new();
 }
 
 /// <summary>Serializes contracts without arbitrary location or annotation metadata.</summary>
 public static class ContractExportWriter
 {
-    private static readonly JsonSerializerOptions JsonOptions = new ()
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -207,7 +207,7 @@ public static class ContractExportWriter
         await File.WriteAllTextAsync(outputPath, json, cancellationToken).ConfigureAwait(false);
     }
 
-    private static ColumnExport ToColumnExport(ColumnDescriptor column) => new ()
+    private static ColumnExport ToColumnExport(ColumnDescriptor column) => new()
     {
         Name = column.Name,
         DataType = column.DataType,

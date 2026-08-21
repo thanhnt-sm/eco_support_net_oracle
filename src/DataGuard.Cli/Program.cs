@@ -87,7 +87,7 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
     };
 
     var normalizedFormat = format.Trim().ToLowerInvariant();
-    if (normalizedFormat is not("text" or "sarif" or "evidence" or "contracts" or "typescript"))
+    if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "typescript"))
     {
         console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence, contracts, typescript.");
         Environment.ExitCode = 2;

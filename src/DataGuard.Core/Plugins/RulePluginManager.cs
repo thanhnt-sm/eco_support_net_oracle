@@ -58,7 +58,7 @@ public sealed class RulePluginManager : IDisposable
     private readonly CompositionHost _container;
     private readonly ILogger<RulePluginManager>? _logger;
     private readonly ImmutableArray<Lazy<IContractRule, IRuleMetadata>> _rulePlugins;
-    private readonly List<System.Runtime.Loader.AssemblyLoadContext> _pluginContexts = new ();
+    private readonly List<System.Runtime.Loader.AssemblyLoadContext> _pluginContexts = new();
 
     public RulePluginManager(
         string? pluginDirectory = null,

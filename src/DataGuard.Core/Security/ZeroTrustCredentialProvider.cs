@@ -338,7 +338,7 @@ public sealed class CredentialHandle : IDisposable
 {
     private readonly string _credentialName;
     private readonly CredentialType _type;
-    private char[] ? _value;
+    private char[]? _value;
     private bool _disposed;
 
     public CredentialHandle(string credentialName, CredentialType type)

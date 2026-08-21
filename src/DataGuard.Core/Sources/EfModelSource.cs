@@ -163,7 +163,7 @@ public class EfModelSource : IContractSource
         return null;
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> SourceFileCache = new (StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> SourceFileCache = new(StringComparer.Ordinal);
 
     private static Task<Microsoft.CodeAnalysis.SyntaxTree?> GetSyntaxTreeForTypeAsync(Type type, CancellationToken cancellationToken)
     {

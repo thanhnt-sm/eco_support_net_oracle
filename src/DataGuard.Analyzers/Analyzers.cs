@@ -67,7 +67,7 @@ public static class DiagnosticIds
 internal static class DiagnosticDescriptors
 {
     // IDE Light Layer - Syntax only, very fast
-    public static readonly DiagnosticDescriptor UnvalidatedSqlCall = new(
+    public static readonly DiagnosticDescriptor UnvalidatedSqlCall = new (
         id: DiagnosticIds.UnvalidatedSqlCall,
         title: "SQL call not validated",
         messageFormat: "SQL call '{0}' not validated - run 'dataguard check' for full validation",
@@ -77,7 +77,7 @@ internal static class DiagnosticDescriptors
         description: "Marks SQL calls that haven't been validated against database schema. Run full validation in CI.");
 
     // CI Heavy Layer - Full semantic validation
-    public static readonly DiagnosticDescriptor ParameterMismatch = new(
+    public static readonly DiagnosticDescriptor ParameterMismatch = new (
         id: DiagnosticIds.ParameterMismatch,
         title: "Parameter count/type mismatch",
         messageFormat: "{0}",
@@ -86,7 +86,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Stored procedure parameter count or type doesn't match call site.");
 
-    public static readonly DiagnosticDescriptor DirectionMismatch = new(
+    public static readonly DiagnosticDescriptor DirectionMismatch = new (
         id: DiagnosticIds.DirectionMismatch,
         title: "Parameter direction mismatch",
         messageFormat: "{0}",
@@ -95,7 +95,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Parameter IN/OUT/INOUT direction doesn't match C# out/ref modifiers.");
 
-    public static readonly DiagnosticDescriptor ColumnShapeMismatch = new(
+    public static readonly DiagnosticDescriptor ColumnShapeMismatch = new (
         id: DiagnosticIds.ColumnShapeMismatch,
         title: "Result set column shape mismatch",
         messageFormat: "{0}",
@@ -104,7 +104,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Stored procedure result set doesn't match entity properties.");
 
-    public static readonly DiagnosticDescriptor NullableMismatch = new(
+    public static readonly DiagnosticDescriptor NullableMismatch = new (
         id: DiagnosticIds.NullableMismatch,
         title: "Nullable mismatch",
         messageFormat: "{0}",
@@ -113,7 +113,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Database column nullability doesn't match entity property.");
 
-    public static readonly DiagnosticDescriptor NamingConvention = new(
+    public static readonly DiagnosticDescriptor NamingConvention = new (
         id: DiagnosticIds.NamingConvention,
         title: "Naming convention violation",
         messageFormat: "{0}",
@@ -122,7 +122,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Column/property naming convention mismatch (snake_case vs PascalCase).");
 
-    public static readonly DiagnosticDescriptor LengthExceedsColumn = new(
+    public static readonly DiagnosticDescriptor LengthExceedsColumn = new (
         id: DiagnosticIds.LengthExceedsColumn,
         title: "Entity length exceeds column length",
         messageFormat: "{0}",
@@ -131,7 +131,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Entity property max length exceeds database column length - truncation risk.");
 
-    public static readonly DiagnosticDescriptor ByteLengthOverflow = new(
+    public static readonly DiagnosticDescriptor ByteLengthOverflow = new (
         id: DiagnosticIds.ByteLengthOverflow,
         title: "Byte length overflow risk",
         messageFormat: "{0}",
@@ -140,7 +140,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Unicode data may exceed column byte capacity in BYTE length semantics.");
 
-    public static readonly DiagnosticDescriptor InferredSizeFallback = new(
+    public static readonly DiagnosticDescriptor InferredSizeFallback = new (
         id: DiagnosticIds.InferredSizeFallback,
         title: "Inferred size fallback risk",
         messageFormat: "{0}",
@@ -149,7 +149,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "EF Core Oracle provider falls back to NVARCHAR2(2000) when size is null and Unicode=true.");
 
-    public static readonly DiagnosticDescriptor OracleSyntaxInNonOracle = new(
+    public static readonly DiagnosticDescriptor OracleSyntaxInNonOracle = new (
         id: DiagnosticIds.OracleSyntaxInNonOracle,
         title: "Oracle syntax in non-Oracle context",
         messageFormat: "{0}",
@@ -158,7 +158,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Oracle-specific syntax (DECODE, NVL, (+), DUAL, etc.) used in non-Oracle context.");
 
-    public static readonly DiagnosticDescriptor NonOracleFunctionInOracle = new(
+    public static readonly DiagnosticDescriptor NonOracleFunctionInOracle = new (
         id: DiagnosticIds.NonOracleFunctionInOracle,
         title: "Non-Oracle function in Oracle context",
         messageFormat: "{0}",
@@ -167,7 +167,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "SQL Server functions (ISNULL, TOP, GETDATE) used in Oracle context.");
 
-    public static readonly DiagnosticDescriptor ProviderOptionMismatch = new(
+    public static readonly DiagnosticDescriptor ProviderOptionMismatch = new (
         id: DiagnosticIds.ProviderOptionMismatch,
         title: "Provider option mismatch",
         messageFormat: "{0}",
@@ -176,7 +176,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Oracle metadata reader requires UseOracle in DbContextOptions.");
 
-    public static readonly DiagnosticDescriptor SqlServerSyntaxLeak = new(
+    public static readonly DiagnosticDescriptor SqlServerSyntaxLeak = new (
         id: DiagnosticIds.SqlServerSyntaxLeak,
         title: "SQL Server syntax in Oracle",
         messageFormat: "{0}",
@@ -185,7 +185,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "SQL Server EXEC dbo.Proc syntax leaked into Oracle code.");
 
-    public static readonly DiagnosticDescriptor UnmappedTypeUsage = new(
+    public static readonly DiagnosticDescriptor UnmappedTypeUsage = new (
         id: DiagnosticIds.UnmappedTypeUsage,
         title: "Unmapped type usage",
         messageFormat: "{0}",
@@ -193,7 +193,7 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "Oracle EF Core 8+ raw SQL requires mapped types.");
-    public static readonly DiagnosticDescriptor PhantomTable = new(
+    public static readonly DiagnosticDescriptor PhantomTable = new (
         id: DiagnosticIds.PhantomTable,
         title: "Phantom table reference",
         messageFormat: "{0}",
@@ -202,7 +202,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Raw SQL references a table that doesn't exist in the database schema (AI hallucination).");
 
-    public static readonly DiagnosticDescriptor PhantomColumn = new(
+    public static readonly DiagnosticDescriptor PhantomColumn = new (
         id: DiagnosticIds.PhantomColumn,
         title: "Phantom column reference",
         messageFormat: "{0}",
@@ -211,7 +211,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Raw SQL references a column that doesn't exist in its table (AI hallucination).");
 
-    public static readonly DiagnosticDescriptor MissingFromClause = new(
+    public static readonly DiagnosticDescriptor MissingFromClause = new (
         id: DiagnosticIds.MissingFromClause,
         title: "Raw SQL query missing FROM clause",
         messageFormat: "{0}",
@@ -220,7 +220,7 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Raw SQL SELECT query is missing a FROM clause.");
 
-    public static readonly DiagnosticDescriptor SqlInjectionPattern = new(
+    public static readonly DiagnosticDescriptor SqlInjectionPattern = new (
         id: DiagnosticIds.SqlInjectionPattern,
         title: "Potential SQL injection pattern",
         messageFormat: "{0}",
@@ -241,12 +241,12 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
     private static readonly DiagnosticDescriptor Descriptor = DiagnosticDescriptors.UnvalidatedSqlCall;
 
     // Pre-computed method name sets for fast lookup (no allocation)
-    private static readonly HashSet<string> EfCoreMethods = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> EfCoreMethods = new (StringComparer.Ordinal)
     {
         "FromSqlRaw", "FromSqlInterpolated"
     };
 
-    private static readonly HashSet<string> ExecuteSqlMethods = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> ExecuteSqlMethods = new (StringComparer.Ordinal)
     {
         "ExecuteSqlRaw", "ExecuteSqlRawAsync", 
         "ExecuteSqlInterpolated", "ExecuteSqlInterpolatedAsync"

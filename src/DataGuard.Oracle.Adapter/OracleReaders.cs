@@ -330,7 +330,7 @@ public sealed class ProcedureOverloadInfo
 
     public int Overload { get; init; }
 
-    public List<ParameterDescriptor> Parameters { get; init; } = new ();
+    public List<ParameterDescriptor> Parameters { get; init; } = new();
 
     public string SignatureKey => $"{Sequence}:{Overload}";
 }
@@ -638,7 +638,7 @@ public sealed class NlsParameters
 
     public string Territory { get; init; } = "UNKNOWN";
 
-    public Dictionary<string, string> AllParameters { get; init; } = new ();
+    public Dictionary<string, string> AllParameters { get; init; } = new();
 }
 
 /// <summary>

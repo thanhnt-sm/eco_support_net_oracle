@@ -14,9 +14,9 @@ namespace DataGuard.Core.Rules;
 /// </summary>
 public sealed class RuleDependencyGraph
 {
-    private readonly Dictionary<string, RuleNode> _nodes = new ();
-    private readonly Dictionary<string, HashSet<string>> _dependencies = new ();
-    private readonly Dictionary<string, HashSet<string>> _dependents = new ();
+    private readonly Dictionary<string, RuleNode> _nodes = new();
+    private readonly Dictionary<string, HashSet<string>> _dependencies = new();
+    private readonly Dictionary<string, HashSet<string>> _dependents = new();
 
     /// <summary>
     /// Registers a rule with its dependencies.

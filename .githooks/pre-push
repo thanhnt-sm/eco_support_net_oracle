@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# EcoSupport Pre-push Hook: Compilation & Static Type Verification
+# DataGuard pre-push verification.
 
-set -e
+set -euo pipefail
 
-export PATH="$HOME/.cargo/bin:$PATH"
-
-echo "🦀 Running Cargo Check across workspace..."
-if command -v cargo >/dev/null 2>&1; then
-    cargo check --workspace --quiet
+if ! command -v dotnet >/dev/null 2>&1; then
+    printf 'dotnet SDK is required for this DataGuard workspace.\n' >&2
+    exit 1
 fi
 
-echo "✅ Pre-push verification passed."
+printf '[pre-push] Restoring solution.\n'
+dotnet restore DataGuard.sln
+
+printf '[pre-push] Building solution.\n'
+dotnet build DataGuard.sln --configuration Release --no-restore
+
+printf '[pre-push] Running solution tests.\n'
+dotnet test DataGuard.sln --configuration Release --no-build
+
+printf '[pre-push] Passed.\n'

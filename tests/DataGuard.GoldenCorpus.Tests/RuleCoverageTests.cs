@@ -20,7 +20,7 @@ public class RuleCoverageTests
     }
 
     private static RawSqlDescriptor Raw(string sql, params ParameterDescriptor[] parameters) =>
-        new ($"raw:{Guid.NewGuid():N}", sql, parameters, new List<ColumnDescriptor>());
+        new($"raw:{Guid.NewGuid():N}", sql, parameters, new List<ColumnDescriptor>());
 
     // ---- DG003 Direction ----
     [Fact]

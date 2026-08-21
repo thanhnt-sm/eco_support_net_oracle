@@ -166,7 +166,7 @@ public class LengthSemanticsResolver
 /// </summary>
 public class LengthMismatchDetector
 {
-    private readonly EfCoreInferenceSimulator _inferenceSimulator = new ();
+    private readonly EfCoreInferenceSimulator _inferenceSimulator = new();
 
     public IEnumerable<ContractViolation> Detect(
         EntityDescriptor entity,

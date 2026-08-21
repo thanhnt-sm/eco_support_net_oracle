@@ -98,7 +98,7 @@ public record EntityDescriptor(
     string ClrTypeName,
     string? TableName,
     IReadOnlyList<PropertyDescriptor> Properties,
-    Location? Location = null): ContractDescriptor(Id, Name, ContractType.Entity, Location);
+    Location? Location = null) : ContractDescriptor(Id, Name, ContractType.Entity, Location);
 
 /// <summary>
 /// Represents a property descriptor within an entity.
@@ -156,7 +156,7 @@ public record StoredProcedureDescriptor(
     IReadOnlyList<ParameterDescriptor> Parameters,
     IReadOnlyList<ColumnDescriptor> ResultColumns,
     bool ReturnsRefCursor,
-    Location? Location = null): ContractDescriptor(Id, Name, ContractType.StoredProcedure, Location);
+    Location? Location = null) : ContractDescriptor(Id, Name, ContractType.StoredProcedure, Location);
 
 /// <summary>
 /// Represents a column descriptor in a result set.
@@ -181,7 +181,7 @@ public record RawSqlDescriptor(
     string SqlText,
     IReadOnlyList<ParameterDescriptor> Parameters,
     IReadOnlyList<ColumnDescriptor> ResultColumns,
-    Location? Location = null): ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location);
+    Location? Location = null) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location);
 
 /// <summary>
 /// Represents database ground-truth schema (tables + columns) used by length/dialect rules.
@@ -190,7 +190,7 @@ public record DatabaseSchemaDescriptor(
     string Id,
     IReadOnlyList<DatabaseTableDescriptor> Tables,
     string LengthSemantics,
-    Location? Location = null): ContractDescriptor(Id, "DatabaseSchema", ContractType.DatabaseSchema, Location);
+    Location? Location = null) : ContractDescriptor(Id, "DatabaseSchema", ContractType.DatabaseSchema, Location);
 
 /// <summary>
 /// A database table's columns.

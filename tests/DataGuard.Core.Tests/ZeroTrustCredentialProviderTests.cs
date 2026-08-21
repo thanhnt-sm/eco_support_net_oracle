@@ -29,7 +29,9 @@ public class ZeroTrustCredentialProviderTests : IDisposable
         return new ZeroTrustCredentialProvider(
             configuration,
             config ?? new DataGuardConfiguration(),
-            new CredentialManager(new DataGuardConfiguration()),
+            new CredentialManager(
+                new DataGuardConfiguration(),
+                credentialStorePath: Path.Combine(Path.GetTempPath(), $"dg-ztstore-{Guid.NewGuid():N}.json")),
             new NullAuditLogger());
     }
 

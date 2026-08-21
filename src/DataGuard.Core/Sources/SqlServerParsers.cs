@@ -243,7 +243,7 @@ public class RawSqlParser : IContractSource
 
 internal class SqlParameterVisitor : TSqlFragmentVisitor
 {
-    public List<SqlParameterInfo> Parameters { get; } = new ();
+    public List<SqlParameterInfo> Parameters { get; } = new();
 
     public override void Visit(ProcedureParameter parameter)
     {

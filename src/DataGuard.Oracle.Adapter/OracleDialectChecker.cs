@@ -13,7 +13,7 @@ public class OracleDialectChecker
     // Only genuinely Oracle-exclusive constructs. Standard SQL (window functions,
     // PIVOT, PARTITION BY, KEEP, MODEL) is valid in modern SQL Server/PostgreSQL too
     // and must not be flagged as "Oracle-only".
-    private static readonly HashSet<string> OracleKeywords = new (StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> OracleKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "DECODE", "NVL", "NVL2", "DUAL", "ROWNUM", "CONNECT BY", "START WITH",
         "SYSDATE", "SYSTIMESTAMP", "NEXTVAL", "CURRVAL", "ROWID",
@@ -21,12 +21,12 @@ public class OracleDialectChecker
         "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR",
     };
 
-    private static readonly HashSet<string> OracleOperators = new (StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> OracleOperators = new(StringComparer.OrdinalIgnoreCase)
     {
         "(+)", "||", "**", "CONCAT",
     };
 
-    private static readonly HashSet<string> SqlServerKeywords = new (StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SqlServerKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "ISNULL", "GETDATE", "GETUTCDATE", "DATEADD", "DATEDIFF",
         "DATEPART", "DATENAME", "IDENTITY", "NEWID", "NEWSEQUENTIALID",
@@ -241,7 +241,7 @@ public class OracleDialectChecker
 /// </summary>
 public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 {
-    private readonly OracleDialectChecker _checker = new ();
+    private readonly OracleDialectChecker _checker = new();
 
     public override string RuleId => "DG010";
 

@@ -194,10 +194,10 @@ public class BaselineManagerTests
 
 public class SchemaHashTests
 {
-    private static SnapshotTable Table(string name, params SnapshotColumn[] columns) => new (name, columns);
+    private static SnapshotTable Table(string name, params SnapshotColumn[] columns) => new(name, columns);
 
     private static SnapshotColumn Col(string name, string type = "NUMBER", bool nullable = false) =>
-        new (name, type, 100, null, 22, 0, nullable, null);
+        new(name, type, 100, null, 22, 0, nullable, null);
 
     [Fact]
     public void SchemaHash_ChangesWhenColumnAdded()

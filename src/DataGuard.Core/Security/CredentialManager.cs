@@ -22,27 +22,33 @@ public sealed class CredentialManager
     private readonly string _credentialStorePath;
     private static readonly byte[] _entropy = "DataGuard.Credential.Protection"u8.ToArray();
 
-    public CredentialManager(DataGuardConfiguration config, ILogger<CredentialManager>? logger = null)
+    public CredentialManager(
+        DataGuardConfiguration config,
+        ILogger<CredentialManager>? logger = null,
+        string? credentialStorePath = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger;
-        _credentialStorePath = Path.Combine(
+        _credentialStorePath = credentialStorePath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "DataGuard",
             "credentials.json");
 
-        Directory.CreateDirectory(Path.GetDirectoryName(_credentialStorePath) !);
+        Directory.CreateDirectory(Path.GetDirectoryName(_credentialStorePath)!);
     }
 
     /// <summary>
     /// Gets the connection string, checking for rotation and decrypting if needed.
     /// </summary>
-    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task<string> GetConnectionStringAsync(CancellationToken cancellationToken = default)
     {
         var stored = await LoadFromCredentialStoreAsync(cancellationToken);
-        var connectionString = _config.ConnectionString
-            ?? Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")
+
+        // Environment variables win over config-file values (zero-trust/CI
+        // convention, matching ZeroTrustCredentialProvider priority order).
+        var connectionString = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")
+            ?? _config.ConnectionString
             ?? stored?.ConnectionString;
 
         if (string.IsNullOrEmpty(connectionString))
@@ -225,7 +231,7 @@ public sealed class CredentialManager
             "DataGuard",
             "audit.log");
 
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath) !);
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
 
         var logLine = JsonSerializer.Serialize(auditEntry);
         await File.AppendAllTextAsync(logPath, logLine + Environment.NewLine);

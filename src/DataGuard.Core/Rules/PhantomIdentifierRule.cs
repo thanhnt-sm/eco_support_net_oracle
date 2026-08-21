@@ -19,27 +19,27 @@ public class PhantomIdentifierRule : ContractRuleBase
 
     public override string Description => "Raw SQL references a table or column that does not exist in the database schema";
 
-    private static readonly Regex TableRefRegex = new (
+    private static readonly Regex TableRefRegex = new(
         @"\b(?:FROM|JOIN)\s+([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)?)(?:\s+(?:AS\s+)?([A-Za-z_][\w]*))?",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex CteNameRegex = new (
+    private static readonly Regex CteNameRegex = new(
         @"\bWITH\s+([A-Za-z_][\w]*)\s+AS\s*\(",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex SimpleIdentifierRegex = new (
+    private static readonly Regex SimpleIdentifierRegex = new(
         @"^[A-Za-z_]\w*$",
         RegexOptions.Compiled);
 
-    private static readonly Regex QualifiedColumnRegex = new (
+    private static readonly Regex QualifiedColumnRegex = new(
         @"\b([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly Regex SelectListRegex = new (
+    private static readonly Regex SelectListRegex = new(
         @"\bSELECT\s+(.+?)\s+FROM\b",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
-    private static readonly HashSet<string> SqlKeywords = new (StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SqlKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "ON",
         "AND", "OR", "NOT", "NULL", "AS", "ORDER", "GROUP", "BY", "HAVING", "LIMIT",
@@ -92,7 +92,7 @@ public class PhantomIdentifierRule : ContractRuleBase
             var dotIdx = table.LastIndexOf('.');
             if (dotIdx >= 0)
             {
-                table = table[(dotIdx + 1) ..];
+                table = table[(dotIdx + 1)..];
             }
 
             // A SQL keyword following the table name is not an alias.
@@ -170,9 +170,9 @@ public class PhantomIdentifierRule : ContractRuleBase
 
                     // Take the alias if present ("expr AS alias"), else the last whitespace token.
                     var asIdx = col.IndexOf(" AS ", StringComparison.OrdinalIgnoreCase);
-                    var clean = asIdx >= 0 ? col[(asIdx + 4) ..].Trim() : col;
+                    var clean = asIdx >= 0 ? col[(asIdx + 4)..].Trim() : col;
 
-                    var tokens = clean.Split((char[] ?)null, StringSplitOptions.RemoveEmptyEntries);
+                    var tokens = clean.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
                     if (tokens.Length == 0)
                     {
                         continue;

@@ -17,7 +17,7 @@ namespace DataGuard.Analyzers.Tests;
 /// </summary>
 public class DescriptorArityTests
 {
-    private static readonly ContractValidationAnalyzer Analyzer = new ();
+    private static readonly ContractValidationAnalyzer Analyzer = new();
 
     [Fact]
     public void AllDescriptors_HaveExactlyOnePlaceholder()

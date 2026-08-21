@@ -236,7 +236,7 @@ public static class PreCommitHookInstaller
     {
         try
         {
-            var hooksDir = Path.GetDirectoryName(hookPath) !;
+            var hooksDir = Path.GetDirectoryName(hookPath)!;
             Directory.CreateDirectory(hooksDir);
 
             if (File.Exists(hookPath) && !force)
@@ -347,10 +347,10 @@ public sealed record InstallResult(
     HookType InstalledType = HookType.None)
 {
     public static InstallResult Succeeded(string message, HookType type = HookType.NativeGit)
-        => new (true, message, type);
+        => new(true, message, type);
 
     public static InstallResult Failed(string message)
-        => new (false, message, HookType.None);
+        => new(false, message, HookType.None);
 }
 
 /// <summary>
@@ -361,10 +361,10 @@ public sealed record UninstallResult(
     string Message)
 {
     public static UninstallResult Succeeded(string message)
-        => new (true, message);
+        => new(true, message);
 
     public static UninstallResult Failed(string message)
-        => new (false, message);
+        => new(false, message);
 }
 
 /// <summary>

@@ -358,7 +358,7 @@ public class ColumnShapeMatchRule : ContractRuleBase
                 continue;
             }
 
-            var tokens = trimmed.Split((char[] ?)null, StringSplitOptions.RemoveEmptyEntries);
+            var tokens = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             if (tokens.Length == 0)
             {
                 continue;

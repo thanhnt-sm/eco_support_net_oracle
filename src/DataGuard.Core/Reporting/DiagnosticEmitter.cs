@@ -9,10 +9,10 @@ namespace DataGuard.Core.Reporting;
 /// </summary>
 public class DiagnosticEmitter
 {
-    private readonly List<ISarifSink> _sarifSinks = new ();
-    private readonly List<IDiagnosticSink> _diagnosticSinks = new ();
+    private readonly List<ISarifSink> _sarifSinks = new();
+    private readonly List<IDiagnosticSink> _diagnosticSinks = new();
 
-    private static readonly HashSet<string> SafePropertyKeys = new (StringComparer.Ordinal)
+    private static readonly HashSet<string> SafePropertyKeys = new(StringComparer.Ordinal)
     {
         "column", "columnMaxBytes", "columnMaxLength", "dbColumnType",
         "entityMaxBytes", "entityMaxLength", "function", "inferredType",

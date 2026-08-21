@@ -320,9 +320,9 @@ public class GoldenCorpusTestCase
 
     public string Description { get; set; } = "";
 
-    public GoldenCorpusInput Input { get; set; } = new ();
+    public GoldenCorpusInput Input { get; set; } = new();
 
-    public List<ExpectedDiagnostic> ExpectedDiagnostics { get; set; } = new ();
+    public List<ExpectedDiagnostic> ExpectedDiagnostics { get; set; } = new();
 
     public string? Notes { get; set; }
 }
@@ -333,7 +333,7 @@ public class GoldenCorpusInput
 
     public string Sql { get; set; } = "";
 
-    public DatabaseSchema DatabaseSchema { get; set; } = new ();
+    public DatabaseSchema DatabaseSchema { get; set; } = new();
 
     public string Provider { get; set; } = "Oracle";
 
@@ -344,7 +344,7 @@ public class GoldenCorpusEntity
 {
     public string Name { get; set; } = "";
 
-    public List<GoldenCorpusProperty> Properties { get; set; } = new ();
+    public List<GoldenCorpusProperty> Properties { get; set; } = new();
 }
 
 public class GoldenCorpusProperty
@@ -377,7 +377,7 @@ public class DatabaseColumn
 
 public class DatabaseSchema
 {
-    public List<DatabaseTable> Tables { get; set; } = new ();
+    public List<DatabaseTable> Tables { get; set; } = new();
 }
 
 [JsonConverter(typeof(DatabaseTableConverter))]
@@ -385,7 +385,7 @@ public class DatabaseTable
 {
     public string Name { get; set; } = "";
 
-    public List<DatabaseColumn> Columns { get; set; } = new ();
+    public List<DatabaseColumn> Columns { get; set; } = new();
 }
 
 public class DatabaseTableConverter : JsonConverter<DatabaseTable>
