@@ -308,8 +308,9 @@ snapshotShowCommand.SetHandler(
 
     if (!File.Exists(snapshotPath))
     {
-        console.Error.WriteLine($"Snapshot file not found: {snapshotPath}");
-        Environment.ExitCode = 1;
+        // Informational, not an error: a fresh checkout has no snapshot yet.
+        console.Out.WriteLine($"No snapshot found at {snapshotPath}");
+        console.Out.WriteLine("Run 'dataguard snapshot refresh' to create one");
         return;
     }
 
@@ -592,19 +593,16 @@ versionCommand.SetHandler(() =>
     console.Out.WriteLine($"Runtime: {Environment.Version}");
     console.Out.WriteLine($"OS: {Environment.OSVersion}");
 
-    var coreAssembly = typeof(DataGuardConfiguration).Assembly;
-    console.Out.WriteLine($"DataGuard.Core: {coreAssembly.GetName().Version}");
+    static string InformationalVersion(System.Reflection.Assembly assembly) =>
+        assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? assembly.GetName().Version?.ToString()
+        ?? "0.0.0";
 
-    var oracleAssembly = typeof(AllArgumentsReader).Assembly;
-    console.Out.WriteLine($"DataGuard.Oracle.Adapter: {oracleAssembly.GetName().Version}");
-
-    var sqlServerAssembly = typeof(SqlServerStoredProcedureParser).Assembly;
-    console.Out.WriteLine($"DataGuard.SqlServer.Adapter: {sqlServerAssembly.GetName().Version}");
-
-    var analyzersAssembly = typeof(DataGuard.Analyzers.UnvalidatedSqlCallGenerator).Assembly;
-    console.Out.WriteLine($"DataGuard.Analyzers: {analyzersAssembly.GetName().Version}");
+    console.Out.WriteLine($"DataGuard.Core: {InformationalVersion(typeof(DataGuardConfiguration).Assembly)}");
+    console.Out.WriteLine($"DataGuard.Oracle.Adapter: {InformationalVersion(typeof(AllArgumentsReader).Assembly)}");
+    console.Out.WriteLine($"DataGuard.SqlServer.Adapter: {InformationalVersion(typeof(SqlServerStoredProcedureParser).Assembly)}");
+    console.Out.WriteLine($"DataGuard.Analyzers: {InformationalVersion(typeof(DataGuard.Analyzers.UnvalidatedSqlCallGenerator).Assembly)}");
 });
-
 #endregion
 
 var migrateCommand = new Command("migrate", "Migrate a legacy baseline file (v1) to v2")
