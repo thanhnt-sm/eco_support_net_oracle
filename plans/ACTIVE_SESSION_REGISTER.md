@@ -304,3 +304,25 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 3. **Marketplace product** (`plans/260820-marketplace-extensions/`): VS Code extension (trusted workspace, no-shell, private SARIF→Problems, cancel/tree) và Visual Studio VSIX (Tools command, SARIF→Error List, taskkill tree, disposal). **Chưa publish public**: cần owner verify publisher + secrets `VSCE_PAT`/`VS_MARKETPLACE_PAT` + VS 2022 Experimental Instance smoke. Runbook: `docs/marketplace-publishing.md`.
 4. **Contract workflow**: CLI thêm `--format evidence|contracts|typescript` (deterministic, redacted, không serialize Location/Annotations). Refactor `BuildContractsAsync` + `ValidateContractsAsync`. Core.Tests 39/39 pass.
 5. **Còn lại (debt, đã block)**: 8 annotations StyleCop/RS1038 → `plans/2026-08-21-warnings-plan.md`. Cần tách generator khỏi assembly reference `Microsoft.CodeAnalysis.Workspaces` và StyleCop settings (`SA1636/SA1204/SA16xx`).
+
+---
+
+## 📌 PHIÊN NÀY — Enterprise Red-team + Handoff Docs (2026-08-21)
+
+1. **Verify lại hiện trạng** (commit `ed5dbe1`): build 0 errors / **8 warnings SA1000** (toàn bộ trong `tests/DataGuard.Core.Tests/RulesEngineTests.cs`, không phải shipping code); tests **80/80 pass** (Core 50, GoldenCorpus 25, Analyzers 5) — bản handoff cũ ghi 69/0 warnings đã lỗi thời.
+2. **Red-team trực tiếp** (subagent scout fail 402 provider — tự điều tra bằng grep/read): trả lời 6 câu hỏi mở của bản handoff cũ, phát hiện **7 findings mới** chưa có trong tài liệu nào:
+   - **F1 CRITICAL**: DG002 `ParameterTypeMatchRule` self-referential — `InferClrType` suy CLR từ chính DB type rồi check ngược với chính nó; không bao giờ so với CLR type thật của call site; `IsTypeCompatible` dùng `Contains` substring ("point" chứa "int") (`ContractRules.cs:154-155, 186-195`).
+   - **F2 HIGH**: DG003 flag mọi OUT/INOUT param bất kể call site → noise trên codebase hợp lệ (`ContractRules.cs:223-231`).
+   - **F3 HIGH**: `ComputeSchemaHash` hash **violations** (RuleId:Message) chứ không hash schema descriptor → DDL đổi mà không sinh violation thì drift im lặng; `--fail-on-drift` default false (`BaselineManager.cs:204-214`, `Program.cs:37,390`).
+   - **F4 MEDIUM**: Telemetry HTTP egress explicit qua `ExportEndpoint` (default `Enabled: false` đã verify đúng posture); sync-over-async trên timer callback (`TelemetryCollector.cs:156-181, 197-201`).
+   - **F5 MEDIUM**: snapshot stale không phát hiện khi DB version giống nhau (chỉ cảnh báo major.minor khác, `Program.cs:365-373`).
+   - **F6 MEDIUM**: ZeroTrust config-file credential đã fail-closed nhưng flag `AllowConfigFileCredentials` cần ghi rõ dev-only trong banking profile.
+   - **F7 LOW**: exit-code table chưa tài liệu hóa như contract.
+3. **Đã verify các blocker cũ đã fix**: B3 (RepositoryUrl), B4 (license MIT đơn nhất), B5 (README rewrite), B7 (config show redact `Program.cs:446`), P1.13 (ZeroTrust fail-closed), P1.17 (PublicApi stub đã implement thật).
+4. **Ghi đè `plans/2026-08-21-review-handoff.md`** thành Enterprise Handoff đầy đủ: trạng thái verified + 7 findings mới + gap phân theo đội (dev/test/QC/ops) + Definition of Done v1.0 enterprise (correctness/security posture/supply chain/quality gates/delivery) + 5 câu hỏi owner.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] **P0 dev**: fix DG002 (CLR type từ call site/attribute), DG003 (call-site direction), SchemaHash → hash schema descriptor (kèm migration snapshot cũ) — chi tiết trong `plans/2026-08-21-review-handoff.md`.
+- [ ] **P0 test**: test đỏ→xanh cho DG002 mismatch thật, schema-hash đổi khi DDL đổi, exit codes 0/1/2.
+- [ ] Owner quyết 5 câu hỏi mở trong handoff (scope DG002, breaking snapshot format, fail-on-drift default, telemetry, định vị grant vs commercial).
