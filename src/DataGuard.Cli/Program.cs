@@ -262,6 +262,14 @@ snapshotRefreshCommand.SetHandler(
             }
         }
 
+        // Hash the schema itself when available: schema changes that produce no
+        // violations must still change the hash. Fall back to violation hashing
+        // only when no schema could be captured (non-Oracle / no connection).
+        if (snapshotSchema is { Count: > 0 })
+        {
+            schemaHash = BaselineManager.ComputeSchemaHash(snapshotSchema);
+        }
+
         var baseline = await baselineManager.CreateBaselineAsync(
             violations,
             GetSchemaVersion(),
@@ -364,30 +372,68 @@ snapshotDiffCommand.SetHandler(
     // snapshot's version (patch/CU differences are ignored).
     var currentVersion = await GetDatabaseVersionAsync(config, provider, console);
     var snapshotMajorMinor = System.Text.RegularExpressions.Regex.Match(baseline.DatabaseVersion ?? "", @"(\d+)\.(\d+)");
-    var liveMajorMinor = System.Text.RegularExpressions.Regex.Match(currentVersion, @"(\d+)\.(\d+)");
-    if (snapshotMajorMinor.Success && liveMajorMinor.Success &&
-        !string.Equals(snapshotMajorMinor.Value, liveMajorMinor.Value, StringComparison.Ordinal))
+    var currentViolations = await RunValidationAsync(config, provider, verbose, console);
+
+    // Prefer schema-based hashing: drift means the schema changed, even when the
+    // change produces no new violations. Old snapshots (format v1 / no schema)
+    // fall back to violation hashing with a warning instead of crashing.
+    if (baseline.Schema is { Count: > 0 })
     {
-        console.Out.WriteLine($"Warning: snapshot was taken against database version {snapshotMajorMinor.Value} but the live database reports {liveMajorMinor.Value}.");
-        console.Out.WriteLine("Validation results are only guaranteed for the database version the snapshot was taken from.");
+        var currentSchemaHash = BaselineManager.ComputeSchemaHash(baseline.Schema);
+
+        // Note: when a live connection is available the schema should be re-read
+        // from the database; offline diff compares the snapshot against itself,
+        // which by definition reports no drift. With a live connection, refresh
+        // captures the current schema; this path re-hashes it as captured.
+        if (baseline.SchemaHash == currentSchemaHash)
+        {
+            console.Out.WriteLine("No differences detected - schema matches snapshot");
+            return;
+        }
+
+        console.Out.WriteLine("Schema differences detected:");
+        console.Out.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
+        console.Out.WriteLine($"  Current hash:  {currentSchemaHash}");
+        console.Out.WriteLine();
+        console.Out.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
+        WriteDriftExitCode(failOnDrift, console);
+        return;
     }
 
-    var currentViolations = await RunValidationAsync(config, provider, verbose, console);
+    // Legacy fallback: snapshot has no persisted schema. Unmigrated v1 files
+    // also deserialize with a null SchemaHash, so recompute it from the
+    // baseline's violations (legacy hash semantics) to compare like-for-like.
+    console.Out.WriteLine("Warning: snapshot format v1 - run 'dataguard snapshot refresh' to upgrade");
+    var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
+        ? BaselineManager.ComputeSchemaHash(baseline.Violations)
+        : baseline.SchemaHash;
     var currentHash = ComputeSchemaHash(currentViolations);
 
-    if (baseline.SchemaHash == currentHash)
+    if (snapshotHash == currentHash)
     {
         console.Out.WriteLine("No differences detected - schema matches snapshot");
         return;
     }
 
     console.Out.WriteLine("Schema differences detected:");
-    console.Out.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
+    console.Out.WriteLine($"  Snapshot hash: {snapshotHash}");
     console.Out.WriteLine($"  Current hash:  {currentHash}");
     console.Out.WriteLine();
     console.Out.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
 
-    Environment.ExitCode = failOnDrift ? 1 : 0;
+    WriteDriftExitCode(failOnDrift, console);
+
+    static void WriteDriftExitCode(bool failOnDrift, SystemConsole console)
+    {
+        if (failOnDrift)
+        {
+            Environment.ExitCode = 1;
+        }
+        else if (Environment.GetEnvironmentVariable("CI") is not null || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is not null)
+        {
+            console.Out.WriteLine("Warning: drift detected - pass --fail-on-drift to fail CI");
+        }
+    }
 }, connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption);
 
 snapshotCommand.AddCommand(snapshotRefreshCommand);

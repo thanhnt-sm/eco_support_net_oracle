@@ -214,6 +214,51 @@ public class BaselineManager
     }
 
     /// <summary>
+    /// Computes a deterministic full SHA256 hex hash from the schema itself
+    /// (tables/columns canonicalized by name) - not from violations, so schema
+    /// changes that produce no violations still change the hash.
+    /// </summary>
+    public static string ComputeSchemaHash(IReadOnlyList<SnapshotTable> schema)
+    {
+        var canonical = string.Join("|", schema
+            .OrderBy(t => t.Name, StringComparer.Ordinal)
+            .Select(t =>
+            {
+                var cols = string.Join(";", t.Columns
+                    .OrderBy(c => c.Name, StringComparer.Ordinal)
+                    .Select(c => string.Join(
+                        ",",
+                        c.Name,
+                        c.DataType,
+                        c.IsNullable,
+                        c.MaxLength?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null",
+                        c.Precision?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null",
+                        c.Scale?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null")));
+                return $"{t.Name}{{{cols}}}";
+            }));
+
+        using var sha256 = SHA256.Create();
+        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(canonical));
+        return Convert.ToHexString(hash);
+    }
+
+    /// <summary>
+    /// Violation-based hash (legacy semantics, 16-hex prefix) used when diffing
+    /// snapshots that were never migrated and carry no SchemaHash.
+    /// </summary>
+    public static string ComputeSchemaHash(IReadOnlyList<BaselineViolation> violations)
+    {
+        var data = string.Join("|", violations
+            .OrderBy(v => v.RuleId, StringComparer.Ordinal)
+            .ThenBy(v => v.Message, StringComparer.Ordinal)
+            .Select(v => $"{v.RuleId}:{v.Message}"));
+
+        using var sha256 = SHA256.Create();
+        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(data));
+        return Convert.ToHexString(hash)[..16];
+    }
+
+    /// <summary>
     /// Filters violations to only return new ones not in baseline.
     /// </summary>
     /// <returns></returns>
