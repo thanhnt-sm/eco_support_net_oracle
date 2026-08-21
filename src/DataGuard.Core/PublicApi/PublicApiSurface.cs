@@ -334,22 +334,4 @@ public static class DataGuardFactory
     {
         return BuiltInRuleDependencies.CreateDefault();
     }
-
-    /// <summary>
-    /// Validates the rule dependency graph.
-    /// </summary>
-    /// <returns></returns>
-    public static ValidationResult ValidateGraph(RuleDependencyGraph graph)
-    {
-        var result = graph.Validate();
-        return new ValidationResult(
-            ContractsValidated: 0,
-            TotalViolations: result.Errors.Length + result.Warnings.Length,
-            Errors: result.Errors.Length,
-            Warnings: result.Warnings.Length,
-            Infos: 0,
-            Violations: ImmutableArray<ContractViolation>.Empty,
-            Duration: TimeSpan.Zero,
-            SchemaVersion: "1.0");
-    }
 }
