@@ -247,8 +247,9 @@ internal class SqlParameterVisitor : TSqlFragmentVisitor
 
     public override void Visit(ProcedureParameter parameter)
     {
-        // Get data type name from DataTypeReference.Name
-        var dataTypeName = parameter.DataType?.ToString() ?? "unknown";
+        // Use the SQL-facing type name (e.g. "varchar(50)"), never the .NET
+        // type name of the ScriptDOM AST node ("SqlDataTypeReference").
+        var dataTypeName = GetSqlTypeName(parameter.DataType);
         int? maxLength = null;
         byte? precision = null;
         byte? scale = null;
@@ -295,6 +296,43 @@ internal class SqlParameterVisitor : TSqlFragmentVisitor
             Parameters.Count + 1));
 
         base.Visit(parameter);
+    }
+
+    /// <summary>
+    /// Builds the SQL-facing type name from a ScriptDOM DataTypeReference:
+    /// "int", "varchar(50)", "decimal(10,2)", "varchar(max)". Returns "unknown"
+    /// for null or unmapped references (e.g. user-defined types fall back to
+    /// their three-part name when available).
+    /// </summary>
+    private static string GetSqlTypeName(DataTypeReference? dataType)
+    {
+        if (dataType == null)
+        {
+            return "unknown";
+        }
+
+        var baseName = dataType.Name?.Identifiers.Count > 0
+            ? string.Join(".", dataType.Name.Identifiers.Select(i => i.Value)).ToLowerInvariant()
+            : null;
+        if (string.IsNullOrEmpty(baseName))
+        {
+            return "unknown";
+        }
+
+        if (dataType is SqlDataTypeReference sqlType && sqlType.Parameters.Count > 0)
+        {
+            var args = string.Join(
+                ",",
+                sqlType.Parameters.Select(p => p switch
+                {
+                    IntegerLiteral integer => integer.Value,
+                    Literal literal => literal.Value,
+                    _ => p.ToString(),
+                }));
+            return $"{baseName}({args})".ToLowerInvariant();
+        }
+
+        return baseName;
     }
 }
 

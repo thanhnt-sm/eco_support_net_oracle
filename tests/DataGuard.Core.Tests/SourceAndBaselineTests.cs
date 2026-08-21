@@ -123,7 +123,8 @@ public class RawSqlParserTests
             CREATE PROCEDURE dbo.PlaceOrder
                 @OrderId INT,
                 @Note VARCHAR(50),
-                @Amount DECIMAL(10, 2)
+                @Amount DECIMAL(10, 2),
+                @Body VARCHAR(MAX)
             AS
             BEGIN
                 SELECT 1;
@@ -134,8 +135,12 @@ public class RawSqlParserTests
         var contracts = await parser.ExtractContractsAsync();
 
         var raw = contracts.Should().ContainSingle().Which.Should().BeOfType<Abstractions.RawSqlDescriptor>().Subject;
-        raw.Parameters.Should().HaveCount(3);
+        raw.Parameters.Should().HaveCount(4);
 
+        raw.Parameters.Should().ContainSingle(p => p.Name == "@OrderId").Which.DataType.Should().Be("int");
+        raw.Parameters.Should().ContainSingle(p => p.Name == "@Note").Which.DataType.Should().Be("varchar(50)");
+        raw.Parameters.Should().ContainSingle(p => p.Name == "@Amount").Which.DataType.Should().Be("decimal(10,2)");
+        raw.Parameters.Should().ContainSingle(p => p.Name == "@Body").Which.DataType.Should().Be("varchar(max)");
         raw.Parameters.Should().ContainSingle(p => p.Name == "@OrderId").Which.MaxLength.Should().BeNull();
         raw.Parameters.Should().ContainSingle(p => p.Name == "@Note").Which.MaxLength.Should().Be(50);
         raw.Parameters.Should().ContainSingle(p => p.Name == "@Amount").Which.Precision.Should().Be(10);
