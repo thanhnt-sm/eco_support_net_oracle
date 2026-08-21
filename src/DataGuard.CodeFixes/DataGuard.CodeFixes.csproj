@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AdditionalFiles Include="stylecop.json" />
     <ProjectReference Include="..\DataGuard.Analyzers\DataGuard.Analyzers.csproj" />
   </ItemGroup>
 

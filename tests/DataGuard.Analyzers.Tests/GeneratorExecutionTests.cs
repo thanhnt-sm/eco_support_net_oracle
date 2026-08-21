@@ -1,3 +1,7 @@
+// <copyright file="GeneratorExecutionTests.cs" company="Than Nguyen">
+// Copyright (c) 2026 Than Nguyen. All rights reserved.
+// </copyright>
+
 using DataGuard.Analyzers;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
@@ -38,6 +42,7 @@ public class GeneratorExecutionTests
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
         var driver = CSharpGeneratorDriver.Create(new UnvalidatedSqlCallGenerator().AsSourceGenerator());
+
         // GeneratorDriver is immutable: the updated driver is returned, and only
         // the returned instance carries the run results.
         driver = (CSharpGeneratorDriver)driver.RunGeneratorsAndUpdateCompilation(compilation, out _, out _);

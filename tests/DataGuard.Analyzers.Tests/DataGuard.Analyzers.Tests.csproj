@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CS1591;SA1200;SA1600;SA1636</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
