@@ -25,14 +25,18 @@
 
 ## Sản Phẩm Đầu Ra / Deliverables / Sản Phẩm Đầu Ra
 
-### 1. 5 Gói NuGet / 5 NuGet Packages
+### 1. 9 Gói NuGet / 9 NuGet Packages
 
 | Package | Mô Tả / Description | License |
 |---------|-------------|---------|
-| `DataGuard.Core` | Động cơ xác thực cốt lõi / Core validation engine | MIT |
+| `DataGuard.Contracts` | Attribute contracts dùng chung (netstandard2.0) | MIT |
+| `DataGuard.Core` | Động cơ xác thực cốt lõi | MIT |
 | `DataGuard.SqlServer.Adapter` | Adapter SQL Server (ScriptDOM) | MIT |
 | `DataGuard.Oracle.Adapter` | Adapter Oracle (Catalog-based) | MIT + Oracle License |
-| `DataGuard.Analyzers` | Roslyn Analyzers + Code Fixes | MIT |
+| `DataGuard.MySql.Adapter` | Adapter MySQL | MIT |
+| `DataGuard.PostgreSql.Adapter` | Adapter PostgreSQL | MIT |
+| `DataGuard.Analyzers` | Roslyn analyzer + generator | MIT |
+| `DataGuard.CodeFixes` | Roslyn code fixes (quick actions) | MIT |
 | `DataGuard.Cli` | dotnet tool CLI | MIT |
 
 ### 2. CLI Tool / Công Cụ CLI
@@ -59,11 +63,11 @@ dataguard version           # Xem phiên bản
 ```
 
 - **DG001**: Unvalidated SQL call (IDE light layer)
-- **DG002-DG006**: Parameter/Column/Nullable/Naming checks (CI heavy)
+- **DG002-DG006**: Parameter/Column/Nullable/Naming/Direction checks
 - **DG007-DG009**: Length mismatch (Oracle byte/char, NVARCHAR2(2000) fallback)
-- **DG010-DG014**: Dialect checks (Oracle/SQL Server syntax)
-
-**12 CodeFixProviders** cho sửa nhanh trong IDE (Lightbulb).
+- **DG010-DG016**: Dialect + phantom identifier checks (Oracle/SQL Server/MySQL/PostgreSQL)
+- **DG098-DG099**: Missing FROM clause + SQL injection pattern
+- **DG101**: Parameter count (engine-only)
 
 ### 4. Pre-commit Hooks
 

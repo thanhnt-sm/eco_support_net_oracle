@@ -5,21 +5,26 @@
 ```
 DataGuard.sln
 ├── src/
-│   ├── DataGuard.Core/                    # Động cơ xác thực cốt lõi / Core validation engine
-│   ├── DataGuard.SqlServer.Adapter/       # Trích xuất metadata SQL Server / SQL Server metadata extraction
-│   ├── DataGuard.Oracle.Adapter/          # Trích xuất metadata Oracle / Oracle metadata extraction
-│   ├── DataGuard.Analyzers/               # Roslyn analyzers + code fixes
-│   └── DataGuard.Cli/                     # dotnet tool CLI
+│   ├── DataGuard.Contracts/                # Shared attribute contracts (netstandard2.0)
+│   ├── DataGuard.Core/                     # Động cơ xác thực cốt lõi (net9.0)
+│   ├── DataGuard.SqlServer.Adapter/        # Metadata SQL Server (ScriptDOM)
+│   ├── DataGuard.Oracle.Adapter/           # Metadata Oracle (catalog views)
+│   ├── DataGuard.MySql.Adapter/            # Metadata MySQL
+│   ├── DataGuard.PostgreSql.Adapter/       # Metadata PostgreSQL
+│   ├── DataGuard.Analyzers/                # Roslyn analyzer + generator (IDE)
+│   ├── DataGuard.CodeFixes/                # Roslyn code fixes (quick actions)
+│   ├── DataGuard.Cli/                      # dotnet tool CLI
+│   ├── DataGuard.VSCode/                   # VS Code extension (TypeScript)
+│   └── DataGuard.VisualStudio/             # Visual Studio 2022 VSIX (net472)
 ├── tests/
-│   ├── DataGuard.Core.Tests/              # Unit tests
-│   └── DataGuard.GoldenCorpus.Tests/      # Golden corpus regression tests
-├── docs/                                  # Documentation / Tài liệu
-├── .github/workflows/                     # CI/CD pipelines
-├── Directory.Build.props                  # Common build properties / Thuộc tính build chung
-├── global.json                           # SDK version pinning / Ghim phiên bản SDK
-├── Dockerfile                            # Container image
-├── docker-compose.yml                    # Local development stack / Stack phát triển local
-└── wrangler.toml                         # Cloudflare Workers config
+│   ├── DataGuard.Core.Tests/
+│   ├── DataGuard.GoldenCorpus.Tests/
+│   └── DataGuard.Analyzers.Tests/
+├── docs/                                   # Tài liệu
+├── .github/workflows/                      # CI/release/Marketplace
+├── Directory.Build.props
+├── Dockerfile
+└── .editorconfig                           # StyleCop/C# analyzer policy
 ```
 
 ---
@@ -32,13 +37,12 @@ DataGuard.sln
 **Thành Phần Chính / Key Components**:
 - `Abstractions/` - Contracts, Rules, Models
 - `Sources/` - EfModelSource, SqlServerParsers, RawSqlParser
-- `Rules/` - 6 quy tắc xác thực built-in / 6 built-in validation rules
+- `Rules/` - 14 quy tắc built-in (DG002–DG016, DG098–DG099; DG101 = parameter-count engine)
 - `Reporting/` - DiagnosticEmitter, SARIF sinks
 - `Baseline/` - BaselineManager v2 (SchemaHash + DB Version)
 - `Security/` - CredentialManager, ZeroTrust, SLSA, Audit
 - `Plugins/` - RulePluginManager (MEF)
 - `Telemetry/` - TelemetryCollector (opt-in)
-- `Health/` - HealthChecks (Liveness/Readiness/Startup)
 - `AutoDetection/` - AutoDetectionEngine + Interactive Wizard
 - `PublicApi/` - DataGuardApi, ValidationPipeline
 
@@ -80,25 +84,25 @@ DataGuard.sln
 ---
 
 ### DataGuard.Analyzers
-**Mục Đích / Purpose**: Roslyn analyzers cho tích hợp IDE / Roslyn analyzers for IDE integration
+**Mục Đích / Purpose**: Roslyn analyzer + generator cho tích hợp IDE / Roslyn analyzers and generator for IDE integration
 
 **Thành Phần Chính / Key Components**:
-- `UnvalidatedSqlCallGenerator` - IIncrementalGenerator (lớp IDE nhẹ)
-- `ContractValidationAnalyzer` - DiagnosticAnalyzer (lớp CI nặng)
-- `CodeFixProviders` - 12 CodeFixProviders cho sửa nhanh
+- `UnvalidatedSqlCallGenerator` - IIncrementalGenerator (lớp IDE nhẹ, DG001)
+- `ContractValidationAnalyzer` - DiagnosticAnalyzer (lớp semantic)
 
-**Code Fix Providers / Cung Cấp Sửa Nhanh**:
-1. `DataGuardCodeFixProvider` - Cung cấp chính (12 diagnostic IDs)
-2. `AddMaxLengthAttributeFixProvider` - DG007, DG009
-3. `AddUseOracleFixProvider` - DG012
-4. `SkipContractCheckFixProvider` - DG001
-
-**Phụ Thuộc / Dependencies**:
-- Microsoft.CodeAnalysis.CSharp 4.11.0
-- Microsoft.CodeAnalysis.CSharp.IncrementalGenerators 4.11.0
-- Microsoft.CodeAnalysis.Operations
+**Phụ Thuộc / Dependencies**: Microsoft.CodeAnalysis.CSharp (KHÔNG reference Workspaces — analyzer/generator được `csc` load)
 
 ---
+
+### DataGuard.CodeFixes
+**Mục Đích / Purpose**: Roslyn code fixes (quick actions) cho IDE / Roslyn code fixes for IDE
+
+**Thành Phần Chính / Key Components**:
+- `DataGuardCodeFixProvider` - quick fixes cho nhiều diagnostic IDs
+- `AddMaxLengthAttributeFixProvider` - DG007, DG009
+- `SkipContractCheckFixProvider` - DG001
+
+**Phụ Thuộc / Dependencies**: Microsoft.CodeAnalysis.CSharp.Workspaces (chỉ VS IDE load; tách khỏi analyzer để tránh RS1038)
 
 ### DataGuard.Cli
 **Mục Đích / Purpose**: dotnet tool cho CI/CD và xác thực local / dotnet tool for CI/CD and local validation
