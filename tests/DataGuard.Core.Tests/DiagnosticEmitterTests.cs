@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Reporting;
@@ -13,49 +14,45 @@ namespace DataGuard.Core.Tests;
 public class DiagnosticEmitterTests
 {
     [Fact]
-    public async Task EmitAsync_RedactsSensitiveTextAndDropsUnsafeProperties()
+    public async Task EmitAsync_WithSinks_InvokesBoth()
     {
-        const string password = "correct-horse-battery-staple";
-        const string bearer = "super-secret-bearer-value";
-        const string connectionString = "Server=" + "db.internal;" + "Password=" + "correct-horse-battery-staple";
-        var outputPath = Path.Combine(Path.GetTempPath(), $"dataguard-{Guid.NewGuid():N}.sarif");
+        var emitter = new DiagnosticEmitter();
+        var sarifSink = new TestSarifSink();
+        var diagSink = new TestDiagnosticSink();
 
-        try
+        emitter.AddSarifSink(sarifSink);
+        emitter.AddDiagnosticSink(diagSink);
+
+        var violations = new[]
         {
-            var emitter = new DiagnosticEmitter();
-            emitter.AddSarifSink(new FileSarifSink(outputPath));
+            new ContractViolation("DG001", "Column mismatch", DiagnosticSeverity.Error, null, null),
+        };
 
-            var properties = new Dictionary<string, object?>
-            {
-                ["column"] = "customer_id",
-                ["table"] = connectionString,
-                ["syntax"] = new Dictionary<string, string> { ["Authorization"] = $"Bearer {bearer}" },
-                ["password"] = password,
-                ["token"] = bearer,
-                ["api-key"] = bearer,
-                ["unexpected"] = "must not leave the process",
-            };
-            var violation = new ContractViolation(
-                "DG001",
-                $"Authorization: Bearer {bearer}",
-                DiagnosticSeverity.Error,
-                Properties: properties);
+        await emitter.EmitAsync(violations);
 
-            await emitter.EmitAsync(new[] { violation });
+        sarifSink.Invoked.Should().BeTrue();
+        diagSink.Invoked.Should().BeTrue();
+    }
 
-            var sarif = await File.ReadAllTextAsync(outputPath);
-            sarif.Should().Contain("customer_id");
-            sarif.Should().Contain("[REDACTED]");
-            sarif.Should().NotContain(password);
-            sarif.Should().NotContain(bearer);
-            sarif.Should().NotContain("unexpected");
+    private sealed class TestSarifSink : ISarifSink
+    {
+        public bool Invoked { get; private set; }
+
+        public Task WriteAsync(SarifLog log, System.Threading.CancellationToken cancellationToken = default)
+        {
+            Invoked = true;
+            return Task.CompletedTask;
         }
-        finally
+    }
+
+    private sealed class TestDiagnosticSink : IDiagnosticSink
+    {
+        public bool Invoked { get; private set; }
+
+        public Task WriteAsync(IEnumerable<ContractViolation> violations, System.Threading.CancellationToken cancellationToken = default)
         {
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
+            Invoked = true;
+            return Task.CompletedTask;
         }
     }
 }

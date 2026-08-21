@@ -64,8 +64,20 @@ public class EfModelSource : IContractSource
                     continue;
                 }
 
-                var columnName = property.GetColumnName() ?? property.Name;
-                var columnType = property.GetColumnType();
+                string? columnName = null;
+                string? columnType = null;
+                try
+                {
+                    columnName = property.GetColumnName();
+                    columnType = property.GetColumnType();
+                }
+                catch (InvalidCastException)
+                {
+                    // Non-relational providers (e.g. InMemory) throw InvalidCastException
+                    // when querying relational extensions. Fall back to property metadata.
+                }
+
+                columnName ??= property.Name;
                 var maxLength = property.GetMaxLength();
                 var isNullable = property.IsNullable;
                 var isPrimaryKey = property.IsPrimaryKey();
@@ -98,8 +110,15 @@ public class EfModelSource : IContractSource
             var fullViewName = viewName != null ? BuildFullName(viewSchema, viewName) : null;
 
             // Get table comments/description
-            var tableComment = entityType.GetComment();
-
+            string? tableComment = null;
+            try
+            {
+                tableComment = entityType.GetComment();
+            }
+            catch (InvalidOperationException)
+            {
+                // Read-optimized models throw when querying design-time annotations
+            }
             var location = await GetEntityLocationAsync(entityType, cancellationToken);
 
             entities.Add(new EntityDescriptor(
