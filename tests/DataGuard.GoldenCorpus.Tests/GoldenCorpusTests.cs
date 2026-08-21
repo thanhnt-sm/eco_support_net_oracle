@@ -60,11 +60,22 @@ public class GoldenCorpusTests
                 $"Actual violations: {string.Join(", ", violations.Select(v => $"{v.RuleId}: {v.Message}"))}");
         }
 
+        // Exact match: the number of Error-severity diagnostics must equal the
+        // number of expected Error diagnostics - no more, no fewer.
+        var expectedErrorCount = testCase.ExpectedDiagnostics.Count(e =>
+            e.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase));
+        var actualErrorCount = violations.Count(v => v.Severity == DiagnosticSeverity.Error);
+        actualErrorCount.Should().Be(
+            expectedErrorCount,
+            $"Expected exactly {expectedErrorCount} Error-severity diagnostic(s) but got {actualErrorCount}. " +
+            $"Actual violations: {string.Join(", ", violations.Select(v => $"{v.RuleId}: {v.Message}"))}");
+
         // Strict mode: any Error-severity diagnostic outside the expected set fails
         // the fixture. Over-detection (false positives) must not slip through.
         var unexpectedErrors = violations
-            .Where(v => v.Severity == DiagnosticSeverity.Error &&
-                       !testCase.ExpectedDiagnostics.Any(e => e.RuleId == v.RuleId && e.Severity == "Error"))
+            .Where(
+                v => v.Severity == DiagnosticSeverity.Error &&
+                     !testCase.ExpectedDiagnostics.Any(e => e.RuleId == v.RuleId && e.Severity == "Error"))
             .ToList();
 
         unexpectedErrors.Should().BeEmpty(
