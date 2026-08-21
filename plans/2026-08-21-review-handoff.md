@@ -120,6 +120,8 @@ Khi cấu hình `ExportEndpoint`, `FlushEvents` POST NDJSON tới endpoint HTTP 
 | **P1** | `version` in `InformationalVersion`; `snapshot show` exit 0 informational | handoff cũ |
 | **P2** | Benchmark BenchmarkDotNet cho `IncrementalGenerator` + `ConcurrentValidationEngine` trước khi ghi "~ms" vào tài liệu bán hàng | F6 |
 
+> **Cập nhật 2026-08-21 (phiên hardening đã thực thi)**: các dòng P0/P1 ở trên đã hoàn thành — xem `plans/2026-08-21-execution-prompt.md` và `.omp/handoffs/CURRENT.md` cho bằng chứng đầy đủ. Tóm tắt: DG002/DG003 fix với nguồn CLR type/call-site direction thật + exact token match; SchemaHash hash schema descriptor (full SHA256) với backward-compat v1; telemetry zero-egress test; ValidateGraph đã xóa; version/snapshot show fix; coverage Core 34.5%→50.3%; golden corpus exact-match; exit-code table trong README + test 0/1/2. P2 (benchmark, Testcontainers) còn mở.
+
 ### 2.2 Đội Test/QC
 
 | Ưu tiên | Việc |
@@ -132,6 +134,8 @@ Khi cấu hình `ExportEndpoint`, `FlushEvents` POST NDJSON tới endpoint HTTP 
 | **P1** | Testcontainers integration tests (Oracle/SQL Server thật) cho AllArgumentsReader, sp_describe_first_result_set, RefCursorDescriber — chạy CI service containers |
 | **P1** | Analyzer test (CSharpAnalyzerTest) cho tất cả descriptor arity/messageFormat |
 | **P2** | Performance regression test: validate 1000 contracts dưới ngưỡng X giây trên CI runner |
+
+> **Cập nhật 2026-08-21**: các P0 của 2.2 đã xong (DG002 4 test case, schema-hash 3 test, exit-code 6 test qua CLI invocation thật); exact-match GoldenCorpus đã xong. Còn mở: redaction test chính thức, Testcontainers, analyzer arity test, performance test.
 
 ### 2.3 Đội vận hành / go-to-market (bán ngân hàng)
 
