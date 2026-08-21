@@ -52,6 +52,32 @@ jobs:
       - name: Run tests (fail-fast)
         run: dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
 
+      - name: Code Coverage Gate (Fail under 45%)
+        run: |
+          python3 - <<'EOF'
+          import xml.etree.ElementTree as ET
+          import glob, sys
+          from collections import defaultdict
+          hits = defaultdict(bool)
+          files = glob.glob('**/TestResults/**/coverage.cobertura.xml', recursive=True)
+          if not files:
+              print("::error::No coverage files found!")
+              sys.exit(1)
+          for f in files:
+              r = ET.parse(f).getroot()
+              for cls in r.iter('class'):
+                  fn = cls.attrib['filename']
+                  for line in cls.iter('line'):
+                      key = (fn, int(line.attrib['number']))
+                      hits[key] = hits[key] or int(line.attrib['hits']) > 0
+          total = len(hits)
+          cov = sum(1 for v in hits.values() if v)
+          rate = (cov / total * 100) if total > 0 else 0
+          print(f"Overall Solution Line Coverage: {rate:.2f}% ({cov}/{total} lines)")
+          if rate < 45.0:
+              print(f"::error::Coverage {rate:.2f}% is below required threshold of 45.0%!")
+              sys.exit(1)
+          EOF
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
