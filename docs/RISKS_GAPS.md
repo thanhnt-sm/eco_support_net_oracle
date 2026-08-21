@@ -1,3 +1,5 @@
+> ⚠️ **HISTORICAL (2025-01-19, cập nhật 2026-08-21)** — Phần lớn mục dưới đây ĐÃ FIX: CLI validation thật, MySql/Pg adapters tồn tại, VS Code + VSIX build xanh, EfModelSource design-time implemented. KHÔNG dùng làm nguồn gap hiện tại. Gap còn sống: `plans/2026-08-21-review-handoff.md` (findings F1-F7) + `AI_AGENT_AUDIT.md` (SEC/BUG/COV/ARC/NTH task list).
+
 # Phân Tích Rủi Ro & Khoảng Trống / Risk & Gap Analysis / Phân Tích Rủi Ro & Khoảng Trống
 
 ## Tổng Quan / Executive Summary / Tổng Quan

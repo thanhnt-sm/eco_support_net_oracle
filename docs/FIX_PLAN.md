@@ -1,3 +1,5 @@
+> ⚠️ **HISTORICAL (2025-01-19, cập nhật 2026-08-21)** — Sprint plan Fix-001 đến Fix-035 phần lớn đã thực thi ở các commit 2026-08 (xem git log). Fix plan sống hiện tại: `AI_AGENT_AUDIT.md` mục 5 (task list SEC/BUG/COV/ARC/NTH) + `plans/2026-08-21-review-handoff.md`.
+
 # Kế Hoạch Sửa Lỗi Toàn Diện / Comprehensive Fix Plan / Kế Hoạch Sửa Lỗi Toàn Diện
 
 ## Tổng Quan / Executive Summary / Tổng Quan

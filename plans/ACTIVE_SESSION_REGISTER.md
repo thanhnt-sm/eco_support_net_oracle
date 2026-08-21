@@ -5,163 +5,58 @@
 
 ---
 
-## 🎯 MỤC TIÊU TỐI THƯỢNG (KHÔNG BAO GIỜ THAY ĐỔI)
+## 🎯 MỤC TIÊU HIỆN TẠI
 
-> **EcoSupport Native**: Hệ thống tự động phát hiện và hỗ trợ các thư viện mã nguồn mở niche/ngách có nguy cơ cao nhưng thiếu hỗ trợ, nhằm giành tài trợ **"Claude for Open Source" — Ecosystem Impact Track** của Anthropic.
+> **DataGuard**: Contract validation engine (.NET 9) cho Entity ↔ Stored Procedure / Raw SQL — phát hiện drift, parameter mismatch, length semantics, dialect — chuẩn bán cho doanh nghiệp/ngân hàng.
 
-**KPI Thành công**: Hồ sơ được chấp thuận → Nhận Claude Max 20x API usage.
+**Lịch sử thời Rust (EcoSupport, 2026-08-17→19) đã tách sang `plans/ARCHIVE-ecosupport-history.md`** — không dùng làm nguồn sự thật.
 
 ---
 
-## 🗺️ CẤU TRÚC WORKSPACE (PHẢI NẮM VỮNG, KHÔNG ĐƯỢC TẠO FILE/FOLDER NGOÀI CẤU TRÚC NÀY)
+## 🗺️ CẤU TRÚC WORKSPACE HIỆN TẠI
 
 ```
-eco_support/                    ← ROOT (Cargo workspace)
-├── Cargo.toml                  ← WORKSPACE MANIFEST (không sửa trực tiếp)
-├── CLAUDE.md                   ← Chỉ dẫn cho Claude agent
-├── AGENTS.md                   ← Đặc tả multi-agent swarm
-├── .cursorrules                ← Quy tắc cho Cursor IDE
-├── .windsurfrules              ← Quy tắc cho Windsurf
-├── .geminirules                ← Quy tắc cho Gemini
-├── .agentrules                 ← Quy tắc cho Devin/OpenCode/Oh-My-Pi
-│
-├── crates/                     ← 🦀 RUST PRODUCTION CODE ONLY
-│   ├── eco-core/               ← Config, Claude API Client, Telemetry
-│   ├── eco-radar/              ← ECI Calculator, Registry Scanner
-│   ├── eco-mcp/                ← FastMCP 2.0 Server & Security Auditor
-│   ├── eco-agents/             ← Triage, Patch, Bridge Agents
-│   └── eco-cli/                ← Binary CLI + Integration Tests
-│
-├── docs/                       ← 📚 LIVING DOCUMENTATION (sync bắt buộc với code)
-│   ├── overview/               ← Vibe Coder visual guide
-│   ├── architecture/           ← System architecture + tech stack
-│   ├── operations/             ← SRE playbook & runbook
-│   ├── testing/                ← QA test strategy
-│   ├── developers/             ← Developer deep dive
-│   └── sitemap_and_component_registry.md  ← Master inventory
-│
-├── rules/                      ← 🤖 BỘ LUẬT AI (không xóa, không sửa tùy tiện)
-│   ├── universal_ai_constitution.md
-│   ├── workspace_governance.md
-│   ├── doc_sync_enforcement.md
-│   └── small_model_operational_protocol.md
-│
-├── plans/                      ← 📅 KẾ HOẠCH & TIẾN ĐỘ
-│   └── ACTIVE_SESSION_REGISTER.md  ← FILE NÀY (đọc trước tiên!)
-│
-├── brainstorm/                 ← 🧠 CHIẾN LƯỢC & RED-TEAM (chỉ đọc)
-├── research/                   ← 🔬 NGHIÊN CỨU ONLINE (độc lập, không import vào crates/)
-├── grants/                     ← 🏆 HỒ SƠ ANTHROPIC (không sửa trừ khi được chỉ định)
-├── scripts/                    ← ⚙️ CÔNG CỤ TỰ ĐỘNG HÓA
-│   ├── git_sync.sh             ← Push code
-│   ├── git_conflict_resolver.sh
-│   ├── verify_docs_sync.sh     ← Kiểm tra doc sync
-│   └── anti_garbage_guard.sh   ← Chặn file rác
-│
-└── scratch/                    ← 🗑️ SCRATCHPAD (gitignored, throwaway only)
+eco_support_net_oracle/        ← ROOT (tên repo cũ giữ nguyên)
+├── DataGuard.sln              ← SOLUTION .NET 9
+├── src/
+│   ├── DataGuard.Contracts/   ← netstandard2.0, contract attributes
+│   ├── DataGuard.Core/        ← rules engine, security, baseline, sources
+│   ├── DataGuard.{SqlServer,Oracle,MySql,PostgreSql}.Adapter/
+│   ├── DataGuard.Analyzers/   ← Roslyn analyzer (netstandard2.0, IDE-light)
+│   ├── DataGuard.CodeFixes/   ← Roslyn code fixes
+│   ├── DataGuard.Cli/         ← dotnet tool
+│   ├── DataGuard.VSCode/      ← VS Code extension (TypeScript)
+│   └── DataGuard.VisualStudio/← VS 2022 VSIX (net472)
+├── tests/                     ← Core.Tests, GoldenCorpus.Tests, Analyzers.Tests
+├── plans/                     ← kế hoạch + ADR (SSOT: file này)
+├── docs/                      ← tài liệu sản phẩm
+├── research/                  ← nghiên cứu độc lập (không import vào src/)
+└── rules/                     ← bộ luật AI đã cutover sang policy DataGuard
 ```
 
 ---
 
-## 🚦 TRẠNG THÁI HIỆN TẠI CỦA DỰ ÁN
+## 🚦 TRẠNG THÁI HIỆN TẠI (2026-08-21, commit `ce77b2b`)
 
-### Build Status
 ```
-cargo check --workspace   ✅ PASS (0 errors, 0 warnings)
-cargo test --workspace    ✅ PASS (22/22 tests)
-cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
-```
-
-### Tình trạng Documentation
-```
-./scripts/verify_docs_sync.sh  ✅ PASS (16/16 docs present)
-./scripts/anti_garbage_guard.sh ✅ PASS (no rogue files)
-```
-
-### Commit History
-```
-[Commit 1] chore: initial commit (fresh repository) [2026-08-17]
-           → FRESH GIT. History cũ (4 commits) đã bị xóa; backup tại
-             ~/eco_support_net_oracle_old_git_backup_20260817-022803.tar.gz
-           → 123 files: full Rust workspace + research + docs + rules
-             + grants/SUBMISSION_CHECKLIST.md + research/muc_tieu/ + scripts/demo_scan.sh
-
-[Commit 2] ea41340 docs(session-register): record fresh repository creation and new remote push steps
-           → Ghi log session-1 vào register.
-
-[Commit 3] e68f165 chore(repo): rename to eco_support_net_oracle across metadata and docs
-           → Đổi URL repo → `eco_support_net_oracle` (tạm dùng account `thannt`)
-             + `git remote add origin ...eco_support_net_oracle.git` + thêm research/muc_tieu/5.md
-
-[Commit 4] 9400772 fix(repo): correct GitHub account to thanhnt-sm in repo metadata
-           → Phát hiện account GitHub thật là `thanhnt-sm` (từ remote bản clone cũ):
-             sửa toàn bộ URL `thannt/…` → `thanhnt-sm/…`.
-
-[Commit 5] 🚀 PUSH THÀNH CÔNG lên https://github.com/thanhnt-sm/eco_support_net_oracle
-           → `main` → `origin/main`, tracking set. Repo mới ONLINE.
+dotnet build DataGuard.sln   ✅ 0 errors, 0 warnings
+dotnet test DataGuard.sln    ✅ 214/214 (Core 184, GoldenCorpus 25, Analyzers 5)
+CI                           ✅ 5 jobs + coverage gate 60% + dotnet format gate
+NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS_MARKETPLACE_PAT)
 ```
 
 ---
 
-## 📌 VIỆC VỪA HOÀN THÀNH (Phiên này — Antigravity Session 5)
-
-1. ✅ **GitHub REST API Integration (`crates/eco-radar`)**:
-   - Nâng cấp `NicheScanner` tích hợp HTTP Client (`reqwest`) với cấu hình User-Agent, Auth token (`GITHUB_TOKEN`), và rate limit header inspection (`x-ratelimit-remaining`).
-   - Implement `fetch_github_metrics()` và `scan_live_repo()` cho phép quét trực tiếp repository live trên GitHub.
-   - Cơ chế graceful fallback về seed dataset (`research/data/niche_seed_registry.json`) hoặc synthetic metrics khi chạy offline/không có token.
-2. ✅ **Unit Test Fixture Suite cho ECI Calculator**:
-   - Thêm `test_seed_registry_fixtures_evaluation()` trong `crates/eco-radar/src/calculator.rs` nạp toàn bộ repo hạt giống trong `niche_seed_registry.json` và kiểm tra phân tầng rủi ro chính xác.
-   - Sửa cảnh báo Clippy `field_reassign_with_default` trong `tests/test_rust_core.rs`.
-   - `cargo test --workspace` → **23/23 tests PASS** (14 unit tests, 9 integration tests).
-   - `cargo clippy --workspace --all-targets -- -D warnings` → **0 warnings**.
-   - `cargo fmt --all -- --check` → **100% formatted**.
-3. ✅ **Grant Submission Checklist & Live Demo Tooling**:
-   - Tạo [`grants/SUBMISSION_CHECKLIST.md`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/grants/SUBMISSION_CHECKLIST.md) chuẩn bị đầy đủ cho đợt nộp hồ sơ Anthropic Claude for Open Source.
-   - Tạo [`scripts/demo_scan.sh`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/scripts/demo_scan.sh) (chạy mượt mà kiểm tra preflight, scan c-ffi và scan mcp-connectors).
-   - Cập nhật [`docs/sitemap_and_component_registry.md`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/docs/sitemap_and_component_registry.md) và bản dịch tiếng Việt [`docs/sitemap_and_component_registry.vi.md`](file:///Volumes/Data/101.AI/GitHub/eco_support_net_oracle/docs/sitemap_and_component_registry.vi.md).
-4. ✅ **Xác thực tự động toàn diện**:
-   - `./scripts/preflight_agent_check.sh` → **100% PASS**
-   - `./scripts/verify_docs_sync.sh` → **100% PASS** (30/30 artifacts)
-   - `./scripts/demo_scan.sh` → **100% PASS**
-5. ✅ **Khởi tạo Git mới (Fresh Repository)**:
-   - Workspace vốn được clone từ clone-ngoài nhưng không còn remote → đã **xóa hẳn `.git` cũ** và `git init -b main` tạo repo mới sạch lịch sử.
-   - Backup history cũ: `~/eco_support_net_oracle_old_git_backup_20260817-022803.tar.gz` (421K).
-   - Commit đầu tiên: `874cea9 chore: initial commit (fresh repository)` — **123 file**, 0 file rác (đã kiểm tra `target/`, `.venv/`, cache... không bị track).
-   - Working tree sạch, pre-commit hooks pass.
-6. ✅ **Chuyển sang tên repo mới `eco_support_net_oracle`**:
-   - Thêm remote: `origin → https://github.com/thanhnt-sm/eco_support_net_oracle.git` (account thật `thanhnt-sm`, phát hiện từ remote gốc của bản clone cũ).
-   - Thay toàn bộ URL repo cũ `thanhnt-sm/eco_support` → `thanhnt-sm/eco_support_net_oracle` trong: `Cargo.toml`, `README.md`, `README.vi.md`, `CONTRIBUTING.md`, `CONTRIBUTING.vi.md`, `grants/written_explanation.md` (kèm `cd eco_support` → `cd eco_support_net_oracle`).
-   - Giữ nguyên tên package Python nội bộ `eco_support`, các `file:///.../eco_support/...` và thư mục clone cũ `/Volumes/Data/101.AI/GitHub/eco_support` (chúng là tham chiếu tới bản clone cũ, không ảnh hưởng repo mới).
-7. ✅ **Đính chính account GitHub & Push lên remote**:
-   - Phát hiện account GitHub thật là **`thanhnt-sm`** (không phải `thannt`) nhờ đọc `remote.origin.url` trong 2 bản clone cũ.
-   - Sửa remote: `origin → https://github.com/thanhnt-sm/eco_support_net_oracle.git`.
-   - **`git push -u origin main` THÀNH CÔNG** → repo mới online tại `https://github.com/thanhnt-sm/eco_support_net_oracle`.
-
----
-
-## 🎯 VIỆC CẦN LÀM TIẾP THEO (Theo thứ tự ưu tiên)
-
-### Ưu tiên 1 — ✅ ĐÃ HOÀN THÀNH: Tạo repo & Push
-- [x] Repo `thanhnt-sm/eco_support_net_oracle` (private, mới) → đã tồn tại + push thành công.
-- [x] `git push -u origin main` → tracking `origin/main` set.
-- [ ] (Tuỳ chọn) Set visibility **public** nếu muốn hồ sơ grant được review công khai.
-
-### Ưu tiên 2 — .NET Oracle Drift Contract Engine (Kiến trúc v2 trong research/muc_tieu/2.md)
-- [ ] Triển khai kiến trúc v2 cho .NET Oracle: Tách IDE analyzer syntax nhẹ và CI diff-engine nặng.
-- [ ] 3 Mode: Snapshot JSON (offline, default), Full (DB live), Manual (DTO attributes).
-
----
-
-## 📏 LUẬT VÀNG CHO AI KHI LÀM VIỆC
+## 📏 LUẬT VÀNG CHO AI KHI LÀM VIỆC (DataGuard)
 
 | Luật | Nội dung |
 | :--- | :--- |
-| **LUẬT 1** | Không tạo bất kỳ file/folder nào ngoài cấu trúc đã quy hoạch ở trên. File tạm → để vào `scratch/`. |
-| **LUẬT 2** | Mỗi khi sửa code trong `crates/` → phải cập nhật đồng thời `docs/` và `docs/sitemap_and_component_registry.md`. |
-| **LUẬT 3** | Sau mỗi thay đổi code → chạy `cargo check --workspace`. Nếu lỗi → tự sửa, không đi tiếp. |
-| **LUẬT 4** | Dùng `./scripts/git_sync.sh "message"` để commit — không dùng `git` trực tiếp. |
-| **LUẬT 5** | Cập nhật file này (`plans/ACTIVE_SESSION_REGISTER.md`) sau mỗi phiên làm việc để phiên sau biết tiếp tục từ đâu. |
-| **LUẬT 6** | `research/` hoàn toàn độc lập. Không import code từ `research/` vào `crates/`. |
+| **LUẬT 1** | Không tạo file/folder ngoài cấu trúc trên. File tạm → `scratch/`. Tài liệu kế hoạch mới → `plans/`. |
+| **LUẬT 2** | Sau mỗi thay đổi code → `dotnet build DataGuard.sln && dotnet test DataGuard.sln`. Lỗi → tự sửa, không đi tiếp. |
+| **LUẬT 3** | Commit conventional (`fix:`, `test:`, `docs:`, `ci:`); một việc một commit; không giant commit. |
+| **LUẬT 4** | Cập nhật file này sau mỗi phiên làm việc để phiên sau biết tiếp tục từ đâu. |
+| **LUẬT 5** | `research/` độc lập — không import code từ `research/` vào `src/`. |
+| **LUẬT 6** | Nguồn gap/backlog sống: `plans/2026-08-21-review-handoff.md` + `AI_AGENT_AUDIT.md`. Các plan cũ đã đóng (có header SUPERSEDED/HISTORICAL). |
 
 ---
 
@@ -326,3 +221,26 @@ cargo build --release     ✅ PASS → target/release/eco-support (3.7 MB)
 - [ ] **P0 dev**: fix DG002 (CLR type từ call site/attribute), DG003 (call-site direction), SchemaHash → hash schema descriptor (kèm migration snapshot cũ) — chi tiết trong `plans/2026-08-21-review-handoff.md`.
 - [ ] **P0 test**: test đỏ→xanh cho DG002 mismatch thật, schema-hash đổi khi DDL đổi, exit codes 0/1/2.
 - [ ] Owner quyết 5 câu hỏi mở trong handoff (scope DG002, breaking snapshot format, fail-on-drift default, telemetry, định vị grant vs commercial).
+
+---
+
+## 📌 PHIÊN NÀY — Chốt WIP song song + dọn tài liệu lệch (2026-08-21)
+
+**Bối cảnh**: rà soát workspace ↔ plan phát hiện một phiên worker khác đã chạy 12 commit (`d1200c7`→`85e5f27`) triển khai gần hết execution prompt, nhưng để lại WIP 35 file + 4 untracked với 10 test fail.
+
+1. **Chốt WIP** (commit `ce77b2b`, 40 files): fix 3 bug thật phát hiện từ 10 test đỏ:
+   - `DetectProvider`: Oracle signature check trước (connection Oracle có `Data Source=` bị nhận nhầm SQL Server); provider tường minh thắng auto-detect.
+   - `CredentialManager`: env var `DATAGUARD_CONNECTION_STRING` thắng config file (đúng zero-trust convention; trước đó config-first).
+   - Test isolation: `CredentialManager` nhận optional `credentialStorePath`; toàn bộ test dùng temp store — trước đó test đọc/xóa **credential store thật** tại ApplicationData (đã xóa file polluted).
+   - Verify: build 0 errors/0 warnings; **214/214 pass** (Core 184, GoldenCorpus 25, Analyzers 5).
+2. **Dọn tài liệu lệch**:
+   - `plans/ARCHIVE-ecosupport-history.md` mới: tách toàn bộ lịch sử Rust/EcoSupport khỏi register.
+   - Register phần đầu rewrite: mục tiêu DataGuard, cấu trúc workspace .NET thực tế, trạng thái hiện tại, luật vàng cập nhật.
+   - Header SUPERSEDED/HISTORICAL: `master-plan.md`, `implementation-plan.md`, `docs/RISKS_GAPS.md`, `docs/FIX_PLAN.md` — trỏ nguồn sống (review-handoff + AI_AGENT_AUDIT.md).
+   - WIP của phiên kia (AI_AGENT_AUDIT.md, dotnet format gate, coverage gate 45→60%) đã commit trọn trong `ce77b2b`.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (mới nhất)
+
+- [ ] Task list sống: `AI_AGENT_AUDIT.md` mục 5 (SEC-001..006, BUG-002, COV, ARC, NTH) — phiên kia để sẵn, chưa ai nhận.
+- [ ] CI push `ce77b2b` lên GitHub: verify dotnet format gate + coverage gate 60% pass trên runner thật (local coverage 52.9% dưới gate mới — **rủi ro CI đỏ**, có thể cần hạ gate hoặc tăng coverage trước khi push).
+- [ ] Owner quyết 5 câu hỏi mở trong review-handoff + NUGET_USER/VSCE_PAT/VS_MARKETPLACE_PAT (blocked ngoài).

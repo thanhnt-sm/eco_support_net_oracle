@@ -120,7 +120,7 @@ Khi cấu hình `ExportEndpoint`, `FlushEvents` POST NDJSON tới endpoint HTTP 
 | **P1** | `version` in `InformationalVersion`; `snapshot show` exit 0 informational | handoff cũ |
 | **P2** | Benchmark BenchmarkDotNet cho `IncrementalGenerator` + `ConcurrentValidationEngine` trước khi ghi "~ms" vào tài liệu bán hàng | F6 |
 
-> **Cập nhật 2026-08-21 (phiên hardening đã thực thi)**: các dòng P0/P1 ở trên đã hoàn thành — xem `plans/2026-08-21-execution-prompt.md` và `.omp/handoffs/CURRENT.md` cho bằng chứng đầy đủ. Tóm tắt: DG002/DG003 fix với nguồn CLR type/call-site direction thật + exact token match; SchemaHash hash schema descriptor (full SHA256) với backward-compat v1; telemetry zero-egress test; ValidateGraph đã xóa; version/snapshot show fix; coverage Core 34.5%→50.3%; golden corpus exact-match; exit-code table trong README + test 0/1/2. P2 (benchmark, Testcontainers) còn mở.
+> **Cập nhật 2026-08-21 (chốt WIP song song)**: WIP 35 file bỏ dở của phiên hardening đã được chốt tại commit `ce77b2b` sau khi fix 3 bug thật mà test đỏ phát hiện: (1) `DetectProvider` nhận nhầm Oracle→SQL Server (`Data Source=` trong Oracle connection string) — giờ Oracle-first + explicit provider thắng auto-detect; (2) `CredentialManager` env var precedence sai (config-first → giờ env-first, khớp zero-trust); (3) test credential-manager dùng credential store thật của user tại ApplicationData — giờ isolate qua optional `credentialStorePath`. Verify cuối: build 0 errors/0 warnings, **214/214 tests pass**, coverage theo script CI **60.82%** (vượt gate 60%). Task list sống hiện tại: `AI_AGENT_AUDIT.md` mục 5.
 
 ### 2.2 Đội Test/QC
 

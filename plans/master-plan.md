@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-08-21)** — Status board dưới đây đã lỗi thời từ 2025-01-18. Toàn bộ Phase 1-8 đã thực thi xong qua nhiều phiên (xem git log 2026-08 và `plans/ACTIVE_SESSION_REGISTER.md`). Tài liệu này chỉ còn giá trị lịch sử cho research files mapping và kiến trúc v3 ban đầu. Định hướng hiện tại: `plans/2026-08-21-review-handoff.md` (enterprise handoff) + `plans/adr/`.
+
 # Master Plan: DataGuard - Entity ↔ SP/Raw SQL Contract Validator
 
 **Generated**: 2025-01-18
