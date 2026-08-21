@@ -62,6 +62,16 @@ dataguard config          # show / validate configuration
 dataguard migrate         # migrate legacy v1 baseline files to v2
 ```
 
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success — validation passed, no drift, or informational output (`version`, `config show`, `snapshot show` without a snapshot) |
+| `1` | Validation failures found (error-severity violations), or drift detected with `--fail-on-drift` |
+| `2` | Configuration / usage error — invalid `--format`, machine-readable format without `--output`, unsupported arguments |
+
+CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drift` is passed; in CI environments (`CI`/`GITHUB_ACTIONS`) it prints a reminder to pass the flag.
+
 ## IDE support
 
 - **Roslyn analyzers** (`DataGuard.Analyzers`): DG001 diagnostics with quick fixes (MaxLength, UseOracle, SkipContractCheck, naming) in any C# IDE.

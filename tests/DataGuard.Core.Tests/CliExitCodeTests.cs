@@ -147,4 +147,31 @@ public class CliExitCodeTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Fact]
+    public void Validate_MachineReadableFormatWithoutOutput_Exit2()
+    {
+        var (exitCode, output) = RunCli("validate", "--format", "sarif");
+
+        exitCode.Should().Be(2, "machine-readable formats require --output");
+        output.Should().Contain("requires --output");
+    }
+
+    [Fact]
+    public void Validate_UnsupportedFormat_Exit2()
+    {
+        var (exitCode, output) = RunCli("validate", "--format", "pdf", "--output", "/tmp/dg-out.pdf");
+
+        exitCode.Should().Be(2);
+        output.Should().Contain("Unsupported --format");
+    }
+
+    [Fact]
+    public void Version_Exit0()
+    {
+        var (exitCode, output) = RunCli("version");
+
+        exitCode.Should().Be(0);
+        output.Should().Contain("DataGuard CLI version");
+    }
 }
