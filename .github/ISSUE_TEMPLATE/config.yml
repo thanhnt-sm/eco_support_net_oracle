@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/SECURITY.md
+    about: Do NOT open a public issue for vulnerabilities — follow the SECURITY.md process.
+  - name: Questions & usage help
+    url: https://github.com/thanhnt-sm/eco_support_net_oracle/discussions
+    about: Ask how-to questions in Discussions.

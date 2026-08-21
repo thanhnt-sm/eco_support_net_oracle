@@ -1,0 +1,77 @@
+# Standards audit — the repo proves it meets its own golden-standard checklist.
+# Fails when any required community/security artifact is missing, an action is
+# referenced by tag instead of a full commit SHA, or a workflow omits permissions.
+name: Standards audit
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  audit:
+    name: Golden standard checklist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Community and security artifacts
+        run: |
+          set -euo pipefail
+          missing=0
+          for f in .github/CODEOWNERS \
+                   .github/PULL_REQUEST_TEMPLATE.md \
+                   .github/ISSUE_TEMPLATE/bug_report.yml \
+                   .github/ISSUE_TEMPLATE/config.yml \
+                   CODE_OF_CONDUCT.md \
+                   SUPPORT.md \
+                   SECURITY.md \
+                   CONTRIBUTING.md \
+                   CHANGELOG.md \
+                   LICENSE \
+                   .github/dependabot.yml \
+                   .editorconfig \
+                   .gitattributes; do
+            if [ ! -f "$f" ]; then
+              echo "::error file=$f::Missing required artifact"
+              missing=1
+            else
+              echo "OK  $f"
+            fi
+          done
+          exit $missing
+
+      - name: Actions pinned by full commit SHA
+        run: |
+          set -euo pipefail
+          # Every workflow `uses:` line must reference a 40-hex commit SHA
+          # (with optional trailing `# comment`). Anchored at line start so
+          # audit scripts embedded in this file cannot self-match.
+          bad=$(grep -RhE '^[[:space:]]*uses:[[:space:]]*[^[:space:]]+' .github/workflows \
+            | sed -E 's/^[[:space:]]*uses:[[:space:]]*//' \
+            | grep -vE '^[^@]+@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Actions not pinned to a full commit SHA:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "All actions pinned by full commit SHA."
+
+      - name: Workflows declare minimal permissions
+        run: |
+          set -euo pipefail
+          missing=0
+          for wf in .github/workflows/*.yml; do
+            if ! grep -q '^permissions:' "$wf"; then
+              echo "::error file=$wf::Workflow does not declare permissions"
+              missing=1
+            else
+              echo "OK  $wf declares permissions"
+            fi
+          done
+          exit $missing

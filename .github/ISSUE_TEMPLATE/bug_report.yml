@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a bug in DataGuard (CLI, rules engine, analyzers, or extensions)
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Before you file, please check existing issues and the
+        [exit codes table](https://github.com/thanhnt-sm/eco_support_net_oracle#exit-codes).
+        Never paste real connection strings or credentials — redact them.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - CLI (dataguard)
+        - Core rules engine
+        - Roslyn analyzers / code fixes
+        - VS Code extension
+        - Visual Studio extension
+        - Oracle adapter
+        - SQL Server adapter
+        - MySQL adapter
+        - PostgreSQL adapter
+        - NuGet packaging / release
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, plus what you expected instead.
+      placeholder: |
+        `dataguard validate --offline` exits 1 although the config is valid.
+        Expected: exit 0 with diagnostics.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Commands, config YAML (redacted!), and SQL/DDL involved.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: DataGuard version
+      description: Output of `dataguard version`
+      placeholder: 0.1.1-alpha.0.38+...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, .NET version, database provider/version, CI system (if any).
+    validations:
+      required: false

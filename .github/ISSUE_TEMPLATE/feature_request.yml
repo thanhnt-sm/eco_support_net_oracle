@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a new rule, provider, or workflow improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The drift/contract failure class you want caught (or workflow pain), with a concrete example.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should DataGuard do? Rule ID suggestion (DGxxx), CLI command, or analyzer diagnostic.
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Database provider affected
+      options:
+        - Provider-agnostic
+        - SQL Server
+        - Oracle
+        - MySQL
+        - PostgreSQL
+      default: 0
+  - type: checkboxes
+    id: ground-truth
+    attributes:
+      label: Applicable ground-truth mode(s)
+      options:
+        - label: Full (live DB)
+        - label: Snapshot (offline)
+        - label: Manual (attributes)
