@@ -16,6 +16,7 @@
 *.nupkg
 .nuget/
 packages/
+BenchmarkDotNet.Artifacts/
 
 # ==================== Rust ====================
 **/target/
