@@ -244,3 +244,19 @@ NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS
 - [ ] Task list sống: `AI_AGENT_AUDIT.md` mục 5 (SEC-001..006, BUG-002, COV, ARC, NTH) — phiên kia để sẵn, chưa ai nhận.
 - [ ] CI push `ce77b2b` lên GitHub: verify dotnet format gate + coverage gate 60% pass trên runner thật (local coverage 52.9% dưới gate mới — **rủi ro CI đỏ**, có thể cần hạ gate hoặc tăng coverage trước khi push).
 - [ ] Owner quyết 5 câu hỏi mở trong review-handoff + NUGET_USER/VSCE_PAT/VS_MARKETPLACE_PAT (blocked ngoài).
+
+---
+
+## 📌 PHIÊN NÀY — Audit follow-up: SEC-005 + docs rebrand (2026-08-21)
+
+1. **Duyệt Must Fix list** (`AI_AGENT_AUDIT.md` mục 5.1): SEC-001/002/003/004, BUG-001/002/003, DOC-001 đã xong từ các phiên trước (verify từng mục bằng grep/build). Còn mở duy nhất **SEC-006** (telemetry allowlist/retry).
+2. **SEC-005** (commit `fe150d0`): `ZeroTrustCredentialProvider` (KeyVault IMDS + Vault) và `TelemetryCollector` dùng static shared `HttpClient` thay per-call (nguy cơ socket exhaustion); Vault token chuyển sang per-request header (không tích lũy trên shared client); telemetry timeout qua `CancellationTokenSource`.
+3. **Docs rebrand** (cùng commit): rewrite `CONTRIBUTING.md`/`.vi.md` từ EcoSupport Rust/cargo sang DataGuard .NET workflow; `SECURITY.md` bỏ email `security@ecosupport.dev` (domain không thuộc owner) → private GitHub Security Advisory làm kênh chính.
+4. **Verify**: build 0 errors/0 warnings; 214/214 pass; `dotnet format --verify-no-changes` clean; `dotnet list package --vulnerable --include-transitive` = 0.
+5. **Push**: `118107a..fe150d0` lên origin/main. **CI run chưa verify** — gh CLI chưa login (owner cần kiểm CI xanh trên web, đặc biệt dotnet format gate + coverage gate 60% chạy lần đầu trên runner thật).
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (mới nhất)
+
+- [ ] **SEC-006**: telemetry endpoint allowlist + retry/circuit-breaker + không nuốt lỗi export im lặng (mục Must Fix cuối cùng còn mở).
+- [ ] Owner: kiểm CI run của `fe150d0` trên GitHub Actions (format gate + coverage gate 60% lần đầu chạy).
+- [ ] Should Fix list (`AI_AGENT_AUDIT.md` 5.2): COV-003/005/006/007/008, ARC-001/002/003/004 còn mở — ưu tiên theo bandwidth.
