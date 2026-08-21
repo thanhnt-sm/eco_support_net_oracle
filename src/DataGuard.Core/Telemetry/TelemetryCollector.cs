@@ -23,12 +23,19 @@ public sealed class TelemetryCollector : IDisposable
     private readonly ConcurrentDictionary<string, Histogram<double>> _histograms = new ();
     private readonly ConcurrentQueue<TelemetryEvent> _eventQueue = new ();
     private readonly Timer? _flushTimer;
+    private readonly Func<string, string, Task> _exportSink;
     private bool _disposed;
 
-    public TelemetryCollector(TelemetryConfig config)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TelemetryCollector"/> class.
+    /// The export sink receives (payload, endpoint) and defaults to an NDJSON
+    /// HTTP POST; injecting a sink keeps egress testable without a network.
+    /// </summary>
+    public TelemetryCollector(TelemetryConfig config, Func<string, string, Task>? exportSink = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _meter = new Meter("DataGuard.Core", "1.0.0");
+        _exportSink = exportSink ?? ExportEventsAsync;
 
         if (_config.Enabled)
         {
@@ -140,9 +147,14 @@ public sealed class TelemetryCollector : IDisposable
         RecordHistogram("validation.duration", totalDuration.TotalMilliseconds);
     }
 
-    private void FlushEvents(object? state)
+    /// <summary>
+    /// Flushes queued events to the configured endpoint (when enabled).
+    /// Callable directly; also driven by the flush timer.
+    /// </summary>
+    public void FlushEvents(object? state)
     {
-        if (_eventQueue.IsEmpty)
+        // Zero-egress guarantee: a disabled collector never reaches any export path.
+        if (!_config.Enabled || _eventQueue.IsEmpty)
         {
             return;
         }
@@ -156,7 +168,15 @@ public sealed class TelemetryCollector : IDisposable
         var exportEndpoint = _config.ExportEndpoint;
         if (!string.IsNullOrEmpty(exportEndpoint))
         {
-            ExportEvents(events, exportEndpoint);
+            var ndjson = string.Join(Environment.NewLine, events.Select(e => JsonSerializer.Serialize(e)));
+            try
+            {
+                _exportSink(ndjson, exportEndpoint).GetAwaiter().GetResult();
+            }
+            catch
+            {
+                // Export is best-effort; never throw from a timer callback.
+            }
         }
         else
         {
@@ -164,20 +184,12 @@ public sealed class TelemetryCollector : IDisposable
         }
     }
 
-    private static void ExportEvents(List<TelemetryEvent> events, string endpoint)
+    private static async Task ExportEventsAsync(string ndjson, string endpoint)
     {
         // NDJSON export - one JSON object per line, compatible with OTLP/HTTP collectors.
-        var ndjson = string.Join(Environment.NewLine, events.Select(e => JsonSerializer.Serialize(e)));
-        try
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            using var content = new StringContent(ndjson, System.Text.Encoding.UTF8, "application/x-ndjson");
-            client.PostAsync(endpoint, content).GetAwaiter().GetResult();
-        }
-        catch
-        {
-            // Export is best-effort; never throw from a timer callback.
-        }
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        using var content = new StringContent(ndjson, System.Text.Encoding.UTF8, "application/x-ndjson");
+        await client.PostAsync(endpoint, content);
     }
 
     public void Dispose()
