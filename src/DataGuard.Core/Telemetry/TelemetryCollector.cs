@@ -17,6 +17,7 @@ namespace DataGuard.Core.Telemetry;
 /// </summary>
 public sealed class TelemetryCollector : IDisposable
 {
+    private const int MaxConsecutiveExportFailures = 3;
     private readonly Meter _meter;
     private readonly TelemetryConfig _config;
     private readonly ConcurrentDictionary<string, Counter<long>> _counters = new();
@@ -24,6 +25,7 @@ public sealed class TelemetryCollector : IDisposable
     private readonly ConcurrentQueue<TelemetryEvent> _eventQueue = new();
     private readonly Timer? _flushTimer;
     private readonly Func<string, string, Task> _exportSink;
+    private int _consecutiveExportFailures;
     private bool _disposed;
 
     /// <summary>
@@ -159,29 +161,70 @@ public sealed class TelemetryCollector : IDisposable
             return;
         }
 
+        // Circuit breaker (SEC-006): after consecutive export failures, stop
+        // exporting until a manual reset (new collector instance). Telemetry
+        // must never take the validation pipeline down with it.
+        if (_consecutiveExportFailures >= MaxConsecutiveExportFailures)
+        {
+            return;
+        }
+
+        var exportEndpoint = _config.ExportEndpoint;
+        if (!IsAllowedExportEndpoint(exportEndpoint))
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[Telemetry] Export endpoint '{exportEndpoint}' rejected (must be HTTPS, or http://localhost for development). " +
+                "Events are dropped; no data leaves the process.");
+            _eventQueue.Clear();
+            return;
+        }
+
         var events = new List<TelemetryEvent>();
         while (_eventQueue.TryDequeue(out var evt))
         {
             events.Add(evt);
         }
 
-        var exportEndpoint = _config.ExportEndpoint;
-        if (!string.IsNullOrEmpty(exportEndpoint))
+        var ndjson = string.Join(Environment.NewLine, events.Select(e => JsonSerializer.Serialize(e)));
+        try
         {
-            var ndjson = string.Join(Environment.NewLine, events.Select(e => JsonSerializer.Serialize(e)));
-            try
-            {
-                _exportSink(ndjson, exportEndpoint).GetAwaiter().GetResult();
-            }
-            catch
-            {
-                // Export is best-effort; never throw from a timer callback.
-            }
+            _exportSink(ndjson, exportEndpoint!).GetAwaiter().GetResult();
+            _consecutiveExportFailures = 0;
         }
-        else
+        catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Telemetry] Flushed {events.Count} events");
+            _consecutiveExportFailures++;
+
+            // Best-effort export; never throw from a timer callback — but do
+            // not swallow the failure silently either.
+            System.Diagnostics.Debug.WriteLine(
+                $"[Telemetry] Export failed ({_consecutiveExportFailures}/{MaxConsecutiveExportFailures}): {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Only HTTPS endpoints (or loopback HTTP for local development) may receive
+    /// telemetry. Anything else is rejected before any network call.
+    /// </summary>
+    private static bool IsAllowedExportEndpoint(string? endpoint)
+    {
+        if (string.IsNullOrEmpty(endpoint))
+        {
+            return false;
+        }
+
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        if (uri.Scheme == Uri.UriSchemeHttps)
+        {
+            return true;
+        }
+
+        return uri.Scheme == Uri.UriSchemeHttp
+            && (uri.IsLoopback || uri.Host == "localhost");
     }
 
     // Shared process-lifetime client (SEC-005): per-call instantiation causes
@@ -193,14 +236,8 @@ public sealed class TelemetryCollector : IDisposable
         // NDJSON export - one JSON object per line, compatible with OTLP/HTTP collectors.
         using var content = new StringContent(ndjson, System.Text.Encoding.UTF8, "application/x-ndjson");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        try
-        {
-            await ExportHttpClient.PostAsync(endpoint, content, timeout.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // Best-effort export; never throw from a timer callback.
-        }
+        using var response = await ExportHttpClient.PostAsync(endpoint, content, timeout.Token);
+        response.EnsureSuccessStatusCode();
     }
 
     public void Dispose()
