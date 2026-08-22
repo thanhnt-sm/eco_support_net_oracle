@@ -1,3 +1,5 @@
+> **⚠️ ARCHIVED** — This document describes the previous EcoSupport Rust/Python product. It does not apply to DataGuard (.NET). See [README](../../README.md) for current documentation.
+
 [English](vibe_coder_guide.md) | [Tiếng Việt](vibe_coder_guide.vi.md)
 
 # 🎨 Sổ Tay Vibe Coder: Hướng Dẫn Trực Quan & Toàn Diện

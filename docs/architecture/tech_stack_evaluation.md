@@ -1,3 +1,5 @@
+> **⚠️ ARCHIVED** — This document describes the previous EcoSupport Rust/Python product. It does not apply to DataGuard (.NET). See [README](../../README.md) for current documentation.
+
 [English](tech_stack_evaluation.md) | [Tiếng Việt](tech_stack_evaluation.vi.md)
 
 # Technology Stack Evaluation & Language Benchmark

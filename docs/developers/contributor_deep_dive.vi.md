@@ -1,3 +1,5 @@
+> **⚠️ ARCHIVED** — This document describes the previous EcoSupport Rust/Python product. It does not apply to DataGuard (.NET). See [README](../../README.md) for current documentation.
+
 [English](contributor_deep_dive.md) | [Tiếng Việt](contributor_deep_dive.vi.md)
 
 # Cẩm Nang Chuyên Sâu Cho Nhà Phát Triển & Người Đóng Góp

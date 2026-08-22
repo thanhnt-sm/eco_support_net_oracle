@@ -1,3 +1,5 @@
+> **⚠️ ARCHIVED** — This document describes the previous EcoSupport Rust/Python product. It does not apply to DataGuard (.NET). See [README](../../README.md) for current documentation.
+
 [English](system_architecture.md) | [Tiếng Việt](system_architecture.vi.md)
 
 # Bản Thiết Kế Kiến Trúc Hệ Thống & Cấu Trúc Tô-pô Chính Thức

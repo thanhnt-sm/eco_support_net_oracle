@@ -81,7 +81,7 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 
 ## Documentation
 
-- [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
+- [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/system_architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
 
 ## License
 
