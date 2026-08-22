@@ -32,6 +32,7 @@ All notable changes to DataGuard are documented here. Format based on
 - SEC-006: telemetry circuit breaker (`MaxConsecutiveExportFailures=3`) stops export on repeated failures, resets on success; endpoint allowlist (HTTPS + localhost/127.0.0.1 only); zero HttpClient when telemetry disabled.
 - Legacy EcoSupport docs (15 files) marked with ARCHIVED warning banner.
 - README architecture link fixed (`docs/architecture/system_architecture.md`).
+- Testcontainers.MsSql unified to 4.14.0 across all test projects; removed SSH.NET direct pin (no longer needed).
 
 ### Fixed
 - Analyzer package missing `DataGuard.Core.dll` at load time (bundled dependency closure).
