@@ -17,16 +17,16 @@ public class RulesEngineTests
         => rule.ValidateAsync(contract, all.ToList(), CancellationToken.None);
 
     private static RawSqlDescriptor RawSql(string sql, params ParameterDescriptor[] parameters)
-        => new ("raw:1", sql, parameters, new List<ColumnDescriptor>());
+        => new("raw:1", sql, parameters, new List<ColumnDescriptor>());
 
     private static EntityDescriptor Entity(string name, params PropertyDescriptor[] properties)
-        => new ($"entity:{name}", name, name, name, properties);
+        => new($"entity:{name}", name, name, name, properties);
 
     private static PropertyDescriptor Prop(string name, string? column = null, IReadOnlyDictionary<string, object?>? annotations = null)
-        => new (name, "string", column, "nvarchar", true, null, false, false, annotations);
+        => new(name, "string", column, "nvarchar", true, null, false, false, annotations);
 
     private static DatabaseSchemaDescriptor Schema(params (string table, string column, bool nullable)[] columns)
-        => new ("schema:1",
+        => new("schema:1",
             columns.GroupBy(c => c.table)
                 .Select(g => new DatabaseTableDescriptor(g.Key, g.Select(c => new ColumnDescriptor(c.column, "nvarchar", 100, null, null, c.nullable, null)).ToList()))
                 .ToList(),
