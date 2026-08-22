@@ -111,7 +111,7 @@ public class SqlServerStoredProcedureParser : IContractSource
         {
             var name = reader.GetString(0);
             var dataType = reader.GetString(1);
-            var maxLength = reader.IsDBNull(2) ? (int?)null : reader.GetInt32(2);
+            var maxLength = reader.IsDBNull(2) ? (int?)null : (int)reader.GetInt16(2);
             var precision = reader.IsDBNull(3) ? (byte?)null : reader.GetByte(3);
             var scale = reader.IsDBNull(4) ? (byte?)null : reader.GetByte(4);
             var isNullable = reader.GetBoolean(5);
