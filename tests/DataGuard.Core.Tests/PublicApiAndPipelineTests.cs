@@ -10,6 +10,7 @@ using DataGuard.Core.Models;
 using DataGuard.Core.Plugins;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Security;
+using DataGuard.Core.Telemetry;
 using FluentAssertions;
 using Xunit;
 
@@ -188,5 +189,155 @@ public class RulePluginManagerTests
         {
             Directory.Delete(tempDir);
         }
+    }
+}
+
+public class DataGuardApiSurfaceTests
+{
+    [Fact]
+    public void DataGuardApi_Version_IsSemanticVersion()
+    {
+        DataGuardApi.Version.Should().Be("1.0.0");
+        Version.Parse(DataGuardApi.Version).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void DataGuardApi_CreatePipeline_ReturnsInstance()
+    {
+        using var pipeline = DataGuardApi.CreatePipeline();
+        pipeline.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void DataGuardApi_CreatePipeline_WithConfig_ReturnsInstance()
+    {
+        var config = new DataGuardConfiguration { EnableTelemetry = false };
+        using var pipeline = DataGuardApi.CreatePipeline(config);
+        pipeline.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_WithRules_AcceptsCustomRules()
+    {
+        using var pipeline = DataGuardApi.CreatePipeline();
+        pipeline.WithRules(new ParameterCountRule());
+
+        var entity = new EntityDescriptor("e1", "C", "C", "dbo",
+            new List<PropertyDescriptor>
+            {
+                new PropertyDescriptor("Id", "int", "Id", "int", false, null, false, false),
+            });
+        var result = await pipeline.ValidateAsync(new[] { entity });
+
+        result.Should().NotBeNull();
+        result.ContractsValidated.Should().Be(1);
+    }
+
+    [Fact]
+    public void ValidationPipeline_WithPlugins_NonExistentDir_DoesNotThrow()
+    {
+        using var pipeline = DataGuardApi.CreatePipeline();
+        var act = () => pipeline.WithPlugins(Path.Combine(Path.GetTempPath(), $"dg-nope-{Guid.NewGuid():N}"));
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ValidationPipeline_Dispose_MultipleTimes_DoesNotThrow()
+    {
+        var pipeline = DataGuardApi.CreatePipeline();
+        pipeline.Dispose();
+        var act = () => pipeline.Dispose();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ValidationResult_IsClean_WhenNoViolations()
+    {
+        var result = new ValidationResult(1, 0, 0, 0, 0,
+            System.Collections.Immutable.ImmutableArray<ContractViolation>.Empty,
+            TimeSpan.FromMilliseconds(10), "1.0");
+
+        result.IsClean.Should().BeTrue();
+        result.HasErrors.Should().BeFalse();
+        result.HasWarnings.Should().BeFalse();
+        result.HasViolations.Should().BeFalse();
+        result.ViolationsPerContract.Should().Be(0);
+    }
+
+    [Fact]
+    public void ValidationResult_HasErrors_WhenErrorsPresent()
+    {
+        var violations = System.Collections.Immutable.ImmutableArray.Create(
+            new ContractViolation("DG001", "test", Microsoft.CodeAnalysis.DiagnosticSeverity.Error));
+        var result = new ValidationResult(1, 1, 1, 0, 0, violations, TimeSpan.Zero, "1.0");
+
+        result.HasErrors.Should().BeTrue();
+        result.IsClean.Should().BeFalse();
+        result.ViolationsPerContract.Should().Be(1.0);
+    }
+
+    [Fact]
+    public void DriftReport_DefaultValues()
+    {
+        var report = new DriftReport(HasBaseline: false, DriftDetected: false,
+            NewViolations: System.Collections.Immutable.ImmutableArray<ContractViolation>.Empty);
+
+        report.HasDrift.Should().BeFalse();
+        report.NewViolationCount.Should().Be(0);
+        report.HasBaseline.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DriftReport_WithDrift()
+    {
+        var violations = System.Collections.Immutable.ImmutableArray.Create(
+            new ContractViolation("DG001", "drift", Microsoft.CodeAnalysis.DiagnosticSeverity.Warning));
+        var report = new DriftReport(HasBaseline: true, DriftDetected: true, NewViolations: violations);
+
+        report.HasDrift.Should().BeTrue();
+        report.NewViolationCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void DataGuardFactory_CreateCredentialManager_ReturnsInstance()
+    {
+        var config = new DataGuardConfiguration();
+        var manager = DataGuardFactory.CreateCredentialManager(config);
+        manager.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void DataGuardFactory_CreateAuditLogger_AuditDisabled_ReturnsNullLogger()
+    {
+        var config = new DataGuardConfiguration { EnableAuditLogging = false };
+        var logger = DataGuardFactory.CreateAuditLogger(config);
+        logger.Should().NotBeNull();
+        logger.Should().BeOfType<NullAuditLogger>();
+    }
+
+    [Fact]
+    public void DataGuardFactory_CreateTelemetryCollector_Disabled_ReturnsNull()
+    {
+        var config = new TelemetryConfig(Enabled: false);
+        var collector = DataGuardFactory.CreateTelemetryCollector(config);
+        collector.Should().BeNull();
+    }
+
+    [Fact]
+    public void DataGuardFactory_CreateTelemetryCollector_Enabled_ReturnsInstance()
+    {
+        var config = new TelemetryConfig(Enabled: true);
+        var collector = DataGuardFactory.CreateTelemetryCollector(config);
+        collector.Should().NotBeNull();
+        collector!.Dispose();
+    }
+
+    [Fact]
+    public void DataGuardFactory_CreateRuleGraph_ReturnsGraph()
+    {
+        var graph = DataGuardFactory.CreateRuleGraph();
+        graph.Should().NotBeNull();
+        var order = graph.GetExecutionOrder();
+        order.Should().NotBeEmpty();
     }
 }
