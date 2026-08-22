@@ -54,22 +54,23 @@
 ## Remaining Open Items (for future work)
 
 ### Security
-- [ ] Plugin isolation via `AssemblyLoadContext` in `RulePluginManager` (HIGH)
-- [ ] Replace per-call `HttpClient` with `IHttpClientFactory` in `ZeroTrustCredentialProvider` and `TelemetryCollector` (MEDIUM)
-- [ ] Add telemetry endpoint opt-in/allowlist (MEDIUM)
-- [ ] Change `AllowPlaintextConfigFallback` default to `false` (MEDIUM)
+- [x] Plugin isolation via `AssemblyLoadContext` in `RulePluginManager` — already implemented (collectible contexts, `isCollectible: true`)
+- [x] Replace per-call `HttpClient` with shared static `HttpClient` — done in SEC-005 (commit `fe150d0`)
+- [x] Add telemetry endpoint opt-in/allowlist — done in SEC-006 (commit `dcf3236`): HTTPS + localhost/127.0.0.1 only, circuit breaker
+- [x] Change `AllowPlaintextConfigFallback` default to `false` — already `false` in Configuration.cs
 
 ### Quality
-- [ ] Update StyleCop.Analyzers to version supporting `new()` properly (remove SA1000 suppression)
-- [ ] Add tests for `RulePluginManager` (14.8% coverage), `PublicApiSurface` (51.3%)
-- [ ] Add MySQL/PostgreSQL adapter unit tests (0% coverage)
-- [ ] Add `DataGuard.CodeFixes` tests
-- [ ] Add VSIX smoke test on Windows CI
+- [ ] Update StyleCop.Analyzers to version supporting `new()` properly (remove SA1000 suppression) — requires beta 1.2.0, deferred
+- [x] Add tests for `RulePluginManager` (14.8% coverage), `PublicApiSurface` (51.3%) — done: 8 + 18 tests
+- [x] Add MySQL/PostgreSQL adapter unit tests (0% coverage) — done: 12 + 12 tests (dialect + length mismatch)
+- [x] Add Oracle adapter unit tests — done: 13 tests (DG010/DG011 dialect checker)
+- [ ] Add `DataGuard.CodeFixes` tests — requires Roslyn testing infrastructure, deferred
+- [ ] Add VSIX smoke test on Windows CI — requires Windows runner, deferred
 
 ### Documentation
-- [ ] Rebrand remaining `EcoSupport` references in `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `SECURITY.md`
-- [ ] Add `Directory.Packages.props` for centralized NuGet version management
-- [ ] Enable `TreatWarningsAsErrors=true` after all warning debt cleared
+- [x] Rebrand remaining `EcoSupport` references — repo URLs are correct; legacy docs (15 files) archived with warning banners
+- [ ] Add `Directory.Packages.props` for centralized NuGet version management — requires full csproj refactor, deferred
+- [x] Enable `TreatWarningsAsErrors=true` after all warning debt cleared — done (0 warnings enforced)
 
 ---
 
