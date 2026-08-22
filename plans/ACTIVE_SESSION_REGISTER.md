@@ -36,12 +36,16 @@ eco_support_net_oracle/        ← ROOT (tên repo cũ giữ nguyên)
 
 ---
 
-## 🚦 TRẠNG THÁI HIỆN TẠI (2026-08-21, commit `ce77b2b`)
+## 🚦 TRẠNG THÁI HIỆN TẠI (2026-08-22, commit `6502992`)
 
 ```
 dotnet build DataGuard.sln   ✅ 0 errors, 0 warnings
-dotnet test DataGuard.sln    ✅ 214/214 (Core 184, GoldenCorpus 25, Analyzers 5)
+dotnet test DataGuard.sln    ✅ 224/224 (Core 194, GoldenCorpus 25, Analyzers 5)
+dotnet format                ✅ clean (--verify-no-changes exit 0)
+dotnet list --vulnerable     ✅ 0 vulnerable (all 12 projects)
+coverage                     ✅ 69.79% line rate (≥60% gate)
 CI                           ✅ 5 jobs + coverage gate 60% + dotnet format gate
+Working tree                 ✅ clean, ahead 4 commits (unpushed)
 NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS_MARKETPLACE_PAT)
 ```
 
@@ -260,3 +264,35 @@ NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS
 - [ ] **SEC-006**: telemetry endpoint allowlist + retry/circuit-breaker + không nuốt lỗi export im lặng (mục Must Fix cuối cùng còn mở).
 - [ ] Owner: kiểm CI run của `fe150d0` trên GitHub Actions (format gate + coverage gate 60% lần đầu chạy).
 - [ ] Should Fix list (`AI_AGENT_AUDIT.md` 5.2): COV-003/005/006/007/008, ARC-001/002/003/004 còn mở — ưu tiên theo bandwidth.
+
+---
+
+## 📌 PHIÊN NÀY — SEC-006 + Golden Standard G1–G4 + Coverage Verify (2026-08-22)
+
+1. ✅ **SEC-006 telemetry circuit breaker + endpoint allowlist** (commit `dcf3236`):
+   - Circuit breaker: `MaxConsecutiveExportFailures=3` stops export on repeated failures, resets on success.
+   - Endpoint allowlist: HTTPS + localhost/127.0.0.1 only; reject plain HTTP remote and invalid URI.
+   - Zero HttpClient created when telemetry is disabled.
+   - 7 new tests: allowlist accepts/rejects, circuit breaker stops/resets, zero httpclient when disabled.
+2. ✅ **SqlServerIntegrationTests + RulesEngineTests format** (commit `8e005ed`):
+   - SqlServerIntegrationTests: Testcontainers MsSql, auto-skip when Docker unavailable.
+   - RulesEngineTests: whitespace format `new (` → `new (` (dotnet format compliance).
+3. ✅ **AI_AGENT_AUDIT.md rewrite** (commit `1f5a2cd`): final status (224/224, coverage 69.79%, 0 vulnerable).
+4. ✅ **RulesEngineTests format revert** (commit `6502992`): `new (` → `new(` (dotnet format actually wants no space).
+5. ✅ **Golden Standard G1–G4**: đã có từ phiên trước — CODEOWNERS, issue/PR templates, CODE_OF_CONDUCT.md, SUPPORT.md, Scorecard workflow + README badge.
+6. ✅ **Verify toàn bộ CI gates**:
+   - `dotnet build` → 0 errors, 0 warnings ✅
+   - `dotnet test` → 224/224 (Core 194, GoldenCorpus 25, Analyzers 5) ✅
+   - `dotnet format --verify-no-changes` → clean ✅
+   - `dotnet list package --vulnerable --include-transitive` → 0 vulnerable ✅
+   - Coverage: 69.79% line rate (≥60% gate) ✅
+7. ✅ **Update ACTIVE_SESSION_REGISTER**: trạng thái mới `6502992`, 224/224, all gates pass.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] **Push** 4 commits (`dcf3236`→`6502992`) lên origin/main.
+- [ ] **User action**: tạo secret `NUGET_USER` (Trusted Publishing, hạn chót 01/11/2026) + tùy chọn `NUGET_API_KEY` fallback.
+- [ ] **User action**: tạo secret `VSCE_PAT` + `VS_MARKETPLACE_PAT` cho marketplace publish.
+- [ ] Verify CI run trên GitHub (format gate + coverage gate 60% lần đầu trên runner thật).
+- [ ] Should Fix list (`AI_AGENT_AUDIT.md` 5.2): COV-003/005/006/007/008, ARC-001/002/003/004.
+- [ ] 3 informational còn lại (cần DB thật): OracleReaders col_charsetform; wire RefCursorDescriber; GoldenCorpusTests assert unexpectedErrors.
