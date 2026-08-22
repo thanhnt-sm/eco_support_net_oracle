@@ -1,4 +1,8 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.AutoDetection;
 using DataGuard.Core.Models;
@@ -7,8 +11,22 @@ using Xunit;
 
 namespace DataGuard.Core.Tests;
 
-public class AutoDetectionEngineTests
+[Collection("Sequential")]
+public class AutoDetectionEngineTests : IDisposable
 {
+    public AutoDetectionEngineTests()
+    {
+        // Clear env vars that may leak from other test classes running in parallel
+        Environment.SetEnvironmentVariable("DATAGUARD_CONNECTION_STRING", null);
+        Environment.SetEnvironmentVariable("DATAGUARD_PROVIDER", null);
+    }
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable("DATAGUARD_CONNECTION_STRING", null);
+        Environment.SetEnvironmentVariable("DATAGUARD_PROVIDER", null);
+    }
+
     private static string CreateProject(params (string relativePath, string content)[] files)
     {
         var root = Directory.CreateTempSubdirectory("dg-autodetect").FullName;

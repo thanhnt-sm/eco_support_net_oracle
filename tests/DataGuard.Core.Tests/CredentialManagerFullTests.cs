@@ -8,7 +8,8 @@ using Xunit;
 
 namespace DataGuard.Core.Tests;
 
-public class CredentialManagerFullTests
+[Collection("Sequential")]
+public class CredentialManagerFullTests : IDisposable
 {
     private const string EnvVar = "DATAGUARD_CONNECTION_STRING";
 
@@ -17,6 +18,11 @@ public class CredentialManagerFullTests
         ExcludedProcedures = Array.Empty<string>(),
         ExcludedEntities = Array.Empty<string>(),
     };
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable(EnvVar, null);
+    }
 
     /// <summary>
     /// Per-test credential store path under the temp folder so tests never

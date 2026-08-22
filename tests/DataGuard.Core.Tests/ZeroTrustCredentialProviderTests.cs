@@ -9,6 +9,7 @@ using Xunit;
 
 namespace DataGuard.Core.Tests;
 
+[Collection("Sequential")]
 public class ZeroTrustCredentialProviderTests : IDisposable
 {
     private const string EnvVar = "DATAGUARD_TESTCREDENTIAL";
