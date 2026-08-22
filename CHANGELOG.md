@@ -36,6 +36,7 @@ All notable changes to DataGuard are documented here. Format based on
 - AWSSDK.SecretsManager 4.0.100.9 → 4.0.100.10, ScriptDom 180.78.1 → 180.102.0 (patch updates, 5 projects).
 - MinVer 5.0.0 → 7.0.0 (build tool, tag-based versioning).
 - YamlDotNet 15.1.0 → 18.1.0 (major, CLI YAML serialization).
+- Microsoft.SourceLink.GitHub 8.0.0 → 10.0.400 (build tool, deterministic builds).
 
 ### Fixed
 - Analyzer package missing `DataGuard.Core.dll` at load time (bundled dependency closure).
