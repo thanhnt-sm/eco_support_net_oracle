@@ -53,4 +53,56 @@ public class RuleDependencyGraphTests
         var act = () => graph.GetParallelGroups();
         act.Should().Throw<InvalidOperationException>();
     }
+
+    [Fact]
+    public void WithDependency_FluentApi_ReturnsGraph()
+    {
+        var graph = new RuleDependencyGraph();
+        var result = graph.WithDependency("CUSTOM001", "DG101");
+
+        result.Should().BeSameAs(graph);
+    }
+
+    [Fact]
+    public void WithDependency_RegistersDependency()
+    {
+        var graph = new RuleDependencyGraph();
+        graph.WithDependency("DG101");
+        graph.WithDependency("CUSTOM001", "DG101");
+
+        var validation = graph.Validate();
+        validation.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AddRule_FluentApi_ReturnsGraph()
+    {
+        var graph = new RuleDependencyGraph();
+        var result = graph.AddRule(new ParameterCountRule());
+
+        result.Should().BeSameAs(graph);
+    }
+
+    [Fact]
+    public void CreateDefault_ContainsAllBuiltInRules()
+    {
+        var graph = BuiltInRuleDependencies.CreateDefault();
+        var order = graph.GetExecutionOrder();
+        var ruleIds = order.Select(r => r.RuleId).ToHashSet();
+
+        ruleIds.Should().Contain("DG101");  // ParameterCountRule
+        ruleIds.Should().Contain("DG002");  // ParameterTypeMatchRule
+        ruleIds.Should().Contain("DG003");  // ParameterDirectionRule
+        ruleIds.Should().Contain("DG004");  // ColumnShapeMatchRule
+        ruleIds.Should().Contain("DG005");  // NullableMismatchRule
+        ruleIds.Should().Contain("DG006");  // NamingConventionRule
+        ruleIds.Should().Contain("DG015");  // PhantomIdentifierRule
+    }
+
+    [Fact]
+    public void CreateDefault_ExecutionOrder_HasSevenRules()
+    {
+        var order = BuiltInRuleDependencies.CreateDefault().GetExecutionOrder();
+        order.Length.Should().Be(7);
+    }
 }

@@ -423,3 +423,33 @@ public class ConfigurationDefaultsTests
         result.SqlServer.Should().BeNull();
     }
 }
+
+public class NullAuditLoggerTests
+{
+    [Fact]
+    public async Task LogDatabaseOperationAsync_ReturnsCompletedTask()
+    {
+        var logger = new NullAuditLogger();
+        var task = logger.LogDatabaseOperationAsync("op", "provider", "hash", "details", true);
+        task.Should().Be(Task.CompletedTask);
+        await task;
+    }
+
+    [Fact]
+    public async Task LogCredentialAccessAsync_ReturnsCompletedTask()
+    {
+        var logger = new NullAuditLogger();
+        var task = logger.LogCredentialAccessAsync("op", "provider", "hash");
+        task.Should().Be(Task.CompletedTask);
+        await task;
+    }
+
+    [Fact]
+    public async Task LogConfigurationChangeAsync_ReturnsCompletedTask()
+    {
+        var logger = new NullAuditLogger();
+        var task = logger.LogConfigurationChangeAsync("setting", "old", "new");
+        task.Should().Be(Task.CompletedTask);
+        await task;
+    }
+}
