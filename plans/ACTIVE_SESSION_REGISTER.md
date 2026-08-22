@@ -40,12 +40,13 @@ eco_support_net_oracle/        ← ROOT (tên repo cũ giữ nguyên)
 
 ```
 dotnet build DataGuard.sln   ✅ 0 errors, 0 warnings (TreatWarningsAsErrors=true)
-dotnet test DataGuard.sln    ✅ 278/278 (Core 248, GoldenCorpus 25, Analyzers 5)
+dotnet test DataGuard.sln    ✅ 291/291 (Core 261, GoldenCorpus 25, Analyzers 5)
 dotnet format                ✅ clean (--verify-no-changes exit 0)
 dotnet list --vulnerable     ✅ 0 vulnerable (all 12 projects)
-coverage                     ✅ 68.5% Core line rate (≥60% gate)
+coverage                     ✅ 68.7% Core line rate (≥60% gate)
 CI                           ✅ 5 jobs + coverage gate 60% + format gate + TreatWarningsAsErrors
 Test stability               ✅ 5/5 consecutive runs green (flaky tests fixed)
+VSCode extension tests       ✅ 2/2 pass
 Working tree                 ✅ clean, pushed
 NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS_MARKETPLACE_PAT)
 ```
