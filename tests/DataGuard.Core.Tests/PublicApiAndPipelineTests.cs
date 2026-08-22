@@ -112,4 +112,81 @@ public class RulePluginManagerTests
         var rules = manager.GetAllRules(System.Collections.Immutable.ImmutableArray<IContractRule>.Empty);
         rules.Should().BeEmpty();
     }
+
+    [Fact]
+    public void RulePluginManager_NullDirectory_ReturnsEmpty()
+    {
+        using var manager = new RulePluginManager(pluginDirectory: null);
+        var rules = manager.GetAllRules(System.Collections.Immutable.ImmutableArray<IContractRule>.Empty);
+        rules.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RulePluginManager_GetAllRules_MergesBuiltInRules()
+    {
+        using var manager = new RulePluginManager(pluginDirectory: null);
+        var builtIn = System.Collections.Immutable.ImmutableArray.Create<IContractRule>(
+            new DataGuard.Core.Rules.ParameterCountRule(),
+            new DataGuard.Core.Rules.ParameterDirectionRule());
+
+        var all = manager.GetAllRules(builtIn);
+
+        all.Length.Should().Be(2);
+        all.Should().Contain(r => r.RuleId == "DG101");
+        all.Should().Contain(r => r.RuleId == "DG003");
+    }
+
+    [Fact]
+    public void RulePluginManager_GetRuleById_FindsBuiltIn()
+    {
+        using var manager = new RulePluginManager(pluginDirectory: null);
+        var builtIn = System.Collections.Immutable.ImmutableArray.Create<IContractRule>(
+            new DataGuard.Core.Rules.ParameterCountRule());
+
+        var rule = manager.GetRuleById("DG101", builtIn);
+
+        rule.Should().NotBeNull();
+        rule!.RuleId.Should().Be("DG101");
+    }
+
+    [Fact]
+    public void RulePluginManager_GetRuleById_ReturnsNullForUnknown()
+    {
+        using var manager = new RulePluginManager(pluginDirectory: null);
+        var rule = manager.GetRuleById("NONEXISTENT", System.Collections.Immutable.ImmutableArray<IContractRule>.Empty);
+        rule.Should().BeNull();
+    }
+
+    [Fact]
+    public void RulePluginManager_GetRuleMetadata_ReturnsEmpty()
+    {
+        using var manager = new RulePluginManager(pluginDirectory: null);
+        var metadata = manager.GetRuleMetadata();
+        metadata.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void RulePluginManager_Dispose_DoesNotThrow()
+    {
+        var manager = new RulePluginManager(pluginDirectory: null);
+        var act = () => manager.Dispose();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void RulePluginManager_EmptyDirectory_ReturnsEmpty()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"dg-plugins-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            using var manager = new RulePluginManager(tempDir);
+            var rules = manager.GetAllRules(System.Collections.Immutable.ImmutableArray<IContractRule>.Empty);
+            rules.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDir);
+        }
+    }
 }
