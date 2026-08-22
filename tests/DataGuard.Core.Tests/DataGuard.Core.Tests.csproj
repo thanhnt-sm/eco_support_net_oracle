@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\DataGuard.SqlServer.Adapter\DataGuard.SqlServer.Adapter.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.MySql.Adapter\DataGuard.MySql.Adapter.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj" />
+    <ProjectReference Include="..\..\src\DataGuard.Oracle.Adapter\DataGuard.Oracle.Adapter.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageReference Include="coverlet.collector" Version="10.0.1">
       <PrivateAssets>all</PrivateAssets>
