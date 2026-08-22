@@ -48,16 +48,17 @@ public class SqlServerStoredProcedureParser : IContractSource
             INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
             WHERE p.is_ms_shipped = 0";
 
-        await using var cmd = new SqlCommand(procSql, connection);
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-
         var procedures = new List<(int ObjectId, string Name, string Schema)>();
-        while (await reader.ReadAsync(cancellationToken))
         {
-            procedures.Add((
-                reader.GetInt32(0),
-                reader.GetString(1),
-                reader.GetString(2)));
+            await using var cmd = new SqlCommand(procSql, connection);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                procedures.Add((
+                    reader.GetInt32(0),
+                    reader.GetString(1),
+                    reader.GetString(2)));
+            }
         }
 
         // Process each procedure

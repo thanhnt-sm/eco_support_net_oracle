@@ -24,8 +24,11 @@ public class CliExitCodeTests
         return dir?.FullName ?? throw new InvalidOperationException("DataGuard.sln not found above " + AppContext.BaseDirectory);
     }
 
+    private static string TestConfiguration =>
+        new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
+
     private static string CliDllPath => Path.Combine(
-        FindRepoRoot(), "src", "DataGuard.Cli", "bin", "Debug", "net9.0", "DataGuard.Cli.dll");
+        FindRepoRoot(), "src", "DataGuard.Cli", "bin", TestConfiguration, "net9.0", "DataGuard.Cli.dll");
 
     private static (int ExitCode, string Output) RunCli(params string[] args)
     {
