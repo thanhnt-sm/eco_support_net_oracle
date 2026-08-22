@@ -15,6 +15,10 @@ All notable changes to DataGuard are documented here. Format based on
 - CI: security gates (vulnerability JSON gate, TruffleHog, CodeQL) now run on tag releases; Docker smoke test runs on PRs; dependabot tracks NuGet; restores run in `--locked-mode`.
 - `packages.lock.json` for reproducible restores; MinVer versioning from git tags; SourceLink + deterministic builds; symbol (snupkg) publishing.
 - `dataguard config` full round-trip via YamlDotNet (30+ fields, nested Oracle/SqlServer blocks).
+- MySql/PostgreSql adapter unit tests: dialect checker (syntax detection, context-aware) + length mismatch detector (12 tests each, no DB required).
+- DataGuardApi surface tests: Version, CreatePipeline, WithRules, WithPlugins, ValidationResult/DriftReport computed properties, DataGuardFactory methods (15 tests).
+- RulePluginManager tests: null directory, merge built-in rules, get by ID, metadata, dispose, empty directory (7 tests).
+- SqlServerIntegrationTests: Testcontainers MsSql, auto-skip when Docker unavailable.
 
 ### Changed
 - `DataGuard.Analyzers` retargeted to netstandard2.0 and decoupled from DataGuard.Core (loads in Visual Studio); bundles `DataGuard.Contracts.dll`.
@@ -24,12 +28,17 @@ All notable changes to DataGuard are documented here. Format based on
 - Oracle catalog predicates use `UPPER()`; RefCursorDescriber uses `col_charsetform` (no PLS-00302) and supports OUT SYS_REFCURSOR.
 - Credentials fail closed by default (`AllowPlaintextConfigFallback=false`); `config show` redacts secrets; `.dataguard*` gitignored.
 - Dialect keyword lists curated (window functions no longer false-positive); TOP/LIMIT word-boundary matching.
+- `TreatWarningsAsErrors` enabled solution-wide (0 warnings enforced in CI).
+- SEC-006: telemetry circuit breaker (`MaxConsecutiveExportFailures=3`) stops export on repeated failures, resets on success; endpoint allowlist (HTTPS + localhost/127.0.0.1 only); zero HttpClient when telemetry disabled.
+- Legacy EcoSupport docs (15 files) marked with ARCHIVED warning banner.
+- README architecture link fixed (`docs/architecture/system_architecture.md`).
 
 ### Fixed
 - Analyzer package missing `DataGuard.Core.dll` at load time (bundled dependency closure).
 - `oracle-check` exit code (returns 1 on failure); DG098/DG099 descriptor registration (Warning, not DG002 fallback).
 - Docker image baking wrong version (VERSION build-arg); fake `github.com/DataGuard/DataGuard` URLs in 4 packages.
 - MySQL LONGTEXT `CHARACTER_MAXIMUM_LENGTH` overflow; Oracle DG007 byte-vs-char comparison; PG unnamed-parameter drop.
+- Flaky AutoDetectionEngine tests: env var `DATAGUARD_CONNECTION_STRING` leaked from CredentialManagerFullTests via xUnit parallel execution; fixed with `[Collection("Sequential")]` + IDisposable cleanup on all env-var-sensitive test classes.
 
 ### Removed
 - Dead `HealthChecks`/`HealthCheckServer`; stale `docker-compose.yml`; legacy `loop-results.tsv`; EcoSupport README/SECURITY content.
