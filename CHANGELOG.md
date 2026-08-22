@@ -35,6 +35,7 @@ All notable changes to DataGuard are documented here. Format based on
 - Testcontainers.MsSql unified to 4.14.0 across all test projects; removed SSH.NET direct pin (no longer needed).
 - AWSSDK.SecretsManager 4.0.100.9 → 4.0.100.10, ScriptDom 180.78.1 → 180.102.0 (patch updates, 5 projects).
 - MinVer 5.0.0 → 7.0.0 (build tool, tag-based versioning).
+- YamlDotNet 15.1.0 → 18.1.0 (major, CLI YAML serialization).
 
 ### Fixed
 - Analyzer package missing `DataGuard.Core.dll` at load time (bundled dependency closure).
