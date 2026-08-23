@@ -27,5 +27,7 @@ public class CustomerProcedures
 {
     [ExpectedSpParameter("p_customer_id", "NUMBER", "IN")]
     [ExpectedSpParameter("p_result", "REF CURSOR", "OUT")]
-    public static void GetCustomerDetails() { }
+    public static void GetCustomerDetails()
+    {
+    }
 }

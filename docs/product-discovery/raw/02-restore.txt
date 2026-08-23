@@ -1,0 +1,9 @@
+$ dotnet restore DataGuard.sln --locked-mode
+--- stdout ---
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+--- stderr ---
+
+--- exit_code ---
+0

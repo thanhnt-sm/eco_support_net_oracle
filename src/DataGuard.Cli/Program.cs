@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DataGuard.Core;
 using DataGuard.Core.Abstractions;
+using DataGuard.Core.Assessment;
+using DataGuard.Core.Assessment.Internal;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
 using DataGuard.Core.Reporting;
@@ -625,7 +627,6 @@ migrateCommand.SetHandler(
 
     var manager = new BaselineManager(path);
     var migrated = await manager.MigrateBaselineAsync();
-
     if (migrated == null)
     {
         console.Out.WriteLine($"Baseline '{path}' is already v2 or not a legacy v1 baseline");
@@ -634,6 +635,127 @@ migrateCommand.SetHandler(
 
     console.Out.WriteLine($"Migrated baseline to v2: {migrated.Violations.Count} violations, schema hash {migrated.SchemaHash}");
 }, baselinePathOption);
+
+#region Assess Command
+
+var assessWorkspaceOption = new Option<string>("--workspace", () => ".", "Workspace root to assess (default: current directory)");
+var assessFilterOption = new Option<string[]>("--project-filter", "Optional project path filters (substring, case-insensitive)") { AllowMultipleArgumentsPerToken = true };
+var assessCommand = new Command("assess", "Run read-only environment/dependency/config assessment and emit a structured report")
+{
+    assessWorkspaceOption,
+    assessFilterOption,
+    outputOption,
+    formatOption,
+    verboseOption,
+};
+
+assessCommand.SetHandler(
+    (workspace, filters, output, format, verbose) =>
+{
+    var console = new SystemConsole();
+    var normalizedFormat = format?.ToLowerInvariant() ?? "text";
+    if (normalizedFormat is not ("text" or "json" or "sarif"))
+    {
+        console.Error.WriteLine($"Unsupported --format '{format}' for assess. Supported values: text, json, sarif.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    if (normalizedFormat is not "text" && string.IsNullOrEmpty(output))
+    {
+        console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    try
+    {
+        var request = new AssessmentRequest
+        {
+            WorkspaceRoot = Path.GetFullPath(workspace ?? "."),
+            ProjectFilters = filters ?? Array.Empty<string>(),
+        };
+        var report = AssessmentEngine.Run(request);
+
+        if (normalizedFormat == "json")
+        {
+            AssessmentReportWriter.WriteJsonAsync(report, output!).GetAwaiter().GetResult();
+            console.Out.WriteLine($"Assessment JSON written to {output}");
+        }
+        else if (normalizedFormat == "sarif")
+        {
+            WriteSarifAssessment(report, output!);
+            console.Out.WriteLine($"Assessment SARIF written to {output}");
+        }
+        else if (verbose)
+        {
+            foreach (var finding in report.Findings)
+            {
+                console.Out.WriteLine($"[{finding.Severity}] {finding.RuleId}: {finding.Message}");
+                foreach (var evidence in finding.Evidence)
+                {
+                    console.Out.WriteLine($"    at {evidence.Path}{(evidence.Line is { } l ? $":{l}" : string.Empty)}");
+                }
+            }
+        }
+        else
+        {
+            console.Out.WriteLine($"DataGuard assessment: {report.Summary.TotalFindings} findings ({report.Summary.Critical} critical, {report.Summary.Errors_} errors, {report.Summary.Warnings} warnings, {report.Summary.Information} info), {report.Summary.ToolErrors} tool errors");
+        }
+
+        foreach (var error in report.Errors)
+        {
+            console.Error.WriteLine($"[{error.Code}] {error.Path}: {error.Message}");
+        }
+
+        // Exit semantics: findings present or operational failure -> 1 (CI gates fail);
+        // invalid input -> 2 (handled above); clean assessment with no findings -> 0.
+        Environment.ExitCode = report.Findings.Count > 0 || report.Errors.Count > 0 ? 1 : 0;
+    }
+    catch (Exception ex)
+    {
+        console.Error.WriteLine($"Assessment failed: {(verbose ? ex.ToString() : ex.Message)}");
+        Environment.ExitCode = 1;
+    }
+}, assessWorkspaceOption, assessFilterOption, outputOption, formatOption, verboseOption);
+
+static void WriteSarifAssessment(AssessmentReport report, string outputPath)
+{
+    var sarif = new SarifLog
+    {
+        Version = "2.1.0",
+        Runs = new List<Run>
+        {
+            new Run
+            {
+                Tool = new Tool { Driver = new ToolComponent { Name = "DataGuard.Assessment", Version = report.ToolVersion } },
+                Results = report.Findings.Select(f => new Result
+                {
+                    RuleId = f.RuleId,
+                    Level = f.Severity switch
+                    {
+                        FindingSeverity.Critical or FindingSeverity.Error => "error",
+                        FindingSeverity.Warning => "warning",
+                        _ => "note",
+                    },
+                    Message = new Message { Text = f.Message },
+                    Locations = f.Evidence.Where(e => e.Path is not null).Select(e => new SarifLocation
+                    {
+                        PhysicalLocation = new PhysicalLocation
+                        {
+                            ArtifactLocation = new ArtifactLocation { Uri = e.Path! },
+                            Region = e.Line is { } line ? new Region { StartLine = line } : new Region(),
+                        },
+                    }).ToList(),
+                }).ToList(),
+            },
+        },
+    };
+
+    var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+    File.WriteAllText(outputPath, JsonSerializer.Serialize(sarif, jsonOptions));
+}
+#endregion
 
 #region Add Commands to Root
 
@@ -644,6 +766,7 @@ rootCommand.AddCommand(initCommand);
 rootCommand.AddCommand(configCommand);
 rootCommand.AddCommand(oracleCheckCommand);
 rootCommand.AddCommand(migrateCommand);
+rootCommand.AddCommand(assessCommand);
 rootCommand.AddCommand(versionCommand);
 #endregion
 

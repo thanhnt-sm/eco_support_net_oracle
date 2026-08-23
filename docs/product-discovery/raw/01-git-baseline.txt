@@ -1,0 +1,9 @@
+$ git status --short && git log -1 --oneline
+--- stdout ---
+?? docs/product-discovery/
+ea17a05 fix(sqlserver): read parameter max length as smallint
+
+--- stderr ---
+
+--- exit_code ---
+0

@@ -61,14 +61,15 @@ dataguard oracle-check    # Oracle dialect + length checks (CHAR/BYTE semantics)
 dataguard init            # generate configuration
 dataguard config          # show / validate configuration
 dataguard migrate         # migrate legacy v1 baseline files to v2
+dataguard assess          # read-only legacy/dependency/config assessment; JSON/SARIF via --format
 ```
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| `0` | Success — validation passed, no drift, or informational output (`version`, `config show`, `snapshot show` without a snapshot) |
-| `1` | Validation failures found (error-severity violations), or drift detected with `--fail-on-drift` |
+| `0` | Success — validation passed, no drift, no assessment findings/tool errors, or informational output (`version`, `config show`, `snapshot show` without a snapshot) |
+| `1` | Validation failures found (error-severity violations), drift detected with `--fail-on-drift`, or `assess` found findings/operational errors |
 | `2` | Configuration / usage error — invalid `--format`, machine-readable format without `--output`, unsupported arguments |
 
 CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drift` is passed; in CI environments (`CI`/`GITHUB_ACTIONS`) it prints a reminder to pass the flag.

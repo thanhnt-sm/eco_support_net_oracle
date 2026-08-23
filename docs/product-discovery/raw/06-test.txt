@@ -1,0 +1,39 @@
+$ dotnet test DataGuard.sln --configuration Release --no-build --collect:XPlat Code Coverage --logger trx;LogFileName=test_results.trx
+--- stdout ---
+Test run for /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Analyzers.Tests/bin/Release/net9.0/DataGuard.Analyzers.Tests.dll (.NETCoreApp,Version=v9.0)
+VSTest version 17.14.1 (arm64)
+
+Test run for /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.GoldenCorpus.Tests/bin/Release/net9.0/DataGuard.GoldenCorpus.Tests.dll (.NETCoreApp,Version=v9.0)
+Test run for /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Core.Tests/bin/Release/net9.0/DataGuard.Core.Tests.dll (.NETCoreApp,Version=v9.0)
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+VSTest version 17.14.1 (arm64)
+VSTest version 17.14.1 (arm64)
+
+
+Starting test execution, please wait...
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.A total of 1 test files matched the specified pattern.
+
+WARNING: Overwriting results file: /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Analyzers.Tests/TestResults/test_results.trx
+Results File: /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Analyzers.Tests/TestResults/test_results.trx
+
+Passed!  - Failed:     0, Passed:     5, Skipped:     0, Total:     5, Duration: 322 ms - DataGuard.Analyzers.Tests.dll (net9.0)
+WARNING: Overwriting results file: /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.GoldenCorpus.Tests/TestResults/test_results.trx
+Results File: /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.GoldenCorpus.Tests/TestResults/test_results.trx
+
+Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 52 ms - DataGuard.GoldenCorpus.Tests.dll (net9.0)
+WARNING: Overwriting results file: /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Core.Tests/TestResults/test_results.trx
+Results File: /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Core.Tests/TestResults/test_results.trx
+
+Passed!  - Failed:     0, Passed:   261, Skipped:     0, Total:   261, Duration: 1 s - DataGuard.Core.Tests.dll (net9.0)
+
+Attachments:
+  /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Analyzers.Tests/TestResults/dfa2a8ff-0474-4240-a96e-730279894298/coverage.cobertura.xml
+  /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Core.Tests/TestResults/e3ece262-325f-493e-af9e-48024df2857b/coverage.cobertura.xml
+  /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.GoldenCorpus.Tests/TestResults/e5da1d3b-e627-4015-8ef8-533ba4045002/coverage.cobertura.xml
+
+--- stderr ---
+
+--- exit_code ---
+0

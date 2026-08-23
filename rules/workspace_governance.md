@@ -10,7 +10,7 @@
 | Tests | `tests/DataGuard.Core.Tests/`, `tests/DataGuard.GoldenCorpus.Tests/` | Mirror và xác minh contract DataGuard. |
 | Documentation/tri thức | `docs/`, `plans/`, `research/`, `grants/`, `brainstorm/`, root README/contributing/security/license | Không lẫn production source; historical material phải được gắn nhãn rõ. |
 | Automation | `.github/`, `.githooks/`, `scripts/`, `tools/`, `Dockerfile`, `.dockerignore` | Chỉ giữ khi CI, release, hook hoặc runbook DataGuard có reference. |
-| Local runtime/state | `.omp/`, `.omo/`, `.codegraph/`, cache lint/test | Không commit output generated; không xóa session/state khi process còn dùng. |
+| Local runtime/state | `.omp/`, `.omo/`, `.codegraph/`, `.codex/` (skills symlink-only), cache lint/test | Không commit output generated; không xóa session/state khi process còn dùng. |
 
 ## Candidate di sản
 

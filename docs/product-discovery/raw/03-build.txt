@@ -1,0 +1,25 @@
+$ dotnet build DataGuard.sln --configuration Release --no-restore
+--- stdout ---
+  DataGuard.Contracts -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.Contracts/bin/Release/netstandard2.0/DataGuard.Contracts.dll
+  DataGuard.Analyzers -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.Analyzers/bin/Release/netstandard2.0/DataGuard.Analyzers.dll
+  DataGuard.CodeFixes -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.CodeFixes/bin/Release/netstandard2.0/DataGuard.CodeFixes.dll
+  DataGuard.Analyzers.Tests -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Analyzers.Tests/bin/Release/net9.0/DataGuard.Analyzers.Tests.dll
+  DataGuard.Core -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.Core/bin/Release/net9.0/DataGuard.Core.dll
+  DataGuard.PostgreSql.Adapter -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.PostgreSql.Adapter/bin/Release/net9.0/DataGuard.PostgreSql.Adapter.dll
+  DataGuard.MySql.Adapter -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.MySql.Adapter/bin/Release/net9.0/DataGuard.MySql.Adapter.dll
+  DataGuard.SqlServer.Adapter -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.SqlServer.Adapter/bin/Release/net9.0/DataGuard.SqlServer.Adapter.dll
+  DataGuard.Oracle.Adapter -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.Oracle.Adapter/bin/Release/net9.0/DataGuard.Oracle.Adapter.dll
+  DataGuard.GoldenCorpus.Tests -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.GoldenCorpus.Tests/bin/Release/net9.0/DataGuard.GoldenCorpus.Tests.dll
+  DataGuard.Core.Tests -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/tests/DataGuard.Core.Tests/bin/Release/net9.0/DataGuard.Core.Tests.dll
+  DataGuard.Cli -> /Volumes/Data/101.AI/GitHub/eco_support_net_oracle/src/DataGuard.Cli/bin/Release/net9.0/DataGuard.Cli.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:06.61
+
+--- stderr ---
+
+--- exit_code ---
+0

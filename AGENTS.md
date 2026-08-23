@@ -13,8 +13,18 @@
 - Production DataGuard: `src/`; test C#: `tests/DataGuard.Core.Tests/`, `tests/DataGuard.GoldenCorpus.Tests/`.
 - Documentation/tri thức: `docs/`, `plans/`, `research/`, `grants/`, `brainstorm/`.
 - Automation: `.github/`, `.githooks/`, `scripts/`, `tools/`, Docker files và DataGuard root manifests.
-- Runtime local: `.omp/`, `.omo/`, `.codegraph/`, cache lint/test. Các path này không phải documentation.
+- Runtime local: `.omp/`, `.omo/`, `.codegraph/`, `.codex/`, cache lint/test. Các path này không phải documentation.
 - Không tạo path top-level mới khi chưa đối chiếu workspace governance và project convention.
+
+## Skills naming convention (cross-agent)
+
+Skills toàn cục đặt tại `~/.claude/skills/` và được expose cho workspace qua symlink tại `.codex/skills/`. Tên đăng ký của mọi skill lấy từ frontmatter `name:` trong SKILL.md, luôn có prefix `ck:` (ví dụ `ck:cook`, `ck:git`, `ck:fix`).
+
+1. Khi invoke skill, LUÔN dùng tên đầy đủ có prefix `ck:` — không bao giờ gọi tên trần (gọi `cook` sẽ lỗi `Unknown skill`; đúng phải là `ck:cook`).
+2. Cú pháp invoke theo tool: oh-my-pi `/skill ck:<tên>`; Codex `$ck:<tên>` hoặc để auto-activation khớp theo `description`; opencode dùng skill tool với tên `ck:<tên>`.
+3. Skill chỉ mang hướng dẫn quy trình; tính năng đặc thù của một tool (subagent/task delegation, v.v.) không chuyển sang tool khác — khi thiếu tool tương đương, tự thực hiện trực tiếp theo đúng các bước của skill.
+4. Không sửa frontmatter (`name:`) trong `~/.claude/skills/` để "bỏ prefix" — sẽ phá các flow đang tham chiếu `/ck:*` và bị ClaudeKit updater ghi đè.
+5. Sau khi cài/xoá skill mới ở mức global, chạy lại bước đồng bộ symlink `.codex/skills/` (idempotent: chỉ link dir có `SKILL.md`, bỏ qua `_shared`, `common`, `manifests`, `document-skills`).
 
 ## Quy tắc thay đổi
 

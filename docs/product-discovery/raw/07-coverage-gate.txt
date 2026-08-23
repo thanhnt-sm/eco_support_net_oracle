@@ -1,0 +1,7 @@
+$ python3 CI coverage gate
+--- stdout ---
+Overall Solution Line Coverage: 62.05% (3566/5747 lines)
+--- stderr ---
+
+--- exit_code ---
+0
