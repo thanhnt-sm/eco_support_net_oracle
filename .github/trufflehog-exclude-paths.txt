@@ -6,9 +6,8 @@
 # Rust build artifacts (174MB of compiled binaries/deps)
 target/
 
-# .NET build outputs
-**/bin/
-**/obj/
+bin/
+obj/
 artifacts/
 nupkg/
 sbom/

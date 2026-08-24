@@ -10,7 +10,7 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <!-- NU5128: codefix assemblies live under codefixes/dotnet/cs (Roslyn host
          convention), not lib; not a packaging defect. -->
-    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <NoWarn>$(NoWarn);NU5128;NU5100</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

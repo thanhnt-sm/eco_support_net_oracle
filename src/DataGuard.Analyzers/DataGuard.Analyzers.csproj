@@ -15,7 +15,7 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!-- NU5128: assemblies in generators/dotnet/cs are intentional (Roslyn analyzer
          packages host them outside lib); not a packaging defect. -->
-    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <NoWarn>$(NoWarn);NU5128;NU5100</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
