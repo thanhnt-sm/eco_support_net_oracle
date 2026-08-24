@@ -3,8 +3,8 @@
 
 set -euo pipefail
 
-readonly ROOT_FILE_PATTERN='^(DataGuard\.sln|Directory(\..+)?\.props|Dockerfile|docker-compose\.yml|\.dockerignore|\.env\.example|\.gitignore|\.gitattributes|\.editorconfig|global\.json|NuGet\.config|README(\.vi)?\.md|CONTRIBUTING(\.vi)?\.md|SECURITY(\.vi)?\.md|LICENSE(\.md)?|CLAUDE\.md|AGENTS\.md|\.agentrules|\.cursorrules|\.windsurfrules|\.geminirules|devin_instructions\.md|robots\.txt|package\.json|pnpm-lock\.yaml|tsconfig\.base\.json|vitest\.config\.ts|pyproject\.toml|Cargo\.toml|Cargo\.lock)$'
-readonly DIRECTORY_PATTERN='^(src|tests|samples|docs|plans|research|grants|brainstorm|scripts|tools|rules|benchmarks|\.github|\.githooks|\.agents|claude|crates|packages)/'
+readonly ROOT_FILE_PATTERN='^(DataGuard\.sln|Directory(\..+)?\.props|Dockerfile|\.dockerignore|\.env\.example|\.gitignore|\.gitattributes|\.editorconfig|global\.json|NuGet\.config|README(\.vi)?\.md|CONTRIBUTING(\.vi)?\.md|SECURITY(\.vi)?\.md|LICENSE(\.md)?|CLAUDE\.md|AGENTS\.md|\.agentrules|\.cursorrules|\.windsurfrules|\.geminirules|devin_instructions\.md|robots\.txt)$'
+readonly DIRECTORY_PATTERN='^(src|tests|samples|docs|plans|research|grants|brainstorm|scripts|tools|rules|benchmarks|\.github|\.githooks|\.agents|claude)/'
 readonly LOCAL_CONFIG_PATTERN='^(\.omo/(config|agents)\.toml|\.codegraph/\.gitignore)$'
 
 printf '[workspace-guard] Checking staged paths against DataGuard topology.\n'

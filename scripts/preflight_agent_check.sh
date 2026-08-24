@@ -17,8 +17,6 @@ echo -e "${CYAN}⚡ [EcoSupport Pre-Flight Check] Running in-flight verification
 # 1. Check rogue untracked / unapproved files in real-time
 echo -e "${CYAN}1. Scanning workspace for rogue/unapproved files...${NC}"
 ALLOWED_ROOT_PATTERNS=(
-    "^Cargo\.toml$"
-    "^Cargo\.lock$"
     "^CLAUDE\.md$"
     "^AGENTS\.md$"
     "^AI_AGENT_AUDIT\.md$"
@@ -32,11 +30,6 @@ ALLOWED_ROOT_PATTERNS=(
     "^LICENSE(\..+)?\.md$"
     "^robots\.txt$"
     "^devin_instructions\.md$"
-    "^pyproject\.toml$"
-    "^package\.json$"
-    "^pnpm-lock\.yaml$"
-    "^tsconfig(\..+)?\.json$"
-    "^vitest\.config\.ts$"
     "^DataGuard\.sln$"
     "^Directory\.Build\.props$"
     "^Dockerfile$"
@@ -45,7 +38,6 @@ ALLOWED_ROOT_PATTERNS=(
     "^\.gitignore$"
     "^\.gitattributes$"
     "^\.editorconfig$"
-    "^\.tmp_new_models$"
     "^\.cursorrules$"
     "^\.windsurfrules$"
     "^\.geminirules$"
@@ -57,7 +49,6 @@ ALLOWED_ROOT_PATTERNS=(
     "^\.githooks"
     "^\.git$"
     "^claude"
-    "^crates"
     "^docs"
     "^rules"
     "^plans"
@@ -71,15 +62,8 @@ ALLOWED_ROOT_PATTERNS=(
     "^benchmarks"
     "^tools"
     "^src"
-    "^packages"
-    "^node_modules$"
     "^coverage$"
-    "^target"
     "^BenchmarkDotNet\.Artifacts$"
-    "^\.venv"
-    "^\.mypy_cache"
-    "^\.pytest_cache"
-    "^\.ruff_cache"
     "^\.codegraph"
     "^\.omo"
     "^\.omp"
@@ -112,11 +96,5 @@ fi
 echo -e "${CYAN}2. Verifying bilingual documentation sync...${NC}"
 ./scripts/verify_docs_sync.sh > /dev/null
 echo -e "  ${GREEN}✓ All 30 bilingual docs and rules are present and synchronized.${NC}"
-
-# 3. Check Cargo compilation health
-echo -e "${CYAN}3. Verifying Rust compiler health...${NC}"
-export PATH="$HOME/.cargo/bin:$PATH"
-cargo check --workspace --quiet
-echo -e "  ${GREEN}✓ Cargo check passed with 0 errors, 0 warnings.${NC}"
 
 echo -e "\n${GREEN}🚀 [Pre-Flight OK] Workspace is in perfect state. Proceed with confidence!${NC}"
