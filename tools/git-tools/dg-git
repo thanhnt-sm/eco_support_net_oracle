@@ -103,6 +103,7 @@ cmd_doctor() {
         local behind=$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)
         [[ $ahead -gt 0 && $behind -gt 0 ]] && { log_error "Diverged ($ahead ahead, $behind behind)"; ((issues++)); }
         [[ $behind -gt 0 ]] && { log_warn "$behind commits behind"; ((warnings++)); }
+        [[ $ahead -gt 0 ]] && { log_warn "$ahead commits ahead (unpushed)"; ((warnings++)); }
     }
     
     # 8. Remotes
