@@ -38,6 +38,7 @@ REQUIRED_DOCS=(
     "docs/sitemap_and_component_registry.vi.md"
     "rules/universal_ai_constitution.md"
     "rules/workspace_governance.md"
+    "rules/git_workflow.md"
     "rules/doc_sync_enforcement.md"
     "rules/small_model_operational_protocol.md"
     "grants/written_explanation.md"

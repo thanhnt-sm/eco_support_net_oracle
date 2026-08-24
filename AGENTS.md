@@ -3,10 +3,11 @@
 ## Thứ tự ưu tiên
 
 1. Chỉ thị người dùng và system/developer rule đang hiệu lực.
-2. `rules/workspace_governance.md` cho topology cụ thể của workspace.
-3. `plans/2026-08-20-workspace-rationalization.md` cho phân loại và phase cleanup.
-4. `.github/workflows/`, `DataGuard.sln`, `Directory.Build.props`, và `Dockerfile` cho entrypoint build/release thực tế.
-5. `~/.omp/agent/AGENTS.md` cho policy OMP toàn cục.
+2. `rules/git_workflow.md` cho kỷ luật git commit/push của agent.
+3. `rules/workspace_governance.md` cho topology cụ thể của workspace.
+4. `plans/2026-08-20-workspace-rationalization.md` cho phân loại và phase cleanup.
+5. `.github/workflows/`, `DataGuard.sln`, `Directory.Build.props`, và `Dockerfile` cho entrypoint build/release thực tế.
+6. `~/.omp/agent/AGENTS.md` cho policy OMP toàn cục.
 
 ## Topology và placement
 
@@ -33,6 +34,16 @@ Skills toàn cục đặt tại `~/.claude/skills/` và được expose cho work
 3. Không xóa, đổi tên, hay tách tracked source, research, license, agent config hoặc session state chỉ dựa trên absence search.
 4. Cleanup không đảo ngược cần manifest `from → disposition`, bảo toàn WIP, phê duyệt owner rõ ràng, rồi loại bỏ toàn bộ caller/link/hook/validator/lock file liên quan.
 5. Không tạo `archive/` hoặc `legacy/` trong production repo; dùng repository/branch riêng cho tài sản còn giữ.
+
+## Git workflow (cross-agent)
+
+Áp dụng `rules/git_workflow.md`. Tóm tắt bắt buộc:
+
+1. Không bao giờ commit / push / reset / amend / rebase khi chưa có yêu cầu tường minh từ người dùng.
+2. Không bao giờ gọi `dg-git` trần hoặc `dg-git sync` (foot-gun tự commit+push). `dg-git` trần giờ exit 1.
+3. Conventional Commits bắt buộc; cấm `auto-sync` / timestamp-junk (hook `commit-msg` + `dg-git` sẽ chặn).
+4. Không `--no-verify`, `--force`, `git clean -fdx`; không push thẳng `main` khi chưa được phép.
+5. Hook đã cài ở `.githooks/` (pre-commit, pre-push, commit-msg). Bật một lần: `git config core.hooksPath .githooks`.
 
 ## Xác minh tối thiểu
 

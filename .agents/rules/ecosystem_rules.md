@@ -33,3 +33,13 @@ This adapter defers to the canonical workspace rules rather than defining a comp
 3. Irreversible cleanup requires an owner-approved `from → keep | extract | rewrite | remove` manifest. Remove a discarded stack together with its callers, links, hooks, validators, and lock files.
 4. Do not create `archive/` or `legacy/` in the production repository; extract retained material to a separate branch or repository.
 5. Never disclose secrets, credentials, tokens, private session state, or handoff contents.
+
+## Git discipline
+
+Áp dụng `rules/git_workflow.md`. Tóm tắt bắt buộc:
+
+1. Không bao giờ commit / push / reset / amend / rebase khi chưa có yêu cầu tường minh từ người dùng.
+2. Không bao giờ gọi `dg-git` trần hoặc `dg-git sync` (foot-gun tự commit+push). `dg-git` trần giờ exit 1.
+3. Conventional Commits bắt buộc; cấm `auto-sync` / timestamp-junk.
+4. Không `--no-verify`, `--force`, `git clean -fdx`; không push thẳng `main` khi chưa được phép.
+5. Bật hook một lần: `git config core.hooksPath .githooks` (pre-commit, pre-push, commit-msg).

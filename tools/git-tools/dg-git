@@ -120,6 +120,7 @@ cmd_commit() {
     local msg="" no_verify=false files=()
     while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-verify) no_verify=true;; --file) files+=("$2"); shift;; *) break;; esac; shift; done
     [[ -z "$msg" ]] && { echo "Usage: dg-git commit -m \"msg\" [--file file...]"; exit 1; }
+    reject_auto_msg "$msg" || exit 1
     [[ "$no_verify" != true ]] && cmd_doctor || { echo "Use --no-verify to skip"; exit 1; }
     preflight_stage || exit 0
     [[ ${#files[@]} -gt 0 ]] && git add "${files[@]}" || git add -A
@@ -159,9 +160,10 @@ cmd_sync() {
     require_git_repo
     local msg="" fix_mode=true yes_mode=true
     while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-fix) fix_mode=false;; --no-yes) DG_YES_MODE=false;; *) break;; esac; shift; done
-    # No message: auto-generate a conventional commit message so a bare
-    # `dg-git` runs the full workflow end-to-end.
-    [[ -z "$msg" ]] && msg="chore: auto-sync $(date +%Y-%m-%d-%H%M%S)"
+    # Require an explicit Conventional Commit message. A bare `dg-git sync`
+    # must NOT auto-commit with a junk timestamp message (agent foot-gun).
+    [[ -z "$msg" ]] && { log_error "dg-git sync requires an explicit -m \"<conventional message>\""; exit 1; }
+    reject_auto_msg "$msg" || exit 1
     cmd_doctor
     preflight_stage || return 0
     # Scan the files that WOULD be staged BEFORE touching the index: a secret
@@ -228,12 +230,28 @@ cmd_config() {
     case "$action" in show) [[ -f "$DG_GIT_DIR/.dg-git.yml" ]] && cat "$DG_GIT_DIR/.dg-git.yml" || log_info "No config";; set) mkdir -p "$(dirname "$DG_GIT_DIR/.dg-git.yml")"; echo "$key: $value" >> "$DG_GIT_DIR/.dg-git.yml"; log_success "Set $key=$value";; get) grep "^$key:" "$DG_GIT_DIR/.dg-git.yml" 2>/dev/null | cut -d' ' -f2- || true;; reset) rm -f "$DG_GIT_DIR/.dg-git.yml"; log_success "Config reset";; *) echo "Usage: dg-git config [--show|--set key val|--get key|--reset]";; esac
 }
 
+# Reject generic auto-sync / timestamp-junk commit messages.
+reject_auto_msg() {
+    local m="$1"
+    if printf '%s' "$m" | grep -Eq '^[[:space:]]*chore:[[:space:]]*auto[-_ ]?sync'; then
+        log_error "Refusing generic auto-sync commit message: '$m'"
+        log_error "Provide a meaningful Conventional Commit (feat/fix/chore/docs/refactor/test/ci/build/perf)."
+        return 1
+    fi
+    return 0
+}
+
 # Main
 main() {
     load_config() { [[ -f "$DG_GIT_DIR/.dg-git.yml" ]] && while IFS='=' read -r k v; do [[ $k =~ ^[[:space:]]*# ]] && continue; [[ -z $k ]] && continue; k=$(echo "$k"|xargs); v=$(echo "$v"|xargs); export "DG_${k^^}"="$v"; done < "$DG_GIT_DIR/.dg-git.yml"; :; }
     load_config
     
-    cmd="${1:-sync}"; shift || true
+    # Bare invocation must NOT auto-commit+push. Require an explicit command.
+    if [[ $# -eq 0 ]]; then
+        echo "dg-git: a command is required. Run 'dg-git help' for usage." >&2
+        exit 1
+    fi
+    cmd="$1"; shift
     case "$cmd" in
         doctor) cmd_doctor "$@" ;;
         commit) cmd_commit "$@" ;;
@@ -247,7 +265,7 @@ main() {
 DataGuard Git Tools (dg-git) - Safe git operations
 
 Usage: dg-git [command] [options]
-  (no command = full workflow: doctor → commit (auto message) → push)
+  (a command is required; bare invocation prints usage and exits 1)
 
 Commands:
   doctor      Check repo health (default: fix=yes, yes=yes, strict=no)
@@ -271,11 +289,10 @@ Config file: .dg-git.yml
   dry_run: false
 
 Examples:
-  dg-git                    # Full workflow (doctor → commit → push, auto message)
-  dg-git doctor             # Full check with auto-fix
+  dg-git doctor             # Read-only repo health check
   dg-git commit -m "feat"   # Safe commit
   dg-git push               # Safe push
-  dg-git sync -m "feat"     # Full workflow with explicit message
+  dg-git sync -m "feat"     # Doctor → secret scan → commit → push
   dg-git branch --create feat/new
   dg-git secret             # Scan secrets
   dg-git config --show

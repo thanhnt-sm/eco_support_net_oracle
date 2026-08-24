@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# DataGuard commit-msg hook: Conventional Commits only, no auto-sync junk.
+# Rejects generic/timestamp messages an AI agent might emit accidentally.
+
+set -euo pipefail
+
+msg_file="$1"
+msg="$(cat "$msg_file")"
+first="$(printf '%s' "$msg" | sed -n '1p')"
+
+# 1. Reject generic auto-sync / timestamp-junk messages.
+if printf '%s' "$msg" | grep -Eq '^[[:space:]]*(chore:[[:space:]]*)?auto[-_ ]?sync'; then
+    printf '[commit-msg] Refusing generic auto-sync commit message.\n' >&2
+    printf 'Use a meaningful Conventional Commit message (feat/fix/chore/docs/refactor/test/ci/build/perf).\n' >&2
+    exit 1
+fi
+
+# 2. Allow merge/revert commits verbatim.
+if printf '%s' "$first" | grep -Eq '^(Merge |Revert ")'; then
+    exit 0
+fi
+
+# 3. Enforce Conventional Commit type prefix on the first line.
+if ! printf '%s' "$first" | grep -Eq '^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\([^)]*\))?!?: .+'; then
+    printf '[commit-msg] Commit message must use Conventional Commits: <type>[<scope>]: <subject>\n' >&2
+    printf 'Examples: feat(auth): add JWT validation / fix(ci): close SQL reader / chore: remove legacy stack\n' >&2
+    exit 1
+fi
+
+exit 0
