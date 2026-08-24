@@ -362,7 +362,11 @@ jobs:
 
       - name: NuGet login (Trusted Publishing, OIDC)
         id: login
+        # Trusted Publishing requires a matching trust policy registered on
+        # nuget.org for NUGET_USER. When it is not configured the step fails
+        # with HTTP 401; continue so publish falls back to NUGET_API_KEY.
         if: env.NUGET_USER != ''
+        continue-on-error: true
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
           # nuget.org profile name, NOT an email address.
