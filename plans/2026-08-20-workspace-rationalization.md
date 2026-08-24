@@ -155,3 +155,20 @@ Không tạo `archive/`, `legacy/`, hay root scratch mới. Khi một stack di s
 ## 6. Phụ thuộc Marketplace
 
 `src/DataGuard.VSCode/` là production source của VS Code extension, không thuộc TypeScript/EcoSupport di sản ở root. `src/DataGuard.VisualStudio/` sẽ là production source Windows-only khi được thêm. Mọi cleanup Node/TypeScript manifest, CI hay docs phải preserve hai module và workflow phát hành của chúng. Chi tiết/gates: [Marketplace product plan](260820-marketplace-extensions/plan.md).
+
+## Execution log — Phase 2 (2026-08-24)
+
+Thực hiện: 2026-08-24 (orchestration phiên, thực thi trực tiếp do subagent spawn infra không khả dụng trong session — theo AGENTS.md rule 3).
+
+| From | Disposition |
+|------|-------------|
+| `crates/` (5 crates eco-agents/eco-cli/eco-core/eco-mcp/eco-radar), `Cargo.toml`, `Cargo.lock`, `target/` | REMOVE (D1) |
+| `packages/{cli,core,mcp}`, `package.json`, `tsconfig.base.json`, `vitest.config.ts`, `pnpm-lock.yaml`, `node_modules/` | BACKUP rồi REMOVE (D2) |
+| `pyproject.toml`, `tests/{__init__.py,test_agents.py,test_client.py,test_mcp_servers.py,test_radar.py}`, `tests/test_rust_*.rs` ×4, caches Python (`.venv`, `.mypy_cache`, `.pytest_cache`, `.ruff_cache`, `tests/__pycache__`) | REMOVE (D3) |
+| `.tmp_new_models` | REMOVE (D4) |
+
+- Backup path (ngoài repo): `/Volumes/Data/101.AI/GitHub/_legacy_ecosupport_backup/20260824T112630Z`
+- Backup stats: **94 files, 346717 bytes**; đối chiếu count + tổng bytes khớp tuyệt đối nguồn, 5/5 SHA-256 checksum khớp.
+- `research/python_prototype/` GIỮ nguyên (D3 chỉ xóa Python chết + test mồ côi).
+- `scripts/anti_garbage_guard.sh` + `scripts/preflight_agent_check.sh` đã sửa (xóa allowlist/pattern di sản) và commit trong `b7072fc` (commit auto-sync xảy ra trước phiên này); guardrail chống auto-sync bổ sung ở `795820e` (`rules/git_workflow.md`, `.githooks/commit-msg`, harden `dg-git`, wire `core.hooksPath`).
+- Reference còn lại trong `docs/` (mô tả sản phẩm chuyên biệt), `rules/`, `claude/skills/eco-support/`, `.gitignore` nằm NGOÀI scope todo 9 — thuộc plan docs-sync riêng.
