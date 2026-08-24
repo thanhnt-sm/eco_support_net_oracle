@@ -145,7 +145,7 @@ preflight_stage() {
 
 cmd_push() {
     require_git_repo
-    local remote="origin" set_upstream=false dry_run=false
+    local remote="origin" set_upstream="" dry_run=false
     while [[ $# -gt 0 ]]; do case $1 in --remote) remote="$2"; shift;; --set-upstream) set_upstream=true;; --dry-run) dry_run=true;; *) break;; esac; shift; done
     local branch=$(git rev-parse --abbrev-ref HEAD)
     local behind=$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)
