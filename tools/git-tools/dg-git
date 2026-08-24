@@ -153,7 +153,7 @@ cmd_push() {
     [[ $behind -gt 0 && $ahead -gt 0 ]] && { log_error "Diverged ($ahead ahead, $behind behind)"; log_info "Run 'dg-git sync'"; exit 1; }
     [[ $behind -gt 0 ]] && log_warn "$behind behind"
     [[ "$dry_run" == true ]] && { log_info "Dry run: would push to $remote"; exit 0; }
-    git push "$remote" HEAD${set_upstream:+ -u $remote}
+    git push "$remote" "$branch"${set_upstream:+ -u "$remote"}
     log_success "Pushed to $remote"
 }
 
