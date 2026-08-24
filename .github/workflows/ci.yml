@@ -154,7 +154,9 @@ jobs:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before }}
           head: ${{ github.event.pull_request.head.sha || github.sha }}
-          extra_args: --only-verified   # action already passes --fail; repeating it errors
+          # Exclude generated build artifacts — mach-o/PE chunks crash the
+          # scanner (brotli PADDING_2 → exit 183) and carry no secret value.
+          extra_args: --only-verified --exclude-paths .github/trufflehog-exclude-paths.txt
           version: "3.97.0"
 
       - name: TruffleHog full git history (verified secrets, fail)

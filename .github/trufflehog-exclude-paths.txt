@@ -1,0 +1,33 @@
+# TruffleHog path exclusions (gitignore-syntax allowlist of what to SKIP).
+# Rationale: build artifacts and vendored binaries are not secret-bearing and
+# choke the scanner on mach-o/PE chunks (brotli PADDING errors → exit 183).
+# Everything under these dirs is generated output, never source.
+
+# Rust build artifacts (174MB of compiled binaries/deps)
+target/
+
+# .NET build outputs
+**/bin/
+**/obj/
+artifacts/
+nupkg/
+sbom/
+
+# Node
+node_modules/
+out/
+
+# Python caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Benchmark artifacts
+BenchmarkDotNet.Artifacts/
+
+# Local harness state (not source)
+.omp/
+.omo/
+.codegraph/
+.codex/
+.claude/
