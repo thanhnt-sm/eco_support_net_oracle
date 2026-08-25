@@ -60,6 +60,7 @@ public sealed class LegacySupportTable
         new SupportTableEntry { TargetFrameworkMoniker = "netstandard2.0", Status = SupportStatus.Supported, SourceUrl = "https://learn.microsoft.com/en-us/dotnet/standard/net-standard", Retrieved = "2026-08-23" },
         new SupportTableEntry { TargetFrameworkMoniker = "net8.0", Status = SupportStatus.Supported, SourceUrl = "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core", Retrieved = "2026-08-23" },
         new SupportTableEntry { TargetFrameworkMoniker = "net9.0", Status = SupportStatus.Supported, SourceUrl = "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core", Retrieved = "2026-08-23" },
+        new SupportTableEntry { TargetFrameworkMoniker = "net10.0", Status = SupportStatus.Supported, SourceUrl = "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core", Retrieved = "2026-08-25" },
     });
 
     /// <summary>Exact-moniker lookup; returns null when no curated row exists (caller must report Unknown).</summary>

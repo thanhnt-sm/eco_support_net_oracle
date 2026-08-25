@@ -121,8 +121,26 @@ public static class UpgradePlanner
         return new UpgradePlan { Steps = steps, ManualBlockers = blockers };
     }
 
-    private static string? SuggestCandidate(LegacySupportTable table, bool isSdkStyle) =>
-        isSdkStyle && table.Lookup("net8.0")?.Status == SupportStatus.Supported ? "net8.0" : null;
+    private static string? SuggestCandidate(LegacySupportTable table, bool isSdkStyle)
+    {
+        if (!isSdkStyle)
+        {
+            return null;
+        }
+
+        // Prefer net9.0 (current), fall back to net8.0 (LTS)
+        if (table.Lookup("net9.0")?.Status == SupportStatus.Supported)
+        {
+            return "net9.0";
+        }
+
+        if (table.Lookup("net8.0")?.Status == SupportStatus.Supported)
+        {
+            return "net8.0";
+        }
+
+        return null;
+    }
 
     private static IEnumerable<ProjectFacts> OrderLeavesFirst(IReadOnlyList<ProjectFacts> all, HashSet<string> referencedPaths)
     {

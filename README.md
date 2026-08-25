@@ -33,12 +33,13 @@ The IDE layer (`DataGuard.Analyzers`) marks unvalidated SQL calls on every keyst
 
 | ID | Rule | ID | Rule |
 |----|------|----|------|
-| DG001 | Parameter count match | DG009 | NVARCHAR2(2000) inference fallback |
-| DG002 | Parameter type match | DG010-014 | Oracle dialect / provider checks |
-| DG003 | Parameter direction match | DG015/016 | Phantom table / column (AI-hallucination detection) |
-| DG004 | Result-set column shape | MY001-003 | MySQL syntax / length checks |
-| DG005 | Nullability match | PG001-003 | PostgreSQL syntax / length checks |
-| DG006 | Naming convention | DG007/008 | Oracle length semantics (CHAR/BYTE, ORA-12899) |
+| DG001 | IDE: unvalidated SQL call (Roslyn analyzer) | DG009 | NVARCHAR2(2000) inference fallback |
+| DG101 | Engine: parameter count match | DG010-014 | Oracle dialect / provider checks |
+| DG002 | Parameter type match | DG015/016 | Phantom table / column (AI-hallucination detection) |
+| DG003 | Parameter direction match | MY001-003 | MySQL syntax / length checks |
+| DG004 | Result-set column shape | PG001-003 | PostgreSQL syntax / length checks |
+| DG005 | Nullability match | DG007/008 | Oracle length semantics (CHAR/BYTE, ORA-12899) |
+| DG006 | Naming convention | | |
 
 ## Packages
 
