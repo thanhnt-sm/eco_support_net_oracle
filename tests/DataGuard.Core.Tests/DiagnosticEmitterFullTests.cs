@@ -292,7 +292,9 @@ public class DiagnosticEmitterFullTests : IDisposable
             Console.SetOut(originalOut);
         }
 
-        writer.ToString().Should().Be("[WARNING] DG101: No location" + Environment.NewLine);
+        // Contain (not Be): parallel tests may write to the same redirected console
+        // (e.g. Testcontainers logging on CI runners with Docker).
+        writer.ToString().Should().Contain("[WARNING] DG101: No location" + Environment.NewLine);
     }
 
     [Fact]
