@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# EcoSupport Git Sync & Fast Push Automation Tool
+# DataGuard Git Sync & Fast Push Automation Tool
 # Handles rapid pushing, auto-stashing, conflict prevention, and branch tracking.
 # ==============================================================================
 
@@ -12,7 +12,7 @@ YELLOW="\033[1;33m"
 RED="\033[0;31m"
 NC="\033[0m"
 
-echo -e "${CYAN}🌿 [EcoSupport Git Sync] Starting automated workspace sync...${NC}"
+echo -e "${CYAN}🌿 [DataGuard Git Sync] Starting automated workspace sync...${NC}"
 
 # Check if inside git repo
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then

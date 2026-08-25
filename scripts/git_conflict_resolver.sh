@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# EcoSupport Git Conflict Resolution Assistant
+# DataGuard Git Conflict Resolution Assistant
 # Inspects unmerged files, provides status report, and safe resolution options.
 # ==============================================================================
 

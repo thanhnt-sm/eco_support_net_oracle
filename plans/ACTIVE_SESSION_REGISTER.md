@@ -53,6 +53,24 @@ NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS
 
 ---
 
+## 📌 PHIÊN NÀY — Cleanup di sản hoàn tất + reference sweep bổ sung (2026-08-25)
+
+1. ✅ **Đối chiếu plan với hiện trạng**: `legacy-ecosupport-cleanup` (`.omo/plans/`) đã completed (boulder status=completed, commit `0f7a1c2`), nhưng reference di sản còn sót do orchestrator phiên trước buộc thực thi trực tiếp (subagent spawn infra hỏng).
+2. ✅ **Root cause + fix**: subagent model stale `opencode/deepseek-v4-flash-free` → đã override model trong `~/.config/opencode/opencode.jsonc` (Sisyphus-Junior + explore/librarian/oracle/metis/momus/... → `opencode/x-preview-f-free`).
+3. ✅ **Reference sweep bổ sung** (retry phần bỏ sót):
+   - Header "EcoSupport" → "DataGuard" trong 4 script (`preflight_agent_check.sh`, `verify_docs_sync.sh`, `git_sync.sh`, `git_conflict_resolver.sh`).
+   - Xóa `claude/skills/eco-support/` (SKILL.md + plugin.json).
+   - Rewrite `.env.example` → DataGuard env vars (`DATAGUARD_CONNECTION_STRING`, `DATAGUARD_PROVIDER`, `DATAGUARD_CLI_PATH`, `VAULT_TOKEN`).
+   - Rewrite `.gitignore` → topology DataGuard (bỏ section Rust/Python/pnpm/Cargo/vitest trùng lặp).
+   - Cập nhật `rules/workspace_governance.md` + `plans/2026-08-20-workspace-rationalization.md`.
+4. ✅ **Verify**: `dotnet build DataGuard.sln --configuration Release` → **0 errors, 0 warnings**; `dotnet test` → **320/320 pass** (Core 278, GoldenCorpus 25, CodeFixes 12 — project test mới từ WIP agent song song, Analyzers 5). Scripts guard: preflight/verify_docs_sync/anti_garbage_guard exit 0.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO (bổ sung)
+- [ ] docs-sync: rewrite `docs/` + `plans/` mô tả EcoSupport cũ → DataGuard (task lớn riêng, cần owner).
+- [ ] User action: tạo secret `NUGET_USER`/`VSCE_PAT`/`VS_MARKETPLACE_PAT`.
+
+---
+
 ## 📏 LUẬT VÀNG CHO AI KHI LÀM VIỆC (DataGuard)
 
 | Luật | Nội dung |

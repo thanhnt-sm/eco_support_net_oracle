@@ -12,12 +12,15 @@
 | Automation | `.github/`, `.githooks/`, `scripts/`, `tools/`, `Dockerfile`, `.dockerignore` | Chỉ giữ khi CI, release, hook hoặc runbook DataGuard có reference. |
 | Local runtime/state | `.omp/`, `.omo/`, `.codegraph/`, `.codex/` (skills symlink-only), cache lint/test | Không commit output generated; không xóa session/state khi process còn dùng. |
 
-## Candidate di sản
+## Cleanup di sản (đã hoàn tất 2026-08-24)
 
-- `crates/`, Cargo manifests, Python manifests/tests/prototype, Node manifests/`packages/`, EcoSupport docs/rules, `docker-compose.yml`, và agent adapters cũ là candidate, không phải rác mặc định.
-- `packages/` bị ignore là vấn đề ownership/version-control; không được dùng làm bằng chứng xóa.
-- `.tmp_new_models` không có reference operational được tìm thấy và là candidate remove, nhưng vẫn cần phê duyệt vì tracked.
-- `LICENSE` và `LICENSE.md` mâu thuẫn. Chỉ owner được chọn license canonical trước khi xóa hoặc sửa metadata.
+Cleanup di sản EcoSupport đã hoàn tất theo manifest được owner phê duyệt (`plans/2026-08-20-workspace-rationalization.md` §Execution log). Disposition cuối:
+
+- Rust (`crates/`, `Cargo.toml`, `Cargo.lock`, `target/`) → REMOVE.
+- TypeScript (`packages/{cli,core,mcp}`, root manifests) → BACKUP ngoài repo rồi REMOVE.
+- Python chết + test mồ côi (`pyproject.toml`, `tests/test_*.py`, `tests/test_rust_*.rs`) → REMOVE; `research/python_prototype/` GIỮ làm research độc lập.
+- `.tmp_new_models` → REMOVE.
+- License canonical: `LICENSE` (MIT) — `LICENSE.md` trùng lặp đã không còn.
 
 ## Quy tắc cleanup
 

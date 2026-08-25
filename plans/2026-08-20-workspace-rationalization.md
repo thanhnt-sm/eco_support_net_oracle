@@ -172,3 +172,16 @@ Thực hiện: 2026-08-24 (orchestration phiên, thực thi trực tiếp do sub
 - `research/python_prototype/` GIỮ nguyên (D3 chỉ xóa Python chết + test mồ côi).
 - `scripts/anti_garbage_guard.sh` + `scripts/preflight_agent_check.sh` đã sửa (xóa allowlist/pattern di sản) và commit trong `b7072fc` (commit auto-sync xảy ra trước phiên này); guardrail chống auto-sync bổ sung ở `795820e` (`rules/git_workflow.md`, `.githooks/commit-msg`, harden `dg-git`, wire `core.hooksPath`).
 - Reference còn lại trong `docs/` (mô tả sản phẩm chuyên biệt), `rules/`, `claude/skills/eco-support/`, `.gitignore` nằm NGOÀI scope todo 9 — thuộc plan docs-sync riêng.
+
+## Execution log — Phase 2 reference sweep bổ sung (2026-08-25)
+
+Đối chiếu plan với hiện trạng sau commit `0f7a1c2` phát hiện reference di sản còn sót. Root cause: orchestrator phiên trước buộc thực thi trực tiếp do subagent spawn infra hỏng (`ProviderModelNotFoundError: opencode/deepseek-v4-flash-free` — đã fix model override ở `~/.config/opencode/opencode.jsonc`), nên bỏ sót một số surface. Xử lý bổ sung:
+
+| From | Disposition |
+|------|-------------|
+| `scripts/{preflight_agent_check,verify_docs_sync,git_sync,git_conflict_resolver}.sh` header "EcoSupport" | REWRITE → "DataGuard" |
+| `claude/skills/eco-support/` (SKILL.md + plugin.json) | REMOVE |
+| `.env.example` (Anthropic/FastMCP/ecosystem radar) | REWRITE → DataGuard env vars (`DATAGUARD_CONNECTION_STRING`, `DATAGUARD_PROVIDER`, `DATAGUARD_CLI_PATH`, `VAULT_TOKEN`) |
+| `.gitignore` (section Rust/Python/pnpm/Cargo/vitest trùng lặp) | REWRITE → topology DataGuard (giữ .NET + Node VSCode + secrets) |
+
+- Còn lại ngoài scope (plan docs-sync riêng): `docs/` và `plans/` mô tả sản phẩm EcoSupport cũ cần rewrite DataGuard; `research/python_prototype/` giữ nguyên theo D3.

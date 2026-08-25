@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# EcoSupport Pre-Flight Invariant & Workspace Health Checker
+# DataGuard Pre-Flight Invariant & Workspace Health Checker
 # Real-time instant verification tool for AI Agents & Developers.
 # ==============================================================================
 
@@ -12,7 +12,7 @@ YELLOW="\033[1;33m"
 RED="\033[0;31m"
 NC="\033[0m"
 
-echo -e "${CYAN}⚡ [EcoSupport Pre-Flight Check] Running in-flight verification...${NC}"
+echo -e "${CYAN}⚡ [DataGuard Pre-Flight Check] Running in-flight verification...${NC}"
 
 # 1. Check rogue untracked / unapproved files in real-time
 echo -e "${CYAN}1. Scanning workspace for rogue/unapproved files...${NC}"

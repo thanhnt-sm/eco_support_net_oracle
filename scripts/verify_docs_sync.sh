@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# EcoSupport Living Documentation Synchronization Validator
+# DataGuard Living Documentation Synchronization Validator
 # Verifies that all required bilingual documentation artifacts exist and are indexed.
 # ==============================================================================
 
