@@ -134,4 +134,18 @@ public class AssessmentContractTests : IDisposable
         Assert.Equal("DG1000", error.Code);
         Assert.Empty(report.Findings);
     }
+    [Fact]
+    public async Task WriteJsonAsync_WritesValidJsonToFile()
+    {
+        WriteProject("SdkLegacy", "App.csproj", SdkLegacyProject);
+        var report = AssessmentEngine.Run(new AssessmentRequest { WorkspaceRoot = _root });
+        var outputPath = Path.Combine(_root, "report.json");
+
+        await AssessmentReportWriter.WriteJsonAsync(report, outputPath);
+
+        Assert.True(File.Exists(outputPath));
+        var json = await File.ReadAllTextAsync(outputPath);
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("1.0", doc.RootElement.GetProperty("schemaVersion").GetString());
+    }
 }

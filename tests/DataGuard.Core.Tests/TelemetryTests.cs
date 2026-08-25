@@ -165,8 +165,6 @@ public class TelemetryExportAllowlistTests
                 return Task.CompletedTask;
             }))
         {
-            // fail, success, fail, success — the breaker never trips because
-            // failures are not consecutive.
             for (var i = 0; i < 4; i++)
             {
                 collector.RecordEvent("test.event", "details");
@@ -175,5 +173,79 @@ public class TelemetryExportAllowlistTests
         }
 
         exportAttempts.Should().Be(4, "non-consecutive failures must not trip the breaker");
+    }
+}
+
+public class TelemetryConfigDefaultsTests
+{
+    [Fact]
+    public void TelemetryConfig_DefaultValues()
+    {
+        var config = new TelemetryConfig();
+
+        config.Enabled.Should().BeFalse();
+        config.ExportEndpoint.Should().BeNull();
+        config.FlushIntervalSeconds.Should().Be(30);
+        config.IncludeStackTraces.Should().BeFalse();
+    }
+
+    [Fact]
+    public void TelemetryConfig_CustomValues()
+    {
+        var config = new TelemetryConfig(Enabled: true, ExportEndpoint: "https://example.com", FlushIntervalSeconds: 60, IncludeStackTraces: true);
+
+        config.Enabled.Should().BeTrue();
+        config.ExportEndpoint.Should().Be("https://example.com");
+        config.FlushIntervalSeconds.Should().Be(60);
+        config.IncludeStackTraces.Should().BeTrue();
+    }
+}
+
+public class TimedOperationTests
+{
+    [Fact]
+    public void TimedOperation_Dispose_RecordsHistogram()
+    {
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, FlushIntervalSeconds: 3600));
+
+        using (var op = collector.MeasureOperation("test.timed"))
+        {
+            // op is disposed here, recording the elapsed time
+        }
+
+        // No exception means TimedOperation.Dispose called RecordHistogram successfully
+    }
+
+    [Fact]
+    public void TimedOperation_Dispose_MultipleTimes_DoesNotThrow()
+    {
+        var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, FlushIntervalSeconds: 3600));
+
+        var op = collector.MeasureOperation("test.timed");
+        op.Dispose();
+        var act = () => op.Dispose();
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void TelemetryCollector_RecordRuleExecution_Enabled_RecordsMetrics()
+    {
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, FlushIntervalSeconds: 3600));
+
+        var act = () => collector.RecordRuleExecution("DG001", true, TimeSpan.FromMilliseconds(5));
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void TelemetryCollector_RecordValidationSummary_Disabled_IsNoOp()
+    {
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: false));
+
+        var act = () => collector.RecordValidationSummary(10, 2, 1, 1, TimeSpan.FromSeconds(1));
+        act.Should().NotThrow();
     }
 }

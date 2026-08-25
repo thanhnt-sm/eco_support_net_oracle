@@ -340,4 +340,41 @@ public class DataGuardApiSurfaceTests
         var order = graph.GetExecutionOrder();
         order.Should().NotBeEmpty();
     }
+
+    [Fact]
+    public void DataGuardFactory_CreateAuditLogger_AuditEnabled_ReturnsFileLogger()
+    {
+        var logPath = Path.Combine(Path.GetTempPath(), $"dg-audit-{Guid.NewGuid():N}.log");
+        var config = new DataGuardConfiguration { EnableAuditLogging = true, AuditLogPath = logPath };
+        var logger = DataGuardFactory.CreateAuditLogger(config);
+        logger.Should().NotBeNull();
+        logger.Should().BeOfType<FileAuditLogger>();
+    }
+}
+
+public class ValidationMetricsTests
+{
+    [Fact]
+    public void ValidationMetrics_Constants_AreDefined()
+    {
+        ValidationMetrics.ValidationsTotal.Should().Be("validations.total");
+        ValidationMetrics.ViolationsTotal.Should().Be("violations.total");
+        ValidationMetrics.ViolationsErrors.Should().Be("violations.errors");
+        ValidationMetrics.ViolationsWarnings.Should().Be("violations.warnings");
+        ValidationMetrics.ValidationContracts.Should().Be("validation.contracts");
+        ValidationMetrics.ValidationDuration.Should().Be("validation.duration");
+        ValidationMetrics.RuleExecutions.Should().Be("rule.executions");
+        ValidationMetrics.RuleDuration.Should().Be("rule.duration");
+    }
+}
+
+public class ValidationPipelineExtensionTests
+{
+    [Fact]
+    public void WithBaseline_DelegatesToWithBaselineFile()
+    {
+        using var pipeline = DataGuardApi.CreatePipeline();
+        var result = pipeline.WithBaseline("custom-baseline.json");
+        result.Should().BeSameAs(pipeline);
+    }
 }

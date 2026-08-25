@@ -160,3 +160,88 @@ public class AssessmentPackTests : IDisposable
         Assert.Contains(report.Findings, f => f.RuleId == "DG1402");
     }
 }
+
+/// <summary>
+/// Tests for PackagesConfigReader: valid XML, missing file, malformed XML, path containment.
+/// </summary>
+public class PackagesConfigReaderTests : IDisposable
+{
+    private readonly string _root;
+
+    public PackagesConfigReaderTests()
+    {
+        _root = Path.Combine(Path.GetTempPath(), "dataguard-pkgcfg-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_root);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    [Fact]
+    public void Read_ValidXml_ReturnsPackages()
+    {
+        var configPath = Path.Combine(_root, "packages.config");
+        File.WriteAllText(configPath, """
+            <?xml version="1.0"?>
+            <packages>
+              <package id="Newtonsoft.Json" version="13.0.3" targetFramework="net462" />
+              <package id="NLog" version="5.0.0" />
+            </packages>
+            """);
+
+        var (packages, error) = PackagesConfigReader.Read(_root, configPath);
+
+        Assert.Null(error);
+        Assert.Equal(2, packages.Count);
+        Assert.Equal("Newtonsoft.Json", packages[0].Id);
+        Assert.Equal("13.0.3", packages[0].Version);
+        Assert.Equal("net462", packages[0].TargetFramework);
+        Assert.Equal("NLog", packages[1].Id);
+        Assert.Null(packages[1].TargetFramework);
+    }
+
+    [Fact]
+    public void Read_MissingFile_ReturnsError()
+    {
+        var configPath = Path.Combine(_root, "missing.config");
+
+        var (packages, error) = PackagesConfigReader.Read(_root, configPath);
+
+        Assert.Empty(packages);
+        Assert.NotNull(error);
+        Assert.Equal("DG1002", error!.Code);
+    }
+
+    [Fact]
+    public void Read_MalformedXml_ReturnsError()
+    {
+        var configPath = Path.Combine(_root, "packages.config");
+        File.WriteAllText(configPath, "not xml at all");
+
+        var (packages, error) = PackagesConfigReader.Read(_root, configPath);
+
+        Assert.Empty(packages);
+        Assert.NotNull(error);
+        Assert.Equal("DG1003", error!.Code);
+    }
+
+    [Fact]
+    public void Read_OutsideWorkspace_ReturnsError()
+    {
+        var configPath = Path.Combine(Path.GetTempPath(), "outside-" + Guid.NewGuid().ToString("N") + ".config");
+
+        var (packages, error) = PackagesConfigReader.Read(_root, configPath);
+
+        Assert.Empty(packages);
+        Assert.NotNull(error);
+        Assert.Equal("DG1001", error!.Code);
+    }
+}
