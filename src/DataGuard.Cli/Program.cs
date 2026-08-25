@@ -1089,8 +1089,8 @@ static List<IContractRule> GetRulesForProvider(string provider)
     }
     else if (provider.Equals("mysql", StringComparison.OrdinalIgnoreCase))
     {
-        rules.Add(new MySqlSyntaxRule());
-        rules.Add(new NonMySqlSyntaxRule());
+        rules.Add(new MySqlSyntaxInNonMySqlContextRule());
+        rules.Add(new NonMySqlSyntaxInMySqlContextRule());
         rules.Add(new MySqlLengthExceedsColumnRule());
     }
     else if (provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase) ||

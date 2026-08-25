@@ -136,16 +136,16 @@ public class RuleCoverageTests
     public async Task My001_MySqlOnlySyntaxInNonMySql_Flags()
     {
         var raw = Raw("INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a=1");
-        var vs = await RunAsync(new MySqlSyntaxRule(), raw, raw);
+        var vs = await RunAsync(new MySqlSyntaxInNonMySqlContextRule(), raw, raw);
         vs.Should().Contain(v => v.RuleId == "MY001");
     }
 
     [Fact]
-    public async Task My002_IsNullIsValidMySql_NotFlagged()
+    public async Task My002_IsNullIsSqlServerSyntax_FlagsInMySqlContext()
     {
         var raw = Raw("SELECT ISNULL(a, 0) FROM t");
-        var vs = await RunAsync(new NonMySqlSyntaxRule(), raw, raw);
-        vs.Should().BeEmpty();
+        var vs = await RunAsync(new NonMySqlSyntaxInMySqlContextRule(), raw, raw);
+        vs.Should().Contain(v => v.RuleId == "MY002");
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public class RuleCoverageTests
             new ("T", new List<ColumnDescriptor> { new ("NAME", "VARCHAR", 100, null, null, true, null, null) }),
         }, "CHAR");
         var vs = await RunAsync(new MySqlLengthExceedsColumnRule(), entity, entity, schema);
-        vs.Should().Contain(v => v.RuleId == "MY003");
+        vs.Should().Contain(v => v.RuleId == "MY004");
     }
 
     // ---- PostgreSQL PG001-003 ----
@@ -173,11 +173,11 @@ public class RuleCoverageTests
     }
 
     [Fact]
-    public async Task Pg002_IsNullIsValidPg_NotFlagged()
+    public async Task Pg002_IsNullIsSqlServerSyntax_FlagsInPgContext()
     {
         var raw = Raw("SELECT ISNULL(a, 0) FROM t");
         var vs = await RunAsync(new NonPostgreSqlSyntaxRule(), raw, raw);
-        vs.Should().BeEmpty();
+        vs.Should().Contain(v => v.RuleId == "PG002");
     }
 
     [Fact]

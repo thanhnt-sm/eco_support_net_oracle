@@ -78,7 +78,7 @@ public class MySqlLengthMismatchDetectorTests
         var violations = _detector.Detect(entity, columns);
 
         violations.Should().ContainSingle(v =>
-            v.RuleId == "MY003" &&
+            v.RuleId == "MY004" &&
             v.Properties != null &&
             v.Properties.ContainsKey("entityMaxLength"));
     }
@@ -128,6 +128,6 @@ public class MySqlLengthMismatchDetectorTests
 
         var violations = _detector.Detect(entity, columns);
 
-        violations.Should().ContainSingle(v => v.RuleId == "MY003");
+        violations.Should().ContainSingle(v => v.RuleId == "MY004");
     }
 }

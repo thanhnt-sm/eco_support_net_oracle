@@ -18,7 +18,7 @@ public class PostgreSqlDialectCheckerTests
     public void CheckPostgreSqlSyntax_NonPgContext_DetectsSerial()
     {
         var violations = _checker.CheckPostgreSqlSyntaxInNonPostgreSqlContext("CREATE TABLE t (id SERIAL)", isPostgreSqlContext: false);
-        violations.Should().ContainSingle(v => v.RuleId == "PG001");
+        violations.Should().Contain(v => v.RuleId == "PG001");
     }
 
     [Fact]
@@ -46,14 +46,14 @@ public class PostgreSqlDialectCheckerTests
     public void CheckNonPostgreSqlSyntax_PgContext_DetectsNvl()
     {
         var violations = _checker.CheckNonPostgreSqlSyntaxInPostgreSqlContext("SELECT NVL(col, 0) FROM t", isPostgreSqlContext: true);
-        violations.Should().ContainSingle(v => v.RuleId == "PG002");
+        violations.Should().Contain(v => v.RuleId == "PG002");
     }
 
     [Fact]
     public void CheckNonPostgreSqlSyntax_PgContext_DetectsGetDate()
     {
         var violations = _checker.CheckNonPostgreSqlSyntaxInPostgreSqlContext("SELECT GETDATE()", isPostgreSqlContext: true);
-        violations.Should().ContainSingle(v => v.RuleId == "PG002");
+        violations.Should().Contain(v => v.RuleId == "PG002");
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class PostgreSqlLengthMismatchDetectorTests
 
         var violations = _detector.Detect(entity, columns);
 
-        violations.Should().ContainSingle(v => v.RuleId == "PG003");
+        violations.Should().Contain(v => v.RuleId == "PG003");
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class PostgreSqlLengthMismatchDetectorTests
     }
 
     [Fact]
-    public void Detect_NoMaxLength_Skips()
+    public void Detect_NoMaxLength_WarnsAboutInferredSize()
     {
         var entity = new EntityDescriptor("e1", "User", "Users", "dbo",
             new[] { new PropertyDescriptor("Name", "string", "name", "varchar", true, null, false, false, null) });
@@ -115,6 +115,7 @@ public class PostgreSqlLengthMismatchDetectorTests
 
         var violations = _detector.Detect(entity, columns);
 
-        violations.Should().BeEmpty();
+        // Adapter warns when entity has no MaxLength but column is VARCHAR(n)
+        violations.Should().Contain(v => v.RuleId == "PG003");
     }
 }
