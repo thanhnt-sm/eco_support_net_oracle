@@ -177,6 +177,11 @@ public sealed class MySqlDialectChecker
         bool isMySqlContext,
         Location? location = null)
     {
+        if (string.IsNullOrEmpty(sqlText))
+        {
+            return Array.Empty<ContractViolation>();
+        }
+
         if (isMySqlContext)
         {
             return Array.Empty<ContractViolation>();
@@ -233,6 +238,11 @@ public sealed class MySqlDialectChecker
         bool isMySqlContext,
         Location? location = null)
     {
+        if (string.IsNullOrEmpty(sqlText))
+        {
+            return Array.Empty<ContractViolation>();
+        }
+
         if (!isMySqlContext)
         {
             return Array.Empty<ContractViolation>();

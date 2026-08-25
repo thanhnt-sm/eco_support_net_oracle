@@ -148,6 +148,11 @@ public sealed class PostgreSqlDialectChecker
         bool isPostgreSqlContext,
         Location? location = null)
     {
+        if (string.IsNullOrEmpty(sqlText))
+        {
+            return Array.Empty<ContractViolation>();
+        }
+
         if (isPostgreSqlContext)
         {
             return Array.Empty<ContractViolation>();
@@ -205,6 +210,11 @@ public sealed class PostgreSqlDialectChecker
         bool isPostgreSqlContext,
         Location? location = null)
     {
+        if (string.IsNullOrEmpty(sqlText))
+        {
+            return Array.Empty<ContractViolation>();
+        }
+
         if (!isPostgreSqlContext)
         {
             return Array.Empty<ContractViolation>();
