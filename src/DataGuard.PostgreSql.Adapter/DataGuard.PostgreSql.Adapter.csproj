@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.10" />
+    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.11" />
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
