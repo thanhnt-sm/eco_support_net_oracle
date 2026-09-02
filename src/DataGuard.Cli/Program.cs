@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -26,18 +25,33 @@ var rootCommand = new RootCommand("DataGuard - Entity ↔ SP/Raw SQL Contract Va
 
 #region Common Options
 
-var connectionOption = new Option<string>("--connection", "Database connection string");
-var configOption = new Option<string>("--config", "Path to .dataguard.yml config file");
-var outputOption = new Option<string>("--output", "Output file path; required for --format sarif or evidence");
-var formatOption = new Option<string>("--format", () => "text", "Output format: text (default), sarif, or evidence");
-var offlineOption = new Option<bool>("--offline", "Run in offline mode (no DB connection)");
-var verboseOption = new Option<bool>("--verbose", "Enable verbose output");
-var providerOption = new Option<string>("--provider", () => "sqlserver", "Database provider: sqlserver, oracle, mysql, postgresql");
-var assemblyOption = new Option<string>("--assembly", "Path to compiled assembly for Manual ground-truth mode (--offline)");
-var schemaOption = new Option<string>("--schema", "Database schema/owner name");
-var packageOption = new Option<string>("--package", "Oracle package name");
-var failOnDriftOption = new Option<bool>("--fail-on-drift", "Exit non-zero when snapshot drift is detected");
-var baselinePathOption = new Option<string>("--baseline", () => ".dataguard-baseline.json", "Path to the baseline file to migrate");
+var connectionOption = new Option<string>("--connection");
+connectionOption.Description = "Database connection string";
+var configOption = new Option<string>("--config");
+configOption.Description = "Path to .dataguard.yml config file";
+var outputOption = new Option<string>("--output");
+outputOption.Description = "Output file path; required for --format sarif or evidence";
+var formatOption = new Option<string>("--format");
+formatOption.Description = "Output format: text (default), sarif, or evidence";
+formatOption.DefaultValueFactory = (_) => "text";
+var offlineOption = new Option<bool>("--offline");
+offlineOption.Description = "Run in offline mode (no DB connection)";
+var verboseOption = new Option<bool>("--verbose");
+verboseOption.Description = "Enable verbose output";
+var providerOption = new Option<string>("--provider");
+providerOption.Description = "Database provider: sqlserver, oracle, mysql, postgresql";
+providerOption.DefaultValueFactory = (_) => "sqlserver";
+var assemblyOption = new Option<string>("--assembly");
+assemblyOption.Description = "Path to compiled assembly for Manual ground-truth mode (--offline)";
+var schemaOption = new Option<string>("--schema");
+schemaOption.Description = "Database schema/owner name";
+var packageOption = new Option<string>("--package");
+packageOption.Description = "Oracle package name";
+var failOnDriftOption = new Option<bool>("--fail-on-drift");
+failOnDriftOption.Description = "Exit non-zero when snapshot drift is detected";
+var baselinePathOption = new Option<string>("--baseline");
+baselinePathOption.Description = "Path to the baseline file to migrate";
+baselinePathOption.DefaultValueFactory = (_) => ".dataguard-baseline.json";
 
 #endregion
 
@@ -48,18 +62,17 @@ var validateCommand = new Command("validate", "Validate contracts against databa
     connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption,
 };
 
-validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext context) =>
+validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
 {
-    var console = new SystemConsole();
-    var connection = context.ParseResult.GetValueForOption(connectionOption);
-    var configPath = context.ParseResult.GetValueForOption(configOption);
-    var output = context.ParseResult.GetValueForOption(outputOption);
-    var format = context.ParseResult.GetValueForOption(formatOption) ?? "text";
-    var offline = context.ParseResult.GetValueForOption(offlineOption);
-    var verbose = context.ParseResult.GetValueForOption(verboseOption);
-    var provider = context.ParseResult.GetValueForOption(providerOption) ?? "sqlserver";
-    var schema = context.ParseResult.GetValueForOption(schemaOption);
-    var assemblyPath = context.ParseResult.GetValueForOption(assemblyOption);
+    var connection = result.GetValue(connectionOption);
+    var configPath = result.GetValue(configOption);
+    var output = result.GetValue(outputOption);
+    var format = result.GetValue(formatOption) ?? "text";
+    var offline = result.GetValue(offlineOption);
+    var verbose = result.GetValue(verboseOption);
+    var provider = result.GetValue(providerOption) ?? "sqlserver";
+    var schema = result.GetValue(schemaOption);
+    var assemblyPath = result.GetValue(assemblyOption);
     var config = LoadConfig(configPath);
 
     if (offline)
@@ -67,7 +80,7 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
         config = config with { GroundTruthMode = GroundTruthMode.Manual, ManualAssemblyPath = assemblyPath };
         if (string.IsNullOrEmpty(assemblyPath))
         {
-            console.Error.WriteLine("Manual mode requires --assembly <path-to-user-assembly.dll> to read [ExpectedColumn]/[ExpectedSpParameter] attributes.");
+            Console.Error.WriteLine("Manual mode requires --assembly <path-to-user-assembly.dll> to read [ExpectedColumn]/[ExpectedSpParameter] attributes.");
             Environment.ExitCode = 1;
             return;
         }
@@ -91,14 +104,14 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
     var normalizedFormat = format.Trim().ToLowerInvariant();
     if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "typescript"))
     {
-        console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence, contracts, typescript.");
+        Console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence, contracts, typescript.");
         Environment.ExitCode = 2;
         return;
     }
 
     if (normalizedFormat is not "text" && string.IsNullOrWhiteSpace(output))
     {
-        console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
+        Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
         Environment.ExitCode = 2;
         return;
     }
@@ -110,14 +123,14 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
         if (normalizedFormat == "contracts")
         {
             await ContractExportWriter.WriteJsonAsync(output!, provider, contracts);
-            console.Out.WriteLine($"Contracts exported to {output}.");
+            Console.WriteLine($"Contracts exported to {output}.");
             return;
         }
 
         if (normalizedFormat == "typescript")
         {
             await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>());
-            console.Out.WriteLine($"TypeScript DTOs exported to {output}.");
+            Console.WriteLine($"TypeScript DTOs exported to {output}.");
             return;
         }
 
@@ -144,17 +157,17 @@ validateCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContex
 
         if (verbose)
         {
-            console.Out.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings)");
+            Console.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings)");
         }
 
         Environment.ExitCode = hasErrors ? 1 : 0;
     }
     catch (Exception ex)
     {
-        console.Error.WriteLine($"Validation failed: {ex.Message}");
+        Console.Error.WriteLine($"Validation failed: {ex.Message}");
         if (verbose)
         {
-            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+            Console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
         }
 
         Environment.ExitCode = 1;
@@ -170,50 +183,56 @@ var baselineCommand = new Command("baseline", "Create baseline from current viol
     connectionOption, configOption, outputOption, verboseOption, providerOption, schemaOption, packageOption,
 };
 
-baselineCommand.SetHandler(
-    async (connection, configPath, output, verbose, provider, schema, package) =>
-{
-    var console = new SystemConsole();
-    var config = LoadConfig(configPath);
-    config = config with { ConnectionString = connection };
-    config = config with
+baselineCommand.SetAction(
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        DefaultSchema = schema ?? config.DefaultSchema,
-        DefaultPackage = package ?? config.DefaultPackage
-    };
-
-    try
-    {
-        var violations = await RunValidationAsync(config, provider, verbose, console);
-
-        var outputPath = output ?? config.BaselineFilePath ?? ".dataguard-baseline.json";
-        var baselineManager = new BaselineManager(outputPath);
-
-        var dbVersion = await GetDatabaseVersionAsync(config, provider, console);
-        var schemaHash = ComputeSchemaHash(violations);
-
-        var baseline = await baselineManager.CreateBaselineAsync(
-            violations,
-            GetSchemaVersion(),
-            config.GroundTruthMode.ToString(),
-            dbVersion,
-            schemaHash);
-
-        console.Out.WriteLine($"Baseline created with {baseline.Violations.Count} violations at {outputPath}");
-        console.Out.WriteLine($"Database version: {dbVersion}");
-        console.Out.WriteLine($"Schema hash: {schemaHash}");
-    }
-    catch (Exception ex)
-    {
-        console.Error.WriteLine($"Baseline creation failed: {ex.Message}");
-        if (verbose)
+        var connection = result.GetValue(connectionOption);
+        var configPath = result.GetValue(configOption);
+        var output = result.GetValue(outputOption);
+        var verbose = result.GetValue(verboseOption);
+        var provider = result.GetValue(providerOption) ?? "sqlserver";
+        var schema = result.GetValue(schemaOption);
+        var package = result.GetValue(packageOption);
+        var config = LoadConfig(configPath);
+        config = config with { ConnectionString = connection };
+        config = config with
         {
-            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
-        }
+            DefaultSchema = schema ?? config.DefaultSchema,
+            DefaultPackage = package ?? config.DefaultPackage
+        };
 
-        Environment.ExitCode = 1;
-    }
-}, connectionOption, configOption, outputOption, verboseOption, providerOption, schemaOption, packageOption);
+        try
+        {
+            var violations = await RunValidationAsync(config, provider, verbose);
+
+            var outputPath = output ?? config.BaselineFilePath ?? ".dataguard-baseline.json";
+            var baselineManager = new BaselineManager(outputPath);
+
+            var dbVersion = await GetDatabaseVersionAsync(config, provider);
+            var schemaHash = ComputeSchemaHash(violations);
+
+            var baseline = await baselineManager.CreateBaselineAsync(
+                violations,
+                GetSchemaVersion(),
+                config.GroundTruthMode.ToString(),
+                dbVersion,
+                schemaHash);
+
+            Console.WriteLine($"Baseline created with {baseline.Violations.Count} violations at {outputPath}");
+            Console.WriteLine($"Database version: {dbVersion}");
+            Console.WriteLine($"Schema hash: {schemaHash}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Baseline creation failed: {ex.Message}");
+            if (verbose)
+            {
+                Console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+            }
+
+            Environment.ExitCode = 1;
+        }
+    });
 
 #endregion
 
@@ -225,253 +244,269 @@ var snapshotRefreshCommand = new Command("refresh", "Refresh snapshot from datab
     connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption,
 };
 
-snapshotRefreshCommand.SetHandler(
-    async (connection, configPath, verbose, provider, schema, package) =>
-{
-    var console = new SystemConsole();
-    var config = LoadConfig(configPath);
-    config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Snapshot };
-    config = config with
+snapshotRefreshCommand.SetAction(
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        DefaultSchema = schema ?? config.DefaultSchema,
-        DefaultPackage = package ?? config.DefaultPackage
-    };
-
-    try
-    {
-        var violations = await RunValidationAsync(config, provider, verbose, console);
-
-        var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
-        var baselineManager = new BaselineManager(snapshotPath);
-
-        var dbVersion = await GetDatabaseVersionAsync(config, provider, console);
-        var schemaHash = ComputeSchemaHash(violations);
-
-        // Persist ground-truth schema so Snapshot mode can validate offline.
-        IReadOnlyList<SnapshotTable>? snapshotSchema = null;
-        if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(config.ConnectionString))
+        var connection = result.GetValue(connectionOption);
+        var configPath = result.GetValue(configOption);
+        var verbose = result.GetValue(verboseOption);
+        var provider = result.GetValue(providerOption) ?? "sqlserver";
+        var schema = result.GetValue(schemaOption);
+        var package = result.GetValue(packageOption);
+        var config = LoadConfig(configPath);
+        config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Snapshot };
+        config = config with
         {
-            var owner = config.DefaultSchema ?? config.Oracle?.Owner;
-            if (!string.IsNullOrEmpty(owner))
+            DefaultSchema = schema ?? config.DefaultSchema,
+            DefaultPackage = package ?? config.DefaultPackage
+        };
+
+        try
+        {
+            var violations = await RunValidationAsync(config, provider, verbose);
+
+            var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
+            var baselineManager = new BaselineManager(snapshotPath);
+
+            var dbVersion = await GetDatabaseVersionAsync(config, provider);
+            var schemaHash = ComputeSchemaHash(violations);
+
+            // Persist ground-truth schema so Snapshot mode can validate offline.
+            IReadOnlyList<SnapshotTable>? snapshotSchema = null;
+            if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(config.ConnectionString))
             {
-                var columnsReader = new AllTabColumnsReader(config.ConnectionString);
-                var allColumns = await columnsReader.GetAllColumnsAsync(owner);
-                snapshotSchema = allColumns
-                    .Select(kv => new SnapshotTable(
-                        kv.Key,
-                        kv.Value.Select(c => new SnapshotColumn(c.Name, c.DataType, c.MaxLength, c.CharLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed)).ToList()))
-                    .ToList();
+                var owner = config.DefaultSchema ?? config.Oracle?.Owner;
+                if (!string.IsNullOrEmpty(owner))
+                {
+                    var columnsReader = new AllTabColumnsReader(config.ConnectionString);
+                    var allColumns = await columnsReader.GetAllColumnsAsync(owner);
+                    snapshotSchema = allColumns
+                        .Select(kv => new SnapshotTable(
+                            kv.Key,
+                            kv.Value.Select(c => new SnapshotColumn(c.Name, c.DataType, c.MaxLength, c.CharLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed)).ToList()))
+                        .ToList();
+                }
             }
-        }
 
-        // Hash the schema itself when available: schema changes that produce no
-        // violations must still change the hash. Fall back to violation hashing
-        // only when no schema could be captured (non-Oracle / no connection).
-        if (snapshotSchema is { Count: > 0 })
+            // Hash the schema itself when available: schema changes that produce no
+            // violations must still change the hash. Fall back to violation hashing
+            // only when no schema could be captured (non-Oracle / no connection).
+            if (snapshotSchema is { Count: > 0 })
+            {
+                schemaHash = BaselineManager.ComputeSchemaHash(snapshotSchema);
+            }
+
+            var baseline = await baselineManager.CreateBaselineAsync(
+                violations,
+                GetSchemaVersion(),
+                GroundTruthMode.Snapshot.ToString(),
+                dbVersion,
+                schemaHash,
+                snapshotSchema);
+
+            Console.WriteLine($"Snapshot refreshed with {baseline.Violations.Count} violations");
+            Console.WriteLine($"Database version: {dbVersion}");
+            Console.WriteLine($"Schema hash: {schemaHash}");
+        }
+        catch (Exception ex)
         {
-            schemaHash = BaselineManager.ComputeSchemaHash(snapshotSchema);
+            Console.Error.WriteLine($"Snapshot refresh failed: {ex.Message}");
+            if (verbose)
+            {
+                Console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+            }
+
+            Environment.ExitCode = 1;
         }
-
-        var baseline = await baselineManager.CreateBaselineAsync(
-            violations,
-            GetSchemaVersion(),
-            GroundTruthMode.Snapshot.ToString(),
-            dbVersion,
-            schemaHash,
-            snapshotSchema);
-
-        console.Out.WriteLine($"Snapshot refreshed with {baseline.Violations.Count} violations");
-        console.Out.WriteLine($"Database version: {dbVersion}");
-        console.Out.WriteLine($"Schema hash: {schemaHash}");
-    }
-    catch (Exception ex)
-    {
-        console.Error.WriteLine($"Snapshot refresh failed: {ex.Message}");
-        if (verbose)
-        {
-            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
-        }
-
-        Environment.ExitCode = 1;
-    }
-}, connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption);
+    });
 
 var snapshotShowCommand = new Command("show", "Show current snapshot info")
 {
     configOption,
 };
 
-snapshotShowCommand.SetHandler(
-    async (configPath) =>
-{
-    var console = new SystemConsole();
-    var config = LoadConfig(configPath);
-    var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
-
-    if (!File.Exists(snapshotPath))
+snapshotShowCommand.SetAction(
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        // Informational, not an error: a fresh checkout has no snapshot yet.
-        console.Out.WriteLine($"No snapshot found at {snapshotPath}");
-        console.Out.WriteLine("Run 'dataguard snapshot refresh' to create one");
-        return;
-    }
+        var configPath = result.GetValue(configOption);
+        var config = LoadConfig(configPath);
+        var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
 
-    var baselineManager = new BaselineManager(snapshotPath);
-    var baseline = await baselineManager.LoadAsync();
+        if (!File.Exists(snapshotPath))
+        {
+            // Informational, not an error: a fresh checkout has no snapshot yet.
+            Console.WriteLine($"No snapshot found at {snapshotPath}");
+            Console.WriteLine("Run 'dataguard snapshot refresh' to create one");
+            return;
+        }
 
-    if (baseline == null)
-    {
-        console.Error.WriteLine("Failed to load snapshot");
-        Environment.ExitCode = 1;
-        return;
-    }
+        var baselineManager = new BaselineManager(snapshotPath);
+        var baseline = await baselineManager.LoadAsync();
 
-    console.Out.WriteLine($"Snapshot: {snapshotPath}");
-    console.Out.WriteLine($"  Version: {baseline.Version}");
-    console.Out.WriteLine($"  Schema Version: {baseline.SchemaVersion}");
-    console.Out.WriteLine($"  Ground Truth Mode: {baseline.GroundTruthMode}");
-    console.Out.WriteLine($"  Database Version: {baseline.DatabaseVersion ?? "unknown"}");
-    console.Out.WriteLine($"  Schema Hash: {baseline.SchemaHash ?? "unknown"}");
-    console.Out.WriteLine($"  Created: {baseline.CreatedAt:yyyy-MM-dd HH:mm:ss}");
-    console.Out.WriteLine($"  Violations: {baseline.Violations.Count}");
-}, configOption);
+        if (baseline == null)
+        {
+            Console.Error.WriteLine("Failed to load snapshot");
+            Environment.ExitCode = 1;
+            return;
+        }
+
+        Console.WriteLine($"Snapshot: {snapshotPath}");
+        Console.WriteLine($"  Version: {baseline.Version}");
+        Console.WriteLine($"  Schema Version: {baseline.SchemaVersion}");
+        Console.WriteLine($"  Ground Truth Mode: {baseline.GroundTruthMode}");
+        Console.WriteLine($"  Database Version: {baseline.DatabaseVersion ?? "unknown"}");
+        Console.WriteLine($"  Schema Hash: {baseline.SchemaHash ?? "unknown"}");
+        Console.WriteLine($"  Created: {baseline.CreatedAt:yyyy-MM-dd HH:mm:ss}");
+        Console.WriteLine($"  Violations: {baseline.Violations.Count}");
+    });
 
 var snapshotDiffCommand = new Command("diff", "Compare current schema with snapshot")
 {
     connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption,
 };
 
-snapshotDiffCommand.SetHandler(
-    async (connection, configPath, verbose, provider, schema, package, failOnDrift) =>
-{
-    var console = new SystemConsole();
-    var config = LoadConfig(configPath);
-    config = config with { ConnectionString = connection };
-    config = config with
+snapshotDiffCommand.SetAction(
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        DefaultSchema = schema ?? config.DefaultSchema,
-        DefaultPackage = package ?? config.DefaultPackage
-    };
-
-    var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
-    if (!File.Exists(snapshotPath))
-    {
-        console.Error.WriteLine($"Snapshot file not found: {snapshotPath}");
-        Environment.ExitCode = 1;
-        return;
-    }
-
-    var baselineManager = new BaselineManager(snapshotPath);
-    var baseline = await baselineManager.LoadAsync();
-
-    if (baseline == null)
-    {
-        console.Error.WriteLine("Failed to load snapshot");
-        Environment.ExitCode = 1;
-        return;
-    }
-
-    // Warn (not fail) when the major.minor database version differs from the
-    // snapshot's version (patch/CU differences are ignored).
-    var currentVersion = await GetDatabaseVersionAsync(config, provider, console);
-    var snapshotMajorMinor = System.Text.RegularExpressions.Regex.Match(baseline.DatabaseVersion ?? "", @"(\d+)\.(\d+)");
-    var currentViolations = await RunValidationAsync(config, provider, verbose, console);
-
-    // Prefer schema-based hashing: drift means the schema changed, even when the
-    // change produces no new violations. Old snapshots (format v1 / no schema)
-    // fall back to violation hashing with a warning instead of crashing.
-    if (baseline.Schema is { Count: > 0 })
-    {
-        var currentSchemaHash = BaselineManager.ComputeSchemaHash(baseline.Schema);
-
-        // Note: when a live connection is available the schema should be re-read
-        // from the database; offline diff compares the snapshot against itself,
-        // which by definition reports no drift. With a live connection, refresh
-        // captures the current schema; this path re-hashes it as captured.
-        if (baseline.SchemaHash == currentSchemaHash)
+        var connection = result.GetValue(connectionOption);
+        var configPath = result.GetValue(configOption);
+        var verbose = result.GetValue(verboseOption);
+        var provider = result.GetValue(providerOption) ?? "sqlserver";
+        var schema = result.GetValue(schemaOption);
+        var package = result.GetValue(packageOption);
+        var failOnDrift = result.GetValue(failOnDriftOption);
+        var config = LoadConfig(configPath);
+        config = config with { ConnectionString = connection };
+        config = config with
         {
-            console.Out.WriteLine("No differences detected - schema matches snapshot");
+            DefaultSchema = schema ?? config.DefaultSchema,
+            DefaultPackage = package ?? config.DefaultPackage
+        };
+
+        var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
+        if (!File.Exists(snapshotPath))
+        {
+            Console.Error.WriteLine($"Snapshot file not found: {snapshotPath}");
+            Environment.ExitCode = 1;
             return;
         }
 
-        console.Out.WriteLine("Schema differences detected:");
-        console.Out.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
-        console.Out.WriteLine($"  Current hash:  {currentSchemaHash}");
-        console.Out.WriteLine();
-        console.Out.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
-        WriteDriftExitCode(failOnDrift, console);
-        return;
-    }
+        var baselineManager = new BaselineManager(snapshotPath);
+        var baseline = await baselineManager.LoadAsync();
 
-    // Legacy fallback: snapshot has no persisted schema. Unmigrated v1 files
-    // also deserialize with a null SchemaHash, so recompute it from the
-    // baseline's violations (legacy hash semantics) to compare like-for-like.
-    console.Out.WriteLine("Warning: snapshot format v1 - run 'dataguard snapshot refresh' to upgrade");
-    var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
-        ? BaselineManager.ComputeSchemaHash(baseline.Violations)
-        : baseline.SchemaHash;
-    var currentHash = ComputeSchemaHash(currentViolations);
-
-    if (snapshotHash == currentHash)
-    {
-        console.Out.WriteLine("No differences detected - schema matches snapshot");
-        return;
-    }
-
-    console.Out.WriteLine("Schema differences detected:");
-    console.Out.WriteLine($"  Snapshot hash: {snapshotHash}");
-    console.Out.WriteLine($"  Current hash:  {currentHash}");
-    console.Out.WriteLine();
-    console.Out.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
-
-    WriteDriftExitCode(failOnDrift, console);
-
-    static void WriteDriftExitCode(bool failOnDrift, SystemConsole console)
-    {
-        if (failOnDrift)
+        if (baseline == null)
         {
+            Console.Error.WriteLine("Failed to load snapshot");
             Environment.ExitCode = 1;
+            return;
         }
-        else if (Environment.GetEnvironmentVariable("CI") is not null || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is not null)
-        {
-            console.Out.WriteLine("Warning: drift detected - pass --fail-on-drift to fail CI");
-        }
-    }
-}, connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption);
 
-snapshotCommand.AddCommand(snapshotRefreshCommand);
-snapshotCommand.AddCommand(snapshotShowCommand);
-snapshotCommand.AddCommand(snapshotDiffCommand);
+        // Warn (not fail) when the major.minor database version differs from the
+        // snapshot's version (patch/CU differences are ignored).
+        var currentVersion = await GetDatabaseVersionAsync(config, provider);
+        var snapshotMajorMinor = System.Text.RegularExpressions.Regex.Match(baseline.DatabaseVersion ?? "", @"(\d+)\.(\d+)");
+        var currentViolations = await RunValidationAsync(config, provider, verbose);
+
+        // Prefer schema-based hashing: drift means the schema changed, even when the
+        // change produces no new violations. Old snapshots (format v1 / no schema)
+        // fall back to violation hashing with a warning instead of crashing.
+        if (baseline.Schema is { Count: > 0 })
+        {
+            var currentSchemaHash = BaselineManager.ComputeSchemaHash(baseline.Schema);
+
+            // Note: when a live connection is available the schema should be re-read
+            // from the database; offline diff compares the snapshot against itself,
+            // which by definition reports no drift. With a live connection, refresh
+            // captures the current schema; this path re-hashes it as captured.
+            if (baseline.SchemaHash == currentSchemaHash)
+            {
+                Console.WriteLine("No differences detected - schema matches snapshot");
+                return;
+            }
+
+            Console.WriteLine("Schema differences detected:");
+            Console.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
+            Console.WriteLine($"  Current hash:  {currentSchemaHash}");
+            Console.WriteLine();
+            Console.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
+            WriteDriftExitCode(failOnDrift);
+            return;
+        }
+
+        // Legacy fallback: snapshot has no persisted schema. Unmigrated v1 files
+        // also deserialize with a null SchemaHash, so recompute it from the
+        // baseline's violations (legacy hash semantics) to compare like-for-like.
+        Console.WriteLine("Warning: snapshot format v1 - run 'dataguard snapshot refresh' to upgrade");
+        var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
+            ? BaselineManager.ComputeSchemaHash(baseline.Violations)
+            : baseline.SchemaHash;
+        var currentHash = ComputeSchemaHash(currentViolations);
+
+        if (snapshotHash == currentHash)
+        {
+            Console.WriteLine("No differences detected - schema matches snapshot");
+            return;
+        }
+
+        Console.WriteLine("Schema differences detected:");
+        Console.WriteLine($"  Snapshot hash: {snapshotHash}");
+        Console.WriteLine($"  Current hash:  {currentHash}");
+        Console.WriteLine();
+        Console.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
+
+        WriteDriftExitCode(failOnDrift);
+
+        static void WriteDriftExitCode(bool failOnDrift)
+        {
+            if (failOnDrift)
+            {
+                Environment.ExitCode = 1;
+            }
+            else if (Environment.GetEnvironmentVariable("CI") is not null || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is not null)
+            {
+                Console.WriteLine("Warning: drift detected - pass --fail-on-drift to fail CI");
+            }
+        }
+    });
+
+snapshotCommand.Add(snapshotRefreshCommand);
+snapshotCommand.Add(snapshotShowCommand);
+snapshotCommand.Add(snapshotDiffCommand);
 
 #endregion
 
 #region Init Command
 
-var initOutputOption = new Option<string>("--output", () => ".dataguard.yml", "Output config file path");
-var initProviderOption = new Option<string>("--provider", () => "sqlserver", "Default provider: sqlserver, oracle");
+var initOutputOption = new Option<string>("--output");
+initOutputOption.Description = "Output config file path";
+initOutputOption.DefaultValueFactory = (_) => ".dataguard.yml";
+var initProviderOption = new Option<string>("--provider");
+initProviderOption.Description = "Default provider: sqlserver, oracle";
+initProviderOption.DefaultValueFactory = (_) => "sqlserver";
 var initCommand = new Command("init", "Initialize DataGuard configuration")
 {
     initOutputOption, initProviderOption,
 };
 
-initCommand.SetHandler(
-    async (output, provider) =>
-{
-    var console = new SystemConsole();
-    var config = new DataGuardConfiguration
+initCommand.SetAction(
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        GroundTruthMode = GroundTruthMode.Snapshot,
-        SnapshotFilePath = ".dataguard-snapshot.json",
-        BaselineFilePath = ".dataguard-baseline.json",
-        NamingConvention = NamingConvention.SnakeCaseToPascalCase,
-        EnableBaseline = true,
-    };
+        var output = result.GetValue(initOutputOption);
+        var provider = result.GetValue(initProviderOption);
+        var config = new DataGuardConfiguration
+        {
+            GroundTruthMode = GroundTruthMode.Snapshot,
+            SnapshotFilePath = ".dataguard-snapshot.json",
+            BaselineFilePath = ".dataguard-baseline.json",
+            NamingConvention = NamingConvention.SnakeCaseToPascalCase,
+            EnableBaseline = true,
+        };
 
-    var yaml = SerializeConfig(config);
-    await File.WriteAllTextAsync(output, yaml);
-    console.Out.WriteLine($"Configuration written to {output}");
-    console.Out.WriteLine($"Default provider: {provider}");
-}, initOutputOption, initProviderOption);
+        var yaml = SerializeConfig(config);
+        await File.WriteAllTextAsync(output!, yaml);
+        Console.WriteLine($"Configuration written to {output}");
+        Console.WriteLine($"Default provider: {provider}");
+    });
 
 #endregion
 
@@ -483,49 +518,49 @@ var configShowCommand = new Command("show", "Show current configuration")
     configOption,
 };
 
-configShowCommand.SetHandler(
-    (configPath) =>
-{
-    var console = new SystemConsole();
-    var config = LoadConfig(configPath);
-
-    // Never print secrets: redact connection string and vault/key material.
-    var redacted = config with
+configShowCommand.SetAction(
+    (ParseResult result) =>
     {
-        ConnectionString = string.IsNullOrEmpty(config.ConnectionString) ? null : "***redacted***"
-    };
-    var json = JsonSerializer.Serialize(redacted, new JsonSerializerOptions { WriteIndented = true });
-    console.Out.WriteLine(json);
-    console.Out.WriteLine("# Secrets are redacted. Use environment DATAGUARD_CONNECTION_STRING instead of --connection.");
-}, configOption);
+        var configPath = result.GetValue(configOption);
+        var config = LoadConfig(configPath);
+
+        // Never print secrets: redact connection string and vault/key material.
+        var redacted = config with
+        {
+            ConnectionString = string.IsNullOrEmpty(config.ConnectionString) ? null : "***redacted***"
+        };
+        var json = JsonSerializer.Serialize(redacted, new JsonSerializerOptions { WriteIndented = true });
+        Console.WriteLine(json);
+        Console.WriteLine("# Secrets are redacted. Use environment DATAGUARD_CONNECTION_STRING instead of --connection.");
+    });
 
 var configValidateCommand = new Command("validate", "Validate configuration file")
 {
     configOption,
 };
 
-configValidateCommand.SetHandler(
-    (configPath) =>
-{
-    var console = new SystemConsole();
-    try
+configValidateCommand.SetAction(
+    (ParseResult result) =>
     {
-        var config = LoadConfig(configPath);
-        console.Out.WriteLine("Configuration is valid");
-        console.Out.WriteLine($"  GroundTruthMode: {config.GroundTruthMode}");
-        console.Out.WriteLine($"  NamingConvention: {config.NamingConvention}");
-        console.Out.WriteLine($"  EnableBaseline: {config.EnableBaseline}");
-        console.Out.WriteLine($"  DefaultSchema: {config.DefaultSchema ?? "not set"}");
-    }
-    catch (Exception ex)
-    {
-        console.Error.WriteLine($"Configuration invalid: {ex.Message}");
-        Environment.ExitCode = 1;
-    }
-}, configOption);
+        var configPath = result.GetValue(configOption);
+        try
+        {
+            var config = LoadConfig(configPath);
+            Console.WriteLine("Configuration is valid");
+            Console.WriteLine($"  GroundTruthMode: {config.GroundTruthMode}");
+            Console.WriteLine($"  NamingConvention: {config.NamingConvention}");
+            Console.WriteLine($"  EnableBaseline: {config.EnableBaseline}");
+            Console.WriteLine($"  DefaultSchema: {config.DefaultSchema ?? "not set"}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Configuration invalid: {ex.Message}");
+            Environment.ExitCode = 1;
+        }
+    });
 
-configCommand.AddCommand(configShowCommand);
-configCommand.AddCommand(configValidateCommand);
+configCommand.Add(configShowCommand);
+configCommand.Add(configValidateCommand);
 
 #endregion
 
@@ -536,51 +571,57 @@ var oracleCheckCommand = new Command("oracle-check", "Run Oracle-specific dialec
     connectionOption, configOption, outputOption, formatOption, verboseOption, schemaOption, packageOption,
 };
 
-oracleCheckCommand.SetHandler(
-    async (connection, configPath, output, format, verbose, schema, package) =>
-{
-    var console = new SystemConsole();
-    var config = LoadConfig(configPath);
-    config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Full };
-    config = config with
+oracleCheckCommand.SetAction(
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        DefaultSchema = schema ?? config.DefaultSchema,
-        DefaultPackage = package ?? config.DefaultPackage
-    };
-
-    try
-    {
-        var violations = await RunOracleValidationAsync(config, verbose, console);
-
-        var emitter = new DiagnosticEmitter();
-        emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
-
-        if (!string.IsNullOrEmpty(output))
+        var connection = result.GetValue(connectionOption);
+        var configPath = result.GetValue(configOption);
+        var output = result.GetValue(outputOption);
+        var format = result.GetValue(formatOption) ?? "text";
+        var verbose = result.GetValue(verboseOption);
+        var schema = result.GetValue(schemaOption);
+        var package = result.GetValue(packageOption);
+        var config = LoadConfig(configPath);
+        config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Full };
+        config = config with
         {
-            emitter.AddSarifSink(new FileSarifSink(output));
-        }
+            DefaultSchema = schema ?? config.DefaultSchema,
+            DefaultPackage = package ?? config.DefaultPackage
+        };
 
-        await emitter.EmitAsync(violations);
-
-        var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
-        if (verbose)
+        try
         {
-            console.Out.WriteLine($"Oracle check complete: {violations.Count} issues");
-        }
+            var violations = await RunOracleValidationAsync(config, verbose);
 
-        Environment.ExitCode = hasErrors ? 1 : 0;
-    }
-    catch (Exception ex)
-    {
-        console.Error.WriteLine($"Oracle check failed: {ex.Message}");
-        if (verbose)
+            var emitter = new DiagnosticEmitter();
+            emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
+
+            if (!string.IsNullOrEmpty(output))
+            {
+                emitter.AddSarifSink(new FileSarifSink(output));
+            }
+
+            await emitter.EmitAsync(violations);
+
+            var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
+            if (verbose)
+            {
+                Console.WriteLine($"Oracle check complete: {violations.Count} issues");
+            }
+
+            Environment.ExitCode = hasErrors ? 1 : 0;
+        }
+        catch (Exception ex)
         {
-            console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
-        }
+            Console.Error.WriteLine($"Oracle check failed: {ex.Message}");
+            if (verbose)
+            {
+                Console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+            }
 
-        Environment.ExitCode = 1;
-    }
-}, connectionOption, configOption, outputOption, formatOption, verboseOption, schemaOption, packageOption);
+            Environment.ExitCode = 1;
+        }
+    });
 
 #endregion
 
@@ -588,22 +629,21 @@ oracleCheckCommand.SetHandler(
 
 var versionCommand = new Command("version", "Show DataGuard version information");
 
-versionCommand.SetHandler(() =>
+versionCommand.SetAction((ParseResult result) =>
 {
-    var console = new SystemConsole();
-    console.Out.WriteLine($"DataGuard CLI version {version}");
-    console.Out.WriteLine($"Runtime: {Environment.Version}");
-    console.Out.WriteLine($"OS: {Environment.OSVersion}");
+    Console.WriteLine($"DataGuard CLI version {version}");
+    Console.WriteLine($"Runtime: {Environment.Version}");
+    Console.WriteLine($"OS: {Environment.OSVersion}");
 
     static string InformationalVersion(System.Reflection.Assembly assembly) =>
         assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? assembly.GetName().Version?.ToString()
         ?? "0.0.0";
 
-    console.Out.WriteLine($"DataGuard.Core: {InformationalVersion(typeof(DataGuardConfiguration).Assembly)}");
-    console.Out.WriteLine($"DataGuard.Oracle.Adapter: {InformationalVersion(typeof(AllArgumentsReader).Assembly)}");
-    console.Out.WriteLine($"DataGuard.SqlServer.Adapter: {InformationalVersion(typeof(SqlServerStoredProcedureParser).Assembly)}");
-    console.Out.WriteLine($"DataGuard.Analyzers: {InformationalVersion(typeof(DataGuard.Analyzers.UnvalidatedSqlCallGenerator).Assembly)}");
+    Console.WriteLine($"DataGuard.Core: {InformationalVersion(typeof(DataGuardConfiguration).Assembly)}");
+    Console.WriteLine($"DataGuard.Oracle.Adapter: {InformationalVersion(typeof(AllArgumentsReader).Assembly)}");
+    Console.WriteLine($"DataGuard.SqlServer.Adapter: {InformationalVersion(typeof(SqlServerStoredProcedureParser).Assembly)}");
+    Console.WriteLine($"DataGuard.Analyzers: {InformationalVersion(typeof(DataGuard.Analyzers.UnvalidatedSqlCallGenerator).Assembly)}");
 });
 #endregion
 
@@ -612,34 +652,38 @@ var migrateCommand = new Command("migrate", "Migrate a legacy baseline file (v1)
     baselinePathOption,
 };
 
-migrateCommand.SetHandler(
-    async (baselinePath) =>
-{
-    var console = new SystemConsole();
-    var path = baselinePath ?? ".dataguard-baseline.json";
-
-    if (!File.Exists(path))
+migrateCommand.SetAction(
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        console.Error.WriteLine($"Baseline file not found: {path}");
-        Environment.ExitCode = 1;
-        return;
-    }
+        var baselinePath = result.GetValue(baselinePathOption);
+        var path = baselinePath ?? ".dataguard-baseline.json";
 
-    var manager = new BaselineManager(path);
-    var migrated = await manager.MigrateBaselineAsync();
-    if (migrated == null)
-    {
-        console.Out.WriteLine($"Baseline '{path}' is already v2 or not a legacy v1 baseline");
-        return;
-    }
+        if (!File.Exists(path))
+        {
+            Console.Error.WriteLine($"Baseline file not found: {path}");
+            Environment.ExitCode = 1;
+            return;
+        }
 
-    console.Out.WriteLine($"Migrated baseline to v2: {migrated.Violations.Count} violations, schema hash {migrated.SchemaHash}");
-}, baselinePathOption);
+        var manager = new BaselineManager(path);
+        var migrated = await manager.MigrateBaselineAsync();
+        if (migrated == null)
+        {
+            Console.WriteLine($"Baseline '{path}' is already v2 or not a legacy v1 baseline");
+            return;
+        }
+
+        Console.WriteLine($"Migrated baseline to v2: {migrated.Violations.Count} violations, schema hash {migrated.SchemaHash}");
+    });
 
 #region Assess Command
 
-var assessWorkspaceOption = new Option<string>("--workspace", () => ".", "Workspace root to assess (default: current directory)");
-var assessFilterOption = new Option<string[]>("--project-filter", "Optional project path filters (substring, case-insensitive)") { AllowMultipleArgumentsPerToken = true };
+var assessWorkspaceOption = new Option<string>("--workspace");
+assessWorkspaceOption.Description = "Workspace root to assess (default: current directory)";
+assessWorkspaceOption.DefaultValueFactory = (_) => ".";
+var assessFilterOption = new Option<string[]>("--project-filter");
+assessFilterOption.Description = "Optional project path filters (substring, case-insensitive)";
+assessFilterOption.AllowMultipleArgumentsPerToken = true;
 var assessCommand = new Command("assess", "Run read-only environment/dependency/config assessment and emit a structured report")
 {
     assessWorkspaceOption,
@@ -649,75 +693,79 @@ var assessCommand = new Command("assess", "Run read-only environment/dependency/
     verboseOption,
 };
 
-assessCommand.SetHandler(
-    (workspace, filters, output, format, verbose) =>
-{
-    var console = new SystemConsole();
-    var normalizedFormat = format?.ToLowerInvariant() ?? "text";
-    if (normalizedFormat is not ("text" or "json" or "sarif"))
+assessCommand.SetAction(
+    (ParseResult result) =>
     {
-        console.Error.WriteLine($"Unsupported --format '{format}' for assess. Supported values: text, json, sarif.");
-        Environment.ExitCode = 2;
-        return;
-    }
-
-    if (normalizedFormat is not "text" && string.IsNullOrEmpty(output))
-    {
-        console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
-        Environment.ExitCode = 2;
-        return;
-    }
-
-    try
-    {
-        var request = new AssessmentRequest
+        var workspace = result.GetValue(assessWorkspaceOption);
+        var filters = result.GetValue(assessFilterOption);
+        var output = result.GetValue(outputOption);
+        var format = result.GetValue(formatOption) ?? "text";
+        var verbose = result.GetValue(verboseOption);
+        var normalizedFormat = format?.ToLowerInvariant() ?? "text";
+        if (normalizedFormat is not ("text" or "json" or "sarif"))
         {
-            WorkspaceRoot = Path.GetFullPath(workspace ?? "."),
-            ProjectFilters = filters ?? Array.Empty<string>(),
-        };
-        var report = AssessmentEngine.Run(request);
-
-        if (normalizedFormat == "json")
-        {
-            AssessmentReportWriter.WriteJsonAsync(report, output!).GetAwaiter().GetResult();
-            console.Out.WriteLine($"Assessment JSON written to {output}");
+            Console.Error.WriteLine($"Unsupported --format '{format}' for assess. Supported values: text, json, sarif.");
+            Environment.ExitCode = 2;
+            return;
         }
-        else if (normalizedFormat == "sarif")
+
+        if (normalizedFormat is not "text" && string.IsNullOrEmpty(output))
         {
-            WriteSarifAssessment(report, output!);
-            console.Out.WriteLine($"Assessment SARIF written to {output}");
+            Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
+            Environment.ExitCode = 2;
+            return;
         }
-        else if (verbose)
+
+        try
         {
-            foreach (var finding in report.Findings)
+            var request = new AssessmentRequest
             {
-                console.Out.WriteLine($"[{finding.Severity}] {finding.RuleId}: {finding.Message}");
-                foreach (var evidence in finding.Evidence)
+                WorkspaceRoot = Path.GetFullPath(workspace ?? "."),
+                ProjectFilters = filters ?? Array.Empty<string>(),
+            };
+            var report = AssessmentEngine.Run(request);
+
+            if (normalizedFormat == "json")
+            {
+                AssessmentReportWriter.WriteJsonAsync(report, output!).GetAwaiter().GetResult();
+                Console.WriteLine($"Assessment JSON written to {output}");
+            }
+            else if (normalizedFormat == "sarif")
+            {
+                WriteSarifAssessment(report, output!);
+                Console.WriteLine($"Assessment SARIF written to {output}");
+            }
+            else if (verbose)
+            {
+                foreach (var finding in report.Findings)
                 {
-                    console.Out.WriteLine($"    at {evidence.Path}{(evidence.Line is { } l ? $":{l}" : string.Empty)}");
+                    Console.WriteLine($"[{finding.Severity}] {finding.RuleId}: {finding.Message}");
+                    foreach (var evidence in finding.Evidence)
+                    {
+                        Console.WriteLine($"    at {evidence.Path}{(evidence.Line is { } l ? $":{l}" : string.Empty)}");
+                    }
                 }
             }
-        }
-        else
-        {
-            console.Out.WriteLine($"DataGuard assessment: {report.Summary.TotalFindings} findings ({report.Summary.Critical} critical, {report.Summary.Errors_} errors, {report.Summary.Warnings} warnings, {report.Summary.Information} info), {report.Summary.ToolErrors} tool errors");
-        }
+            else
+            {
+                Console.WriteLine($"DataGuard assessment: {report.Summary.TotalFindings} findings ({report.Summary.Critical} critical, {report.Summary.Errors_} errors, {report.Summary.Warnings} warnings, {report.Summary.Information} info), {report.Summary.ToolErrors} tool errors");
+            }
 
-        foreach (var error in report.Errors)
-        {
-            console.Error.WriteLine($"[{error.Code}] {error.Path}: {error.Message}");
-        }
+            foreach (var error in report.Errors)
+            {
+                Console.Error.WriteLine($"[{error.Code}] {error.Path}: {error.Message}");
+            }
 
-        // Exit semantics: findings present or operational failure -> 1 (CI gates fail);
-        // invalid input -> 2 (handled above); clean assessment with no findings -> 0.
-        Environment.ExitCode = report.Findings.Count > 0 || report.Errors.Count > 0 ? 1 : 0;
-    }
-    catch (Exception ex)
-    {
-        console.Error.WriteLine($"Assessment failed: {(verbose ? ex.ToString() : ex.Message)}");
-        Environment.ExitCode = 1;
-    }
-}, assessWorkspaceOption, assessFilterOption, outputOption, formatOption, verboseOption);
+            // Exit semantics: findings present or operational failure -> 1 (CI gates fail);
+            // invalid input -> 2 (handled above); clean assessment with no findings -> 0.
+            Environment.ExitCode = report.Findings.Count > 0 || report.Errors.Count > 0 ? 1 : 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Assessment failed: {(verbose ? ex.ToString() : ex.Message)}");
+            Environment.ExitCode = 1;
+        }
+    });
 
 static void WriteSarifAssessment(AssessmentReport report, string outputPath)
 {
@@ -759,18 +807,19 @@ static void WriteSarifAssessment(AssessmentReport report, string outputPath)
 
 #region Add Commands to Root
 
-rootCommand.AddCommand(validateCommand);
-rootCommand.AddCommand(baselineCommand);
-rootCommand.AddCommand(snapshotCommand);
-rootCommand.AddCommand(initCommand);
-rootCommand.AddCommand(configCommand);
-rootCommand.AddCommand(oracleCheckCommand);
-rootCommand.AddCommand(migrateCommand);
-rootCommand.AddCommand(assessCommand);
-rootCommand.AddCommand(versionCommand);
+rootCommand.Add(validateCommand);
+rootCommand.Add(baselineCommand);
+rootCommand.Add(snapshotCommand);
+rootCommand.Add(initCommand);
+rootCommand.Add(configCommand);
+rootCommand.Add(oracleCheckCommand);
+rootCommand.Add(migrateCommand);
+rootCommand.Add(assessCommand);
+rootCommand.Add(versionCommand);
 #endregion
 
-await rootCommand.InvokeAsync(args);
+var parseResult = rootCommand.Parse(args, new ParserConfiguration());
+await parseResult.InvokeAsync(new InvocationConfiguration(), System.Threading.CancellationToken.None);
 
 #region Helper Methods
 
@@ -1006,8 +1055,7 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
 static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
     DataGuardConfiguration config,
     string provider,
-    bool verbose,
-    IConsole console)
+    bool verbose)
 {
     var contracts = await BuildContractsAsync(config, provider);
     return await ValidateContractsAsync(contracts, config, provider);
@@ -1015,8 +1063,7 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
     DataGuardConfiguration config,
-    bool verbose,
-    IConsole console)
+    bool verbose)
 {
     var violations = new List<ContractViolation>();
 
@@ -1054,8 +1101,8 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
 
     if (verbose)
     {
-        console.Out.WriteLine($"Oracle NLS length semantics: {semantics}");
-        console.Out.WriteLine($"Oracle schema '{owner}': {tables.Count} tables, {tables.Sum(t => t.Columns.Count)} columns");
+        Console.WriteLine($"Oracle NLS length semantics: {semantics}");
+        Console.WriteLine($"Oracle schema '{owner}': {tables.Count} tables, {tables.Sum(t => t.Columns.Count)} columns");
     }
 
     return violations;
@@ -1104,7 +1151,7 @@ static List<IContractRule> GetRulesForProvider(string provider)
     return rules;
 }
 
-static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config, string provider, IConsole console)
+static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config, string provider)
 {
     try
     {
@@ -1132,7 +1179,7 @@ static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config,
     }
     catch (Exception ex)
     {
-        console.Error.WriteLine($"Failed to get DB version: {ex.Message}");
+        Console.Error.WriteLine($"Failed to get DB version: {ex.Message}");
     }
 
     return "unknown";
