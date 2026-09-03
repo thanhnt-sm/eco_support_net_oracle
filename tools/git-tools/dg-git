@@ -143,6 +143,18 @@ preflight_stage() {
     return 0
 }
 
+cmd_pull() {
+    require_git_repo
+    local status
+    status=$(git status --porcelain)
+    if [[ -n "$status" ]]; then
+        log_error "Working tree has uncommitted changes. Please commit, stash, or discard changes before pulling."
+        return 1
+    fi
+    git pull --ff-only
+    log_success "Pulled and fast-forwarded from configured upstream"
+}
+
 cmd_push() {
     require_git_repo
     local remote="origin" set_upstream="" dry_run=false
@@ -160,19 +172,129 @@ cmd_push() {
 cmd_sync() {
     require_git_repo
     local msg="" fix_mode=true yes_mode=true
-    while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-fix) fix_mode=false;; --no-yes) DG_YES_MODE=false;; *) break;; esac; shift; done
-    # Require an explicit Conventional Commit message. A bare `dg-git sync`
-    # must NOT auto-commit with a junk timestamp message (agent foot-gun).
-    [[ -z "$msg" ]] && { log_error "dg-git sync requires an explicit -m \"<conventional message>\""; exit 1; }
-    reject_auto_msg "$msg" || exit 1
-    cmd_doctor
-    preflight_stage || return 0
-    # Scan the files that WOULD be staged BEFORE touching the index: a secret
-    # finding must leave the index exactly as it was (no partial staging).
-    cmd_secret || return 0
-    git add -A
-    git commit -m "$msg"; git push
-    log_success "Synced: $msg"
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -m) shift; msg="$1";;
+            --no-fix) fix_mode=false;;
+            --no-yes) DG_YES_MODE=false;;
+            *) break;;
+        esac
+        shift
+    done
+
+    # 1. Doctor / Repository health preflight
+    log_info "🔍 [1/4] Checking repository health..."
+    cmd_doctor || {
+        log_error "Repository health check reported issues. Please review above."
+        return 1
+    }
+
+    # 2. Check for unresolved merge/rebase conflicts in workspace
+    local conflict_files
+    conflict_files=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+    if [[ -n "$conflict_files" ]]; then
+        log_error "Unmerged conflict files detected in repository:"
+        echo "$conflict_files" | while read -r f; do log_error "  • $f"; done
+        if [[ -f "$DG_GIT_DIR/scripts/git_conflict_resolver.sh" ]]; then
+            bash "$DG_GIT_DIR/scripts/git_conflict_resolver.sh" || true
+        fi
+        log_info "Please resolve conflicts, stage with 'git add', and run 'git rebase --continue' (or 'git commit')."
+        return 1
+    fi
+
+    # 3. Handle local uncommitted changes
+    local changes
+    changes=$(git status --porcelain)
+    if [[ -n "$changes" ]]; then
+        log_info "📦 [2/4] Local changes detected, scanning secrets & staging..."
+        if ! cmd_secret; then
+            log_error "Potential secret(s) detected in working tree! Aborting commit to prevent leak."
+            log_error "Please remove or secure secrets before syncing."
+            return 1
+        fi
+
+        if [[ -z "$msg" ]]; then
+            msg="chore(workspace): synchronize local changes $(date +'%Y-%m-%d %H:%M:%S')"
+        else
+            reject_auto_msg "$msg" || return 1
+        fi
+
+        git add -A
+        git commit -m "$msg"
+        log_success "Committed local changes: $(git rev-parse --short HEAD) - $msg"
+    else
+        log_info "✨ [2/4] Working tree clean - no local changes to commit."
+    fi
+
+    # 4. Pull and integrate remote updates
+    local branch
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    if [[ "$branch" == "HEAD" ]]; then
+        log_error "Detached HEAD detected. Please switch to a branch before syncing."
+        return 1
+    fi
+
+    local remote="origin"
+    if ! git remote | grep -q "^origin$"; then
+        remote=$(git remote | head -n 1 || true)
+    fi
+
+    if [[ -n "$remote" ]]; then
+        log_info "🔄 [3/4] Fetching latest from $remote/$branch..."
+        git fetch "$remote" "$branch" 2>&1 || {
+            log_error "Failed to fetch from remote '$remote'."
+            return 1
+        }
+
+        local behind ahead
+        behind=$(git rev-list --count HEAD..FETCH_HEAD 2>/dev/null || echo 0)
+        ahead=$(git rev-list --count FETCH_HEAD..HEAD 2>/dev/null || echo 0)
+
+        if [[ $behind -gt 0 && $ahead -eq 0 ]]; then
+            log_info "⬇️  Fast-forwarding $behind commit(s) from $remote..."
+            git merge --ff-only FETCH_HEAD || {
+                log_error "Fast-forward failed."
+                return 1
+            }
+            log_success "Pulled and updated to latest $remote/$branch."
+        elif [[ $behind -gt 0 && $ahead -gt 0 ]]; then
+            log_warn "Branch diverged ($ahead local commit(s) ahead, $behind remote commit(s) behind). Rebasing..."
+            if ! git rebase FETCH_HEAD; then
+                log_error "⚠️ Merge/Rebase conflict detected during sync!"
+                conflict_files=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+                if [[ -n "$conflict_files" ]]; then
+                    echo "$conflict_files" | while read -r f; do log_error "  • $f"; done
+                fi
+                if [[ -f "$DG_GIT_DIR/scripts/git_conflict_resolver.sh" ]]; then
+                    bash "$DG_GIT_DIR/scripts/git_conflict_resolver.sh" || true
+                fi
+                log_info "Please resolve conflicts, stage with 'git add', and run 'git rebase --continue'."
+                return 1
+            fi
+            log_success "Rebased local changes cleanly onto $remote/$branch."
+        elif [[ $behind -eq 0 && $ahead -gt 0 ]]; then
+            log_info "Local branch is $ahead commit(s) ahead of $remote."
+        else
+            log_info "Local branch is already up to date with $remote/$branch."
+        fi
+
+        # 5. Push to remote
+        ahead=$(git rev-list --count "@{u}..HEAD" 2>/dev/null || git rev-list --count "FETCH_HEAD..HEAD" 2>/dev/null || echo 0)
+        local tracking
+        tracking=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)
+        local push_args=("$remote" "$branch")
+        if [[ -z "$tracking" ]]; then
+            push_args=("-u" "$remote" "$branch")
+        fi
+
+        log_info "🚀 [4/4] Pushing to $remote/$branch..."
+        git push "${push_args[@]}"
+        log_success "Pushed to $remote/$branch."
+    else
+        log_warn "No remote configured. Local commit is recorded in history."
+    fi
+
+    log_success "🎉 Workspace fully synchronized with GitHub!"
 }
 
 cmd_branch() {
@@ -247,15 +369,14 @@ main() {
     load_config() { [[ -f "$DG_GIT_DIR/.dg-git.yml" ]] && while IFS='=' read -r k v; do [[ $k =~ ^[[:space:]]*# ]] && continue; [[ -z $k ]] && continue; k=$(echo "$k"|xargs); v=$(echo "$v"|xargs); export "DG_${k^^}"="$v"; done < "$DG_GIT_DIR/.dg-git.yml"; :; }
     load_config
     
-    # Bare invocation must NOT auto-commit+push. Require an explicit command.
-    if [[ $# -eq 0 ]]; then
-        echo "dg-git: a command is required. Run 'dg-git help' for usage." >&2
-        exit 1
+    cmd="${1:-sync}"
+    if [[ $# -gt 0 ]]; then
+        shift
     fi
-    cmd="$1"; shift
     case "$cmd" in
         doctor) cmd_doctor "$@" ;;
         commit) cmd_commit "$@" ;;
+        pull) cmd_pull "$@" ;;
         push) cmd_push "$@" ;;
         sync) cmd_sync "$@" ;;
         branch) cmd_branch "$@" ;;
@@ -266,13 +387,14 @@ main() {
 DataGuard Git Tools (dg-git) - Safe git operations
 
 Usage: dg-git [command] [options]
-  (a command is required; bare invocation prints usage and exits 1)
+  (default: no command = full automated sync: doctor → secret scan → commit → pull/rebase → push)
 
 Commands:
-  doctor      Check repo health (default: fix=yes, yes=yes, strict=no)
-  commit      Safe commit with validation
+  sync        Full sync: check → commit → pull/rebase → push (default)
+  pull        Fetch and fast-forward the configured upstream
   push        Safe push (no force, auto upstream)
-  sync        Doctor → secret scan → commit → push (default: fix=yes, yes=yes)
+  commit      Safe commit with validation
+  doctor      Check repo health (default: fix=yes, yes=yes, strict=no)
   branch      Branch management
   secret      Scan for secrets
   config      Manage config
@@ -290,14 +412,15 @@ Config file: .dg-git.yml
   dry_run: false
 
 Examples:
+  dg-git                    # Full automated sync (check → commit → pull/rebase → push)
+  dg-git pull               # Fetch and fast-forward the configured upstream
+  dg-git sync -m "feat"     # Full sync with custom commit message
   dg-git doctor             # Read-only repo health check
   dg-git commit -m "feat"   # Safe commit
   dg-git push               # Safe push
-  dg-git sync -m "feat"     # Doctor → secret scan → commit → push
   dg-git branch --create feat/new
   dg-git secret             # Scan secrets
   dg-git config --show
-
 EOF
             exit 0;;
         *) log_error "Unknown: $cmd"; exit 1;; esac
