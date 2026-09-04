@@ -24,6 +24,15 @@ DG_STRICT_MODE="${DG_STRICT_MODE:-false}"
 if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
     export PATH="$HOME/.dotnet:$PATH"
 fi
+# `act` is a portable GitHub Actions runner. Docker Desktop remains the only
+# container runtime; neither tool is installed project-wide.
+if [[ -x "$HOME/.act/bin/act" || -x "$HOME/.act/bin/act.exe" ]]; then
+    export PATH="$HOME/.act/bin:$PATH"
+fi
+if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
+    export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"
+fi
+
 
 DG_DRY_RUN="${DG_DRY_RUN:-false}"
 
@@ -220,6 +229,49 @@ show_conflict_guide() {
     echo -e "Sau đó chạy lại: ${GREEN}dg-git${NC}"
     echo ""
 }
+run_local_github_workflows() {
+    local runner_image="catthehacker/ubuntu:act-latest"
+    if [[ "${DG_SKIP_LOCAL_ACTIONS:-false}" == "true" ]]; then
+        log_info "Bỏ qua GitHub Actions local theo DG_SKIP_LOCAL_ACTIONS=true."
+        return 0
+    fi
+
+
+    if ! command -v act >/dev/null 2>&1; then
+        log_error "Không tìm thấy act. Cài portable runner tại %USERPROFILE%\\.act\\bin rồi chạy lại."
+        return 1
+    fi
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        log_error "Docker Desktop chưa sẵn sàng. Khởi động Docker Desktop rồi chạy lại dg-git."
+        return 1
+    fi
+
+    log_info "🧪 Chạy job Build and Test của CI local bằng act + Docker trước khi commit..."
+    log_info "Runner image: $runner_image (lần đầu Docker sẽ tải image này)."
+    # `act`'s medium image cannot faithfully run CI's SBOM (.NET 8 runtime),
+    # TruffleHog's nested Docker scan, or CodeQL. Those gates remain enforced
+    # by GitHub Actions after the push.
+    act push \
+        --workflows "$DG_GIT_DIR/.github/workflows/ci.yml" \
+        --job build-and-test \
+        --env ACT=true \
+        --platform "ubuntu-latest=$runner_image" || {
+        log_error "CI Build and Test local thất bại; hủy commit/push."
+        return 1
+    }
+
+    act push \
+        --workflows "$DG_GIT_DIR/.github/workflows/standards-audit.yml" \
+        --platform "ubuntu-latest=$runner_image" || {
+        log_error "Standards audit local thất bại; hủy commit/push."
+        return 1
+    }
+    # Release and marketplace workflows can publish packages, releases, or
+    # marketplace extensions. They must stay GitHub-hosted and are never run
+    # automatically from a developer workstation.
+    log_info "Đã chạy Build and Test cùng standards audit local. SBOM, TruffleHog, CodeQL, release, marketplace, và Scorecard chạy trên GitHub sau push."
+}
+
 
 cmd_sync() {
     require_git_repo
@@ -307,6 +359,8 @@ cmd_sync() {
     else
         log_info "✨ [3/7] Thư mục làm việc sạch sẽ, sẵn sàng đồng bộ."
     fi
+
+
 
     # 5. ĐỒNG BỘ NHÁNH CHÍNH (MAIN) TỪ GITHUB VÀ XỬ LÝ CONFLICT
     log_info "🔄 [4/7] Đồng bộ nhánh chính '$default_branch' với '$remote/$default_branch'..."
@@ -405,6 +459,8 @@ cmd_sync() {
                 return 1
             }
         fi
+        run_local_github_workflows || return 1
+
 
 
         if [[ -z "$msg" ]]; then

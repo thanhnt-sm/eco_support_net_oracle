@@ -1,6 +1,8 @@
 root = true
 
 [*.cs]
+end_of_line = lf
+
 # Style preferences that do not apply to this codebase. Disabling these keeps
 # the remaining StyleCop rules meaningful (formatting + real XML-doc issues).
 

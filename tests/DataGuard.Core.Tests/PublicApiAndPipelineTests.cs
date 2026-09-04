@@ -87,6 +87,51 @@ public class PublicApiAndPipelineTests
         var cred = DataGuardFactory.CreateCredentialManager(new DataGuardConfiguration());
         cred.Should().NotBeNull();
     }
+    [Fact]
+    public async Task ValidationPipeline_CheckDriftWithoutBaseline_ReportsSetupRequirement()
+    {
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"dg-baseline-{Guid.NewGuid():N}.json");
+        using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath });
+
+        var report = await pipeline.CheckDriftAsync(Array.Empty<ContractViolation>());
+
+        report.HasBaseline.Should().BeFalse();
+        report.DriftDetected.Should().BeFalse();
+        report.NewViolations.Should().BeEmpty();
+        report.Message.Should().Contain("CreateBaseline");
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckDriftWithEmptyBaseline_ReportsNoDrift()
+    {
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"dg-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(baselinePath, """
+                {
+                  "Version": 2,
+                  "CreatedAt": "2026-01-01T00:00:00Z",
+                  "SchemaVersion": "1.0",
+                  "GroundTruthMode": "Snapshot",
+                  "Violations": []
+                }
+                """);
+
+            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath });
+            var report = await pipeline.CheckDriftAsync(Array.Empty<ContractViolation>());
+
+            report.HasBaseline.Should().BeTrue();
+            report.DriftDetected.Should().BeFalse();
+            report.NewViolations.Should().BeEmpty();
+        }
+        finally
+        {
+            if (File.Exists(baselinePath))
+            {
+                File.Delete(baselinePath);
+            }
+        }
+    }
 }
 
 public class CredentialManagerTests
@@ -189,6 +234,30 @@ public class RulePluginManagerTests
         {
             Directory.Delete(tempDir);
         }
+    }
+    [Fact]
+    public void RulePluginMetadata_ReadsCompleteMetadata()
+    {
+        var metadata = new RulePluginMetadata(new Dictionary<string, object>
+        {
+            ["RuleId"] = "DG900",
+            ["Name"] = "Plugin rule",
+            ["Description"] = "Plugin rule description",
+            ["Category"] = "Custom",
+            ["DefaultSeverity"] = "Error",
+            ["MinDataGuardVersion"] = "2.0.0",
+            ["Author"] = "DataGuard",
+            ["Tags"] = new[] { "plugin", "test" },
+        });
+
+        metadata.RuleId.Should().Be("DG900");
+        metadata.Name.Should().Be("Plugin rule");
+        metadata.Description.Should().Be("Plugin rule description");
+        metadata.Category.Should().Be("Custom");
+        metadata.DefaultSeverity.Should().Be("Error");
+        metadata.MinDataGuardVersion.Should().Be("2.0.0");
+        metadata.Author.Should().Be("DataGuard");
+        metadata.Tags.Should().Equal("plugin", "test");
     }
 }
 

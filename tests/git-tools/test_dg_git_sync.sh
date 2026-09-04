@@ -51,7 +51,7 @@ PUB_HEAD=$(git rev-parse HEAD)
 cd "$CONSUMER_DIR"
 unset DG_GIT_DIR || true
 # Run bare dg-git (no subcommand, no options)
-bash "$DG_GIT_SCRIPT"
+DG_SKIP_LOCAL_ACTIONS=true bash "$DG_GIT_SCRIPT"
 
 if [[ ! -f "$CONSUMER_DIR/publisher_feature.txt" ]]; then
     echo "Assertion failed: publisher_feature.txt missing in consumer after bare sync" >&2
@@ -79,7 +79,7 @@ cd "$CONSUMER_DIR"
 echo "consumer work" >> consumer_work.txt
 
 # Run bare dg-git: should auto-commit, fetch, rebase, and push
-bash "$DG_GIT_SCRIPT"
+DG_SKIP_LOCAL_ACTIONS=true bash "$DG_GIT_SCRIPT"
 
 CONSUMER_HEAD_2=$(git rev-parse HEAD)
 # Verify working tree is clean
@@ -107,7 +107,7 @@ git add local_feature.txt
 git commit -m "feat(local): add local feature"
 git switch main
 
-bash "$DG_GIT_SCRIPT"
+DG_SKIP_LOCAL_ACTIONS=true bash "$DG_GIT_SCRIPT"
 
 if [[ ! -f "$CONSUMER_DIR/local_feature.txt" ]]; then
     echo "Assertion failed: local_feature.txt was not merged into main" >&2
@@ -128,7 +128,7 @@ fi
 # -------------------------------------------------------------
 cd "$CONSUMER_DIR"
 printf '%s%s\n' 'AKIA' '1234567890123456' > leaked_key.txt
-if bash "$DG_GIT_SCRIPT"; then
+if DG_SKIP_LOCAL_ACTIONS=true bash "$DG_GIT_SCRIPT"; then
     echo "Assertion failed: bare sync should fail when potential secrets are present" >&2
     exit 1
 fi
