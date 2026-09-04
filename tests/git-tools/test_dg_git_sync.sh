@@ -98,10 +98,36 @@ if [[ ! -f "$PUBLISHER_DIR/consumer_work.txt" ]]; then
 fi
 
 # -------------------------------------------------------------
-# Test 3: Secret detection aborts sync without committing
+# Test 3: Bare invocation merges unmerged local branches into main and pushes
 # -------------------------------------------------------------
 cd "$CONSUMER_DIR"
-echo 'AKIA1234567890123456' > leaked_key.txt
+git switch -c local-feature
+echo "local feature" > local_feature.txt
+git add local_feature.txt
+git commit -m "feat(local): add local feature"
+git switch main
+
+bash "$DG_GIT_SCRIPT"
+
+if [[ ! -f "$CONSUMER_DIR/local_feature.txt" ]]; then
+    echo "Assertion failed: local_feature.txt was not merged into main" >&2
+    exit 1
+fi
+if ! git merge-base --is-ancestor local-feature main; then
+    echo "Assertion failed: local-feature commit is not contained in main" >&2
+    exit 1
+fi
+git -C "$PUBLISHER_DIR" pull --ff-only origin main
+if [[ ! -f "$PUBLISHER_DIR/local_feature.txt" ]]; then
+    echo "Assertion failed: local feature merge was not pushed to remote" >&2
+    exit 1
+fi
+
+# -------------------------------------------------------------
+# Test 4: Secret detection aborts sync without committing
+# -------------------------------------------------------------
+cd "$CONSUMER_DIR"
+printf '%s%s\n' 'AKIA' '1234567890123456' > leaked_key.txt
 if bash "$DG_GIT_SCRIPT"; then
     echo "Assertion failed: bare sync should fail when potential secrets are present" >&2
     exit 1
