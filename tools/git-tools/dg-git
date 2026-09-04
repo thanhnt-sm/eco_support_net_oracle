@@ -19,6 +19,12 @@ DG_CONFIG_FILE="${DG_GIT_DIR}/.dg-git.yml"
 DG_FIX_MODE="${DG_FIX_MODE:-true}"
 DG_YES_MODE="${DG_YES_MODE:-true}"
 DG_STRICT_MODE="${DG_STRICT_MODE:-false}"
+# Support a per-user SDK installed by dotnet-install so direct `bash dg-git`
+# works as reliably as the Windows dg-git.cmd wrapper.
+if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
+    export PATH="$HOME/.dotnet:$PATH"
+fi
+
 DG_DRY_RUN="${DG_DRY_RUN:-false}"
 
 # Colors
