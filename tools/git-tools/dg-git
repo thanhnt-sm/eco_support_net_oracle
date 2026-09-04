@@ -421,14 +421,18 @@ cmd_sync() {
     fi
 
     # 9. PUSH TOÀN BỘ LÊN GITHUB
-    log_info "🚀 [7/7] Đẩy toàn bộ thay đổi lên GitHub..."
     local unpushed
     unpushed=$(git rev-list --count "$remote/$default_branch..$default_branch" 2>/dev/null || echo 0)
-    git push -u "$remote" "$default_branch" || {
-        log_error "Lỗi khi đẩy code lên GitHub. Kiểm tra lại quyền đẩy (write permission) hoặc mạng."
-        return 1
-    }
-    log_success "Đã đẩy nhánh '$default_branch' lên GitHub an toàn."
+    if [[ $unpushed -gt 0 ]]; then
+        log_info "🚀 [7/7] Đẩy $unpushed commit mới lên GitHub..."
+        git push -u "$remote" "$default_branch" || {
+            log_error "Lỗi khi đẩy code lên GitHub. Kiểm tra lại quyền đẩy (write permission) hoặc mạng."
+            return 1
+        }
+        log_success "Đã đẩy nhánh '$default_branch' lên GitHub an toàn."
+    else
+        log_info "🚀 [7/7] Không có commit mới để push; bỏ qua pre-push check tốn thời gian."
+    fi
 
     # Also push any other local branches that have tracking or need pushing
     for b in "${local_branches[@]}"; do
