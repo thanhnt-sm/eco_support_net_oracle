@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-readonly ROOT_FILE_PATTERN='^(DataGuard\.sln|Directory(\..+)?\.props|Dockerfile|\.dockerignore|\.env\.example|\.gitignore|\.gitattributes|\.editorconfig|global\.json|NuGet\.config|README(\.vi)?\.md|CONTRIBUTING(\.vi)?\.md|SECURITY(\.vi)?\.md|LICENSE(\.md)?|CLAUDE\.md|AGENTS\.md|\.agentrules|\.cursorrules|\.windsurfrules|\.geminirules|devin_instructions\.md|robots\.txt)$'
+readonly ROOT_FILE_PATTERN='^(DataGuard\.sln|Directory(\..+)?\.props|Dockerfile|\.dockerignore|\.env\.example|\.release\.env\.example|\.gitignore|\.gitattributes|\.editorconfig|global\.json|NuGet\.config|README(\.vi)?\.md|CONTRIBUTING(\.vi)?\.md|SECURITY(\.vi)?\.md|LICENSE(\.md)?|CLAUDE\.md|AGENTS\.md|\.agentrules|\.cursorrules|\.windsurfrules|\.geminirules|devin_instructions\.md|robots\.txt)$'
 readonly DIRECTORY_PATTERN='^(src|tests|samples|docs|plans|research|grants|brainstorm|scripts|tools|rules|benchmarks|\.github|\.githooks|\.agents|claude)/'
 readonly LOCAL_CONFIG_PATTERN='^(\.omo/(config|agents)\.toml|\.codegraph/\.gitignore)$'
 

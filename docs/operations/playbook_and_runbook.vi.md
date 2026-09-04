@@ -30,7 +30,17 @@ GITHUB_TOKEN=ghp_...
 LOG_LEVEL=info
 ```
 
-### SOP-002: Khởi Chạy Dịch Vụ & Triển Khai Daemon
+### SOP-002: Phát Hành Đa Nền Tảng An Toàn
+
+Thực hiện theo [Hướng dẫn phát hành an toàn](release_guide.vi.md). Điểm vào release duy nhất là:
+
+```bash
+bash tools/git-tools/dg-release --tag v1.2.3 --publish-marketplaces --dry-run
+```
+
+Lệnh production trong hướng dẫn đòi hỏi xác nhận tường minh và không lưu credential Marketplace, NuGet hoặc GitHub trong repository.
+
+### SOP-003: Khởi Chạy Dịch Vụ & Triển Khai Daemon
 ```bash
 # Chế độ A: Giao diện dòng lệnh CLI tương tác cho Developer
 cargo run -p eco-cli -- scan --category c-ffi --limit 10

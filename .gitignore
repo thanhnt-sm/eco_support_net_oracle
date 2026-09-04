@@ -58,6 +58,9 @@ Desktop.ini
 .env
 .env.*
 !.env.example
+.release.env
+.release.env.*
+!.release.env.example
 *.pem
 *.key
 *.token

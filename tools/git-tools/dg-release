@@ -1,0 +1,468 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# DataGuard One-Click Multi-Platform Release Orchestrator
+# ==============================================================================
+# Hỗ trợ tự động đọc cấu hình từ `.release.env` hoặc nhận cờ dòng lệnh.
+# Bảo mật: Không bao giờ in token ra log; token chỉ dùng qua biến môi trường.
+# ==============================================================================
+set -euo pipefail
+
+readonly DEFAULT_TIMEOUT_SECONDS=7200
+
+# ANSI colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}ℹ️  [dg-release]${NC} $*"; }
+log_ok() { echo -e "${GREEN}✅ [dg-release]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}⚠️  [dg-release]${NC} $*"; }
+fail() { echo -e "${RED}❌ [dg-release] LỖI:${NC} $*" >&2; exit 1; }
+
+usage() {
+    cat <<'EOF'
+DataGuard One-Click Multi-Platform Release (dg-release)
+
+CÁCH DÙNG TIỆN LỢI NHẤT (KHÔNG CẦN NHỚ OPTION):
+  1. Copy file mẫu:  cp .release.env.example .release.env
+  2. Điền thông tin vào `.release.env` (tag, token, marketplaces).
+  3. Chạy lệnh:
+       bash tools/git-tools/dg-release
+     (hoặc trên Windows: tools\git-tools\dg-release.cmd)
+
+CÁCH DÙNG QUA CỜ DÒNG LỆNH (NẾU MUỐN OVERRIDE):
+  dg-release --tag v1.0.0 [--publish-marketplaces] [--dry-run] [--yes]
+  dg-release --config path/to/.custom.env
+  dg-release --help
+
+CÁC NỀN TẢNG ĐƯỢC TỰ ĐỘNG PHÁT HÀNH:
+  1. NuGet.org                   : Toàn bộ gói DataGuard.* .nupkg (có chữ ký Sigstore OIDC)
+  2. GitHub Release              : Release assets, Release Notes, SBOMs (SPDX JSON), Sigstore bundle
+  3. GitHub Container Registry   : Multi-arch Docker images (linux/amd64, linux/arm64)
+  4. Build Provenance            : GitHub Artifact Attestations
+  5. VS Code Marketplace         : DataGuard VS Code Extension (nếu bật publish-marketplaces)
+  6. Visual Studio Marketplace   : DataGuard Visual Studio Extension (nếu bật publish-marketplaces)
+
+BẢO MẬT:
+  - Token được đọc từ file `.release.env` (đã nằm trong .gitignore) hoặc biến môi trường `DG_RELEASE_GITHUB_TOKEN`.
+  - Token không bao giờ được in ra màn hình hoặc truyền qua cờ dòng lệnh.
+  - Các master key xuất bản (NuGet API Key, Marketplace PAT) được lưu an toàn trong GitHub Actions Secrets.
+EOF
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || fail "Không tìm thấy lệnh '$1'. Cần cài đặt '$1' trên máy trước khi chạy."
+}
+
+validate_tag() {
+    [[ "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] \
+        || fail "Tag '$1' không đúng chuẩn SemVer có tiền tố 'v' (ví dụ hợp lệ: v1.0.0, v1.0.1, v1.1.0-rc.1)."
+}
+
+mask_token() {
+    local t="$1"
+    if [[ -z "$t" ]]; then
+        echo "chưa cấu hình"
+    elif [[ ${#t} -le 10 ]]; then
+        echo "configured (hidden)"
+    else
+        echo "${t:0:8}...${t: -4} (actions:write, contents:read)"
+    fi
+}
+
+repository_slug() {
+    local remote
+    remote=$(git remote get-url origin 2>/dev/null) || fail "Remote 'origin' không tồn tại."
+    remote=${remote%.git}
+    case "$remote" in
+        https://github.com/*/*) printf '%s\n' "${remote#https://github.com/}" ;;
+        git@github.com:*/*) printf '%s\n' "${remote#git@github.com:}" ;;
+        ssh://git@github.com/*/*) printf '%s\n' "${remote#ssh://git@github.com/}" ;;
+        *) fail "Remote origin phải trỏ về github.com (tìm thấy: '$remote')." ;;
+    esac
+}
+
+api_get() {
+    local endpoint="$1"
+    curl --fail --silent --show-error \
+        -H "Accept: application/vnd.github+json" \
+        -H "Authorization: Bearer ${DG_RELEASE_GITHUB_TOKEN}" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "https://api.github.com$endpoint"
+}
+
+api_post() {
+    local endpoint="$1"
+    local payload="$2"
+    curl --fail --silent --show-error \
+        --request POST \
+        -H "Accept: application/vnd.github+json" \
+        -H "Authorization: Bearer ${DG_RELEASE_GITHUB_TOKEN}" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        -H "Content-Type: application/json" \
+        --data "$payload" \
+        "https://api.github.com$endpoint" >/dev/null
+}
+
+workflow_state() {
+    local workflow="$1"
+    local event="$2"
+    local tag="$3"
+    local sha="$4"
+    local response
+    if [[ "$JSON_PARSER" == "jq" ]]; then
+        jq -r --arg tag "$tag" --arg sha "$sha" '
+            .workflow_runs[]?
+            | select(.head_branch == $tag and .head_sha == $sha)
+            | "\(.status):\(.conclusion // "")"
+        ' <<<"$response" | head -n 1
+    else
+        "$JSON_PARSER" -c '
+import json, sys
+runs = json.load(sys.stdin).get("workflow_runs", [])
+tag, sha = sys.argv[1:]
+for run in runs:
+    if run.get("head_branch") == tag and run.get("head_sha") == sha:
+        print("{}:{}".format(run.get("status", ""), run.get("conclusion") or ""))
+        break
+' "$tag" "$sha" <<<"$response"
+    fi
+}
+
+wait_for_workflow() {
+    local workflow="$1"
+    local event="$2"
+    local label="$3"
+    local deadline=$((SECONDS + TIMEOUT_SECONDS))
+    local state=""
+
+    log_info "Đang theo dõi tiến trình GitHub Actions '$label'..."
+    while (( SECONDS < deadline )); do
+        state=$(workflow_state "$workflow" "$event" "$TAG" "$TAG_SHA" 2>/dev/null || true)
+        if [[ "$state" == "completed:success" ]]; then
+            log_ok "Workflow '$label' đã hoàn tất THÀNH CÔNG!"
+            return 0
+        fi
+        if [[ "$state" == completed:* ]]; then
+            fail "Workflow '$label' kết thúc với trạng thái '$state'. Xem chi tiết tại: https://github.com/$REPOSITORY/actions"
+        fi
+        sleep 20
+    done
+
+    fail "Hết thời gian chờ (${TIMEOUT_SECONDS}s) cho workflow '$label'. Xem chi tiết tại: https://github.com/$REPOSITORY/actions"
+}
+
+# ------------------------------------------------------------------------------
+# XỬ LÝ CỜ TRỢ GIÚP (--help) NGAY TỨC THÌ
+# ------------------------------------------------------------------------------
+for arg in "$@"; do
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+        usage
+        exit 0
+    fi
+done
+
+# ------------------------------------------------------------------------------
+# KHỞI TẠO VÀ XÁC ĐỊNH THƯ MỤC GỐC REPO
+# ------------------------------------------------------------------------------
+require_command git
+require_command curl
+# Auto-discover JSON parser (jq, python3, python, or Windows path)
+JSON_PARSER=""
+if command -v jq >/dev/null 2>&1; then
+    JSON_PARSER="jq"
+elif command -v python3 >/dev/null 2>&1; then
+    JSON_PARSER="python3"
+elif command -v python >/dev/null 2>&1; then
+    JSON_PARSER="python"
+else
+    for py_candidate in \
+        "C:/Users/"*/AppData/Local/Programs/Python/Python*/python.exe \
+        "${USERPROFILE:-}/AppData/Local/Programs/Python/Python"*/python.exe \
+        /c/Users/*/AppData/Local/Programs/Python/Python*/python.exe \
+        "${LOCALAPPDATA:-}/Programs/Python/Python"*/python.exe \
+        /c/Python*/python.exe \
+        "C:/Python"*/python.exe; do
+        if [[ -f "$py_candidate" ]]; then
+            JSON_PARSER="$py_candidate"
+            break
+        fi
+    done
+fi
+
+[[ -n "$JSON_PARSER" ]] || fail "Cần cài đặt ít nhất một trong các công cụ phân tích JSON: 'jq' hoặc 'python'."
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || fail "Lệnh này phải được chạy bên trong Git repository."
+cd "$ROOT"
+
+CONFIG_FILE="$ROOT/.release.env"
+
+# Giá trị mặc định
+TAG=""
+CLI_TAG=""
+DRY_RUN=""
+CLI_DRY_RUN=""
+PUBLISH_MARKETPLACES=""
+CLI_PUBLISH_MARKETPLACES=""
+CONFIRMED=""
+CLI_CONFIRMED=""
+TIMEOUT_SECONDS=""
+CLI_TIMEOUT_SECONDS=""
+
+# Đọc cờ dòng lệnh
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config)
+            [[ $# -ge 2 ]] || fail "--config cần đường dẫn file cấu hình."
+            CONFIG_FILE="$2"
+            shift 2
+            ;;
+        --tag)
+            [[ $# -ge 2 ]] || fail "--tag cần giá trị phiên bản (ví dụ v1.0.0)."
+            CLI_TAG="$2"
+            shift 2
+            ;;
+        --dry-run)
+            CLI_DRY_RUN=true
+            shift
+            ;;
+        --publish-marketplaces)
+            CLI_PUBLISH_MARKETPLACES=true
+            shift
+            ;;
+        --no-marketplaces)
+            CLI_PUBLISH_MARKETPLACES=false
+            shift
+            ;;
+        --yes|-y)
+            CLI_CONFIRMED=true
+            shift
+            ;;
+        --timeout-seconds)
+            [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || fail "--timeout-seconds phải là số nguyên dương."
+            CLI_TIMEOUT_SECONDS="$2"
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "Tham số không hợp lệ: '$1'. Gõ --help để xem hướng dẫn."
+            ;;
+    esac
+done
+
+# ------------------------------------------------------------------------------
+# NẠP CẤU HÌNH TỪ FILE NẾU TỒN TẠI
+# ------------------------------------------------------------------------------
+if [[ -f "$CONFIG_FILE" ]]; then
+    # Kiểm tra an toàn quyền file trên Linux/macOS
+    if [[ "$(uname -s)" != "MINGW"* && "$(uname -s)" != "CYGWIN"* ]]; then
+        chmod 600 "$CONFIG_FILE" 2>/dev/null || true
+    fi
+    log_info "Đã nạp file cấu hình: $CONFIG_FILE"
+    while IFS='=' read -r raw_key raw_val || [[ -n "$raw_key" ]]; do
+        key=$(echo "$raw_key" | tr -d ' \r\t')
+        [[ -z "$key" || "$key" =~ ^# ]] && continue
+        # Xóa khoảng trắng và dấu ngoặc kép bọc ngoài
+        val=$(echo "$raw_val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        case "$key" in
+            RELEASE_TAG) TAG="$val" ;;
+            PUBLISH_MARKETPLACES) PUBLISH_MARKETPLACES="$val" ;;
+            DG_RELEASE_GITHUB_TOKEN)
+                if [[ -z "${DG_RELEASE_GITHUB_TOKEN:-}" ]]; then
+                    export DG_RELEASE_GITHUB_TOKEN="$val"
+                fi
+                ;;
+            DRY_RUN) DRY_RUN="$val" ;;
+            CONFIRM_RELEASE) CONFIRMED="$val" ;;
+            TIMEOUT_SECONDS) TIMEOUT_SECONDS="$val" ;;
+        esac
+    done < "$CONFIG_FILE"
+fi
+
+# Áp dụng override từ cờ dòng lệnh (ưu tiên cao hơn file)
+[[ -n "$CLI_TAG" ]] && TAG="$CLI_TAG"
+[[ -n "$CLI_DRY_RUN" ]] && DRY_RUN="$CLI_DRY_RUN"
+[[ -n "$CLI_PUBLISH_MARKETPLACES" ]] && PUBLISH_MARKETPLACES="$CLI_PUBLISH_MARKETPLACES"
+[[ -n "$CLI_CONFIRMED" ]] && CONFIRMED="$CLI_CONFIRMED"
+[[ -n "$CLI_TIMEOUT_SECONDS" ]] && TIMEOUT_SECONDS="$CLI_TIMEOUT_SECONDS"
+
+# Áp dụng giá trị mặc định cho những biến chưa có
+[[ -z "$DRY_RUN" ]] && DRY_RUN=false
+[[ -z "$PUBLISH_MARKETPLACES" ]] && PUBLISH_MARKETPLACES=true
+[[ -z "$CONFIRMED" ]] && CONFIRMED=false
+[[ -z "$TIMEOUT_SECONDS" ]] && TIMEOUT_SECONDS="$DEFAULT_TIMEOUT_SECONDS"
+
+# ------------------------------------------------------------------------------
+# NẾU THIẾU TAG, HỖ TRỢ HỎI TƯƠNG TÁC THÂN THIỆN
+# ------------------------------------------------------------------------------
+if [[ -z "$TAG" ]]; then
+    if [[ -t 0 ]]; then
+        echo ""
+        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║     🚀 DATAGUARD INTERACTIVE RELEASE SETUP (THIẾT LẬP PHÁT HÀNH)         ║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        read -rp "👉 Nhập phiên bản phát hành (SemVer, ví dụ: v1.0.0): " input_tag
+        TAG="$input_tag"
+        read -rp "👉 Tự động xuất bản lên VS Code & Visual Studio Marketplace? [Y/n]: " input_mkt
+        if [[ "$input_mkt" =~ ^[Nn] ]]; then
+            PUBLISH_MARKETPLACES=false
+        else
+            PUBLISH_MARKETPLACES=true
+        fi
+        if [[ -z "${DG_RELEASE_GITHUB_TOKEN:-}" ]]; then
+            echo -e "${YELLOW}Chưa có DG_RELEASE_GITHUB_TOKEN.${NC}"
+            read -rsp "👉 Dán GitHub Dispatcher Token (hoặc Enter nếu chỉ muốn dry-run): " input_tok
+            echo ""
+            if [[ -n "$input_tok" ]]; then
+                export DG_RELEASE_GITHUB_TOKEN="$input_tok"
+            fi
+        fi
+        read -rp "👉 Chọn chế độ: [1] Chạy thử (Dry-run)  [2] Release thật [1/2] (mặc định 1): " input_mode
+        if [[ "$input_mode" == "2" ]]; then
+            DRY_RUN=false
+            CONFIRMED=true
+        else
+            DRY_RUN=true
+        fi
+    else
+        fail "Chưa cấu hình phiên bản phát hành. Vui lòng tạo file .release.env (xem .release.env.example) hoặc truyền cờ --tag vX.Y.Z."
+    fi
+fi
+
+validate_tag "$TAG"
+
+# ------------------------------------------------------------------------------
+# KIỂM TRA SỨC KHỎE VÀ TÍNH ĐỒNG BỘ CỦA GIT WORKSPACE
+# ------------------------------------------------------------------------------
+REPOSITORY=$(repository_slug)
+DEFAULT_BRANCH=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
+DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+CURRENT_BRANCH=$(git branch --show-current)
+
+[[ "$CURRENT_BRANCH" == "$DEFAULT_BRANCH" ]] \
+    || fail "Release phải thực hiện trên nhánh chính '$DEFAULT_BRANCH'. Hiện đang ở nhánh '$CURRENT_BRANCH'."
+
+[[ -z "$(git status --porcelain)" ]] \
+    || fail "Thư mục làm việc chưa commit sạch sẽ. Hãy commit hoặc stash toàn bộ thay đổi trước khi release."
+
+log_info "Kiểm tra đồng bộ với GitHub ($REPOSITORY)..."
+if [[ "${DG_RELEASE_SKIP_FETCH:-false}" != "true" ]]; then
+    git fetch origin --tags --prune >/dev/null 2>&1 || fail "Không thể kết nối đến GitHub để nạp tags mới nhất. Kiểm tra mạng hoặc quyền truy cập."
+fi
+
+LOCAL_HEAD=$(git rev-parse HEAD)
+REMOTE_HEAD=$(git rev-parse "origin/$DEFAULT_BRANCH" 2>/dev/null || echo "$LOCAL_HEAD")
+[[ "$LOCAL_HEAD" == "$REMOTE_HEAD" ]] \
+    || fail "Nhánh local '$DEFAULT_BRANCH' ($LOCAL_HEAD) chưa khớp với 'origin/$DEFAULT_BRANCH' ($REMOTE_HEAD). Hãy chạy 'dg-git' để đồng bộ trước."
+
+! git show-ref --verify --quiet "refs/tags/$TAG" \
+    || fail "Tag '$TAG' đã tồn tại ở local. Tag release là bất biến (immutable), hãy tăng version mới."
+
+if [[ "${DG_RELEASE_SKIP_FETCH:-false}" != "true" ]]; then
+    ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1 \
+        || fail "Tag '$TAG' đã tồn tại trên GitHub. Tag release là bất biến (immutable), hãy tăng version mới."
+fi
+TAG_SHA="$LOCAL_HEAD"
+
+# ------------------------------------------------------------------------------
+# HIỂN THỊ BẢNG TỔNG QUAN XÁC NHẬN
+# ------------------------------------------------------------------------------
+echo ""
+echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║         🚀 THÔNG TIN TIẾN TRÌNH PHÁT HÀNH ĐA NỀN TẢNG                    ║${NC}"
+echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+echo -e "  • Repository       : ${GREEN}$REPOSITORY${NC}"
+echo -e "  • Nhánh / Commit   : ${GREEN}$DEFAULT_BRANCH (${TAG_SHA:0:7})${NC}"
+echo -e "  • Phiên bản (Tag)  : ${GREEN}$TAG${NC}"
+echo -e "  • Chế độ           : $([[ "$DRY_RUN" == true ]] && echo -e "${YELLOW}DRY RUN (Chỉ kiểm tra, không xuất bản)${NC}" || echo -e "${RED}REAL RELEASE (Phát hành chính thức)${NC}")"
+echo -e "  • Marketplace      : $([[ "$PUBLISH_MARKETPLACES" == true ]] && echo -e "${GREEN}BẬT (VS Code & Visual Studio)${NC}" || echo -e "${YELLOW}TẮT (Chỉ NuGet + GitHub + GHCR)${NC}")"
+echo -e "  • GitHub Token     : ${BLUE}$(mask_token "${DG_RELEASE_GITHUB_TOKEN:-}")${NC}"
+echo -e "  • Timeout tối đa   : ${TIMEOUT_SECONDS}s"
+echo -e "${CYAN}──────────────────────────────────────────────────────────────────────────${NC}"
+echo ""
+
+# ------------------------------------------------------------------------------
+# XỬ LÝ CHẾ ĐỘ DRY-RUN
+# ------------------------------------------------------------------------------
+if [[ "$DRY_RUN" == true ]]; then
+    log_ok "KIỂM TRA ĐIỀU KIỆN TIÊN QUYẾT HOÀN TOÀN HỢP LỆ (DRY-RUN THÀNH CÔNG)!"
+    echo ""
+    echo -e "${YELLOW}Các hành động sẽ được thực thi khi bạn chạy Release thật:${NC}"
+    echo -e "  1. Tạo và đẩy Git tag có chữ ký/annotated '${GREEN}$TAG${NC}' lên origin."
+    echo -e "  2. GitHub Actions kích hoạt workflow ${GREEN}Release (.github/workflows/release.yml)${NC}:"
+    echo -e "     - Build Release, test suite, kiểm tra độ phủ"
+    echo -e "     - Đóng gói toàn bộ DataGuard.* NuGet packages với version ${GREEN}${TAG#v}${NC}"
+    echo -e "     - Ký số Sigstore keyless (Cosign OIDC)"
+    echo -e "     - Sinh phần mềm SBOM (SPDX JSON)"
+    echo -e "     - Xuất bản lên ${GREEN}NuGet.org${NC}"
+    echo -e "     - Tạo ${GREEN}GitHub Release${NC} đính kèm nupkg, SBOMs, bundle chữ ký"
+    echo -e "     - Tạo GitHub Build Provenance Attestation"
+    echo -e "     - Build & Push Multi-arch Docker Image lên ${GREEN}GHCR${NC}"
+    if [[ "$PUBLISH_MARKETPLACES" == true ]]; then
+        echo -e "  3. Sau khi Release thành công, tự động gọi dispatch ${GREEN}Marketplace Extensions (.github/workflows/marketplace.yml)${NC}:"
+        echo -e "     - Đóng gói & xuất bản lên ${GREEN}VS Code Marketplace${NC}"
+        echo -e "     - Đóng gói & xuất bản lên ${GREEN}Visual Studio Marketplace${NC}"
+    fi
+    echo ""
+    log_info "Để phát hành thật sự, đặt 'DRY_RUN=false' trong file .release.env rồi chạy lại:"
+    log_info "  bash tools/git-tools/dg-release"
+    exit 0
+fi
+
+# ------------------------------------------------------------------------------
+# XÁC NHẬN PHÁT HÀNH CHÍNH THỨC
+# ------------------------------------------------------------------------------
+[[ -n "${DG_RELEASE_GITHUB_TOKEN:-}" ]] \
+    || fail "Phát hành thật sự bắt buộc cần DG_RELEASE_GITHUB_TOKEN trong .release.env hoặc biến môi trường."
+
+if [[ "$CONFIRMED" != true ]]; then
+    read -rp "⚠️  BẠN CÓ CHẮC CHẮN MUỐN PHÁT HÀNH $TAG LÊN TẤT CẢ NỀN TẢNG? [y/N]: " confirm_input
+    if [[ ! "$confirm_input" =~ ^[Yy]$ ]]; then
+        log_warn "Đã hủy tiến trình phát hành theo yêu cầu của bạn."
+        exit 0
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# BƯỚC 1: TẠO VÀ PUSH TAG ĐỂ KÍCH HOẠT WORKFLOW RELEASE
+# ------------------------------------------------------------------------------
+log_info "🚀 [1/3] Đang tạo Git tag bất biến '$TAG'..."
+git tag -a "$TAG" -m "Release $TAG"
+git push origin "refs/tags/$TAG"
+log_ok "Đã đẩy tag '$TAG' lên GitHub an toàn."
+
+# ------------------------------------------------------------------------------
+# BƯỚC 2: THEO DÕI VÀ CHỜ WORKFLOW RELEASE CHẠY THÀNH CÔNG
+# ------------------------------------------------------------------------------
+log_info "⏳ [2/3] Đang chờ GitHub Actions thực thi Release (NuGet + GitHub + GHCR)..."
+wait_for_workflow "release.yml" "push" "Release"
+
+# ------------------------------------------------------------------------------
+# BƯỚC 3: TỰ ĐỘNG GỌI VÀ THEO DÕI MARKETPLACE WORKFLOW NẾU ĐƯỢC YÊU CẦU
+# ------------------------------------------------------------------------------
+if [[ "$PUBLISH_MARKETPLACES" == true ]]; then
+    log_info "📦 [3/3] Đang kích hoạt phát hành Marketplace Extensions cho '$TAG'..."
+    api_post "/repos/$REPOSITORY/actions/workflows/marketplace.yml/dispatches" \
+        "{\"ref\":\"$TAG\",\"inputs\":{\"tag\":\"$TAG\",\"publish\":true}}"
+    log_ok "Đã kích hoạt workflow Marketplace Extensions thành công."
+    wait_for_workflow "marketplace.yml" "workflow_dispatch" "Marketplace Extensions"
+fi
+
+echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║   🎉 CHÚC MỪNG! PHÁT HÀNH $TAG HOÀN TẤT THÀNH CÔNG TRÊN MỌI NỀN TẢNG!     ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+echo -e "  • GitHub Release : https://github.com/$REPOSITORY/releases/tag/$TAG"
+echo -e "  • NuGet Packages : https://www.nuget.org/profiles/${REPOSITORY%%/*}"
+echo -e "  • Docker Image   : https://ghcr.io/$REPOSITORY"
+if [[ "$PUBLISH_MARKETPLACES" == true ]]; then
+    echo -e "  • Marketplaces   : VS Code & Visual Studio Marketplace (đã publish)"
+fi
+echo ""

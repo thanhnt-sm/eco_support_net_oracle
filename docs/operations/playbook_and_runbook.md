@@ -31,7 +31,17 @@ GITHUB_TOKEN=ghp_...
 LOG_LEVEL=info
 ```
 
-### SOP-002: Service Startup & Daemon Deployment
+### SOP-002: Secure Multi-Platform Release
+
+Follow the [Secure Release Guide](release_guide.md). The only release entry point is:
+
+```bash
+bash tools/git-tools/dg-release --tag v1.2.3 --publish-marketplaces --dry-run
+```
+
+The documented production command requires an explicit confirmation and never stores marketplace, NuGet, or GitHub credentials in the repository.
+
+### SOP-003: Service Startup & Daemon Deployment
 ```bash
 # Mode A: Interactive Developer CLI
 cargo run -p eco-cli -- scan --category c-ffi --limit 10

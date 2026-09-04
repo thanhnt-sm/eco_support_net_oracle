@@ -598,6 +598,7 @@ main() {
         branch) cmd_branch "$@" ;;
         secret) cmd_secret "$@" ;;
         config) cmd_config "$@" ;;
+        release) exec "$(dirname "${BASH_SOURCE[0]}")/dg-release" "$@" ;;
         help|--help|-h)
             cat <<'EOF'
 DataGuard Git Tools (dg-git) - Safe git operations
@@ -614,7 +615,7 @@ Commands:
   branch      Branch management
   secret      Scan for secrets
   config      Manage config
-
+  release     One-click multi-platform release (NuGet, GitHub, GHCR, Marketplaces)
 Environment Variables (or .dg-git.yml):
   DG_FIX_MODE=true       Auto-fix safe issues (default: true)
   DG_YES_MODE=true       Skip confirmations (default: true)
