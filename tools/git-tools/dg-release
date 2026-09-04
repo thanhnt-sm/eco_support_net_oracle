@@ -419,8 +419,11 @@ fi
 # ------------------------------------------------------------------------------
 # XÁC NHẬN PHÁT HÀNH CHÍNH THỨC
 # ------------------------------------------------------------------------------
-[[ -n "${DG_RELEASE_GITHUB_TOKEN:-}" ]] \
-    || fail "Phát hành thật sự bắt buộc cần DG_RELEASE_GITHUB_TOKEN trong .release.env hoặc biến môi trường."
+if [[ -z "${DG_RELEASE_GITHUB_TOKEN:-}" ]]; then
+    log_warn "Chưa cấu hình DG_RELEASE_GITHUB_TOKEN (theo dõi qua API bị tắt)."
+    log_info "Tool sẽ tạo và đẩy Git tag '$TAG' lên GitHub để kích hoạt toàn bộ quy trình Release."
+    log_info "Bạn có thể theo dõi tiến trình trực tiếp tại: https://github.com/$REPOSITORY/actions"
+fi
 
 if [[ "$CONFIRMED" != true ]]; then
     read -rp "⚠️  BẠN CÓ CHẮC CHẮN MUỐN PHÁT HÀNH $TAG LÊN TẤT CẢ NỀN TẢNG? [y/N]: " confirm_input
@@ -439,23 +442,24 @@ git push origin "refs/tags/$TAG"
 log_ok "Đã đẩy tag '$TAG' lên GitHub an toàn."
 
 # ------------------------------------------------------------------------------
-# BƯỚC 2: THEO DÕI VÀ CHỜ WORKFLOW RELEASE CHẠY THÀNH CÔNG
+# BƯỚC 2: THEO DÕI VÀ CHỜ WORKFLOW (NẾU CÓ TOKEN) HOẶC ĐIỀU HƯỚNG TRANG WEB
 # ------------------------------------------------------------------------------
-log_info "⏳ [2/3] Đang chờ GitHub Actions thực thi Release (NuGet + GitHub + GHCR)..."
-wait_for_workflow "release.yml" "push" "Release"
+if [[ -n "${DG_RELEASE_GITHUB_TOKEN:-}" ]]; then
+    log_info "⏳ [2/3] Đang chờ GitHub Actions thực thi Release (NuGet + GitHub + GHCR)..."
+    wait_for_workflow "release.yml" "push" "Release"
 
-# ------------------------------------------------------------------------------
-# BƯỚC 3: TỰ ĐỘNG GỌI VÀ THEO DÕI MARKETPLACE WORKFLOW NẾU ĐƯỢC YÊU CẦU
-# ------------------------------------------------------------------------------
-if [[ "$PUBLISH_MARKETPLACES" == true ]]; then
-    log_info "📦 [3/3] Đang kích hoạt phát hành Marketplace Extensions cho '$TAG'..."
-    api_post "/repos/$REPOSITORY/actions/workflows/marketplace.yml/dispatches" \
-        "{\"ref\":\"$TAG\",\"inputs\":{\"tag\":\"$TAG\",\"publish\":true}}"
-    log_ok "Đã kích hoạt workflow Marketplace Extensions thành công."
-    wait_for_workflow "marketplace.yml" "workflow_dispatch" "Marketplace Extensions"
+    if [[ "$PUBLISH_MARKETPLACES" == true ]]; then
+        log_info "📦 [3/3] Đang kích hoạt phát hành Marketplace Extensions cho '$TAG'..."
+        api_post "/repos/$REPOSITORY/actions/workflows/marketplace.yml/dispatches" \
+            "{\"ref\":\"$TAG\",\"inputs\":{\"tag\":\"$TAG\",\"publish\":true}}"
+        log_ok "Đã kích hoạt workflow Marketplace Extensions thành công."
+        wait_for_workflow "marketplace.yml" "workflow_dispatch" "Marketplace Extensions"
+    fi
+else
+    log_info "ℹ️  Bỏ qua bước gọi API tự động vì không có token."
+    log_info "GitHub Actions đang tự động biên dịch, đóng gói NuGet, VS Code VSIX và Visual Studio VSIX."
+    echo -e "  👉 Theo dõi trực tiếp tại: ${CYAN}https://github.com/$REPOSITORY/actions${NC}"
 fi
-
-echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║   🎉 CHÚC MỪNG! PHÁT HÀNH $TAG HOÀN TẤT THÀNH CÔNG TRÊN MỌI NỀN TẢNG!     ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
