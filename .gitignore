@@ -101,6 +101,7 @@ temp/
 .omo/
 .omp/
 .codex/
+.commandcode/
 
 # ==================== DataGuard runtime ====================
 # May contain connection strings
