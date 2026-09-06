@@ -322,12 +322,15 @@ NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS
 
 1. ✅ Tạo `.github/workflows/build_release.yml` độc lập, chỉ `workflow_dispatch`, input SemVer bắt buộc và `include_docker` tùy chọn; không sửa `.github/workflows/release.yml`.
 2. ✅ Workflow gồm validate version, sáu CLI RID (`linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`, `win-arm64`), VS Code VSIX, Visual Studio VSIX, NuGet packages, checksum sidecar, aggregate manifest/checksum và Docker OCI smoke artifact tùy chọn.
-3. ✅ Verify local: YAML parser và `actionlint` pass; `dotnet restore DataGuard.sln --locked-mode` pass; `dotnet build DataGuard.sln --configuration Release` pass; CLI Linux archive + SHA-256 checksum pass. NuGet pack đã tạo package thành công khi chạy trực tiếp.
-4. ⚠️ Chưa chạy GitHub Actions thật; chưa xác minh Windows/macOS runner, extension packaging trên host tương ứng, aggregate artifact download/manifest, hoặc cài thử VSIX.
-5. ⚠️ Workflow còn untracked; các thay đổi `packages.lock.json` và thư mục `nupkg/` là generated/unrelated từ local verification, giữ nguyên để owner xử lý riêng.
+3. ✅ Verify local: YAML parser và `actionlint` pass; `dotnet restore DataGuard.sln --locked-mode` pass; `dotnet build DataGuard.sln --configuration Release` pass; CLI Linux archive + SHA-256 checksum pass. NuGet pack local và validation version pass.
+4. ✅ Commit/push hoàn tất: workflow và verifier được commit trong `ac24938`; MinVer/package-version fix trong `40f8350`; remote `origin/main` đã ở `40f8350aca4e24cc828c4dcd611711f498a7df21`.
+5. ✅ Hosted workflow run `34022850545` trên commit `40f8350` thành công: 6 CLI matrix jobs, VS Code, Visual Studio, NuGet và aggregate đều pass; Docker skipped đúng vì `include_docker=false`.
+6. ✅ Aggregate `dataguard-installers-1.2.3` đã tải và xác minh: `SHA256SUMS.txt` pass toàn bộ 17 payloads; `release-manifest.json` ghi version `1.2.3`, commit `40f8350aca4e24cc828c4dcd611711f498a7df21`, 17 files; NuGet 9/9 có filename và `.nuspec` version `1.2.3`.
+7. ⚠️ Chưa cài thử VSIX interactively trên host VS Code/Visual Studio; Docker image không được build/push vì input `include_docker=false`.
+8. ⚠️ Stash `preserve-unrelated-lockfile-wip` vẫn giữ nguyên, chưa pop theo chủ đích.
 
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO
 
-- [ ] Owner review và commit riêng workflow với đề xuất `ci: add manual build release artifacts workflow`.
-- [ ] Chạy `gh workflow run build_release.yml -f version=1.2.3`; xác minh đủ artifacts và tải aggregate để kiểm tra checksums/manifest.
+- [ ] Nếu cần, owner cài thử VSIX trên host tương ứng.
+- [ ] Nếu cần Docker artifact, dispatch lại với `include_docker=true`.
 - [ ] 3 informational còn lại (cần DB thật): OracleReaders col_charsetform; wire RefCursorDescriber; GoldenCorpusTests assert unexpectedErrors.
