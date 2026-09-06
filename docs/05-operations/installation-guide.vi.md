@@ -51,6 +51,19 @@ code --install-extension dataguard-vscode-0.1.0.vsix
 
 Hoặc cài từ file VSIX trong `src/DataGuard.VSCode/`.
 
+### Artifact theo version từ GitHub Actions
+
+Với revision build thủ công, tải `dataguard-installers-<version>` từ workflow **Build Release Artifacts** đã thành công. Xác minh bundle trước khi cài:
+
+```bash
+cd downloaded-bundle
+sha256sum -c SHA256SUMS.txt
+```
+
+Xem `release-manifest.json` để kiểm tra version, commit, kích thước file và giá trị SHA-256. Giải nén CLI archive đúng RID rồi chạy `dataguard --help`; cài VSIX bằng VS Code hoặc Visual Studio; hoặc cài NuGet tool local bằng `dotnet tool install --global --add-source ./nuget DataGuard.Cli --version <version>`.
+
+Các artifact này được lưu 30 ngày và không được publish lên registry hoặc GitHub Release.
+
 ### Visual Studio 2022
 
 1. Build VSIX: `dotnet build src/DataGuard.VisualStudio -c Release`

@@ -51,6 +51,19 @@ code --install-extension dataguard-vscode-0.1.0.vsix
 
 Or install from VSIX file in `src/DataGuard.VSCode/`.
 
+### Versioned artifacts from GitHub Actions
+
+For a manually built revision, download `dataguard-installers-<version>` from the successful **Build Release Artifacts** workflow run. Verify the bundle before installation:
+
+```bash
+cd downloaded-bundle
+sha256sum -c SHA256SUMS.txt
+```
+
+Review `release-manifest.json` for the version, commit, file sizes, and SHA-256 values. Extract the CLI archive for the target RID and run `dataguard --help`; install a VSIX with VS Code or Visual Studio; or install a local NuGet tool package with `dotnet tool install --global --add-source ./nuget DataGuard.Cli --version <version>`.
+
+These artifacts are retained for 30 days and are not published to registries or a GitHub Release.
+
 ### Visual Studio 2022
 
 1. Build the VSIX: `dotnet build src/DataGuard.VisualStudio -c Release`

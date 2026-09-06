@@ -292,6 +292,7 @@ Giao diện dòng lệnh với 9 lệnh.
 |-----------|----------|-----|----------|
 | `.github/workflows/ci.yml` | Pipeline CI: build, test, analyze, validate | CI/CD | YAML |
 | `.github/workflows/release.yml` | Pipeline phát hành: version, pack, publish | CI/CD | YAML |
+| `.github/workflows/build_release.yml` | Bàn giao artifact/installer theo version thủ công; không publish registry/release | CI/CD | YAML |
 | `.github/dependabot.yml` | Cấu hình cập nhật dependency Dependabot | CI/CD | YAML |
 | `.github/codeql-config.yml` | Cấu hình quét bảo mật CodeQL | CI/CD | YAML |
 | `.github/codeql/` | Truy vấn và cấu hình CodeQL tùy chỉnh | CI/CD | YAML |
@@ -342,6 +343,6 @@ Giao diện dòng lệnh với 9 lệnh.
 | Quy tắc validation (core) | 18 (DG001–DG016, DG098, DG099) |
 | Quy tắc validation (adapters) | 9 (MY001–003, PG001–003, Oracle-specific) |
 | Phần tài liệu | 9 |
-| CI/CD workflows | 2 |
+| CI/CD workflows | 3 |
 | Git hooks | 3 |
 | Scripts | 6 |

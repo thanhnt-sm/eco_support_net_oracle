@@ -140,6 +140,21 @@ bash tools/git-tools/dg-release --tag v1.2.3 --yes
 
 Lệnh vẫn trigger Release workflow nhưng không dispatch Marketplace.
 
+## 6. Bàn giao artifact thủ công (không publish)
+
+Dùng `.github/workflows/build_release.yml` khi cần bundle installer theo version nhưng không tạo GitHub Release và không publish lên NuGet, VS Code Marketplace, Visual Studio Marketplace hoặc GHCR.
+
+Chạy từ giao diện GitHub Actions hoặc bằng:
+
+```bash
+gh workflow run build_release.yml -f version=1.2.3
+gh workflow run build_release.yml -f version=1.2.3 -f include_docker=true
+```
+
+Version phải là SemVer không có tiền tố `v`. Workflow build từ revision đang được dispatch, không tự suy diễn tag hoặc branch. Tải artifact theo version, gồm `dataguard-installers-1.2.3`, trong thời hạn lưu 30 ngày. Aggregate chứa CLI portable archives, hai gói VSIX, NuGet packages, checksum sidecar, `SHA256SUMS.txt` và `release-manifest.json`. Phải kiểm tra checksum trước khi cài. Job Docker tùy chọn chỉ tạo OCI archive, không login hoặc push registry.
+
+Đây là đường bàn giao riêng với production tag release ở trên: `dg-release` vẫn là entry point rõ ràng cho phát hành/publish.
+
 Dry-run không tạo tag, không dispatch workflow, không publish package, không tạo release và không push image.
 
 ## 6. Xử lý lỗi

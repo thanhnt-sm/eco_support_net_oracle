@@ -3,18 +3,8 @@
 
 set -euo pipefail
 
-if ! command -v dotnet >/dev/null 2>&1; then
-    printf 'dotnet SDK is required for this DataGuard workspace.\n' >&2
-    exit 1
-fi
-
-printf '[pre-push] Restoring solution.\n'
-dotnet restore DataGuard.sln
-
-printf '[pre-push] Building solution.\n'
-dotnet build DataGuard.sln --configuration Release --no-restore
-
-printf '[pre-push] Running solution tests.\n'
-dotnet test DataGuard.sln --configuration Release --no-build
-
-printf '[pre-push] Passed.\n'
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+printf '[pre-push] Running canonical blocking local gates.\n'
+./scripts/verify_local_gates.sh
+printf '[pre-push] Passed. Hosted GitHub matrix verification remains required after push.\n'

@@ -1,0 +1,436 @@
+name: Build Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer without v prefix (for example 1.2.3)"
+        required: true
+        type: string
+      include_docker:
+        description: "Build a multi-architecture Docker OCI artifact (does not push)"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "9.0.x"
+  CLI_PROJECT: src/DataGuard.Cli/DataGuard.Cli.csproj
+  VSCODE_DIR: src/DataGuard.VSCode
+  VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
+
+jobs:
+  validate-input:
+    name: Validate version input
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact_suffix: ${{ steps.version.outputs.artifact_suffix }}
+    steps:
+      - name: Validate SemVer
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$INPUT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::Version '$INPUT_VERSION' must be valid SemVer without a v prefix (for example 1.2.3)." >&2
+            exit 1
+          fi
+          if [[ "$INPUT_VERSION" =~ [[:space:]/] ]]; then
+            echo "::error::Version must not contain whitespace or '/'." >&2
+            exit 1
+          fi
+          echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "artifact_suffix=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+
+  publish-cli:
+    name: Publish CLI (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    needs: validate-input
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+            archive: tar.gz
+            executable: dataguard
+          - rid: linux-arm64
+            os: ubuntu-latest
+            archive: tar.gz
+            executable: dataguard
+          - rid: osx-x64
+            os: macos-15-intel
+            archive: tar.gz
+            executable: dataguard
+          - rid: osx-arm64
+            os: macos-14
+            archive: tar.gz
+            executable: dataguard
+          - rid: win-x64
+            os: windows-latest
+            archive: zip
+            executable: dataguard.exe
+          - rid: win-arm64
+            os: windows-latest
+            archive: zip
+            executable: dataguard.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore CLI project for runtime
+        run: dotnet restore "${{ env.CLI_PROJECT }}" --runtime "${{ matrix.rid }}" --locked-mode --force-evaluate
+
+      - name: Publish self-contained CLI
+        run: >-
+          dotnet publish "${{ env.CLI_PROJECT }}"
+          --configuration Release
+          --runtime "${{ matrix.rid }}"
+          --self-contained true
+          --output "${{ runner.temp }}/cli-${{ matrix.rid }}"
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:TreatWarningsAsErrors=false
+          -p:Version="${{ needs.validate-input.outputs.version }}"
+          --no-restore
+
+      - name: Create CLI archive and checksum (Unix)
+        if: runner.os != 'Windows'
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+          RID: ${{ matrix.rid }}
+          EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          output_dir="$RUNNER_TEMP/cli-$RID"
+          archive="$RUNNER_TEMP/dataguard-cli-$VERSION-$RID.tar.gz"
+          source="$output_dir/DataGuard.Cli"
+          test -f "$source"
+          mv "$source" "$output_dir/$EXECUTABLE"
+          tar -C "$output_dir" -czf "$archive" "$EXECUTABLE"
+          checksum_name="$(basename "$archive")"
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$(dirname "$archive")" && sha256sum "$checksum_name") > "$archive.sha256"
+          else
+            (cd "$(dirname "$archive")" && shasum -a 256 "$checksum_name") > "$archive.sha256"
+          fi
+          test -s "$archive"
+          test -s "$archive.sha256"
+
+      - name: Create CLI archive and checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+          RID: ${{ matrix.rid }}
+          EXECUTABLE: ${{ matrix.executable }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputDir = Join-Path $env:RUNNER_TEMP "cli-$env:RID"
+          $archive = Join-Path $env:RUNNER_TEMP "dataguard-cli-$env:VERSION-$env:RID.zip"
+          $published = Get-ChildItem $outputDir -File | Where-Object { $_.Name -match '^DataGuard\.Cli(\.exe)?$' } | Select-Object -First 1
+          if ($null -eq $published) { throw "CLI executable not found in $outputDir" }
+          $executable = Join-Path $outputDir $env:EXECUTABLE
+          Copy-Item $published.FullName $executable -Force
+          Compress-Archive -Path $executable -DestinationPath $archive -Force
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $archive)" | Set-Content -NoNewline "$archive.sha256"
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw "Archive not found: $archive" }
+          if (-not (Test-Path -LiteralPath "$archive.sha256" -PathType Leaf)) { throw "Checksum not found" }
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-cli-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/dataguard-cli-${{ needs.validate-input.outputs.version }}-${{ matrix.rid }}.${{ matrix.archive }}
+            ${{ runner.temp }}/dataguard-cli-${{ needs.validate-input.outputs.version }}-${{ matrix.rid }}.${{ matrix.archive }}.sha256
+          retention-days: 30
+
+  package-vscode:
+    name: Package VS Code extension
+    runs-on: ubuntu-latest
+    needs: validate-input
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
+
+      - name: Install and test
+        working-directory: ${{ env.VSCODE_DIR }}
+        run: |
+          npm ci
+          npm test
+
+      - name: Package VSIX and checksum
+        working-directory: ${{ env.VSCODE_DIR }}
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm pkg set version="$VERSION"
+          npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
+          (cd "$RUNNER_TEMP" && sha256sum "dataguard-vscode-$VERSION.vsix") > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
+          test -s "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
+          test -s "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
+
+      - name: Upload VS Code artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-vscode
+          path: |
+            ${{ runner.temp }}/dataguard-vscode-${{ needs.validate-input.outputs.version }}.vsix
+            ${{ runner.temp }}/dataguard-vscode-${{ needs.validate-input.outputs.version }}.vsix.sha256
+          retention-days: 30
+
+  package-visualstudio:
+    name: Package Visual Studio extension
+    runs-on: windows-latest
+    needs: validate-input
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set VSIX manifest version
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifestPath = "$env:VISUAL_STUDIO_DIR/source.extension.vsixmanifest"
+          [xml]$manifest = Get-Content -LiteralPath $manifestPath
+          $manifest.PackageManifest.Metadata.Identity.Version = $env:VERSION
+          $manifest.Save((Resolve-Path -LiteralPath $manifestPath))
+
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($msbuild)) { throw "MSBuild was not found" }
+          "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build and package VSIX
+        shell: pwsh
+        env:
+          MSBUILD: ${{ steps.msbuild.outputs.path }}
+          VERSION: ${{ needs.validate-input.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
+          $output = Join-Path $env:RUNNER_TEMP "dataguard-visualstudio-$env:VERSION.vsix"
+          Copy-Item $vsix.FullName $output
+          $hash = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $output)" | Set-Content -NoNewline "$output.sha256"
+          if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { throw "VSIX not found: $output" }
+          if (-not (Test-Path -LiteralPath "$output.sha256" -PathType Leaf)) { throw "Checksum not found" }
+
+      - name: Upload Visual Studio artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-visualstudio
+          path: |
+            ${{ runner.temp }}/dataguard-visualstudio-${{ needs.validate-input.outputs.version }}.vsix
+            ${{ runner.temp }}/dataguard-visualstudio-${{ needs.validate-input.outputs.version }}.vsix.sha256
+          retention-days: 30
+
+  package-nuget:
+    name: Package NuGet artifacts
+    runs-on: ubuntu-latest
+    needs: validate-input
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore and pack NuGet packages
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+        run: |
+          set -euo pipefail
+          dotnet restore DataGuard.sln --locked-mode
+          dotnet build DataGuard.sln --configuration Release --no-restore
+          rm -rf "$RUNNER_TEMP/nuget"
+          mkdir -p "$RUNNER_TEMP/nuget"
+          dotnet pack DataGuard.sln --configuration Release --no-build --output "$RUNNER_TEMP/nuget" \
+            -p:PackageVersion="$VERSION" \
+            -p:Version="$VERSION"
+          shopt -s nullglob
+          packages=("$RUNNER_TEMP"/nuget/*.nupkg)
+          if (( ${#packages[@]} == 0 )); then
+            echo "No .nupkg files were produced" >&2
+            exit 1
+          fi
+          for package in "${packages[@]}"; do
+            (cd "$(dirname "$package")" && sha256sum "$(basename "$package")") > "$package.sha256"
+          done
+
+      - name: Upload NuGet artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-nuget
+          path: |
+            ${{ runner.temp }}/nuget/*.nupkg
+            ${{ runner.temp }}/nuget/*.nupkg.sha256
+          retention-days: 30
+
+  assemble:
+    name: Assemble versioned installer artifact
+    runs-on: ubuntu-latest
+    needs: [validate-input, publish-cli, package-vscode, package-visualstudio, package-nuget]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dataguard-cli-*
+          path: release/${{ needs.validate-input.outputs.version }}/cli
+          merge-multiple: true
+
+      - name: Download extension and NuGet artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dataguard-vscode
+          path: release/${{ needs.validate-input.outputs.version }}/extensions
+          merge-multiple: true
+      - name: Download Visual Studio artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dataguard-visualstudio
+          path: release/${{ needs.validate-input.outputs.version }}/extensions
+      - name: Download NuGet artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dataguard-nuget
+          path: release/${{ needs.validate-input.outputs.version }}/nuget
+
+      - name: Create checksums and deterministic manifest
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          root="release/$VERSION"
+          mapfile -t payloads < <(find "$root" -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.vsix' -o -name '*.nupkg' \) -print | sort)
+          if (( ${#payloads[@]} == 0 )); then
+            echo "No release payload files found" >&2
+            exit 1
+          fi
+          declare -A names=()
+          for file in "${payloads[@]}"; do
+            name="$(basename "$file")"
+            if [[ -n "${names[$name]+x}" ]]; then
+              echo "Duplicate release filename: $name" >&2
+              exit 1
+            fi
+            names[$name]=1
+          done
+          : > "$root/SHA256SUMS.txt"
+          for file in "${payloads[@]}"; do
+            sha256sum "$file" | sed "s#  $root/#  #" >> "$root/SHA256SUMS.txt"
+          done
+          python3 - "$root" "$VERSION" "$COMMIT_SHA" <<'PY'
+          import hashlib, json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          version = sys.argv[2]
+          commit = sys.argv[3]
+          files = []
+          for path in sorted(root.rglob('*')):
+              if not path.is_file() or path.name in {'release-manifest.json', 'SHA256SUMS.txt'} or path.name.endswith('.sha256'):
+                  continue
+              files.append({
+                  'path': path.relative_to(root).as_posix(),
+                  'size': path.stat().st_size,
+                  'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              })
+          manifest = {'version': version, 'commit': commit, 'files': files}
+          (root / 'release-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+          PY
+          test -s "$root/SHA256SUMS.txt"
+          test -s "$root/release-manifest.json"
+
+      - name: Upload aggregate installer artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-installers-${{ needs.validate-input.outputs.version }}
+          path: release/${{ needs.validate-input.outputs.version }}
+          retention-days: 30
+
+  docker:
+    name: Build Docker OCI smoke artifact
+    if: inputs.include_docker == true
+    runs-on: ubuntu-latest
+    needs: validate-input
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build multi-architecture OCI artifact
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag "dataguard:$VERSION" \
+            --output "type=oci,dest=$RUNNER_TEMP/dataguard-$VERSION.oci.tar" \
+            .
+          sha256sum "$RUNNER_TEMP/dataguard-$VERSION.oci.tar" > "$RUNNER_TEMP/dataguard-$VERSION.oci.tar.sha256"
+
+      - name: Upload Docker metadata artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-docker-${{ needs.validate-input.outputs.version }}
+          path: |
+            ${{ runner.temp }}/dataguard-${{ needs.validate-input.outputs.version }}.oci.tar
+            ${{ runner.temp }}/dataguard-${{ needs.validate-input.outputs.version }}.oci.tar.sha256
+          retention-days: 30

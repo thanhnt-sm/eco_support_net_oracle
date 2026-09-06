@@ -135,12 +135,17 @@ cmd_doctor() {
 cmd_commit() {
     require_git_repo
     local msg="" no_verify=false files=()
-    while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --no-verify) no_verify=true;; --file) files+=("$2"); shift;; *) break;; esac; shift; done
+    while [[ $# -gt 0 ]]; do case $1 in -m) shift; msg="$1";; --file) files+=("$2"); shift;; --no-verify) log_error "--no-verify is forbidden; blocking verification is mandatory."; exit 1;; *) break;; esac; shift; done
     [[ -z "$msg" ]] && { echo "Usage: dg-git commit -m \"msg\" [--file file...]"; exit 1; }
     reject_auto_msg "$msg" || exit 1
-    [[ "$no_verify" != true ]] && cmd_doctor || { echo "Use --no-verify to skip"; exit 1; }
-    preflight_stage || exit 0
-    [[ ${#files[@]} -gt 0 ]] && git add "${files[@]}" || git add -A
+    if [[ ${#files[@]} -gt 0 ]]; then
+        git add "${files[@]}"
+    fi
+    if git diff --cached --quiet; then
+        log_error "No staged files selected; refusing to stage the entire workspace."
+        exit 1
+    fi
+    run_local_github_workflows || exit 1
     git commit -m "$msg"
     log_success "Committed: $(git rev-parse --short HEAD) - $msg"
 }
@@ -230,46 +235,11 @@ show_conflict_guide() {
     echo ""
 }
 run_local_github_workflows() {
-    local runner_image="catthehacker/ubuntu:act-latest"
-    if [[ "${DG_SKIP_LOCAL_ACTIONS:-false}" == "true" ]]; then
-        log_info "Bỏ qua GitHub Actions local theo DG_SKIP_LOCAL_ACTIONS=true."
-        return 0
-    fi
-
-
-    if ! command -v act >/dev/null 2>&1; then
-        log_error "Không tìm thấy act. Cài portable runner tại %USERPROFILE%\\.act\\bin rồi chạy lại."
+    if [[ ! -x "$DG_GIT_DIR/scripts/verify_local_gates.sh" ]]; then
+        log_error "Không tìm thấy canonical local gate verifier."
         return 1
     fi
-    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-        log_error "Docker Desktop chưa sẵn sàng. Khởi động Docker Desktop rồi chạy lại dg-git."
-        return 1
-    fi
-
-    log_info "🧪 Chạy job Build and Test của CI local bằng act + Docker trước khi commit..."
-    log_info "Runner image: $runner_image (lần đầu Docker sẽ tải image này)."
-    # `act`'s medium image cannot faithfully run CI's SBOM (.NET 8 runtime),
-    # TruffleHog's nested Docker scan, or CodeQL. Those gates remain enforced
-    # by GitHub Actions after the push.
-    act push \
-        --workflows "$DG_GIT_DIR/.github/workflows/ci.yml" \
-        --job build-and-test \
-        --env ACT=true \
-        --platform "ubuntu-latest=$runner_image" || {
-        log_error "CI Build and Test local thất bại; hủy commit/push."
-        return 1
-    }
-
-    act push \
-        --workflows "$DG_GIT_DIR/.github/workflows/standards-audit.yml" \
-        --platform "ubuntu-latest=$runner_image" || {
-        log_error "Standards audit local thất bại; hủy commit/push."
-        return 1
-    }
-    # Release and marketplace workflows can publish packages, releases, or
-    # marketplace extensions. They must stay GitHub-hosted and are never run
-    # automatically from a developer workstation.
-    log_info "Đã chạy Build and Test cùng standards audit local. SBOM, TruffleHog, CodeQL, release, marketplace, và Scorecard chạy trên GitHub sau push."
+    "$DG_GIT_DIR/scripts/verify_local_gates.sh"
 }
 
 
@@ -409,18 +379,22 @@ cmd_sync() {
         local_branches+=("$b")
     done < <(git branch --list --format='%(refname:short)')
 
-    for b in "${local_branches[@]}"; do
-        local unmerged
-        unmerged=$(git rev-list --count "$default_branch..$b" 2>/dev/null || echo 0)
-        if [[ $unmerged -gt 0 ]]; then
-            log_info "🔀 Nhánh phụ '$b' có $unmerged commit mới. Đang gộp vào '$default_branch'..."
-            if ! git merge --no-ff "$b" -m "merge(branch): gộp nhánh $b vào $default_branch"; then
-                show_conflict_guide
-                return 1
+    if (( ${#local_branches[@]} > 0 )); then
+        for b in "${local_branches[@]}"; do
+            local unmerged
+            unmerged=$(git rev-list --count "$default_branch..$b" 2>/dev/null || echo 0)
+            if [[ $unmerged -gt 0 ]]; then
+                log_info "🔀 Nhánh phụ '$b' có $unmerged commit mới. Đang gộp vào '$default_branch'..."
+                if ! git merge --no-ff "$b" -m "merge(branch): gộp nhánh $b vào $default_branch"; then
+                    show_conflict_guide
+                    return 1
+                fi
+                log_success "Đã gộp thành công nhánh '$b' vào '$default_branch'."
             fi
-            log_success "Đã gộp thành công nhánh '$b' vào '$default_branch'."
-        fi
-    done
+        done
+    else
+        log_info "Không có nhánh local phụ cần gộp."
+    fi
 
     # If user was on a feature branch, rebase it on main so feature branch is also up to date
     if [[ "$orig_branch" != "$default_branch" ]]; then
@@ -443,37 +417,41 @@ cmd_sync() {
         log_success "Code đang làm dở đã được khôi phục nguyên vẹn trên nền code mới nhất từ GitHub."
     fi
 
-    # 8. TỰ ĐỘNG COMMIT CÁC FILE THAY ĐỔI
+    # 8. Commit only the caller-selected staged scope.
     local final_changes
-    final_changes=$(git status --porcelain)
+    final_changes=$(git diff --cached --name-only)
     if [[ -n "$final_changes" ]]; then
-        log_info "💾 Đang tự động lưu (commit) các thay đổi..."
+        log_info "💾 Đang commit các file đã được chọn và stage..."
         if ! cmd_secret; then
-            log_error "Phát hiện nguy cơ lộ secret trong các file vừa khôi phục. Hủy commit để an toàn."
+            log_error "Phát hiện nguy cơ lộ secret trong staged changes. Hủy commit để an toàn."
             return 1
         fi
         if [[ -f "$DG_GIT_DIR/DataGuard.sln" ]] && command -v dotnet >/dev/null 2>&1; then
-            log_info "🧹 Đang áp dụng định dạng .NET bắt buộc trước khi commit..."
-            dotnet format whitespace DataGuard.sln || {
-                log_error "Không thể tự sửa định dạng .NET. Xem lỗi phía trên."
+            log_info "🧹 Kiểm tra định dạng .NET trước khi commit..."
+            dotnet format whitespace DataGuard.sln --verify-no-changes || {
+                log_error "Kiểm tra định dạng .NET thất bại."
                 return 1
             }
         fi
         run_local_github_workflows || return 1
 
-
-
         if [[ -z "$msg" ]]; then
             local file_count
-            file_count=$(echo "$final_changes" | wc -l | tr -d ' ')
-            msg="chore(workspace): synchronize local changes ($file_count files) $(date +'%Y-%m-%d %H:%M:%S')"
+            file_count=$(printf '%s\n' "$final_changes" | wc -l | tr -d ' ')
+            msg="chore(workspace): synchronize selected changes ($file_count files) $(date +'%Y-%m-%d %H:%M:%S')"
         else
             reject_auto_msg "$msg" || return 1
         fi
 
-        git add -A
+        if git diff --cached --quiet; then
+            log_error "Staged scope changed during verification; refusing to commit."
+            return 1
+        fi
         git commit -m "$msg"
         log_success "Đã commit: $(git rev-parse --short HEAD) - $msg"
+    else
+        log_error "No staged files selected; refusing to stage the entire workspace."
+        return 1
     fi
 
     # 9. PUSH TOÀN BỘ LÊN GITHUB
@@ -490,16 +468,18 @@ cmd_sync() {
         log_info "🚀 [7/7] Không có commit mới để push; bỏ qua pre-push check tốn thời gian."
     fi
 
-    # Also push any other local branches that have tracking or need pushing
-    for b in "${local_branches[@]}"; do
-        if git show-ref --verify --quiet "refs/remotes/$remote/$b"; then
-            local b_ahead
-            b_ahead=$(git rev-list --count "$remote/$b..$b" 2>/dev/null || echo 0)
-            if [[ $b_ahead -gt 0 ]]; then
-                git push "$remote" "$b" 2>/dev/null || true
+    # Also push any other local branches that have tracking or need pushing.
+    if (( ${#local_branches[@]} > 0 )); then
+        for b in "${local_branches[@]}"; do
+            if git show-ref --verify --quiet "refs/remotes/$remote/$b"; then
+                local b_ahead
+                b_ahead=$(git rev-list --count "$remote/$b..$b" 2>/dev/null || echo 0)
+                if [[ $b_ahead -gt 0 ]]; then
+                    git push "$remote" "$b" 2>/dev/null || true
+                fi
             fi
-        fi
-    done
+        done
+    fi
 
     echo ""
     echo -e "${GREEN}=======================================================${NC}"

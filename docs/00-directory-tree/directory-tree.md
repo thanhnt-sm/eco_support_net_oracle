@@ -292,6 +292,7 @@ Command-line interface tool with 9 commands.
 |------|---------|-------|----------|
 | `.github/workflows/ci.yml` | CI pipeline: build, test, analyze, validate | CI/CD | YAML |
 | `.github/workflows/release.yml` | Release pipeline: version, pack, publish | CI/CD | YAML |
+| `.github/workflows/build_release.yml` | Manual versioned installer/artifact handoff; no registry or release publish | CI/CD | YAML |
 | `.github/dependabot.yml` | Dependabot dependency update configuration | CI/CD | YAML |
 | `.github/codeql-config.yml` | CodeQL security scanning configuration | CI/CD | YAML |
 | `.github/codeql/` | CodeQL custom queries and configurations | CI/CD | YAML |
@@ -342,6 +343,6 @@ Command-line interface tool with 9 commands.
 | Validation rules (core) | 18 (DG001–DG016, DG098, DG099) |
 | Validation rules (adapters) | 9 (MY001–003, PG001–003, Oracle-specific) |
 | Documentation sections | 9 |
-| CI/CD workflows | 2 |
+| CI/CD workflows | 3 |
 | Git hooks | 3 |
 | Scripts | 6 |

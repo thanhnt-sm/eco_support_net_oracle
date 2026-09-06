@@ -138,6 +138,21 @@ bash tools/git-tools/dg-release --tag v1.2.3 --yes
 
 This still triggers the Release workflow, but does not dispatch Marketplace publication.
 
+## 6. Manual artifact handoff (no publish)
+
+Use `.github/workflows/build_release.yml` when a versioned installer bundle is needed without creating a GitHub Release or publishing to NuGet, VS Code Marketplace, Visual Studio Marketplace, or GHCR.
+
+Run it from the GitHub Actions UI, or with:
+
+```bash
+gh workflow run build_release.yml -f version=1.2.3
+gh workflow run build_release.yml -f version=1.2.3 -f include_docker=true
+```
+
+The version must be SemVer without a `v` prefix. The workflow builds from the revision where it is dispatched; it does not infer a tag or branch. Download the versioned artifacts, including `dataguard-installers-1.2.3`, within the 30-day retention period. The aggregate contains portable CLI archives, both VSIX packages, NuGet packages, sidecar checksums, `SHA256SUMS.txt`, and `release-manifest.json`. Verify checksums before installation. The optional Docker job produces an OCI archive only; it does not log in to or push a registry.
+
+This is separate from the production tag release path above: `dg-release` remains the explicit entry point for publishing releases.
+
 Dry-run never creates a tag, dispatches a workflow, publishes a package, creates a release, or pushes an image.
 
 ## 6. Failure handling

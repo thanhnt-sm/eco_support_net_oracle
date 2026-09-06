@@ -315,4 +315,19 @@ NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS
 - [ ] **User action**: tạo secret `VSCE_PAT` + `VS_MARKETPLACE_PAT` cho marketplace publish.
 - [ ] Verify CI run trên GitHub (format gate + coverage gate 60% lần đầu trên runner thật).
 - [ ] Should Fix list (`AI_AGENT_AUDIT.md` 5.2): COV-003/005/006/007/008, ARC-001/002/003/004.
+
+---
+
+## 📌 PHIÊN NÀY — Manual Build Release Artifacts (2026-09-06)
+
+1. ✅ Tạo `.github/workflows/build_release.yml` độc lập, chỉ `workflow_dispatch`, input SemVer bắt buộc và `include_docker` tùy chọn; không sửa `.github/workflows/release.yml`.
+2. ✅ Workflow gồm validate version, sáu CLI RID (`linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`, `win-arm64`), VS Code VSIX, Visual Studio VSIX, NuGet packages, checksum sidecar, aggregate manifest/checksum và Docker OCI smoke artifact tùy chọn.
+3. ✅ Verify local: YAML parser và `actionlint` pass; `dotnet restore DataGuard.sln --locked-mode` pass; `dotnet build DataGuard.sln --configuration Release` pass; CLI Linux archive + SHA-256 checksum pass. NuGet pack đã tạo package thành công khi chạy trực tiếp.
+4. ⚠️ Chưa chạy GitHub Actions thật; chưa xác minh Windows/macOS runner, extension packaging trên host tương ứng, aggregate artifact download/manifest, hoặc cài thử VSIX.
+5. ⚠️ Workflow còn untracked; các thay đổi `packages.lock.json` và thư mục `nupkg/` là generated/unrelated từ local verification, giữ nguyên để owner xử lý riêng.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] Owner review và commit riêng workflow với đề xuất `ci: add manual build release artifacts workflow`.
+- [ ] Chạy `gh workflow run build_release.yml -f version=1.2.3`; xác minh đủ artifacts và tải aggregate để kiểm tra checksums/manifest.
 - [ ] 3 informational còn lại (cần DB thật): OracleReaders col_charsetform; wire RefCursorDescriber; GoldenCorpusTests assert unexpectedErrors.
