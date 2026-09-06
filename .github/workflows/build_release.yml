@@ -292,6 +292,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/nuget"
           mkdir -p "$RUNNER_TEMP/nuget"
           dotnet pack DataGuard.sln --configuration Release --no-build --output "$RUNNER_TEMP/nuget" \
+            -p:MinVerVersionOverride="$VERSION" \
             -p:PackageVersion="$VERSION" \
             -p:Version="$VERSION"
           shopt -s nullglob
@@ -301,6 +302,11 @@ jobs:
             exit 1
           fi
           for package in "${packages[@]}"; do
+            package_version="$(unzip -p "$package" '*.nuspec' | sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' | head -n 1)"
+            if [[ "$package_version" != "$VERSION" ]]; then
+              echo "Package $package has version '$package_version', expected '$VERSION'" >&2
+              exit 1
+            fi
             (cd "$(dirname "$package")" && sha256sum "$(basename "$package")") > "$package.sha256"
           done
 
