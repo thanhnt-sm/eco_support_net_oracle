@@ -417,7 +417,7 @@ cmd_sync() {
         log_success "Code đang làm dở đã được khôi phục nguyên vẹn trên nền code mới nhất từ GitHub."
     fi
 
-    # 8. Commit only the caller-selected staged scope.
+    # 8. Commit only caller-selected staged changes, if any.
     local final_changes
     final_changes=$(git diff --cached --name-only)
     if [[ -n "$final_changes" ]]; then
@@ -434,7 +434,6 @@ cmd_sync() {
             }
         fi
         run_local_github_workflows || return 1
-
         if [[ -z "$msg" ]]; then
             local file_count
             file_count=$(printf '%s\n' "$final_changes" | wc -l | tr -d ' ')
@@ -442,7 +441,6 @@ cmd_sync() {
         else
             reject_auto_msg "$msg" || return 1
         fi
-
         if git diff --cached --quiet; then
             log_error "Staged scope changed during verification; refusing to commit."
             return 1
@@ -450,8 +448,7 @@ cmd_sync() {
         git commit -m "$msg"
         log_success "Đã commit: $(git rev-parse --short HEAD) - $msg"
     else
-        log_error "No staged files selected; refusing to stage the entire workspace."
-        return 1
+        log_info "Không có staged changes; bỏ qua commit/push trong sync chỉ-kéo-source."
     fi
 
     # 9. PUSH TOÀN BỘ LÊN GITHUB
