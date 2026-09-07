@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to release (e.g. v1.2.3). Required when running manually."
+        description: "Release tag with 'v' prefix (e.g. v0.2.2 or v1.0.0). Required when running manually."
         required: true
         type: string
 
@@ -21,38 +21,49 @@ env:
   VSCODE_DIR: src/DataGuard.VSCode
   VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
 jobs:
-  build-and-test:
-    name: Build and Test
+  validate-version:
+    name: Validate Release Version
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      release_tag: ${{ steps.version.outputs.tag }}
-      release_version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      release_version: ${{ steps.version.outputs.release_version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # On a tag push, github.ref already points at the tag. On a manual
-          # run there is no tag ref, so check out the tag given in the input.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
-
-      - name: Resolve release version
+      - name: Validate SemVer tag
         id: version
         env:
           REF_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
+          set -euo pipefail
           # tag keeps the "v" prefix (matches the git tag); version strips it
           # (NuGet package / SBOM / Docker tag use plain SemVer).
-          version="${REF_NAME#v}"
-          if ! [[ "$REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+          if [[ ! "$REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
             echo "::error::Release tag '$REF_NAME' must be valid SemVer with a v prefix (for example v1.2.3)." >&2
             exit 1
           fi
-          echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$REF_NAME" =~ [[:space:]/] ]]; then
+            echo "::error::Release tag must not contain whitespace or '/'." >&2
+            exit 1
+          fi
+          version="${REF_NAME#v}"
+          echo "release_tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "release_version=$version" >> "$GITHUB_OUTPUT"
 
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: validate-version
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ needs.validate-version.outputs.release_tag }}
+      release_version: ${{ needs.validate-version.outputs.release_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -94,7 +105,7 @@ jobs:
             -p:Version="$RELEASE_VERSION"
           ls -la ./artifacts/
         env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_VERSION: ${{ needs.validate-version.outputs.release_version }}
 
       - name: Upload NuGet packages (un-signed)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -106,12 +117,11 @@ jobs:
   security-scan:
     name: Security Scan (vulnerabilities + secrets)
     runs-on: ubuntu-latest
+    needs: validate-version
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Match build-and-test: on dispatch, check out the tag from the input.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Setup .NET
@@ -179,8 +189,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Match build-and-test: on dispatch, check out the tag from the input.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Initialize CodeQL
@@ -290,7 +298,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Setup .NET
@@ -355,7 +362,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -396,7 +402,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set VSIX manifest version
@@ -494,6 +499,7 @@ jobs:
             echo "::warning::No SBOM assets found to attach."
           fi
           gh release create "$RELEASE_TAG" \
+            --target "${{ github.sha }}" \
             --draft \
             --title "$RELEASE_TAG" \
             --notes "Release $RELEASE_TAG of DataGuard (NuGet packages, Visual Studio Extension, and VS Code Extension)." \
@@ -501,6 +507,7 @@ jobs:
             ./artifacts/*.sigstore.json \
             ./artifacts/*.vsix \
             ./artifacts/*.vsix.sha256 \
+            "${sbom_assets[@]}"
 
       - name: Publish release
         env:
@@ -604,7 +611,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0

@@ -23,6 +23,15 @@ RED='\033[0;31m'    GREEN='\033[0;32m'   YELLOW='\033[1;33m'
 CYAN='\033[0;36m'   BLUE='\033[0;34m'    BOLD='\033[1m'
 NC='\033[0m'
 
+if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
+    export PATH="$HOME/.dotnet:$PATH"
+fi
+if [[ -d "$HOME/.act/bin" ]]; then
+    export PATH="$HOME/.act/bin:$PATH"
+fi
+if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
+    export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"
+fi
 # ── Paths ────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR/..")"
