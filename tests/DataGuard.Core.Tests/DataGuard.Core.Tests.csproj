@@ -12,10 +12,6 @@
     <ProjectReference Include="..\..\src\DataGuard.MySql.Adapter\DataGuard.MySql.Adapter.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.Oracle.Adapter\DataGuard.Oracle.Adapter.csproj" />
-    <ProjectReference Include="..\..\src\DataGuard.Cli\DataGuard.Cli.csproj" />
-    <ProjectReference Include="..\..\src\DataGuard.Host\DataGuard.Host.csproj" />
-    <ProjectReference Include="..\..\src\DataGuard.Build\DataGuard.Build.csproj" />
-    <ProjectReference Include="..\..\src\DataGuard.SqlClassification\DataGuard.SqlClassification.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageReference Include="coverlet.collector" Version="10.0.1">
       <PrivateAssets>all</PrivateAssets>
@@ -27,11 +23,7 @@
     </PackageReference>
     <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="FluentAssertions" Version="8.10.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.19" />
-    <PackageReference Include="Testcontainers.MsSql" Version="4.14.0" />
-    <PackageReference Include="Testcontainers.MySql" Version="4.14.0" />
-    <PackageReference Include="Testcontainers.Oracle" Version="4.14.0" />
-    <PackageReference Include="Testcontainers.PostgreSql" Version="4.14.0" />
-    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.20" />
+    <PackageReference Include="Testcontainers.MsSql" Version="4.15.0" />
   </ItemGroup>
 </Project>
