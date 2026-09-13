@@ -21,6 +21,12 @@
           <ButtonText>DataGuard: Cancel Validation</ButtonText>
         </Strings>
       </Button>
+      <Button guid="guidDataGuardCommandSet" id="AssessCommand" priority="0x0102" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>DataGuard: Assess Workspace</ButtonText>
+        </Strings>
+      </Button>
     </Buttons>
   </Commands>
   <Symbols>
@@ -29,6 +35,7 @@
       <IDSymbol name="DataGuardGroup" value="0x1020" />
       <IDSymbol name="ValidateCommand" value="0x0100" />
       <IDSymbol name="CancelCommand" value="0x0101" />
+      <IDSymbol name="AssessCommand" value="0x0102" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

@@ -47,7 +47,7 @@ flowchart TB
 Central collector using `System.Diagnostics.Metrics`.
 
 ```csharp
-public sealed class TelemetryCollector : IDisposable
+public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
 {
     private readonly Meter _meter;
     private readonly TelemetryConfig _config;
@@ -70,6 +70,17 @@ public sealed class TelemetryCollector : IDisposable
 | **Circuit breaker** | Stops exporting after 3 consecutive failures |
 | **HTTPS-only export** | Rejects non-HTTPS endpoints (except localhost for dev) |
 
+`FlushAsync(CancellationToken)` is the additive asynchronous flush API. A single flush gate prevents overlapping exports; a failed or cancelled export returns its drained events to the queue for retry. `FlushEvents(object?)` remains for existing callers and waits for the same path. `TelemetryFlushResult` exposes no-work, in-progress, circuit-open, rejected-endpoint, failed/cancelled, and exported outcomes. Rejected endpoints intentionally drop queued events because no permitted destination exists.
+
+The collector lifecycle is `Active → Stopping → Stopped`. `DisposeAsync()` transitions
+through those states, stops timer-driven work, and makes one final bounded flush attempt;
+new events are refused after `Stopping`. `TerminalLossCount` reports queued events
+that remain undelivered when shutdown completes. The legacy synchronous `Dispose()` is
+best effort. If a legacy export delegate does
+not finish before its timeout, the collector retains its batch and holds the
+single-flight gate until that delegate exits, so timer ticks cannot pile up more
+exports.
+
 ## TelemetryConfig
 
 ```csharp
@@ -86,6 +97,14 @@ public sealed record TelemetryConfig(
 | `ExportEndpoint` | `null` | HTTPS URL for NDJSON export |
 | `FlushIntervalSeconds` | `30` | Timer interval for event flushing |
 | `IncludeStackTraces` | `false` | Include stack traces in events |
+| `MaxQueuedEvents` | `10,000` | Maximum queued plus in-flight events; newer events are dropped after the cap |
+| `MaxBatchEvents` | `1,000` | Maximum events in one export request |
+| `MaxPayloadBytes` | `1,048,576` | UTF-8 byte ceiling for one request; an individually oversized event is dropped |
+| `ExportTimeoutSeconds` | `5` | Bounded wait for one export delegate |
+
+The four bounds are additive init properties, so the primary constructor and its
+existing deconstruction shape remain unchanged. `DroppedEventCount` exposes losses
+from queue, payload, and rejected-endpoint limits.
 
 ## Metrics
 

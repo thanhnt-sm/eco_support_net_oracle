@@ -44,6 +44,42 @@ public class RuleDependencyGraphTests
     }
 
     [Fact]
+    public void UnregisteredDependency_IsValidationErrorAndCannotExecute()
+    {
+        var graph = new RuleDependencyGraph();
+        graph.AddRule(new NamingConventionRule(), "MISSING");
+
+        graph.Validate().IsValid.Should().BeFalse();
+        var act = () => graph.GetExecutionOrder();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*MISSING*");
+    }
+
+    [Fact]
+    public void ForwardDependency_IsValidAfterRegistration()
+    {
+        var graph = new RuleDependencyGraph();
+        graph.AddRule(new NamingConventionRule(), "DG101");
+        graph.AddRule(new ParameterCountRule());
+
+        graph.Validate().IsValid.Should().BeTrue();
+        graph.GetExecutionOrder().Select(rule => rule.RuleId).Should().ContainInOrder("DG101", "DG006");
+    }
+
+    [Fact]
+    public void ParallelGroups_SeparateDependencyFromDependent()
+    {
+        var graph = new RuleDependencyGraph();
+        graph.AddRule(new NamingConventionRule(), "DG101");
+        graph.AddRule(new ParameterCountRule());
+
+        var groups = graph.GetParallelGroups();
+
+        groups.Should().HaveCount(2);
+        groups[0].Select(rule => rule.RuleId).Should().ContainSingle().Which.Should().Be("DG101");
+        groups[1].Select(rule => rule.RuleId).Should().ContainSingle().Which.Should().Be("DG006");
+    }
+
+    [Fact]
     public void CircularDependency_Throws()
     {
         var graph = new RuleDependencyGraph();
@@ -100,9 +136,9 @@ public class RuleDependencyGraphTests
     }
 
     [Fact]
-    public void CreateDefault_ExecutionOrder_HasSevenRules()
+    public void CreateDefault_ExecutionOrder_HasEightRules()
     {
         var order = BuiltInRuleDependencies.CreateDefault().GetExecutionOrder();
-        order.Length.Should().Be(7);
+        order.Length.Should().Be(8);
     }
 }

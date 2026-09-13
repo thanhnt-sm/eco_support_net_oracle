@@ -81,32 +81,29 @@ public class EfModelSource : IContractSource
 4. Build `EntityDescriptor` with table name, schema, and location info
 5. Resolve source file location via Roslyn syntax tree parsing
 
-### Design-time Extraction
+### Trusted compiled ModelSnapshot extraction
 
-For CI/CD pipelines without a running database:
-
-```csharp
-public static async Task<IReadOnlyList<EntityDescriptor>> ExtractFromDesignTimeAsync(
-    string projectPath,
-    string contextTypeName,
-    DataGuardConfiguration? config = null,
-    CancellationToken cancellationToken = default)
-```
-
-**Strategy:**
-1. **ModelSnapshot.cs** (fast, no build required) — parses the EF Core migration snapshot
-2. **Built assembly fallback** — loads the compiled assembly and instantiates the DbContext
-
-### ModelSnapshot Parsing
-
-Parses the JSON structure emitted by EF Core's generated `ModelSnapshot` class:
+`ModelSnapshot.cs` source can be parsed without loading an assembly by the bounded
+`ModelSnapshotCSharpParser`. It supports a narrow generated fluent-API subset for
+`Entity<T>`, table, property, key, column name/type, length, and requiredness. It
+enforces source-size and syntax-node limits and returns a visible diagnostic for
+syntax errors or unsupported input; it never instantiates a `DbContext`, factory,
+host, or arbitrary application code. Automatic project/assembly discovery remains
+unsupported.
 
 ```csharp
-public static IReadOnlyList<EntityDescriptor> ParseModelSnapshot(
-    string json, DataGuardConfiguration? config = null)
+var entities = await EfModelSource.ExtractFromTrustedCompiledModelSnapshotAsync(
+    trustedAssemblyPath: "/approved/output/MyApp.dll",
+    modelSnapshotTypeName: "MyApp.Migrations.AppDbContextModelSnapshot",
+    config: config,
+    cancellationToken: cancellationToken);
 ```
 
-Extracts entity configurations by navigating the `BuildModel` method structure, finding `Entity<T>()` calls, and parsing `HasColumnName`, `HasColumnType`, `IsRequired`, `HasMaxLength`, `IsPrimaryKey`, `IsForeignKey` calls.
+The caller explicitly selects one non-linked DLL and the exact concrete `ModelSnapshot` type. The loader is collectible and shares EF Core identity with the host so its `IModel` can be read; dependency resolution is rooted at that selected artifact. Loading managed code is still execution of trusted code, not sandboxing. Missing, linked, mismatched, abstract, or unloadable artifacts raise `EfModelExtractionException` rather than returning an empty successful result.
+
+### Raw SQL parse status
+
+`RawSqlParser` records `RawSqlParseStatus.Invalid` and the ScriptDOM error text for malformed input. Built-in rule `DG016` reports that status as an Error, so a parser failure cannot appear as a clean validation result.
 
 ## SqlServerStoredProcedureParser
 

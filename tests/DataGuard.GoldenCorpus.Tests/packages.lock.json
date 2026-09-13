@@ -853,6 +853,7 @@
         "type": "Project",
         "dependencies": {
           "DataGuard.Contracts": "[1.0.0, )",
+          "DataGuard.SqlClassification": "[1.0.0, )",
           "System.Composition.Hosting": "[10.0.11, )"
         }
       },
@@ -935,6 +936,9 @@
           "Npgsql": "[10.0.3, )",
           "System.Text.Json": "[10.0.11, )"
         }
+      },
+      "dataguard.sqlclassification": {
+        "type": "Project"
       },
       "dataguard.sqlserver.adapter": {
         "type": "Project",

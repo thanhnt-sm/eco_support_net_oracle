@@ -1,6 +1,6 @@
 # Code Fix Providers
 
-DataGuard cung cấp năm Roslyn code fix provider đề xuất sửa nhanh trong IDE cho các vi phạm contract phổ biến. Tất cả provider nhắm đến `netstandard2.0` và sử dụng `Microsoft.CodeAnalysis.CSharp` để thao tác cú pháp.
+DataGuard cung cấp năm Roslyn code fix provider cho vi phạm contract. Tất cả provider nhắm đến `netstandard2.0` và sử dụng `Microsoft.CodeAnalysis.CSharp` để thao tác cú pháp. Bộ test code-fix kiểm chứng accounting provider/action; một diagnostic chỉ được quảng bá khi có biến đổi cú pháp thực sự.
 
 ## Kiến trúc
 
@@ -11,7 +11,6 @@ graph TB
         DG002[DG002: Parameter Mismatch]
         DG006[DG006: Naming Convention]
         DG007[DG007: Length Exceeds Column]
-        DG010-DG013[DG010-DG013: Dialect Issues]
         DG012[DG012: Provider Option Mismatch]
     end
 
@@ -20,26 +19,21 @@ graph TB
         MAFP[AddMaxLengthAttributeFixProvider]
         SCFP[SkipContractCheckFixProvider]
         NCFP[NamingConventionFixProvider]
-        UOFP[UseOracleProviderFixProvider]
+        UOFP[UseOracleCodeFixProvider]
     end
 
     subgraph "Fix Actions"
         F1[Thêm [SkipContractCheck]]
-        F2[Thêm comment CI-only]
-        F3[Cập nhật SQL parameters]
-        F4[Tự đổi tên property]
-        F5[Thêm [Column] attribute]
-        F6[Thêm [MaxLength]]
-        F7[Đề xuất CLOB/NCLOB]
-        F8[Thêm ghi chú phương ngữ]
-        F9[Thêm .UseOracle()]
+        F2[Áp dụng SQL replacement đã xác thực]
+        F3[Tự đổi tên property]
+        F4[Thêm [Column] attribute]
+        F5[Thêm [MaxLength]]
+        F6[Thay UseSqlServer bằng UseOracle]
     end
 
     DG001 --> DCFP
     DG002 --> DCFP
-    DG006 --> DCFP
     DG007 --> DCFP
-    DG010-DG013 --> DCFP
 
     DCFP --> F1
     DCFP --> F2
@@ -47,9 +41,6 @@ graph TB
     DCFP --> F4
     DCFP --> F5
     DCFP --> F6
-    DCFP --> F7
-    DCFP --> F8
-    DCFP --> F9
 
     DG007 --> MAFP
     DG001 --> SCFP
@@ -61,23 +52,22 @@ graph TB
 
 | File | Dòng | Mục đích |
 |------|------|----------|
-| `CodeFixProviders.cs` | 544 | Tất cả năm code fix provider |
+| `CodeFixProviders.cs` | — | Code-fix provider và các biến đổi |
 
 ## DataGuardCodeFixProvider
 
-Code fix provider chính xử lý phần lớn các diagnostic ID.
+Code fix provider chính xử lý DG001, DG002 và DG007. Biến đổi naming và provider-option do provider chuyên biệt xử lý.
+
+`FixableDiagnosticIds` được quảng bá chỉ gồm các diagnostic bên dưới có transformation
+an toàn đã đăng ký; diagnostic chưa có sửa đổi an toàn được chủ ý loại khỏi danh sách.
 
 ### Diagnostic được hỗ trợ
 
 | Diagnostic | Hành động sửa |
 |------------|---------------|
-| DG001 | Thêm `[SkipContractCheck]`, Thêm comment CI-only |
-| DG002 | Cập nhật SQL khớp tham số mong đợi |
-| DG006 | Tự sửa quy ước đặt tên, Thêm attribute `[Column]` |
-| DG007 | Thêm attribute `[MaxLength]`, Đề xuất CLOB/NCLOB |
-| DG010 | Thêm ghi chú chuyển đổi phương ngữ |
-| DG011 | Thêm ghi chú chuyển đổi phương ngữ |
-| DG013 | Thêm ghi chú chuyển đổi phương ngữ |
+| DG001 | Thêm declaration `[SkipContractCheck]`, `[DataContract]` hoặc `[SqlParameter]` |
+| DG002 | Áp dụng SQL replacement do verifier phê duyệt (chỉ khi có thuộc tính manifest hợp lệ) |
+| DG007 | Thêm attribute `[MaxLength]` |
 
 ### Flow đăng ký fix
 
@@ -86,20 +76,11 @@ flowchart TD
     A[Nhận Diagnostic] --> B{Diagnostic ID?}
     B -->|DG001| C[RegisterUnvalidatedSqlCallFixes]
     B -->|DG002| D[RegisterParameterMismatchFixes]
-    B -->|DG006| E[RegisterNamingConventionFixes]
-    B -->|DG010/DG011/DG013| F[RegisterDialectFixes]
     B -->|DG007| G[RegisterLengthFixes]
-    B -->|DG012| H[RegisterProviderOptionFixes]
 
-    C --> C1[Thêm [SkipContractCheck]]
-    C --> C2[Thêm comment CI-only]
-    D --> D1[Cập nhật SQL parameters]
-    E --> E1[Tự đổi tên theo quy ước]
-    E --> E2[Thêm attribute [Column]]
-    F --> F1[Thêm ghi chú chuyển đổi phương ngữ]
+    C --> C1[Thêm contract declaration hoặc SkipContractCheck]
+    D --> D1[Áp dụng SQL replacement đã xác thực]
     G --> G1[Thêm [MaxLength]]
-    G --> G2[Đề xuất CLOB/NCLOB]
-    H --> H1[Thêm .UseOracle()]
 ```
 
 ### Triển khai fix
@@ -115,20 +96,18 @@ public IQueryable<Customer> Search(string query) { ... }
 
 **Triển khai:** Sử dụng `DocumentEditor.AddAttribute()` trên ancestor `MemberDeclarationSyntax`.
 
-#### Thêm comment CI-only
+#### Thêm khai báo manual contract
 
-Thêm comment `// DataGuard: Validate in CI only` phía trên câu lệnh gọi SQL:
-
-```csharp
-// DataGuard: Validate in CI only
-var results = context.Customers.FromSqlRaw("SELECT * FROM Customers");
-```
-
-**Triển khai:** Sử dụng `DocumentEditor.ReplaceNode()` để thêm trivia vào `StatementSyntax`.
+Với SQL call DG001 trong một type, provider có thể thêm declaration
+`[DataContract]` fully qualified vào type đó. Khi method bao quanh có parameter,
+nó có thể thêm một declaration `[SqlParameter]` fully qualified cho mỗi
+parameter. Hai action không tự tạo database type hay routine identity; manual
+extractor dùng CLR parameter name/type cho đến khi có metadata đã xác minh. Cả
+hai transformation được compile-check trong code-fix tests.
 
 #### Cập nhật SQL khớp tham số
 
-Đề xuất cập nhật chuỗi SQL để khớp tham số stored procedure mong đợi. Đây là fix placeholder thêm comment với danh sách tham số mong đợi.
+Chỉ đưa SQL replacement khi diagnostic mang cả replacement đã được verifier phê duyệt và digest SHA-256 64 ký tự của offline contract manifest. Action thay string literal nên vẫn biên dịch được. Manifest thiếu, sai định dạng hoặc không ràng buộc sẽ không có automatic edit; comment hay heuristic không thể xác lập identity, kiểu hoặc direction của routine.
 
 #### Tự sửa quy ước đặt tên
 
@@ -152,30 +131,24 @@ public string CustomerName { get; set; }
 
 #### Thêm attribute [MaxLength]
 
-Thêm attribute `[MaxLength]` để sửa diagnostic sai lệch độ dài:
+Áp dụng giá trị `[MaxLength]` đã được verifier phê duyệt cho DG007/DG009 chỉ khi
+ diagnostic có manifest digest hợp lệ và độ dài dương đã xác minh. Provider thay
+`MaxLength` hoặc `StringLength` có sẵn để tránh attribute trùng:
 
 ```csharp
 [global::System.ComponentModel.DataAnnotations.MaxLength(100)]
 public string Name { get; set; }
 ```
 
-**Triển khai:** Sử dụng `SyntaxFactory.Attribute()` với `SyntaxFactory.LiteralExpression()` cho giá trị độ dài.
+Provider không tự suy diễn database length và không đưa action khi thiếu evidence này.
 
-#### Đề xuất CLOB/NCLOB
+#### CLOB/NCLOB và chuyển đổi phương ngữ
 
-Thêm comment đề xuất thay đổi kiểu cột thành CLOB/NCLOB cho trường text lớn.
-
-#### Thêm ghi chú chuyển đổi phương ngữ
-
-Thêm comment ghi chú rằng cần chuyển đổi phương ngữ thủ công:
-
-```csharp
-// DataGuard: Manual dialect conversion required - Oracle DECODE needs CASE WHEN in SQL Server
-```
+Không có automatic conversion cho CLOB/NCLOB hay phương ngữ SQL. Hai thao tác cần schema evidence theo provider; comment không phải remediation và provider không quảng bá diagnostic này là fixable khi chưa có biến đổi đã được xác thực.
 
 #### Thêm .UseOracle()
 
-Đề xuất thêm `.UseOracle()` vào `DbContextOptionsBuilder` cho DG012 (Không khớp tùy chọn provider).
+Thay `.UseSqlServer()` bằng `.UseOracle()` trong `DbContextOptionsBuilder` cho DG012 (Không khớp tùy chọn provider), giữ nguyên connection-string argument.
 
 ## Hỗ trợ batch fix
 

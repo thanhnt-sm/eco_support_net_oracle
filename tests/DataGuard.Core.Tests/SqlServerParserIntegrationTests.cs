@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using DataGuard.Core.Sources;
 using FluentAssertions;
@@ -16,6 +17,8 @@ namespace DataGuard.Core.Tests;
 /// </summary>
 public class SqlServerParserIntegrationTests : IAsyncLifetime
 {
+    private const string RequireLiveSqlServerVariable = "DATAGUARD_REQUIRE_LIVE_SQLSERVER";
+    private const string RunLiveSqlServerVariable = "DATAGUARD_RUN_SQLSERVER_INTEGRATION";
     private MsSqlContainer? _container;
     private bool _dockerAvailable;
 
@@ -29,8 +32,13 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
             await _container.StartAsync();
             _dockerAvailable = true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            if (IsLiveSqlServerRequired())
+            {
+                throw new InvalidOperationException("Live SQL Server was required but the Testcontainers fixture could not start.", ex);
+            }
+
             _dockerAvailable = false;
         }
     }
@@ -48,7 +56,7 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
     {
         if (!_dockerAvailable || _container == null)
         {
-            return; // Docker daemon not running — skip without failing the suite.
+            return; // xUnit 2.9 has no supported dynamic skip API.
         }
 
         var cs = _container.GetConnectionString();
@@ -56,6 +64,8 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "CREATE TABLE dbo.Customers (Id INT NOT NULL, Status NVARCHAR(20) NULL DEFAULT N'active')";
+            await cmd.ExecuteNonQueryAsync();
             cmd.CommandText = """
                 CREATE PROCEDURE dbo.GetCustomer
                     @Id INT,
@@ -79,5 +89,16 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
         proc.Parameters.Should().Contain(p => p.Name == "@OutName");
         proc.ResultColumns.Should().Contain(c => c.Name == "CustomerId");
         proc.ResultColumns.Should().Contain(c => c.Name == "FullName");
+
+        var schema = contracts.OfType<DatabaseSchemaDescriptor>().Should().ContainSingle().Subject;
+        var customers = schema.Tables.Should().Contain(table => table.Name.EndsWith(".Customers", StringComparison.OrdinalIgnoreCase)).Subject;
+        customers.Columns.Should().Contain(column =>
+            column.Name.Equals("Status", StringComparison.OrdinalIgnoreCase)
+            && column.DataDefault != null
+            && column.DataDefault.Contains("active", StringComparison.OrdinalIgnoreCase));
     }
+
+    private static bool IsLiveSqlServerRequired()
+        => string.Equals(Environment.GetEnvironmentVariable(RequireLiveSqlServerVariable), "1", StringComparison.Ordinal)
+            || string.Equals(Environment.GetEnvironmentVariable(RunLiveSqlServerVariable), "1", StringComparison.Ordinal);
 }

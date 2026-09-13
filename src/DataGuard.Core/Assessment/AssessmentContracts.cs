@@ -102,7 +102,7 @@ public sealed record ToolError
 public sealed record AssessmentReport
 {
     /// <summary>Bumping schema version whenever serialized shape changes.</summary>
-    public const string CurrentSchemaVersion = "1.0";
+    public const string CurrentSchemaVersion = "1.1";
 
     /// <summary>Schema version of this report payload.</summary>
     public string SchemaVersion { get; init; } = CurrentSchemaVersion;
@@ -124,7 +124,24 @@ public sealed record AssessmentReport
 
     /// <summary>Coarse counts summary for quick triage.</summary>
     public AssessmentSummary Summary { get; init; } = new AssessmentSummary();
+
+    /// <summary>Remote advisory provenance when an explicitly opt-in lookup succeeds.</summary>
+    public IReadOnlyList<AssessmentAdvisory> RemoteAdvisories { get; init; } = Array.Empty<AssessmentAdvisory>();
+
+    /// <summary>Versioned dependency-health score; Unknown when advisory coverage was not requested or available.</summary>
+    public DependencyHealthSummary DependencyHealth { get; init; } =
+        DependencyHealthScoreCalculator.Calculate(Array.Empty<DependencyScoreInput>());
 }
+
+/// <summary>Provenance for a public dependency advisory without workspace or feed details.</summary>
+public sealed record AssessmentAdvisory(
+    string AdvisoryId,
+    string Url,
+    string PackageId,
+    string Version,
+    string? Modified,
+    DateTimeOffset RetrievedAt,
+    FindingConfidence Confidence);
 
 /// <summary>Aggregate counts by severity/error for quick display.</summary>
 public sealed record AssessmentSummary

@@ -1,5 +1,10 @@
 # QA & Test Strategy
 
+> **Execution evidence (2026-09-12):** the local macOS arm64 baseline at
+> `93bf7288324dd746669ad09c5e2a592adc772748` built Release with 0 warnings/errors
+> and ran 484 passing C# tests. This is not evidence of live database assertions
+> or Windows/Visual Studio behavior; those gates require their own marked runs.
+
 ## Test Philosophy
 
 DataGuard follows a **contract-first, evidence-based** testing approach:
@@ -71,6 +76,39 @@ dotnet test --filter "Category=Integration"
 - **Oracle**: Real connection, ALL_ARGUMENTS/ALL_TAB_COLUMNS queries
 - **MySQL**: Real connection, INFORMATION_SCHEMA queries
 - **PostgreSQL**: Real connection, pg_catalog queries
+
+SQL Server fixtures normally record an informational skip when Docker is not
+available. To make Docker/provider health a required gate, use:
+
+```bash
+DATAGUARD_RUN_SQLSERVER_INTEGRATION=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore \
+  --filter 'FullyQualifiedName~SqlServerIntegrationTests|FullyQualifiedName~SqlServerParserIntegrationTests'
+```
+
+In required-live mode, image pull, daemon, startup, or health-check failure
+fails the fixture instead of being reported as a successful skip.
+
+The PostgreSQL extraction fixture uses the same opt-in policy:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore --filter FullyQualifiedName~PostgreSqlIntegrationTests
+```
+
+Use the same variable for MySQL:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore --filter FullyQualifiedName~MySqlIntegrationTests
+```
+
+Oracle Free uses the same required-live switch and a dedicated application user:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore --filter FullyQualifiedName~OracleIntegrationTests
+```
 
 ### Golden Corpus Tests
 

@@ -7,6 +7,7 @@ using System.Composition.Hosting;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
@@ -59,10 +60,14 @@ public sealed class RulePluginManager : IDisposable
     private readonly ILogger<RulePluginManager>? _logger;
     private readonly ImmutableArray<Lazy<IContractRule, IRuleMetadata>> _rulePlugins;
     private readonly List<System.Runtime.Loader.AssemblyLoadContext> _pluginContexts = new();
+    private readonly List<PluginAdmissionResult> _admissions = new();
 
     public RulePluginManager(
         string? pluginDirectory = null,
-        ILogger<RulePluginManager>? logger = null)
+        ILogger<RulePluginManager>? logger = null,
+        PluginTrustPolicy? trustPolicy = null,
+        IPluginProvenanceVerifier? provenanceVerifier = null,
+        IEnumerable<string>? reservedRuleIds = null)
     {
         _logger = logger;
 
@@ -72,22 +77,55 @@ public sealed class RulePluginManager : IDisposable
         // Scan directory for assemblies. Only an explicitly provided plugin directory is
         // scanned: the default location is user-writable and must never auto-load code.
         var dir = pluginDirectory;
+        var policy = trustPolicy ?? new PluginTrustPolicy();
         if (dir != null && Directory.Exists(dir))
         {
-            foreach (var assemblyFile in Directory.GetFiles(dir, "*.dll"))
+            foreach (var admission in PluginAdmission.VerifyAll(
+                Directory.GetFiles(dir, "*.dll"), policy, provenanceVerifier, reservedRuleIds))
             {
+                var assemblyFile = admission.AssemblyPath;
                 try
                 {
+                    _admissions.Add(admission);
+                    if (!admission.Accepted)
+                    {
+                        _logger?.LogWarning("Rejected plugin assembly {AssemblyFile}: {Reason}", assemblyFile, admission.Reason);
+                        continue;
+                    }
+
+                    // Bind the exact managed bytes hashed during admission. A path can
+                    // be replaced after admission, so do not resolve it again at load time.
+                    if (admission.VerifiedAssemblyBytes is null)
+                    {
+                        var rejected = admission with { Accepted = false, Reason = "Plugin did not retain verified assembly bytes." };
+                        _admissions[_admissions.Count - 1] = rejected;
+                        _logger?.LogWarning("Rejected plugin assembly {AssemblyFile}: {Reason}", assemblyFile, rejected.Reason);
+                        continue;
+                    }
+
                     // Load into an isolated collectible context so plugins can be
-                    // unloaded and cannot influence the host's type resolution.
-                    var alc = new System.Runtime.Loader.AssemblyLoadContext(
-                        $"DataGuard.Plugin:{Path.GetFileName(assemblyFile)}", isCollectible: true);
+                    // unloaded. It is lifecycle/type-resolution isolation, not a sandbox.
+                    var alc = new VerifiedPluginLoadContext(
+                        $"DataGuard.Plugin:{Path.GetFileName(assemblyFile)}",
+                        admission.VerifiedManagedDependencies ?? Array.Empty<VerifiedPluginDependency>(),
+                        admission.VerifiedHostAssemblyIdentities ?? PluginAdmission.GetHostAssemblyIdentities(policy));
                     _pluginContexts.Add(alc);
-                    var assembly = alc.LoadFromAssemblyPath(assemblyFile);
+                    using var verifiedStream = new MemoryStream(admission.VerifiedAssemblyBytes, writable: false);
+                    var assembly = alc.LoadFromStream(verifiedStream);
+                    NativeLibrary.SetDllImportResolver(assembly, static (_, _, _) =>
+                        throw new DllNotFoundException("Native dependencies are not admitted for DataGuard plugins."));
                     config = config.WithAssembly(assembly);
                 }
                 catch (Exception ex)
                 {
+                    var rejected = admission with
+                    {
+                        Accepted = false,
+                        Reason = $"Plugin load failed: {ex.Message}",
+                        VerifiedAssemblyBytes = null,
+                        VerifiedManagedDependencies = null,
+                    };
+                    _admissions[_admissions.Count - 1] = rejected;
                     _logger?.LogWarning(ex, "Skipping plugin assembly {AssemblyFile}: {Message}", assemblyFile, ex.Message);
                 }
             }
@@ -108,14 +146,34 @@ public sealed class RulePluginManager : IDisposable
             _rulePlugins.Length, pluginDirectory ?? GetDefaultPluginDirectory());
     }
 
+    /// <summary>Gets admission results without loading rejected plugin code.</summary>
+    public IReadOnlyList<PluginAdmissionResult> GetAdmissions() => _admissions
+        .Select(admission => admission with
+        {
+            VerifiedAssemblyBytes = admission.VerifiedAssemblyBytes?.ToArray(),
+            VerifiedManagedDependencies = admission.VerifiedManagedDependencies?
+                .Select(dependency => dependency with { AssemblyBytes = dependency.AssemblyBytes.ToArray() })
+                .ToArray(),
+            VerifiedHostAssemblyIdentities = admission.VerifiedHostAssemblyIdentities is null
+                ? null
+                : new HashSet<string>(admission.VerifiedHostAssemblyIdentities, StringComparer.Ordinal),
+        })
+        .ToArray();
+
     /// <summary>
     /// Gets all available rules including built-in and plugin rules.
     /// </summary>
     /// <returns></returns>
     public ImmutableArray<IContractRule> GetAllRules(ImmutableArray<IContractRule> builtInRules)
     {
+        var builtInRuleIds = builtInRules
+            .Select(rule => rule.RuleId)
+            .ToHashSet(StringComparer.Ordinal);
         var pluginRules = _rulePlugins
             .Where(p => IsCompatible(p.Metadata))
+            .GroupBy(plugin => plugin.Metadata.RuleId, StringComparer.Ordinal)
+            .Select(group => group.OrderBy(plugin => plugin.Metadata.Name, StringComparer.Ordinal).First())
+            .Where(plugin => !builtInRuleIds.Contains(plugin.Metadata.RuleId))
             .Select(p => p.Value)
             .ToImmutableArray();
 
@@ -172,6 +230,47 @@ public sealed class RulePluginManager : IDisposable
         }
 
         return currentVersion >= minVersion;
+    }
+
+    private sealed class VerifiedPluginLoadContext : System.Runtime.Loader.AssemblyLoadContext
+    {
+        private readonly IReadOnlyDictionary<string, byte[]> dependencies;
+
+        private readonly IReadOnlySet<string> hostAssemblyIdentities;
+
+        public VerifiedPluginLoadContext(
+            string name,
+            IEnumerable<VerifiedPluginDependency> verifiedDependencies,
+            IReadOnlySet<string> hostAssemblyIdentities)
+            : base(name, isCollectible: true)
+        {
+            dependencies = verifiedDependencies.ToDictionary(
+                dependency => dependency.AssemblyName,
+                dependency => dependency.AssemblyBytes.ToArray(),
+                StringComparer.Ordinal);
+            this.hostAssemblyIdentities = new HashSet<string>(hostAssemblyIdentities, StringComparer.Ordinal);
+        }
+
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            if (!dependencies.TryGetValue(assemblyName.FullName ?? string.Empty, out var bytes))
+            {
+                if (hostAssemblyIdentities.Contains(assemblyName.FullName ?? string.Empty))
+                {
+                    return null;
+                }
+
+                throw new FileLoadException($"Plugin dependency '{assemblyName.FullName}' is not admitted.");
+            }
+
+            using var stream = new MemoryStream(bytes, writable: false);
+            return LoadFromStream(stream);
+        }
+
+        protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
+        {
+            throw new DllNotFoundException("Native dependencies are not admitted for DataGuard plugins.");
+        }
     }
 
     public void Dispose()

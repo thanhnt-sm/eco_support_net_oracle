@@ -99,6 +99,7 @@ public class PublicApiAndPipelineTests
         report.DriftDetected.Should().BeFalse();
         report.NewViolations.Should().BeEmpty();
         report.Message.Should().Contain("CreateBaseline");
+        report.Status.Should().Be(DriftEvaluationStatus.Missing);
     }
 
     [Fact]
@@ -117,18 +118,218 @@ public class PublicApiAndPipelineTests
                 }
                 """);
 
-            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath });
+            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath, EnableSmartDefaults = false });
             var report = await pipeline.CheckDriftAsync(Array.Empty<ContractViolation>());
 
             report.HasBaseline.Should().BeTrue();
             report.DriftDetected.Should().BeFalse();
             report.NewViolations.Should().BeEmpty();
+            report.Status.Should().Be(DriftEvaluationStatus.Complete);
         }
         finally
         {
             if (File.Exists(baselinePath))
             {
                 File.Delete(baselinePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckSchemaDrift_ReportsTypedStatusAndStructuralChange()
+    {
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"dg-schema-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(baselinePath, """
+                {
+                  "Version": 2,
+                  "CreatedAt": "2026-01-01T00:00:00Z",
+                  "SchemaVersion": "1.0",
+                  "GroundTruthMode": "Snapshot",
+                  "DatabaseVersion": "1.0",
+                  "SchemaHash": "",
+                  "Violations": [],
+                  "Schema": [{ "Name": "CUSTOMERS", "Columns": [{ "Name": "ID", "DataType": "NUMBER", "MaxLength": null, "CharLength": null, "Precision": 22, "Scale": 0, "IsNullable": false, "CharUsed": null }] }]
+                }
+                """);
+
+            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath, EnableSmartDefaults = false });
+            var currentSchema = new DatabaseSchemaDescriptor(
+                "current",
+                new[] { new DatabaseTableDescriptor("CUSTOMERS", new[] { new ColumnDescriptor("ID", "NUMBER", null, 22, 0, false, null, null), new ColumnDescriptor("NAME", "VARCHAR2", 120, null, null, true, "CHAR", 120) }) },
+                "CHAR");
+
+            var report = await pipeline.CheckDriftAsync(currentSchema);
+
+            report.Status.Should().Be(DriftEvaluationStatus.Complete);
+            report.HasBaseline.Should().BeTrue();
+            report.DriftDetected.Should().BeTrue();
+            report.BaselineHash.Should().NotBe(report.CurrentHash);
+        }
+        finally
+        {
+            if (File.Exists(baselinePath))
+            {
+                File.Delete(baselinePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckSchemaDrift_DistinguishesCorruptAndUnsupportedBaselines()
+    {
+        var corruptPath = Path.Combine(Path.GetTempPath(), $"dg-corrupt-{Guid.NewGuid():N}.json");
+        var unsupportedPath = Path.Combine(Path.GetTempPath(), $"dg-unsupported-{Guid.NewGuid():N}.json");
+        var schema = new DatabaseSchemaDescriptor("current", Array.Empty<DatabaseTableDescriptor>(), "CHAR");
+        try
+        {
+            await File.WriteAllTextAsync(corruptPath, "{ this is not json");
+            using (var corruptPipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = corruptPath }))
+            {
+                var corrupt = await corruptPipeline.CheckDriftAsync(schema);
+                corrupt.Status.Should().Be(DriftEvaluationStatus.Corrupt);
+                corrupt.DriftDetected.Should().BeFalse();
+            }
+
+            await File.WriteAllTextAsync(unsupportedPath, """
+                { "Version": 99, "CreatedAt": "2026-01-01T00:00:00Z", "SchemaVersion": "1.0", "GroundTruthMode": "Snapshot", "DatabaseVersion": "1.0", "SchemaHash": "", "Violations": [], "Schema": [] }
+                """);
+            using (var unsupportedPipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = unsupportedPath }))
+            {
+                var unsupported = await unsupportedPipeline.CheckDriftAsync(schema);
+                unsupported.Status.Should().Be(DriftEvaluationStatus.UnsupportedVersion);
+                unsupported.DriftDetected.Should().BeFalse();
+            }
+        }
+        finally
+        {
+            if (File.Exists(corruptPath))
+            {
+                File.Delete(corruptPath);
+            }
+            if (File.Exists(unsupportedPath))
+            {
+                File.Delete(unsupportedPath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckSchemaDrift_WithoutPersistedSchemaIsUnevaluated()
+    {
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"dg-no-schema-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(baselinePath, """
+                { "Version": 2, "CreatedAt": "2026-01-01T00:00:00Z", "SchemaVersion": "1.0", "GroundTruthMode": "Snapshot", "DatabaseVersion": "1.0", "SchemaHash": "", "Violations": [] }
+                """);
+            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath });
+            var report = await pipeline.CheckDriftAsync(new DatabaseSchemaDescriptor("current", Array.Empty<DatabaseTableDescriptor>(), "CHAR"));
+            report.Status.Should().Be(DriftEvaluationStatus.Unevaluated);
+            report.DriftDetected.Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(baselinePath))
+            {
+                File.Delete(baselinePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckSchemaDrift_EmptyEvaluatedSchemaIsComplete()
+    {
+        var baselinePath = Path.Combine(Path.GetTempPath(), $"dg-empty-schema-{Guid.NewGuid():N}.json");
+        try
+        {
+            var emptySchema = Array.Empty<SnapshotTable>();
+            await new BaselineManager(baselinePath).CreateBaselineAsync(
+                Array.Empty<ContractViolation>(), "1.0", "Snapshot",
+                schemaHash: BaselineManager.ComputeSchemaHash(emptySchema, null, null, "v1"),
+                schema: emptySchema);
+            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath, EnableSmartDefaults = false });
+            var report = await pipeline.CheckDriftAsync(new DatabaseSchemaDescriptor("current", Array.Empty<DatabaseTableDescriptor>(), "CHAR"));
+            report.Status.Should().Be(DriftEvaluationStatus.Complete);
+            report.BaselineHash.Should().Be(report.CurrentHash);
+            report.DriftDetected.Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(baselinePath))
+            {
+                File.Delete(baselinePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckSchemaDrift_RejectsUnknownCanonicalizationVersion()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-canon-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, """
+                { "Version": 3, "CreatedAt": "2026-01-01T00:00:00Z", "SchemaVersion": "1.0", "GroundTruthMode": "Snapshot", "DatabaseVersion": "1.0", "SchemaHash": "", "SchemaHashKind": "canonical-schema-v1", "SchemaCanonicalizationVersion": "v2", "Violations": [], "Schema": [] }
+                """);
+            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = path, EnableSmartDefaults = false });
+            var report = await pipeline.CheckDriftAsync(new DatabaseSchemaDescriptor("current", Array.Empty<DatabaseTableDescriptor>(), "CHAR"));
+            report.Status.Should().Be(DriftEvaluationStatus.UnsupportedVersion);
+            report.DriftDetected.Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckSchemaDrift_RejectsConfiguredProviderMismatch()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-provider-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, """
+                { "Version": 3, "CreatedAt": "2026-01-01T00:00:00Z", "SchemaVersion": "1.0", "GroundTruthMode": "Snapshot", "DatabaseVersion": "1.0", "SchemaHash": "", "SchemaHashKind": "canonical-schema-v1", "Provider": "sqlserver", "SchemaScope": "dbo", "SchemaCanonicalizationVersion": "v1", "Violations": [], "Schema": [] }
+                """);
+            var config = new DataGuardConfiguration { BaselineFilePath = path, EnableSmartDefaults = false, DefaultProvider = "postgresql" };
+            using var pipeline = DataGuardApi.CreatePipeline(config);
+            var report = await pipeline.CheckDriftAsync(new DatabaseSchemaDescriptor("current", Array.Empty<DatabaseTableDescriptor>(), "CHAR"));
+            report.Status.Should().Be(DriftEvaluationStatus.Unevaluated);
+            report.DriftDetected.Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ValidationPipeline_CheckSchemaDrift_RequiresProviderContextForV3()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-provider-missing-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, """
+                { "Version": 3, "CreatedAt": "2026-01-01T00:00:00Z", "SchemaVersion": "1.0", "GroundTruthMode": "Snapshot", "DatabaseVersion": "1.0", "SchemaHash": "", "SchemaHashKind": "canonical-schema-v1", "Provider": "sqlserver", "SchemaScope": "dbo", "SchemaCanonicalizationVersion": "v1", "Violations": [], "Schema": [] }
+                """);
+            using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = path, EnableSmartDefaults = false });
+            var report = await pipeline.CheckDriftAsync(new DatabaseSchemaDescriptor("current", Array.Empty<DatabaseTableDescriptor>(), "CHAR"));
+            report.Status.Should().Be(DriftEvaluationStatus.Unevaluated);
+            report.DriftDetected.Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
             }
         }
     }
@@ -286,6 +487,17 @@ public class DataGuardApiSurfaceTests
     }
 
     [Fact]
+    public void DataGuardApi_CreatePipeline_RespectsSmartDefaultOptOut()
+    {
+        var config = new DataGuardConfiguration { EnableSmartDefaults = false, DefaultSchema = null };
+
+        using var pipeline = DataGuardApi.CreatePipeline(config);
+
+        config.DefaultSchema.Should().BeNull();
+        pipeline.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task ValidationPipeline_WithRules_AcceptsCustomRules()
     {
         using var pipeline = DataGuardApi.CreatePipeline();
@@ -308,6 +520,23 @@ public class DataGuardApiSurfaceTests
         using var pipeline = DataGuardApi.CreatePipeline();
         var act = () => pipeline.WithPlugins(Path.Combine(Path.GetTempPath(), $"dg-nope-{Guid.NewGuid():N}"));
         act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ValidationPipeline_WithPlugins_RepeatedCallsAreOwnedAndReleasedOnDispose()
+    {
+        var pipeline = DataGuardApi.CreatePipeline();
+        pipeline.WithPlugins(Path.Combine(Path.GetTempPath(), $"dg-nope-{Guid.NewGuid():N}"));
+        pipeline.WithPlugins(Path.Combine(Path.GetTempPath(), $"dg-nope-{Guid.NewGuid():N}"));
+
+        var field = typeof(ValidationPipeline).GetField(
+            "_pluginManagers",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var managers = (System.Collections.ICollection)field.GetValue(pipeline)!;
+        managers.Count.Should().Be(2);
+
+        pipeline.Dispose();
+        ((System.Collections.ICollection)field.GetValue(pipeline)!).Count.Should().Be(0);
     }
 
     [Fact]
@@ -354,6 +583,7 @@ public class DataGuardApiSurfaceTests
         report.HasDrift.Should().BeFalse();
         report.NewViolationCount.Should().Be(0);
         report.HasBaseline.Should().BeFalse();
+        report.Status.Should().Be(DriftEvaluationStatus.Missing);
     }
 
     [Fact]

@@ -23,7 +23,7 @@ dataguard assess [--workspace <path>] [--project-filter <filter>...]
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "toolVersion": "<assembly version>",
   "target": "<workspace root>",
   "generatedAt": "<UTC ISO-8601>",

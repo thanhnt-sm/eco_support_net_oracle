@@ -1,0 +1,9 @@
+<Project>
+  <UsingTask TaskName="DataGuard.Build.OfflineManifestValidationTask"
+             AssemblyFile="$(MSBuildThisFileDirectory)..\lib\net9.0\DataGuard.Build.dll" />
+  <Target Name="DataGuardValidateOfflineManifest"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DataGuardOfflineManifest)' != ''">
+    <OfflineManifestValidationTask ManifestPath="$(DataGuardOfflineManifest)" />
+  </Target>
+</Project>

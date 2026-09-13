@@ -12,8 +12,14 @@ public static class InventoryPack
 {
     /// <summary>Finds project files under the workspace, respecting filters and caps.</summary>
     public static List<string> DiscoverProjects(string workspaceRoot, IReadOnlyList<string> filters)
+        => DiscoverProjectsWithStatus(workspaceRoot, filters).Projects;
+
+    internal static (List<string> Projects, bool Truncated) DiscoverProjectsWithStatus(
+        string workspaceRoot,
+        IReadOnlyList<string> filters)
     {
-        var all = Directory.EnumerateFiles(workspaceRoot, "*.csproj", SearchOption.AllDirectories)
+        var enumeration = BoundedAssessmentEnumerator.EnumerateFilesWithStatus(workspaceRoot, "*.csproj");
+        var all = enumeration.Files
             .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                      && !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
                      && !p.Contains("node_modules", StringComparison.Ordinal))
@@ -21,12 +27,12 @@ public static class InventoryPack
 
         if (filters.Count == 0)
         {
-            return all;
+            return (all.ToList(), enumeration.Truncated);
         }
 
-        return all.Where(p => filters.Any(f =>
+        return (all.Where(p => filters.Any(f =>
             Path.GetRelativePath(workspaceRoot, p).Replace('\\', '/').Contains(f.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)))
-            .ToList();
+            .ToList(), enumeration.Truncated);
     }
 
     /// <summary>Runs inventory over discovered projects; per-project failure becomes an error entry, never an abort.</summary>

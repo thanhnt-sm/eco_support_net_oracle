@@ -1,6 +1,6 @@
 # Code Fix Providers
 
-DataGuard ships five Roslyn code fix providers that offer quick-fix suggestions in IDE for common contract violations. All providers target `netstandard2.0` and use `Microsoft.CodeAnalysis.CSharp` for syntax manipulation.
+DataGuard ships five Roslyn code-fix providers for contract violations. All providers target `netstandard2.0` and use `Microsoft.CodeAnalysis.CSharp` for syntax manipulation. Provider/action accounting is verified by the code-fix test suite; a diagnostic is advertised only when it has a real syntax transformation.
 
 ## Architecture
 
@@ -11,7 +11,6 @@ graph TB
         DG002[DG002: Parameter Mismatch]
         DG006[DG006: Naming Convention]
         DG007[DG007: Length Exceeds Column]
-        DG010-DG013[DG010-DG013: Dialect Issues]
         DG012[DG012: Provider Option Mismatch]
     end
 
@@ -20,26 +19,21 @@ graph TB
         MAFP[AddMaxLengthAttributeFixProvider]
         SCFP[SkipContractCheckFixProvider]
         NCFP[NamingConventionFixProvider]
-        UOFP[UseOracleProviderFixProvider]
+        UOFP[UseOracleCodeFixProvider]
     end
 
     subgraph "Fix Actions"
         F1[Add [SkipContractCheck]]
-        F2[Add CI-only comment]
-        F3[Update SQL parameters]
-        F4[Auto-rename property]
-        F5[Add [Column] attribute]
-        F6[Add [MaxLength]]
-        F7[Suggest CLOB/NCLOB]
-        F8[Add dialect note]
-        F9[Add .UseOracle()]
+        F2[Apply verified SQL replacement]
+        F3[Auto-rename property]
+        F4[Add [Column] attribute]
+        F5[Add [MaxLength]]
+        F6[Replace UseSqlServer with UseOracle]
     end
 
     DG001 --> DCFP
     DG002 --> DCFP
-    DG006 --> DCFP
     DG007 --> DCFP
-    DG010-DG013 --> DCFP
 
     DCFP --> F1
     DCFP --> F2
@@ -47,9 +41,6 @@ graph TB
     DCFP --> F4
     DCFP --> F5
     DCFP --> F6
-    DCFP --> F7
-    DCFP --> F8
-    DCFP --> F9
 
     DG007 --> MAFP
     DG001 --> SCFP
@@ -61,23 +52,22 @@ graph TB
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `CodeFixProviders.cs` | 544 | All five code fix providers |
+| `CodeFixProviders.cs` | — | Code-fix providers and transformations |
 
 ## DataGuardCodeFixProvider
 
-The primary code fix provider handling the majority of diagnostic IDs.
+The primary code-fix provider handles DG001, DG002, and DG007. Naming and provider-option transformations are implemented by their dedicated providers.
+
+Its advertised `FixableDiagnosticIds` are limited to the diagnostics listed below;
+diagnostics without a safe registered transformation are intentionally absent.
 
 ### Supported Diagnostics
 
 | Diagnostic | Fix Actions |
 |------------|-------------|
-| DG001 | Add `[SkipContractCheck]`, Add CI-only comment |
-| DG002 | Update SQL to match expected parameters |
-| DG006 | Auto-fix naming convention, Add `[Column]` attribute |
-| DG007 | Add `[MaxLength]` attribute, Suggest CLOB/NCLOB |
-| DG010 | Add manual dialect conversion note |
-| DG011 | Add manual dialect conversion note |
-| DG013 | Add manual dialect conversion note |
+| DG001 | Add `[SkipContractCheck]`, `[DataContract]`, or `[SqlParameter]` declarations |
+| DG002 | Apply verifier-approved SQL replacement (only with valid manifest properties) |
+| DG007 | Add `[MaxLength]` attribute |
 
 ### Fix Registration Flow
 
@@ -86,20 +76,11 @@ flowchart TD
     A[Diagnostic Received] --> B{Diagnostic ID?}
     B -->|DG001| C[RegisterUnvalidatedSqlCallFixes]
     B -->|DG002| D[RegisterParameterMismatchFixes]
-    B -->|DG006| E[RegisterNamingConventionFixes]
-    B -->|DG010/DG011/DG013| F[RegisterDialectFixes]
     B -->|DG007| G[RegisterLengthFixes]
-    B -->|DG012| H[RegisterProviderOptionFixes]
 
-    C --> C1[Add [SkipContractCheck]]
-    C --> C2[Add CI-only comment]
-    D --> D1[Update SQL parameters]
-    E --> E1[Auto-rename to convention]
-    E --> E2[Add [Column] attribute]
-    F --> F1[Add dialect conversion note]
+    C --> C1[Add contract declaration or SkipContractCheck]
+    D --> D1[Apply verified SQL replacement]
     G --> G1[Add [MaxLength]]
-    G --> G2[Suggest CLOB/NCLOB]
-    H --> H1[Add .UseOracle()]
 ```
 
 ### Fix Implementations
@@ -115,20 +96,22 @@ public IQueryable<Customer> Search(string query) { ... }
 
 **Implementation:** Uses `DocumentEditor.AddAttribute()` on the `MemberDeclarationSyntax` ancestor.
 
-#### Add CI-Only Comment
+#### Add manual contract declarations
 
-Adds a `// DataGuard: Validate in CI only` comment above the SQL call statement:
-
-```csharp
-// DataGuard: Validate in CI only
-var results = context.Customers.FromSqlRaw("SELECT * FROM Customers");
-```
-
-**Implementation:** Uses `DocumentEditor.ReplaceNode()` to prepend trivia to the `StatementSyntax`.
+For a DG001 SQL call inside a type, the provider can add a fully qualified
+`[DataContract]` declaration to that type. When the enclosing method has
+parameters, it can add one fully qualified `[SqlParameter]` declaration per
+parameter. Neither action invents a database type or a routine identity; the
+manual extractor uses the CLR parameter name and type until verified metadata is
+available. Both transformations are compile-checked in the code-fix tests.
 
 #### Update SQL to Match Parameters
 
-Suggests updating the SQL string to match expected stored procedure parameters. This is a placeholder fix that adds a comment with the expected parameter list.
+Only offers an SQL replacement when the diagnostic carries both a verifier-approved
+replacement and the 64-character SHA-256 digest of the offline contract manifest.
+The action replaces the string literal and therefore remains compilable. Missing,
+malformed, or unbound manifest evidence offers no automatic edit; a comment or a
+heuristic cannot establish a routine's identity, parameter type, or direction.
 
 #### Auto-Fix Naming Convention
 
@@ -152,26 +135,28 @@ public string CustomerName { get; set; }
 
 #### Add [MaxLength] Attribute
 
-Adds a `[MaxLength]` attribute to fix length mismatch diagnostics:
+Applies a verifier-approved `[MaxLength]` value for DG007/DG009 only when the
+ diagnostic carries a valid manifest digest and positive approved length. It replaces
+an existing `MaxLength` or `StringLength` attribute, avoiding a duplicate attribute:
 
 ```csharp
 [global::System.ComponentModel.DataAnnotations.MaxLength(100)]
 public string Name { get; set; }
 ```
 
-**Implementation:** Uses `SyntaxFactory.Attribute()` with `SyntaxFactory.LiteralExpression()` for the length value.
+The provider does not infer a database length or offer an action without that evidence.
 
 #### Suggest CLOB/NCLOB
 
-Adds a comment suggesting column type change to CLOB/NCLOB for large text fields.
+No automatic CLOB/NCLOB conversion is offered. Mapping a property to a database
+LOB requires provider-specific schema evidence and remains a review item until a
+verifier can supply that evidence.
 
 #### Add Dialect Conversion Note
 
-Adds a comment noting that manual dialect conversion is needed:
-
-```csharp
-// DataGuard: Manual dialect conversion required - Oracle DECODE needs CASE WHEN in SQL Server
-```
+No automatic dialect conversion is offered. A comment is not a remediation, and
+the provider does not advertise dialect diagnostics as fixable without a
+verified, provider-bound transformation.
 
 #### Add .UseOracle()
 

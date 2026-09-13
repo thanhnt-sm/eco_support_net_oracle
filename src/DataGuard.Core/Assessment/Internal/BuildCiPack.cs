@@ -13,14 +13,19 @@ public static class BuildCiPack
     public static IReadOnlyList<AssessmentFinding> Assess(string workspaceRoot)
     {
         var findings = new List<AssessmentFinding>();
-        var globalJsonPath = Path.Combine(workspaceRoot, "global.json");
+        var globalJsonCandidate = Path.Combine(workspaceRoot, "global.json");
+        var hasGlobalJson = AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, globalJsonCandidate, out var globalJsonPath, out _)
+            && File.Exists(globalJsonPath);
 
         string? pinnedSdk = null;
-        var hasGlobalJson = File.Exists(globalJsonPath);
         if (hasGlobalJson)
         {
             try
             {
+                if (new FileInfo(globalJsonPath).Length > ProjectInventoryReader.MaxFileBytes)
+                {
+                    return findings;
+                }
                 using var stream = File.OpenRead(globalJsonPath);
                 using var doc = JsonDocument.Parse(stream);
                 if (doc.RootElement.TryGetProperty("sdk", out var sdk) && sdk.TryGetProperty("version", out var version))
@@ -89,9 +94,18 @@ public static class BuildCiPack
         var sdks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var csproj in InventoryPack.DiscoverProjects(workspaceRoot, Array.Empty<string>()))
         {
+            if (!AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, csproj, out var safeProjectPath, out _))
+            {
+                continue;
+            }
+
             try
             {
-                using var stream = File.OpenRead(csproj);
+                if (new FileInfo(safeProjectPath).Length > ProjectInventoryReader.MaxFileBytes)
+                {
+                    continue;
+                }
+                using var stream = File.OpenRead(safeProjectPath);
                 using var doc = System.Xml.XmlReader.Create(stream);
                 while (doc.Read())
                 {
@@ -121,9 +135,18 @@ public static class BuildCiPack
         var majors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var csproj in InventoryPack.DiscoverProjects(workspaceRoot, Array.Empty<string>()))
         {
+            if (!AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, csproj, out var safeProjectPath, out _))
+            {
+                continue;
+            }
+
             try
             {
-                using var stream = File.OpenRead(csproj);
+                if (new FileInfo(safeProjectPath).Length > ProjectInventoryReader.MaxFileBytes)
+                {
+                    continue;
+                }
+                using var stream = File.OpenRead(safeProjectPath);
                 using var doc = System.Xml.XmlReader.Create(stream);
                 while (doc.Read())
                 {

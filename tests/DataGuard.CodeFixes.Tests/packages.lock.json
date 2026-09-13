@@ -347,6 +347,7 @@
         "type": "Project",
         "dependencies": {
           "DataGuard.Contracts": "[1.0.0, )",
+          "DataGuard.SqlClassification": "[1.0.0, )",
           "System.Composition.Hosting": "[10.0.11, )"
         }
       },
@@ -357,6 +358,9 @@
         }
       },
       "dataguard.contracts": {
+        "type": "Project"
+      },
+      "dataguard.sqlclassification": {
         "type": "Project"
       }
     }

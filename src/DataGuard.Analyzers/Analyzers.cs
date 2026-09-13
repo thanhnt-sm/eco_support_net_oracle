@@ -13,6 +13,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
+using DataGuard.SqlClassification;
 using Microsoft.CodeAnalysis.Operations;
 using DataGuard.Contracts;
 
@@ -303,13 +304,28 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
         return false;
     }
 
+    private static bool HasSkipContractCheckAttribute(SyntaxNode node)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+        {
+            if (current is MemberDeclarationSyntax member && member.AttributeLists
+                .SelectMany(list => list.Attributes)
+                .Any(attribute => attribute.Name.ToString().EndsWith("SkipContractCheck", StringComparison.Ordinal)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool IsPotentialSqlCall(SyntaxNode node)
     {
         if (node is not InvocationExpressionSyntax invocation)
             return false;
 
         // Fast path: check method name first (most common filter)
-        if (HasDataGuardMarkerComment(invocation))
+        if (HasDataGuardMarkerComment(invocation) || HasSkipContractCheckAttribute(invocation))
             return false;
         if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
             return false;
@@ -327,9 +343,9 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
 
         // Raw SQL detection - only if first arg is string literal
         var firstArg = invocation.ArgumentList.Arguments.FirstOrDefault();
-        return firstArg?.Expression is LiteralExpressionSyntax lit && 
-               lit.Token.Value is string str && 
-               ContainsSqlKeyword(str);
+        return firstArg?.Expression is LiteralExpressionSyntax lit &&
+               lit.Token.Value is string str &&
+               SqlClassifier.Classify(str, new Uri("dataguard://local"), string.Empty).Count > 0;
     }
 
     private static bool ContainsSqlKeyword(ReadOnlySpan<char> text)
@@ -515,6 +531,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
         // Skip if marked with [SkipContractCheck] or an acknowledged marker comment
         if (HasSkipContractCheckAttribute(method) ||
+            HasSkipContractCheckAttribute(context.ContainingSymbol) ||
             UnvalidatedSqlCallGenerator.HasDataGuardMarkerComment(invocation.Syntax))
             return;
 
@@ -540,11 +557,19 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private static bool HasSkipContractCheckAttribute(IMethodSymbol method)
+    private static bool HasSkipContractCheckAttribute(ISymbol? symbol)
     {
-        return method.GetAttributes().Any(attr =>
+        for (var current = symbol; current is not null; current = current.ContainingType)
+        {
+            if (current.GetAttributes().Any(attr =>
             attr.AttributeClass?.Name == "SkipContractCheckAttribute" ||
-            attr.AttributeClass?.ToDisplayString() == "DataGuard.Contracts.SkipContractCheckAttribute");
+            attr.AttributeClass?.ToDisplayString() == "DataGuard.Contracts.SkipContractCheckAttribute"))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsEfCoreFromSqlMethod(IMethodSymbol method)
@@ -732,11 +757,11 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         if (arguments.IsDefaultOrEmpty)
             return string.Empty;
 
-        var firstArgSyntax = arguments[0].Syntax;
-        if (firstArgSyntax is LiteralExpressionSyntax literal && literal.Token.Value is string str)
-            return str;
+        var value = arguments[0].Value;
+        if (value.ConstantValue.HasValue && value.ConstantValue.Value is string constant)
+            return constant;
 
-        if (firstArgSyntax is InterpolatedStringExpressionSyntax interp)
+        if (value.Syntax is InterpolatedStringExpressionSyntax interp)
             return interp.ToString();
 
         return string.Empty;

@@ -18,14 +18,27 @@ public static class DependencyHealthPack
             return findings;
         }
 
-        var lockPath = Path.Combine(Path.GetDirectoryName(Path.Combine(workspaceRoot, facts.ProjectPath))!, "packages.lock.json");
-        if (!File.Exists(lockPath))
+        var candidateLockPath = Path.Combine(Path.GetDirectoryName(Path.Combine(workspaceRoot, facts.ProjectPath))!, "packages.lock.json");
+        if (!AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, candidateLockPath, out var lockPath, out var relativeLockPath)
+            || !File.Exists(lockPath))
         {
             return findings;
         }
 
         try
         {
+            if (new FileInfo(lockPath).Length > ProjectInventoryReader.MaxFileBytes)
+            {
+                findings.Add(new AssessmentFinding
+                {
+                    RuleId = "DG1204",
+                    Severity = FindingSeverity.Error,
+                    Confidence = FindingConfidence.High,
+                    Message = $"packages.lock.json exceeds the {ProjectInventoryReader.MaxFileBytes} byte safety limit.",
+                    Evidence = new[] { new FindingEvidence { Path = relativeLockPath } },
+                });
+                return findings;
+            }
             using var stream = File.OpenRead(lockPath);
             using var doc = JsonDocument.Parse(stream);
             var root = doc.RootElement;
@@ -62,7 +75,7 @@ public static class DependencyHealthPack
                         Evidence = new[]
                         {
                             new FindingEvidence { Path = facts.ProjectPath, Key = "TargetFramework", ValuePreview = tfm },
-                            new FindingEvidence { Path = Path.GetRelativePath(workspaceRoot, lockPath), Key = string.Join(", ", lockedTfms) },
+                            new FindingEvidence { Path = relativeLockPath, Key = string.Join(", ", lockedTfms) },
                         },
                         SuggestedAction = $"Run 'dotnet restore' for {tfm} and commit the refreshed lock file.",
                     });
@@ -77,7 +90,7 @@ public static class DependencyHealthPack
                 Severity = FindingSeverity.Error,
                 Confidence = FindingConfidence.High,
                 Message = "packages.lock.json is not valid JSON.",
-                Evidence = new[] { new FindingEvidence { Path = Path.GetRelativePath(workspaceRoot, lockPath) } },
+                Evidence = new[] { new FindingEvidence { Path = relativeLockPath } },
             });
         }
 

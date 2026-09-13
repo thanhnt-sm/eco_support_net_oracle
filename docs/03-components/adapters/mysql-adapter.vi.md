@@ -65,7 +65,7 @@ ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION
 
 ### Quyết định thiết kế chính
 
-- **LEFT JOIN**: Procedure không có tham số vẫn xuất hiện trong kết quả (dưới dạng một dòng với các trường tham số NULL). Chúng bị bỏ qua qua kiểm tra `reader.IsDBNull(1)`.
+- **LEFT JOIN**: Procedure không có tham số xuất hiện dưới dạng một dòng với các trường tham số NULL. Parser vẫn tạo `StoredProcedureDescriptor` rỗng; chỉ bỏ qua việc tạo parameter cho dòng đó.
 - **Lọc schema**: Chuỗi schema rỗng có nghĩa là "tất cả schema"; nếu không lọc chính xác.
 - **Xử lý overload**: MySQL không hỗ trợ overload procedure, vì vậy mỗi tên procedure ánh xạ đúng một contract.
 - **Chuẩn hóa độ dài**: `CHARACTER_MAXIMUM_LENGTH` trả về `BIGINT` — chuẩn hóa thành `int?` với bảo vệ tràn.

@@ -13,6 +13,8 @@ namespace DataGuard.Core.Tests;
 /// </summary>
 public class SqlServerIntegrationTests : IAsyncLifetime
 {
+    private const string RequireLiveSqlServerVariable = "DATAGUARD_REQUIRE_LIVE_SQLSERVER";
+    private const string RunLiveSqlServerVariable = "DATAGUARD_RUN_SQLSERVER_INTEGRATION";
     private MsSqlContainer? _container;
     private string? _skipReason;
 
@@ -26,6 +28,11 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         }
         catch (Exception ex)
         {
+            if (IsLiveSqlServerRequired())
+            {
+                throw new InvalidOperationException("Live SQL Server was required but the Testcontainers fixture could not start.", ex);
+            }
+
             // Any infrastructure failure (daemon down, image pull blocked,
             // health-check timeout) degrades to a documented skip instead of
             // failing the whole fixture class — mirrors SqlServerParserIntegrationTests.
@@ -46,7 +53,7 @@ public class SqlServerIntegrationTests : IAsyncLifetime
     {
         if (_skipReason != null)
         {
-            return; // informational skip — Docker not available
+            return; // xUnit 2.9 has no supported dynamic skip API.
         }
 
         var connectionString = _container!.GetConnectionString();
@@ -82,4 +89,8 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         // recorded a skip reason. Both are valid outcomes of this fixture.
         (_container != null || _skipReason != null).Should().BeTrue();
     }
+
+    private static bool IsLiveSqlServerRequired()
+        => string.Equals(Environment.GetEnvironmentVariable(RequireLiveSqlServerVariable), "1", StringComparison.Ordinal)
+            || string.Equals(Environment.GetEnvironmentVariable(RunLiveSqlServerVariable), "1", StringComparison.Ordinal);
 }

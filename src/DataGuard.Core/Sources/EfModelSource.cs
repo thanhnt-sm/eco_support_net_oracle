@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -217,13 +218,14 @@ public class EfModelSource : IContractSource
         DataGuardConfiguration? config = null,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshotFilePath);
         if (!File.Exists(snapshotFilePath))
         {
-            return new List<EntityDescriptor>();
+            throw new EfModelExtractionException("ModelSnapshot source file does not exist.");
         }
 
-        var json = await File.ReadAllTextAsync(snapshotFilePath, cancellationToken);
-        return ParseModelSnapshot(json, config);
+        var source = await File.ReadAllTextAsync(snapshotFilePath, cancellationToken).ConfigureAwait(false);
+        return ParseModelSnapshot(source, config);
     }
 
     /// <summary>
@@ -233,6 +235,15 @@ public class EfModelSource : IContractSource
         string json,
         DataGuardConfiguration? config = null)
     {
+        var result = ModelSnapshotCSharpParser.Parse(json);
+        if (result.Diagnostics.Count > 0 && result.Entities.Count == 0)
+        {
+            throw new EfModelExtractionException(result.Diagnostics[0].Message);
+        }
+
+        return result.Entities;
+
+#pragma warning disable CS0162 // Retained implementation is deliberately unreachable until removed in a major release.
         var entities = new List<EntityDescriptor>();
 
         try
@@ -268,6 +279,7 @@ public class EfModelSource : IContractSource
         }
 
         return entities;
+#pragma warning restore CS0162
     }
 
     private static JsonNode? FindBuildModelMethod(JsonNode root)
@@ -588,89 +600,144 @@ public class EfModelSource : IContractSource
         DataGuardConfiguration? config = null,
         CancellationToken cancellationToken = default)
     {
-        // 1. ModelSnapshot parsing (fast, no build required).
-        var snapshotPath = FindModelSnapshot(projectPath, contextTypeName);
-        if (snapshotPath != null)
-        {
-            var entities = await ExtractFromModelSnapshotAsync(snapshotPath, config, cancellationToken);
-            if (entities.Count > 0)
-            {
-                return entities;
-            }
-
-            // Snapshot parsing produced no entities - fall through to the built assembly.
-        }
-
-        // 2. Fallback: read the EF model from an already-built assembly.
-        return await ExtractFromBuiltAssemblyAsync(projectPath, contextTypeName, config, cancellationToken);
+        await Task.CompletedTask;
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new EfModelExtractionException(
+            $"Design-time discovery for '{projectPath}' is unsupported because it would discover and execute untrusted assemblies. Use ExtractFromTrustedCompiledModelSnapshotAsync with an exact artifact path and ModelSnapshot type.");
     }
 
-    private static async Task<IReadOnlyList<EntityDescriptor>> ExtractFromBuiltAssemblyAsync(
-        string projectPath,
-        string contextTypeName,
-        DataGuardConfiguration? config,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Extracts a model only from an explicitly trusted compiled artifact and exact snapshot type.
+    /// Loading an artifact executes its managed initialization and is therefore a trust decision by the caller.
+    /// </summary>
+    public static Task<IReadOnlyList<EntityDescriptor>> ExtractFromTrustedCompiledModelSnapshotAsync(
+        string trustedAssemblyPath,
+        string modelSnapshotTypeName,
+        DataGuardConfiguration? config = null,
+        CancellationToken cancellationToken = default)
     {
-        var outputDir = Path.Combine(projectPath, "bin");
-        if (!Directory.Exists(outputDir))
+        ArgumentException.ThrowIfNullOrWhiteSpace(trustedAssemblyPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelSnapshotTypeName);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var fullPath = Path.GetFullPath(trustedAssemblyPath);
+        var file = new FileInfo(fullPath);
+        if (!file.Exists || !string.Equals(file.Extension, ".dll", StringComparison.OrdinalIgnoreCase))
         {
-            return new List<EntityDescriptor>();
+            throw new EfModelExtractionException($"Trusted model artifact does not exist or is not a DLL: {fullPath}");
         }
 
-        foreach (var dll in Directory.GetFiles(outputDir, "*.dll", SearchOption.AllDirectories))
+        if (file.LinkTarget is not null)
         {
-            try
-            {
-                var assembly = Assembly.LoadFrom(dll);
-                var contextType = assembly.GetTypes()
-                    .FirstOrDefault(t => t.Name == contextTypeName && typeof(DbContext).IsAssignableFrom(t));
-                if (contextType == null)
-                {
-                    continue;
-                }
-
-                var context = (DbContext?)Activator.CreateInstance(contextType);
-                if (context == null)
-                {
-                    continue;
-                }
-
-                using (context)
-                {
-                    var source = new EfModelSource(context, config ?? new DataGuardConfiguration());
-                    var contracts = await source.ExtractContractsAsync(cancellationToken);
-                    return contracts.OfType<EntityDescriptor>().ToList();
-                }
-            }
-            catch
-            {
-                // Skip assemblies that fail to load or instantiate.
-            }
+            throw new EfModelExtractionException($"Trusted model artifact must not be a linked path: {fullPath}");
         }
 
-        return new List<EntityDescriptor>();
+        var loadContext = new TrustedModelLoadContext(fullPath);
+        try
+        {
+            var assembly = loadContext.LoadFromAssemblyPath(fullPath);
+            var snapshotType = assembly.GetType(modelSnapshotTypeName, throwOnError: false, ignoreCase: false);
+            if (snapshotType is null || !typeof(ModelSnapshot).IsAssignableFrom(snapshotType) || snapshotType.IsAbstract)
+            {
+                throw new EfModelExtractionException(
+                    $"Trusted artifact does not contain the exact concrete ModelSnapshot type '{modelSnapshotTypeName}'.");
+            }
+
+            if (Activator.CreateInstance(snapshotType) is not ModelSnapshot snapshot)
+            {
+                throw new EfModelExtractionException($"Could not instantiate trusted ModelSnapshot type '{modelSnapshotTypeName}'.");
+            }
+
+            var entities = ExtractEntities(snapshot.Model, config ?? DataGuardConfigurationExtensions.Default());
+            return Task.FromResult<IReadOnlyList<EntityDescriptor>>(entities);
+        }
+        catch (EfModelExtractionException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is FileLoadException or FileNotFoundException or ReflectionTypeLoadException or TargetInvocationException)
+        {
+            throw new EfModelExtractionException($"Could not load trusted ModelSnapshot artifact '{fullPath}'.", ex);
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
     }
 
-    private static string? FindModelSnapshot(string projectPath, string contextTypeName)
+    private static IReadOnlyList<EntityDescriptor> ExtractEntities(IModel model, DataGuardConfiguration config)
     {
-        var migrationsDir = Path.Combine(projectPath, "Migrations");
-        if (!Directory.Exists(migrationsDir))
+        var entities = new List<EntityDescriptor>();
+        foreach (var entityType in model.GetEntityTypes())
         {
-            return null;
-        }
-
-        var snapshotFiles = Directory.GetFiles(migrationsDir, "*ModelSnapshot.cs");
-
-        // Find the one matching our context
-        foreach (var file in snapshotFiles)
-        {
-            var content = File.ReadAllText(file);
-            if (content.Contains(contextTypeName, StringComparison.OrdinalIgnoreCase))
+            if (entityType.IsOwned() || config.ExcludedEntities?.Contains(entityType.ClrType.FullName ?? "") == true)
             {
-                return file;
+                continue;
             }
+
+            var properties = entityType.GetProperties().Where(property => !property.IsShadowProperty()).Select(property =>
+            {
+                string? columnName = null;
+                string? columnType = null;
+                try
+                {
+                    columnName = property.GetColumnName();
+                    columnType = property.GetColumnType();
+                }
+                catch (InvalidCastException)
+                {
+                    // Non-relational models have no relational column metadata.
+                }
+
+                return new PropertyDescriptor(
+                    property.Name,
+                    property.ClrType.FullName ?? property.ClrType.Name,
+                    columnName ?? property.Name,
+                    columnType,
+                    property.IsNullable,
+                    property.GetMaxLength(),
+                    property.IsPrimaryKey(),
+                    property.IsForeignKey(),
+                    property.GetAnnotations().ToImmutableDictionary(annotation => annotation.Name, annotation => annotation.Value));
+            }).ToList();
+
+            entities.Add(new EntityDescriptor(
+                $"entity:{entityType.ClrType.FullName}", entityType.ClrType.Name,
+                entityType.ClrType.FullName ?? entityType.ClrType.Name,
+                BuildFullName(entityType.GetSchema(), entityType.GetTableName() ?? entityType.ClrType.Name), properties));
         }
 
-        return snapshotFiles.FirstOrDefault();
+        return entities;
+    }
+}
+
+/// <summary>Raised when a model artifact does not meet the explicit trusted-artifact contract.</summary>
+public sealed class EfModelExtractionException : InvalidOperationException
+{
+    public EfModelExtractionException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
+}
+
+internal sealed class TrustedModelLoadContext : AssemblyLoadContext
+{
+    private readonly AssemblyDependencyResolver _resolver;
+
+    public TrustedModelLoadContext(string artifactPath)
+        : base($"DataGuard.TrustedModel:{Path.GetFileNameWithoutExtension(artifactPath)}", isCollectible: true)
+    {
+        _resolver = new AssemblyDependencyResolver(artifactPath);
+    }
+
+    protected override Assembly? Load(AssemblyName assemblyName)
+    {
+        if (assemblyName.Name?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true)
+        {
+            return AssemblyLoadContext.Default.LoadFromAssemblyName(assemblyName);
+        }
+
+        var path = _resolver.ResolveAssemblyToPath(assemblyName);
+        return path is null ? null : LoadFromAssemblyPath(path);
     }
 }

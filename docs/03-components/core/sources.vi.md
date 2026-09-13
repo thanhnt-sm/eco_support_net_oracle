@@ -81,32 +81,28 @@ public class EfModelSource : IContractSource
 4. Tạo `EntityDescriptor` với tên bảng, schema, và thông tin vị trí
 5. Giải quyết vị trí file nguồn qua phân tích syntax tree Roslyn
 
-### Trích Xuất Design-time
+### Trích xuất ModelSnapshot biên dịch đáng tin cậy
 
-Cho CI/CD pipeline không có database đang chạy:
-
-```csharp
-public static async Task<IReadOnlyList<EntityDescriptor>> ExtractFromDesignTimeAsync(
-    string projectPath,
-    string contextTypeName,
-    DataGuardConfiguration? config = null,
-    CancellationToken cancellationToken = default)
-```
-
-**Chiến lược:**
-1. **ModelSnapshot.cs** (nhanh, không cần build) — phân tích migration snapshot của EF Core
-2. **Fallback assembly đã build** — tải assembly đã biên dịch và khởi tạo DbContext
-
-### Phân Tích ModelSnapshot
-
-Phân tích cấu trúc JSON được tạo bởi lớp `ModelSnapshot` sinh bởi EF Core:
+`ModelSnapshot.cs` từ source có thể được parse mà không load assembly bằng
+`ModelSnapshotCSharpParser` có giới hạn. Nó hỗ trợ fluent-API subset được sinh cho
+`Entity<T>`, table, property, key, column name/type, length và requiredness. Parser
+giới hạn source-size và syntax-node, trả diagnostic hiển thị khi syntax lỗi hoặc đầu
+vào unsupported, và không khởi tạo `DbContext`, factory, host hay application code.
+Tự động discovery project/assembly vẫn unsupported.
 
 ```csharp
-public static IReadOnlyList<EntityDescriptor> ParseModelSnapshot(
-    string json, DataGuardConfiguration? config = null)
+var entities = await EfModelSource.ExtractFromTrustedCompiledModelSnapshotAsync(
+    trustedAssemblyPath: "/approved/output/MyApp.dll",
+    modelSnapshotTypeName: "MyApp.Migrations.AppDbContextModelSnapshot",
+    config: config,
+    cancellationToken: cancellationToken);
 ```
 
-Trích xuất cấu hình entity bằng cách điều hướng cấu trúc phương thức `BuildModel`, tìm các lệnh gọi `Entity<T>()`, và phân tích các lệnh gọi `HasColumnName`, `HasColumnType`, `IsRequired`, `HasMaxLength`.
+Caller chọn tường minh một DLL không phải link và đúng concrete `ModelSnapshot` type. Loader có thể thu hồi và dùng chung identity EF Core với host để đọc `IModel`; dependency resolution bắt đầu tại artifact đã chọn. Việc load managed code vẫn là thực thi trusted code, không phải sandbox. Artifact thiếu, linked, sai type, abstract hoặc không load được sẽ ném `EfModelExtractionException` thay vì trả về empty-success.
+
+### Trạng thái parse raw SQL
+
+`RawSqlParser` ghi `RawSqlParseStatus.Invalid` và nội dung lỗi ScriptDOM cho input malformed. Built-in rule `DG016` báo trạng thái đó là Error, nên lỗi parser không thể xuất hiện như kết quả validation clean.
 
 ## SqlServerStoredProcedureParser
 

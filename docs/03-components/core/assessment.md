@@ -69,6 +69,18 @@ public static class AssessmentEngine
 6. Scan config files with `SecretsPack.AssessFile()`
 7. Build `AssessmentReport` with summary counts
 
+Filesystem discovery is bounded to 10,000 files per pattern so a pathological
+workspace cannot force unbounded materialization. Reader paths are checked for
+lexical and resolved-target containment before opening; link and permission errors
+produce no guessed findings.
+Project, SDK and lock-file parsers apply the same 2 MiB input cap before parsing.
+When discovery reaches its cap, the report includes `DG1007` so truncated results
+are explicitly partial.
+Directory reparse points are skipped during recursive discovery.
+Oversized lock files emit `DG1204` rather than being treated as an empty healthy graph.
+`RunAsync` propagates cancellation through the local scan and returns a `DG1006`
+tool error marked as partial before any remote advisory call is made.
+
 ## AssessmentRequest
 
 ```csharp
@@ -91,7 +103,7 @@ public sealed record AssessmentRequest
 ```csharp
 public sealed record AssessmentReport
 {
-    public string SchemaVersion { get; init; } = "1.0";
+    public string SchemaVersion { get; init; } = "1.1";
     required public string ToolVersion { get; init; }
     required public string Target { get; init; }
     required public DateTimeOffset GeneratedAt { get; init; }
@@ -171,6 +183,31 @@ public static class InventoryPack
 
 Checks lock file consistency and dependency health.
 
+`DependencyHealthScoreCalculator` uses the versioned `dependency-health-v1`
+formula only after every approved public package coordinate has resolved advisory
+coverage. An empty inventory or no approved public coordinates is `Unknown`; any
+coverage gap is `Partial` and has no numeric score. Scores therefore never present
+an optimistic `100` for an offline or incomplete lookup. Malformed or unresolved
+lock entries, lock/TFM mismatches, and unsupported/EOL TFMs also produce `Partial`
+without a numeric score.
+The additive `AssessmentReport.DependencyHealth` envelope carries the state,
+numeric score when complete, and formula version.
+
+Remote advisory lookup is disabled by default. It requires both the assessment
+request's remote-lookup opt-in and an operator policy that permits network egress,
+uses the fixed HTTPS `api.osv.dev` endpoint, and names each public NuGet package
+that may leave the process. The OSV client sends only a package name and resolved
+version, rejects redirects, bounds pages, details, response size, and timeout, and
+returns a `ToolError` for remote failure. Local lock-file findings continue even
+when the service is unavailable. Unclassified and private package coordinates are
+never sent.
+The endpoint is an additive policy field for deterministic testing, but requests
+fail closed unless it remains HTTPS on `api.osv.dev`.
+
+Every egress-work limit must be positive: package batch, page, advisory-detail,
+response-byte, and timeout limits. A zero or negative value disables the lookup
+before it constructs an HTTP request.
+
 ```csharp
 public static class DependencyHealthPack
 {
@@ -219,6 +256,15 @@ public static class SecretsPack
 - Hardcoded connection strings in config files
 - API keys, tokens, passwords in plain text
 - Machine-specific paths that break portability
+
+### Input containment
+
+Readers first verify lexical containment and then resolve every existing file or
+directory link from the workspace root to the input. Traversal, sibling-prefix,
+and link targets outside the root are rejected before opening the file; evidence
+uses normalized workspace-relative paths only. This is a best-effort check at
+open time, so it does not claim protection against a hostile filesystem change
+between validation and open.
 
 ## ProjectInventoryReader
 

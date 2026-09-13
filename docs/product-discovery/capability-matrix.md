@@ -17,7 +17,7 @@ Chỉ giữ capability có seam thật (`code-capabilities.md`) và evidence (`o
 
 - Remote vulnerability/license lookup mặc định: chỉ opt-in, không ship enabled.
 - SARIF export mới ngoài writer đã có: dùng `SarifTypes.cs` hiện hữu; writer schema-validated mới phải thêm trước.
-- Auto-fix/codefix cho legacy rules: `DataGuard.CodeFixes` tồn tại nhưng auto-remediation bị plan cấm release đầu.
+- Generic auto-remediation remains out of scope; `DataGuard.CodeFixes` ships only verified, manifest-bound transformations with explicit user invocation.
 
 ## Refusal/error behavior bắt buộc mọi capability
 

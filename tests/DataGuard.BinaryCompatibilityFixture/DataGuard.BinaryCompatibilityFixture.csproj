@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <Target Name="RequireBaselineCoreAssembly" BeforeTargets="ResolveReferences" Condition="'$(BaselineCoreAssembly)' == ''">
+    <Error Text="Set BaselineCoreAssembly to the retained baseline DataGuard.Core.dll when building this fixture." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="DataGuard.Core">
+      <HintPath>$(BaselineCoreAssembly)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

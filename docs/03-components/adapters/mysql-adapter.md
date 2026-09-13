@@ -65,7 +65,7 @@ ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION
 
 ### Key Design Decisions
 
-- **LEFT JOIN**: Procedures without parameters still appear in results (as a single row with NULL parameter fields). These are skipped via `reader.IsDBNull(1)` check.
+- **LEFT JOIN**: Procedures without parameters appear as one row with NULL parameter fields. The parser creates their empty `StoredProcedureDescriptor`; it skips only parameter creation for that row.
 - **Schema filtering**: Empty schema string means "all schemas"; otherwise filters by exact match.
 - **Overload handling**: MySQL does not support procedure overloading, so each procedure name maps to exactly one contract.
 - **Length normalization**: `CHARACTER_MAXIMUM_LENGTH` returns `BIGINT` — normalized to `int?` with overflow protection.

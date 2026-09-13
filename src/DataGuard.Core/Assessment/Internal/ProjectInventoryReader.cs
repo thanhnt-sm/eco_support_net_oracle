@@ -17,14 +17,15 @@ public static class ProjectInventoryReader
     /// <summary>Reads inventory facts for one project file. Returns an error result instead of throwing on malformed input.</summary>
     public static ProjectFacts Read(string workspaceRoot, string projectPath)
     {
-        var facts = new ProjectFacts { ProjectPath = Path.GetRelativePath(workspaceRoot, projectPath) };
+        var facts = new ProjectFacts { ProjectPath = Path.GetFileName(projectPath) };
         try
         {
-            var fullPath = Path.GetFullPath(projectPath);
-            if (!fullPath.StartsWith(Path.GetFullPath(workspaceRoot), StringComparison.Ordinal))
+            if (!AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, projectPath, out var fullPath, out var relativePath))
             {
                 return facts.WithError("DG1001", "project path resolves outside the requested workspace");
             }
+
+            facts = facts with { ProjectPath = relativePath };
 
             var fileInfo = new FileInfo(fullPath);
             if (!fileInfo.Exists)
@@ -65,7 +66,8 @@ public static class ProjectInventoryReader
                 .Select(e => (string?)e.Attribute("Include"))
                 .Where(v => !string.IsNullOrEmpty(v)).Select(v => v!).ToList();
 
-            var packageConfig = root.Descendants().Any() && File.Exists(Path.Combine(fullPath, "..", "packages.config"));
+            var projectDirectory = Path.GetDirectoryName(fullPath)!;
+            var packageConfig = root.Descendants().Any() && File.Exists(Path.Combine(projectDirectory, "packages.config"));
 
             facts = facts with
             {
@@ -75,7 +77,7 @@ public static class ProjectInventoryReader
                 PackageReferences = packageRefs,
                 ProjectReferences = projRefs,
                 UsesPackagesConfig = packageConfig,
-                HasLockFile = File.Exists(Path.Combine(fullPath, "..", "packages.lock.json")),
+                HasLockFile = File.Exists(Path.Combine(projectDirectory, "packages.lock.json")),
             };
         }
         catch (Exception ex) when (ex is XmlException or IOException or InvalidOperationException)

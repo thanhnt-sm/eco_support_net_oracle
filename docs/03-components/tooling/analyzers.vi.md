@@ -86,7 +86,9 @@ Tất cả diagnostic ID được định nghĩa dưới dạng hằng số tron
 
 ## IDE Light Layer — UnvalidatedSqlCallGenerator
 
-`IIncrementalGenerator` chạy trên mỗi lần gõ phím với phân tích chỉ cú pháp (~ms). Thiết kế cho zero-allocation, áp lực GC tối thiểu, và cache tăng dần.
+`IIncrementalGenerator` chạy trên mỗi lần gõ phím với phân tích chỉ cú pháp.
+Thiết kế này giữ công việc có giới hạn và incremental; không có claim latency hay
+allocation end-to-end cho đến khi scenario Roslyn host có measurement tương ứng.
 
 ### Flow phát hiện
 
@@ -121,7 +123,8 @@ Comment `// DataGuard: ...` trên câu lệnh bao quanh sẽ ẩn diagnostic DG0
 
 - **Chỉ cú pháp**: Không truy cập semantic model, không phân giải symbol
 - **Tập hợp tính trước**: `EfCoreMethods` và `ExecuteSqlMethods` là `HashSet<string>` cho tra cứu O(1)
-- **Zero allocation**: `SqlCallSite` là `readonly struct`
+- **Lưu ý allocation**: `SqlCallSite` là `readonly struct`, nhưng điều đó không
+  khiến toàn bộ lần gọi generator trở thành zero-allocation
 - **Cache tăng dần**: Chỉ phân tích lại các nút cú pháp đã thay đổi
 
 ## CI Heavy Layer — ContractValidationAnalyzer
@@ -157,7 +160,7 @@ flowchart TD
 
 ### Tích hợp SkipContractCheck
 
-Phương thức được trang trí `[SkipContractCheck]` tự động bị loại trừ khỏi phân tích:
+Phương thức hoặc kiểu bao quanh được trang trí `[SkipContractCheck]` sẽ tự động được loại khỏi cả bộ sinh cú pháp và phân tích semantic. Điều này khớp với quick fix DG001, vốn gắn thuộc tính lên caller bao quanh:
 
 ```csharp
 [SkipContractCheck(Reason = "Dynamic SQL - manual review required")]

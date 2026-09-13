@@ -28,6 +28,9 @@ fi
 printf '[verify-local-gates] Checking staged topology.\n'
 ./scripts/anti_garbage_guard.sh
 
+printf '[verify-local-gates] Checking workspace preflight invariants.\n'
+./scripts/preflight_agent_check.sh
+
 printf '[verify-local-gates] Checking documentation inventory.\n'
 ./scripts/verify_docs_sync.sh
 
@@ -60,7 +63,15 @@ if not files:
 for filename in files:
     root = ET.parse(filename).getroot()
     for cls in root.iter('class'):
-        source = cls.attrib.get('filename', '')
+        source = cls.attrib.get('filename', '').replace('\\', '/')
+        if '/obj/' in source:
+            continue
+        # Coverlet may report the same source both relative to `src/` and as
+        # an absolute checkout path.  Use the source-root-relative form for
+        # a truthful union across all test projects.
+        marker = '/src/'
+        if marker in source:
+            source = source.split(marker, 1)[1]
         for line in cls.iter('line'):
             key = (source, line.attrib['number'])
             hits[key] = hits.get(key, False) or int(line.attrib.get('hits', '0')) > 0

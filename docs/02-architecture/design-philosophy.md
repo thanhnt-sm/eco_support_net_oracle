@@ -204,9 +204,9 @@ DataGuard uses a **dual-layer analyzer architecture**:
 | **IDE Light** | `IIncrementalGenerator` | ~ms per keystroke | Syntax-only: unvalidated SQL calls, missing attributes |
 | **CI Heavy** | `DiagnosticAnalyzer` | Seconds | Full semantic: database-connected validation |
 
-The IDE layer runs on every keystroke and marks unvalidated SQL calls with squiggly underlines. It uses `IIncrementalGenerator` for zero-allocation, incremental caching — no GC pressure during typing.
+The IDE layer runs on every keystroke and marks unvalidated SQL calls with squiggly underlines. It uses incremental local syntax analysis. Allocation and GC behavior are measured per declared hot-path corpus; no universal zero-allocation claim applies to compiler-host setup or arbitrary documents.
 
-The CI layer runs in the build pipeline and performs full contract validation with database ground truth. It uses the same diagnostic IDs as the IDE layer, so warnings seen in the IDE are a subset of CI failures.
+The CI analyzer runs in the build pipeline using offline metadata only. Full database-ground-truth validation is a separately operator-launched CLI action, so project properties cannot authorize database access during a build.
 
 ```mermaid
 flowchart TD

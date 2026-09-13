@@ -44,6 +44,9 @@ graph TB
 |---------|----|-------------|
 | Run Validation | `dataguard.runValidation` | Execute `dataguard validate` and load SARIF diagnostics |
 | Cancel Validation | `dataguard.cancelValidation` | Terminate running validation process |
+| Assess Workspace | `dataguard.assess` | Execute local-first `dataguard assess`; it never supplies remote-advisory consent |
+| Refresh Snapshot | `dataguard.refreshSnapshot` | Ask for confirmation, then execute `dataguard snapshot refresh` with the trusted config |
+| Create Baseline | `dataguard.createBaseline` | Ask for confirmation, then execute `dataguard baseline` with the trusted config |
 
 ## Extension Activation
 
@@ -54,7 +57,7 @@ The extension activates on:
 
 ## SARIF Diagnostic Loading
 
-The extension runs `dataguard validate --format sarif --output <temp-file>` and parses the SARIF 2.1.0 output to populate VS Code's Problems panel.
+The extension runs `dataguard validate --format sarif --output <temp-file>` and parses the SARIF 2.1.0 output to populate VS Code's Problems panel. Artifact locations must be relative paths or `file:` URIs that resolve inside the selected workspace; malformed, remote, traversal, sibling-prefix, and external locations are logged and skipped.
 
 ### SARIF to VS Code Mapping
 
@@ -109,11 +112,11 @@ const child = spawn('dataguard', ['validate', '--format', 'sarif', '--output', t
 
 ### Termination
 
-The `dataguard.cancelValidation` command sends `SIGTERM` to the running process. If the process doesn't exit within 5 seconds, `SIGKILL` is sent.
+The `dataguard.cancelValidation` command cancels the global DataGuard process, regardless of its workspace. It sends `SIGTERM`; if the process doesn't exit within 5 seconds, `SIGKILL` is sent.
 
 ### Concurrency
 
-Only one validation process runs at a time. Starting a new validation while one is running cancels the previous one.
+Only one DataGuard command process runs globally at a time. Starting Validate or Assess cancels and replaces any prior Validate or Assess run, including one from another workspace.
 
 ## Security Module
 
@@ -170,6 +173,18 @@ When no config file exists, the extension falls back to CLI defaults (Snapshot m
             {
                 "command": "dataguard.cancelValidation",
                 "title": "DataGuard: Cancel Validation"
+            },
+            {
+                "command": "dataguard.assess",
+                "title": "DataGuard: Assess Workspace"
+            },
+            {
+                "command": "dataguard.refreshSnapshot",
+                "title": "DataGuard: Refresh Snapshot"
+            },
+            {
+                "command": "dataguard.createBaseline",
+                "title": "DataGuard: Create Baseline"
             }
         ],
         "configuration": {
@@ -227,6 +242,7 @@ npm run compile
 
 ```bash
 npm test
+npm run test:extension-host
 ```
 
 ### Packaging

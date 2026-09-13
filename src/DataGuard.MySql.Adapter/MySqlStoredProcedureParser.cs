@@ -45,7 +45,7 @@ public sealed class MySqlStoredProcedureParser : IContractSource
                    r.ROUTINE_SCHEMA
             FROM information_schema.ROUTINES r
             LEFT JOIN information_schema.PARAMETERS p
-              ON r.SPECIFIC_SCHEMA = p.SPECIFIC_SCHEMA AND r.SPECIFIC_NAME = p.SPECIFIC_NAME
+              ON r.ROUTINE_SCHEMA = p.SPECIFIC_SCHEMA AND r.SPECIFIC_NAME = p.SPECIFIC_NAME
             WHERE r.ROUTINE_TYPE = 'PROCEDURE' AND (@schema = '' OR r.ROUTINE_SCHEMA = @schema)
             ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION";
 
@@ -59,9 +59,19 @@ public sealed class MySqlStoredProcedureParser : IContractSource
         while (await reader.ReadAsync(cancellationToken))
         {
             var name = reader.IsDBNull(0) ? "" : reader.GetString(0);
+            var routineSchema = reader.IsDBNull(8) ? "" : reader.GetString(8);
+            var key = string.IsNullOrEmpty(routineSchema) ? name : $"{routineSchema}.{name}";
+            if (!procedures.TryGetValue(key, out var entry))
+            {
+                entry = (name, routineSchema, new List<ParameterDescriptor>());
+                procedures[key] = entry;
+            }
+
+            // A LEFT JOIN filler row is the only catalog record for a procedure
+            // without parameters. Preserve that procedure with an empty list.
             if (reader.IsDBNull(1))
             {
-                continue; // LEFT JOIN filler row for a procedure without parameters - skip.
+                continue;
             }
 
             var paramName = reader.GetString(1);
@@ -71,14 +81,6 @@ public sealed class MySqlStoredProcedureParser : IContractSource
             var maxLength = reader.IsDBNull(5) ? null : NormalizeLength(reader.GetInt64(5));
             var precision = reader.IsDBNull(6) ? null : (int?)reader.GetInt32(6);
             var scale = reader.IsDBNull(7) ? null : (int?)reader.GetInt32(7);
-            var routineSchema = reader.IsDBNull(8) ? "" : reader.GetString(8);
-
-            var key = string.IsNullOrEmpty(routineSchema) ? name : $"{routineSchema}.{name}";
-            if (!procedures.TryGetValue(key, out var entry))
-            {
-                entry = (name, routineSchema, new List<ParameterDescriptor>());
-                procedures[key] = entry;
-            }
 
             entry.Parameters.Add(new ParameterDescriptor(
                 Name: paramName,
@@ -117,7 +119,7 @@ public sealed class MySqlStoredProcedureParser : IContractSource
         const string sql = @"
             SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH,
                    NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE, COLUMN_TYPE,
-                   CHARACTER_SET_NAME, COLUMN_KEY, ORDINAL_POSITION
+                   COLUMN_DEFAULT, CHARACTER_SET_NAME, COLUMN_KEY, ORDINAL_POSITION
             FROM information_schema.COLUMNS
             WHERE (@schema = '' OR TABLE_SCHEMA = @schema)
             ORDER BY TABLE_NAME, ORDINAL_POSITION";
@@ -139,9 +141,10 @@ public sealed class MySqlStoredProcedureParser : IContractSource
             var numericScale = reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5);
             var isNullable = !reader.IsDBNull(6) && reader.GetString(6) == "YES";
             var columnType = reader.IsDBNull(7) ? "" : reader.GetString(7); // e.g. "varchar(255)", "int(11)"
-            var charSetName = reader.IsDBNull(8) ? null : reader.GetString(8);
-            var columnKey = reader.IsDBNull(9) ? "" : reader.GetString(9); // PRI, UNI, MUL
-            var ordinalPosition = reader.IsDBNull(10) ? 0 : reader.GetInt32(10);
+            var dataDefault = reader.IsDBNull(8) ? null : reader.GetValue(8)?.ToString();
+            var charSetName = reader.IsDBNull(9) ? null : reader.GetString(9);
+            var columnKey = reader.IsDBNull(10) ? "" : reader.GetString(10); // PRI, UNI, MUL
+            var ordinalPosition = reader.IsDBNull(11) ? 0 : reader.GetInt32(11);
 
             // MySQL INFORMATION_SCHEMA.COLUMNS.CHARACTER_MAXIMUM_LENGTH is in characters,
             // not bytes. Store it as MaxLength (chars). Store the column type for
@@ -155,7 +158,7 @@ public sealed class MySqlStoredProcedureParser : IContractSource
                 Scale: numericScale,
                 IsNullable: isNullable,
                 CharUsed: charSetName ?? "utf8mb4", // MySQL default charset
-                DataDefault: columnType, // Store full column_type for byte analysis
+                DataDefault: dataDefault,
                 ColumnId: ordinalPosition);
 
             if (!tables.TryGetValue(tableName, out var list))

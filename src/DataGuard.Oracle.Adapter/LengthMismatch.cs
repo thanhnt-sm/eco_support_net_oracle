@@ -211,6 +211,7 @@ public class LengthMismatchDetector
             // Prefer the authoritative per-column char_used (B=BYTE, C=CHAR); fall
             // back to the session NLS length semantics only when the column is silent.
             var columnIsByteSemantics = column.CharUsed == "B"
+                || string.Equals(column.CharUsed, "BYTE", StringComparison.OrdinalIgnoreCase)
                 || (string.IsNullOrEmpty(column.CharUsed) && sessionSemantics == LengthSemantics.Byte);
             if (columnIsByteSemantics &&
                 property.MaxLength.HasValue &&

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
@@ -28,7 +29,7 @@ public class ConfigurationTests
     {
         var config = new OracleConfiguration();
 
-        config.UseRefCursorDescribe.Should().BeTrue();
+        config.UseRefCursorDescribe.Should().BeFalse();
         config.UseAllArguments.Should().BeTrue();
         config.UseAllTabColumns.Should().BeTrue();
     }
@@ -190,6 +191,38 @@ public class BaselineManagerTests
             }
         }
     }
+
+    [Fact]
+    public async Task CreateBaseline_CancelledBeforePublish_PreservesExistingFile()
+    {
+        var tempFile = Path.GetTempFileName();
+        const string previousContents = "{\"previous\":true}";
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, previousContents);
+            var manager = new BaselineManager(tempFile);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            var action = () => manager.CreateBaselineAsync(
+                new[] { new ContractViolation("DG001", "replacement", DiagnosticSeverity.Error) },
+                "1.0",
+                "Snapshot",
+                cancellationToken: cancellation.Token);
+
+            await action.Should().ThrowAsync<OperationCanceledException>();
+            (await File.ReadAllTextAsync(tempFile)).Should().Be(previousContents);
+            Directory.EnumerateFiles(Path.GetDirectoryName(tempFile)!, $".{Path.GetFileName(tempFile)}.*.tmp")
+                .Should().BeEmpty();
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
 }
 
 public class SchemaHashTests
@@ -231,6 +264,25 @@ public class SchemaHashTests
     {
         var hash = BaselineManager.ComputeSchemaHash(new[] { Table("T", Col("ID")) });
         hash.Should().HaveLength(64).And.MatchRegex("^[0-9A-F]{64}$");
+    }
+
+    [Fact]
+    public void FreshDatabaseSchemaHash_SeparatesEqualAndChangedSchemas()
+    {
+        static DatabaseSchemaDescriptor Schema(string type) => new(
+            "fresh",
+            new[]
+            {
+                new DatabaseTableDescriptor("CUSTOMERS", new[]
+                {
+                    new ColumnDescriptor("ID", type, 100, 22, 0, false, null),
+                }),
+            },
+            "CHAR");
+
+        var persisted = Schema("NUMBER");
+        BaselineManager.ComputeSchemaHash(persisted).Should().Be(BaselineManager.ComputeSchemaHash(Schema("NUMBER")));
+        BaselineManager.ComputeSchemaHash(persisted).Should().NotBe(BaselineManager.ComputeSchemaHash(Schema("VARCHAR2")));
     }
 }
 

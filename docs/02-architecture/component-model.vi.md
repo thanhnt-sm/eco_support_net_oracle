@@ -194,7 +194,7 @@ graph TD
 
 | Type | Loại | Mục Đích |
 |------|------|---------|
-| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | Tầng IDE nhẹ: phân tích chỉ syntax khi gõ phím (~ms) |
+| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | Tầng IDE nhẹ: phân tích syntax có giới hạn khi gõ phím; biểu diễn call site bằng value type |
 | `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | Tầng CI nặng: phân tích semantic đầy đủ với kết nối DB |
 | `DiagnosticIds` | Static class | Diagnostic IDs chia sẻ (DG001–DG016) |
 | `DiagnosticDescriptors` | Static class | Instances `DiagnosticDescriptor` chia sẻ |

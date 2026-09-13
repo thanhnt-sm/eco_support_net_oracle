@@ -72,7 +72,7 @@ public sealed class RulePluginManager : IDisposable
 
 ### Plugin Directory
 
-Only an explicitly provided plugin directory is scanned. The default location (`%APPDATA%/DataGuard/Plugins`) is user-writable and must never auto-load code.
+Only an explicitly provided plugin directory is scanned. The default location (`%APPDATA%/DataGuard/Plugins`) is user-writable and must never auto-load code. Before an `AssemblyLoadContext` is created, DataGuard requires an adjacent `.dataguard-plugin.json` manifest that binds plugin ID, rule ID, version, host API version, and SHA-256 digest. The default policy also requires an operator-supplied provenance verifier; it receives the manifest and copied admitted main/dependency bytes rather than re-reading a mutable path. Absent, malformed, symlinked, incompatible, unsigned, digest-mismatched, duplicate-rule, or built-in-rule-conflicting plugins are rejected before load and recorded as admission results. Admission retains the managed bytes it hashes, including each declared `managedDependencies` entry. The collectible context resolves declared dependencies from those verified bytes; it does not probe the plugin directory again. Native dependencies are rejected. Admission reads PE metadata from the root DLL and every declared dependency: each managed reference outside the framework/host allowlist must have a manifest entry with a matching assembly identity. One-handle/no-follow intake and signed provenance remain open acceptance work. A load context provides lifecycle isolation, not a sandbox for admitted code. The interface for provenance verification is an integration point, not evidence that signed provenance has been verified.
 
 ```csharp
 var dir = pluginDirectory;
@@ -83,7 +83,7 @@ if (dir != null && Directory.Exists(dir))
         var alc = new AssemblyLoadContext(
             $"DataGuard.Plugin:{Path.GetFileName(assemblyFile)}",
             isCollectible: true);
-        var assembly = alc.LoadFromAssemblyPath(assemblyFile);
+        var assembly = alc.LoadFromStream(verifiedStream);
         config = config.WithAssembly(assembly);
     }
 }
@@ -258,6 +258,11 @@ Disposal sequence:
 1. Dispose MEF container (releases exports)
 2. Force GC to release references
 3. Unload each `AssemblyLoadContext`
+
+`ValidationPipeline.WithPlugins(...)` owns every manager it creates, including
+repeated calls. Disposing the pipeline disposes all owned managers and clears their
+references; unloading is cooperative and can still be delayed by external plugin
+references.
 
 ## Creating a Plugin
 

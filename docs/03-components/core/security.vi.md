@@ -2,7 +2,10 @@
 
 > Nguồn: `src/DataGuard.Core/Security/ZeroTrustCredentialProvider.cs`, `CredentialManager.cs`, `IAuditLogger.cs`, `SupplyChainVerifier.cs`
 
-Hệ thống bảo mật triển khai xử lý credential zero-trust, audit logging chuỗi hash, và xác minh toàn vẹn chuỗi cung ứng. Mọi thành phần tuân theo nguyên tắc: **không bao giờ log secrets, không bao giờ lộ credentials trong memory dump, mặc định đóng khi lỗi**.
+Hệ thống bảo mật triển khai xử lý credential zero-trust, audit logging chuỗi hash, và xác minh toàn vẹn chuỗi cung ứng. Mọi thành phần tuân theo nguyên tắc: **không log hoặc serialize secret, giảm vòng đời secret bằng best-effort clearing, và mặc định đóng khi lỗi**. Managed runtime không thể hứa secret không bao giờ xuất hiện trong memory dump; process-memory access phải được xem là đặc quyền.
+
+`EncryptConnectionStringAtRest` dùng Windows DPAPI trên Windows, login Keychain trên macOS, và Linux Secret Service qua `secret-tool` trên Linux. Bridge Keychain gọi trực tiếp Security.framework; bridge Linux đưa secret qua standard input nên không backend nào đưa secret vào command-line argument. Output của helper Linux được giới hạn (1 MiB cho secret và 16 KiB cho lỗi), thao tác hết hạn sau 10 giây. Nếu backend nền tảng hoặc Secret Service không khả dụng, yêu cầu ghi encrypted sẽ fail trước khi ghi file và protected reference sẽ fail closed. DataGuard không ghi plaintext rồi đánh dấu encrypted. Lưu plaintext vẫn là lựa chọn tường minh (`EncryptConnectionStringAtRest: false`).
+Contract bổ sung `ICredentialSecretStore` cho phép dùng fake theo từng nền tảng trong test; production vẫn chọn backend theo OS và backend không khả dụng sẽ throw trước khi persistence.
 
 ## Luồng Bảo Mật
 
@@ -89,7 +92,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 | 2 | Azure Key Vault | `KeyVaultUri` | Sử dụng managed identity (IMDS) |
 | 3 | AWS Secrets Manager | `AwsRegion` | Sử dụng AWS SDK |
 | 4 | HashiCorp Vault | `VaultAddress` | Sử dụng env var `VAULT_TOKEN` |
-| 5 | Local encrypted store | Tự phát hiện | DPAPI trên Windows |
+| 5 | Local encrypted store | Tự phát hiện | DPAPI trên Windows; login Keychain trên macOS; Secret Service qua `secret-tool` trên Linux; backend không có sẽ fail closed |
 | 6 | Config file | `AllowPlaintextConfigFallback` | Chỉ dev, mặc định đóng khi lỗi |
 
 ### Tích Hợp Azure Key Vault
@@ -119,7 +122,7 @@ request.Headers.Add("X-Vault-Token", token);
 
 ## CredentialHandle
 
-Handle bảo mật ngăn chặn lộ credential vô ý. Implement `IDisposable` với memory zeroing.
+Handle bảo mật giảm nguy cơ lộ credential vô ý. Implement `IDisposable` với best-effort memory clearing; đây không phải bảo đảm chống memory dump hoặc immutable-string copy.
 
 ```csharp
 public sealed class CredentialHandle : IDisposable
@@ -150,6 +153,12 @@ public sealed class CredentialHandle : IDisposable
 ## CredentialManager
 
 Quản lý vòng đời credential với phát hiện rotation và mã hóa khi lưu trữ.
+
+Store dạng file từ chối file và ancestor là symbolic-link/reparse-point (nhưng cho
+phép alias cố định của thư mục tạm hệ điều hành), giới hạn đọc và record ở 1 MiB,
+đồng thời publish qua temporary file cùng thư mục đã flush với quyền chỉ owner trên
+Unix. Kiểm tra path lần cuối ngay trước replace ghi rõ ranh giới race còn lại giữa
+kiểm tra và mở file.
 
 ```csharp
 public sealed class CredentialManager
@@ -265,7 +274,7 @@ public sealed class SupplyChainVerifier
         CancellationToken cancellationToken = default)
     {
         // 1. Toàn vẹn assembly (đóng khi lỗi nếu không có anchor)
-        // 2. Xác minh dependencies (danh sách tiền tố tin cậy)
+        // 2. Xác minh provenance dependency (unverified khi thiếu signed evidence)
         // 3. So sánh file hash mong đợi
         // 4. Chỉ báo giả mạo
     }
@@ -278,7 +287,12 @@ public sealed class SupplyChainVerifier
 |----------|-------|-----------------|
 | AssemblyIntegrity | Hash SHA256 của file assembly | Đóng khi lỗi nếu không có anchor |
 | ExpectedHashMatch | So sánh với file provenance SLSA | Lỗi nếu file thiếu |
-| Dependency_X | Mỗi assembly tham chiếu kiểm tra tiền tố tin cậy | Cảnh báo nếu không tin cậy |
+| Dependency_X | Mỗi assembly tham chiếu cần signed provenance evidence | Fail closed khi provenance không có |
+
+Assembly-name prefix không phải trust evidence. Built-in verifier báo mọi referenced
+dependency là unverified cho đến khi signed provenance/SBOM verifier độc lập cung
+cấp artifact-bound evidence. Điều này fail closed thay vì coi namespace quen thuộc
+là trusted origin.
 | StrongNameSigning | Kiểm tra strong name (thông tin) | Luôn pass |
 | DebugSymbols | Phát hiện debug builds qua `IsJITTrackingEnabled` | Cảnh báo trong release |
 
@@ -319,7 +333,7 @@ Các thiết lập bảo mật trong `DataGuardConfiguration`:
 |-----------|----------|-------|
 | `EnableCredentialRotationDetection` | `true` | Phát hiện thay đổi connection string |
 | `CredentialRotationWarningDays` | `30` | Số ngày trước cảnh báo rotation |
-| `EncryptConnectionStringAtRest` | `false` | Mã hóa DPAPI (chỉ Windows) |
+| `EncryptConnectionStringAtRest` | `false` | DPAPI (Windows), Keychain (macOS), hoặc Secret Service (Linux khi khả dụng) |
 | `KeyVaultUri` | `null` | URI Azure Key Vault |
 | `AwsRegion` | `null` | Region AWS cho Secrets Manager |
 | `VaultAddress` | `null` | Địa chỉ HashiCorp Vault |

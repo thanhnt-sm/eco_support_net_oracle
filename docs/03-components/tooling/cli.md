@@ -1,6 +1,6 @@
 # CLI Reference
 
-The DataGuard CLI (`dataguard`) is the primary interface for contract validation, schema management, and environment assessment. Built with `System.CommandLine`, it provides 9 commands with consistent option patterns.
+The DataGuard CLI (`dataguard`) is the primary interface for contract validation, schema management, and environment assessment. Built with `System.CommandLine`, it provides 10 commands with consistent option patterns.
 
 ## Command Tree
 
@@ -10,6 +10,7 @@ graph TB
     ROOT --> B[baseline]
     ROOT --> S[snapshot]
     ROOT --> I[init]
+    ROOT --> H[hook]
     ROOT --> C[config]
     ROOT --> OC[oracle-check]
     ROOT --> M[migrate]
@@ -22,6 +23,10 @@ graph TB
 
     C --> CS[show]
     C --> CV[validate]
+
+    H --> HI[install]
+    H --> HS[status]
+    H --> HU[uninstall]
 ```
 
 ## Commands
@@ -39,18 +44,38 @@ dataguard validate [options]
 | `--connection` | — | Database connection string |
 | `--config` | — | Path to `.dataguard.yml` config file |
 | `--output` | — | Output file path (required for sarif/evidence) |
-| `--format` | `text` | Output format: `text`, `sarif`, `evidence`, `contracts`, `typescript` |
+| `--format` | `text` | Output format: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
 | `--offline` | `false` | Run in offline mode (no DB connection, requires `--assembly`) |
 | `--verbose` | `false` | Enable verbose output |
-| `--provider` | `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` |
+| `--provider` | Config `DefaultProvider`, then `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` |
 | `--schema` | — | Database schema/owner name |
 | `--assembly` | — | Path to compiled assembly for Manual ground-truth mode |
+| `--ef-snapshot` | — | Explicit `ModelSnapshot.cs` source parsed with Roslyn; no assembly is loaded or executed |
+| `--ef-project` | — | `.csproj` file or directory containing a source `*ModelSnapshot.cs`; never builds or loads an assembly |
+| `--ef-context` | — | Context name used to select one snapshot under `--ef-project` |
 
 **Behavior:**
 - Without `--connection`: validates against committed snapshot (Snapshot mode)
 - With `--offline`: requires `--assembly` for Manual ground-truth mode using `[ExpectedColumn]`/`[ExpectedSpParameter]` attributes
 - `--format contracts`: exports extracted contracts as JSON
+- `--format yaml`: exports the same contract schema as deterministic YAML
+- `--ef-snapshot`: adds bounded source-only EF descriptors; syntax/unsupported input fails visibly instead of producing empty contracts
+- `--ef-project`: accepts only a directory or `.csproj`, finds source snapshots only, ignores `bin`, `obj`, and `.git`, and fails if selection is ambiguous; use `--ef-context` to select one context
+- `--ef-snapshot` and `--ef-project` are mutually exclusive; `--ef-context` requires `--ef-project`
 - `--format typescript`: exports TypeScript DTOs from entity descriptors
+
+## Managed pre-commit hooks
+
+The hook installer writes POSIX `sh` scripts and invokes `dataguard validate --format text` so it uses the normal persisted Snapshot path. It never emits `--offline` without the required `--assembly`. On Unix it sets executable mode. Install and uninstall only replace or delete files marked as DataGuard-managed; an existing user hook or `lefthook.yml` is preserved, including when force is requested.
+
+```bash
+dataguard hook install [--type auto|native|husky|lefthook] [--force]
+dataguard hook status
+dataguard hook uninstall
+```
+
+`status` is read-only. `uninstall` only removes files carrying the DataGuard marker; it never deletes a user-owned hook. `--force` does not override that ownership rule.
+Native Git hooks also resolve a linked-worktree `.git` file to its real `gitdir`, so status and removal operate on the same managed file as installation. The installer rejects a symbolic-link hook path and preserves its target outside the workspace.
 
 ### `baseline`
 
@@ -75,6 +100,23 @@ dataguard baseline [options]
 - Database version (from `@@VERSION` or `V$VERSION`)
 - Schema hash (SHA-256, first 16 hex chars)
 
+### `preflight`
+
+Performs an explicitly operator-authorized live acquisition and writes a bounded,
+redacted manifest for offline MSBuild validation. Project properties and build
+imports cannot invoke this command or grant it authority.
+
+```bash
+dataguard preflight --connection "..." --provider sqlserver \
+  --target production-schema --output .dataguard/preflight.json
+```
+
+`--provider` is limited to `sqlserver`, `postgresql`, `mysql`, and `oracle`;
+`--target` is bounded to 128 characters. The output contains a schema version,
+target/provider binding, contract count, and SHA-256 digest without persisting
+connection strings or contract payloads. The resulting absolute manifest can be
+passed to `DataGuardOfflineManifest` during an offline build.
+
 ### `snapshot`
 
 Manages schema snapshots for offline validation and drift detection.
@@ -98,6 +140,10 @@ dataguard snapshot refresh [options]
 
 **Oracle-specific:** When provider is Oracle, captures the full schema (all tables, all columns with `CHAR_USED`, `CHAR_LENGTH`) into the snapshot for offline length-mismatch detection.
 
+This command requires a configured database connection. Without a fresh live
+acquisition it returns `UNEVALUATED` (exit code 3) and does not create a
+snapshot.
+
 #### `snapshot show`
 
 Displays current snapshot metadata.
@@ -109,7 +155,8 @@ dataguard snapshot show [--config <path>]
 **Output:**
 - Snapshot file path
 - Version, schema version, ground truth mode
-- Database version, schema hash
+- Database version, schema hash, hash kind
+- Provider, schema scope, canonicalization version
 - Creation timestamp, violation count
 
 #### `snapshot diff`
@@ -123,24 +170,38 @@ dataguard snapshot diff [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--fail-on-drift` | `false` | Exit non-zero when drift is detected |
+| `--legacy-violation-diff` | `false` | Explicitly enable deprecated violation-only comparison for v1 snapshots |
 
 **Drift detection:**
-- Uses schema-based hashing when snapshot contains persisted schema (Oracle)
-- Falls back to violation-based hashing for legacy v1 snapshots
+- Requires a fresh live acquisition before every comparison; persisted schema is
+  never compared with itself
+- Uses schema-based hashing when both persisted and freshly acquired schemas are available
+- Returns `UNEVALUATED` (exit code 3) when no connection, provider result, or
+  required fresh schema is available
+- Legacy v1 comparison is disabled by default; the explicit
+  `--legacy-violation-diff` opt-in is not structural drift evidence
 - In CI environments (`CI` or `GITHUB_ACTIONS` set), warns about drift even without `--fail-on-drift`
+
+Validation classifies contract acquisition as `Complete`, `Unavailable`,
+`Incomplete`, or `Failed`. Non-complete acquisition returns `UNEVALUATED` (exit
+code 3) and suppresses normal contract, YAML, TypeScript, SARIF, and evidence
+exports; an explicit EF model-snapshot source may supply the contracts directly.
 
 ### `init`
 
 Initializes a DataGuard configuration file.
 
 ```bash
-dataguard init [--output <path>] [--provider <name>]
+dataguard init [--output <path>] [--provider <name>] [--wizard]
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output` | `.dataguard.yml` | Output config file path |
 | `--provider` | `sqlserver` | Default provider |
+| `--wizard` | `false` | Prompt for setup choices interactively and write to `--output` |
+
+The wizard reads from the terminal and writes only to the explicit `--output` path (default `.dataguard.yml`). It does not put a connection string in generated configuration; use `DATAGUARD_CONNECTION_STRING` for credentials.
 
 **Generated config:**
 ```yaml
@@ -310,6 +371,10 @@ MaxDegreeOfParallelism: 4
 ```
 
 **Security note:** Never commit connection strings to source control. Use environment variable `DATAGUARD_CONNECTION_STRING` instead.
+
+For every database-backed command, connection resolution is deterministic: `--connection` takes precedence, then `DATAGUARD_CONNECTION_STRING`, then `ConnectionString` from the selected config file. Provider resolution is `--provider`, then the config's persisted `DefaultProvider`, then `sqlserver`. `dataguard init --provider oracle` writes that fallback without storing a credential.
+
+When a selected provider includes a rule whose required analyzer context is unavailable, `validate` reports the rule ID and prerequisite, exits with code `3`, and suppresses normal text/SARIF/evidence/contracts/TypeScript success output. This is an incomplete run, not a clean result.
 
 ## Environment Variables
 

@@ -47,7 +47,7 @@ flowchart TB
 Collector trung tâm sử dụng `System.Diagnostics.Metrics`.
 
 ```csharp
-public sealed class TelemetryCollector : IDisposable
+public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
 {
     private readonly Meter _meter;
     private readonly TelemetryConfig _config;
@@ -70,6 +70,15 @@ public sealed class TelemetryCollector : IDisposable
 | **Circuit breaker** | Dừng export sau 3 lần thất bại liên tiếp |
 | **Chỉ export HTTPS** | Từ chối endpoints không phải HTTPS (trừ localhost cho dev) |
 
+`FlushAsync(CancellationToken)` là API flush bất đồng bộ được bổ sung. Một flush gate duy nhất ngăn export chồng nhau; export lỗi hoặc bị hủy đưa events đã lấy ra trở lại queue để retry. `FlushEvents(object?)` vẫn giữ cho caller cũ và chờ cùng đường thực thi. `TelemetryFlushResult` cho phép quan sát các trạng thái no-work, in-progress, circuit-open, rejected-endpoint, failed/cancelled và exported. Endpoint bị từ chối chủ động bỏ queue vì không có đích hợp lệ để gửi.
+
+Vòng đời collector là `Active → Stopping → Stopped`. `DisposeAsync()` chuyển qua các
+trạng thái này, dừng timer và thử flush cuối có giới hạn; event mới bị từ chối sau
+`Stopping`. `TerminalLossCount` cho biết các event còn trong queue nhưng không thể
+gửi khi shutdown hoàn tất. `Dispose()` đồng bộ cũ chỉ best effort. Nếu delegate export cũ không kết thúc trước timeout, collector giữ batch
+và giữ single-flight gate đến khi delegate kết thúc, nên các timer tick không tạo
+nhiều export chồng lấp.
+
 ## TelemetryConfig
 
 ```csharp
@@ -86,6 +95,14 @@ public sealed record TelemetryConfig(
 | `ExportEndpoint` | `null` | URL HTTPS cho export NDJSON |
 | `FlushIntervalSeconds` | `30` | Khoảng thời gian timer cho flush events |
 | `IncludeStackTraces` | `false` | Bao gồm stack traces trong events |
+| `MaxQueuedEvents` | `10.000` | Số event tối đa trong queue cộng batch đang chạy; event mới hơn bị bỏ khi đầy |
+| `MaxBatchEvents` | `1.000` | Số event tối đa trong một export request |
+| `MaxPayloadBytes` | `1.048.576` | Giới hạn byte UTF-8 mỗi request; event đơn lẻ quá lớn sẽ bị bỏ |
+| `ExportTimeoutSeconds` | `5` | Thời gian chờ có giới hạn cho một delegate export |
+
+Bốn giới hạn là init property được thêm vào nên primary constructor và deconstruction
+hiện có không đổi. `DroppedEventCount` cho biết event mất do giới hạn queue, payload
+hoặc endpoint bị từ chối.
 
 ## Metrics
 

@@ -47,6 +47,20 @@ public class RulesEngineTests
     }
 
     [Fact]
+    public async Task RawSqlParseStatusRule_InvalidSql_FlagsError()
+    {
+        var invalid = RawSql("SELECT FROM") with
+        {
+            ParseStatus = RawSqlParseStatus.Invalid,
+            ParseError = "Incorrect syntax near FROM",
+        };
+
+        var violations = await RunAsync(new RawSqlParseStatusRule(), invalid, invalid);
+
+        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG016");
+    }
+
+    [Fact]
     public async Task ParameterDirectionRule_OutputParameter_Flags()
     {
         var parameter = new ParameterDescriptor("OutValue", "nvarchar", ParameterDirection.Output, 100, null, null, false, 1)

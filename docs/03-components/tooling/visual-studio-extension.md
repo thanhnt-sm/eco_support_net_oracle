@@ -84,9 +84,9 @@ Commands are defined in a `.vsct` (Visual Studio Command Table) file:
 
 | Command | ID | Menu Location |
 |---------|----|---------------|
-| Run Validation | `cmdidRunValidation` | Tools menu + context menu |
-| Cancel Validation | `cmdidCancelValidation` | Tools menu |
-| Show Settings | `cmdidShowSettings` | Tools menu |
+| Run Validation | `ValidateCommand` (`0x0100`) | Tools menu |
+| Cancel Validation | `CancelCommand` (`0x0101`) | Tools menu |
+| Assess Workspace | `AssessCommand` (`0x0102`) | Tools menu; runs local-first assessment with no remote advisory consent |
 
 ### Command Handler
 

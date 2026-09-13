@@ -62,6 +62,7 @@ public sealed class RuleDependencyGraph
     /// <returns></returns>
     public ImmutableArray<IContractRule> GetExecutionOrder()
     {
+        EnsureAllDependenciesImplemented();
         var visited = new HashSet<string>();
         var visiting = new HashSet<string>();
         var result = new List<IContractRule>();
@@ -115,6 +116,7 @@ public sealed class RuleDependencyGraph
     /// <returns></returns>
     public ImmutableArray<ImmutableArray<IContractRule>> GetParallelGroups()
     {
+        EnsureAllDependenciesImplemented();
         var levels = new List<List<IContractRule>>();
         var remaining = new HashSet<string>(_nodes.Keys);
         var completed = new HashSet<string>();
@@ -123,11 +125,12 @@ public sealed class RuleDependencyGraph
         {
             var currentLevel = new List<IContractRule>();
             var completedThisRound = new List<string>();
+            var completedBeforeRound = completed.ToHashSet();
 
             foreach (var nodeId in remaining.OrderBy(id => id, StringComparer.Ordinal).ToList())
             {
                 var deps = _dependencies.GetValueOrDefault(nodeId, new HashSet<string>());
-                if (deps.IsSubsetOf(completed))
+                if (deps.IsSubsetOf(completedBeforeRound))
                 {
                     if (_nodes[nodeId].Rule != null)
                     {
@@ -171,28 +174,30 @@ public sealed class RuleDependencyGraph
         var errors = new List<string>();
         var warnings = new List<string>();
 
-        // Check for circular dependencies
-        try
+        var unresolved = _nodes.Where(entry => entry.Value.Rule == null)
+            .Select(entry => entry.Key)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        foreach (var nodeId in unresolved)
         {
-            GetExecutionOrder();
-        }
-        catch (InvalidOperationException ex)
-        {
-            errors.Add($"Circular dependency: {ex.Message}");
+            errors.Add($"Rule dependency '{nodeId}' has no registered implementation");
         }
 
-        // Check for missing dependencies
-        foreach (var kvp in _dependencies)
+        // Check for circular dependencies
+        if (unresolved.Length == 0)
         {
-            foreach (var depId in kvp.Value)
+            try
             {
-                if (!_nodes.ContainsKey(depId))
-                {
-                    warnings.Add($"Rule '{kvp.Key}' depends on missing rule '{depId}'");
-                }
+                GetExecutionOrder();
+            }
+            catch (InvalidOperationException ex)
+            {
+                errors.Add($"Circular dependency: {ex.Message}");
             }
         }
 
+        // Dependency placeholders are valid while registration is in progress, but
+        // are invalid once callers request a validation/execution plan.
         // Check for orphaned rules (no dependents, not depended upon)
         var allDepIds = _dependencies.Values.SelectMany(d => d).ToHashSet();
         var allDependentIds = _dependents.Values.SelectMany(d => d).ToHashSet();
@@ -206,6 +211,18 @@ public sealed class RuleDependencyGraph
         }
 
         return new ValidationResult(errors.ToImmutableArray(), warnings.ToImmutableArray());
+    }
+
+    private void EnsureAllDependenciesImplemented()
+    {
+        var missing = _nodes.Where(entry => entry.Value.Rule == null)
+            .Select(entry => entry.Key)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        if (missing.Length > 0)
+        {
+            throw new InvalidOperationException($"Rule dependencies have no registered implementation: {string.Join(", ", missing)}");
+        }
     }
 
     /// <summary>
@@ -362,6 +379,7 @@ public static class BuiltInRuleDependencies
 
         // Level 6: Phantom identifiers (schema ground truth)
         graph.AddRule(new PhantomIdentifierRule());
+        graph.AddRule(new RawSqlParseStatusRule());
         return graph;
     }
 }

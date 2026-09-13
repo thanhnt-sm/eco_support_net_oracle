@@ -86,7 +86,9 @@ All diagnostic IDs are defined as constants in the `DiagnosticIds` class:
 
 ## IDE Light Layer — UnvalidatedSqlCallGenerator
 
-An `IIncrementalGenerator` that runs on every keystroke with syntax-only analysis (~ms). Designed for zero-allocation, minimal GC pressure, and incremental caching.
+An `IIncrementalGenerator` that runs on every keystroke with syntax-only analysis.
+It is designed to keep work bounded and incremental; no end-to-end allocation or
+latency claim applies until the Roslyn-host scenario has a matching measurement.
 
 ### Detection Flow
 
@@ -121,7 +123,8 @@ A `// DataGuard: ...` comment on the enclosing statement suppresses the DG001 di
 
 - **Syntax-only**: No semantic model access, no symbol resolution
 - **Pre-computed sets**: `EfCoreMethods` and `ExecuteSqlMethods` are `HashSet<string>` for O(1) lookup
-- **Zero allocation**: `SqlCallSite` is a `readonly struct`
+- **Allocation-aware representation**: `SqlCallSite` is a `readonly struct`, but
+  that does not make the complete generator invocation zero-allocation
 - **Incremental caching**: Only re-analyzes changed syntax nodes
 
 ## CI Heavy Layer — ContractValidationAnalyzer
@@ -157,7 +160,7 @@ flowchart TD
 
 ### SkipContractCheck Integration
 
-Methods decorated with `[SkipContractCheck]` are automatically excluded from analysis:
+Methods or containing types decorated with `[SkipContractCheck]` are automatically excluded from both the syntax generator and semantic analysis. This matches the DG001 quick fix, which annotates the enclosing caller:
 
 ```csharp
 [SkipContractCheck(Reason = "Dynamic SQL - manual review required")]

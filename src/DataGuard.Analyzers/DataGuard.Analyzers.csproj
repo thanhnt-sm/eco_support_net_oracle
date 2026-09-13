@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataGuard.Contracts\DataGuard.Contracts.csproj" />
+    <ProjectReference Include="..\DataGuard.SqlClassification\DataGuard.SqlClassification.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,6 +37,8 @@
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false" />
     <None Include="$(OutputPath)\DataGuard.Contracts.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="$(OutputPath)\DataGuard.Contracts.dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\DataGuard.SqlClassification.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="$(OutputPath)\DataGuard.SqlClassification.dll" Pack="true" PackagePath="generators/dotnet/cs" Visible="false" />
   </ItemGroup>
   <ItemGroup>
     <AdditionalFiles Include="stylecop.json" />

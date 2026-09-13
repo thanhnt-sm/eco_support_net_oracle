@@ -1,5 +1,10 @@
 # Baseline Management
 
+> **Current execution limit (2026-09-13):** the local C# suite and provider parser
+> integration gates pass. Snapshot v3 metadata and provider schema capture are
+> implemented; the complete four-provider refresh/diff matrix remains an acceptance
+> gate. Persistence uses the bounded atomic-write contract below.
+
 > Source: `src/DataGuard.Core/Baseline/BaselineManager.cs`
 
 Baseline management enables DataGuard to work with legacy codebases that already have known violations. Instead of failing on every existing issue, the baseline captures the current state and only reports **new** violations (drift).
@@ -42,6 +47,10 @@ public class BaselineManager
         string? databaseVersion = null,
         string? schemaHash = null,
         IReadOnlyList<SnapshotTable>? schema = null,
+        string? schemaHashKind = null,
+        string? provider = null,
+        string? schemaScope = null,
+        string? schemaCanonicalizationVersion = null,
         CancellationToken cancellationToken = default) { ... }
 
     public async Task<BaselineFile?> LoadAsync(CancellationToken ct = default) { ... }
@@ -52,18 +61,24 @@ public class BaselineManager
 }
 ```
 
-## BaselineFile v2 Format
+## BaselineFile v2/v3 Format
 
-The current baseline format (version 2) adds database version tracking and schema hash for drift detection.
+Version 2 adds database version tracking and schema hash. A schema-bearing baseline
+uses version 3 and records `schemaHashKind`, `provider`, `schemaScope`, and
+`schemaCanonicalizationVersion`; older v1/v2 files remain readable.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "createdAt": "2026-08-25T10:30:00Z",
   "schemaVersion": "1.0",
   "groundTruthMode": "Snapshot",
   "databaseVersion": "19c",
   "schemaHash": "A1B2C3D4E5F67890",
+  "schemaHashKind": "canonical-schema-v1",
+  "provider": "sqlserver",
+  "schemaScope": "dbo",
+  "schemaCanonicalizationVersion": "v1",
   "violations": [
     {
       "ruleId": "DG002",
@@ -103,12 +118,16 @@ The current baseline format (version 2) adds database version tracking and schem
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | `int` | Format version (always 2) |
+| `version` | `int` | Format version (2 for violation-only, 3 for schema-bearing) |
 | `createdAt` | `DateTimeOffset` | UTC creation timestamp |
 | `schemaVersion` | `string` | User-defined schema version |
 | `groundTruthMode` | `string` | `"Full"`, `"Snapshot"`, or `"Manual"` |
 | `databaseVersion` | `string` | Database version (e.g. `"19c"`, `"2022"`) |
 | `schemaHash` | `string` | SHA256 hash for drift detection |
+| `schemaHashKind` | `string?` | Hash representation identifier |
+| `provider` | `string?` | Provider used for schema capture |
+| `schemaScope` | `string?` | Selected schema/database/owner scope |
+| `schemaCanonicalizationVersion` | `string?` | Canonicalizer version (currently `v1`) |
 | `violations` | `BaselineViolation[]` | Known violations at baseline time |
 | `schema` | `SnapshotTable[]?` | Optional offline schema snapshot |
 
@@ -129,10 +148,12 @@ public record SnapshotColumn(
     int? Precision,
     int? Scale,
     bool IsNullable,
-    string? CharUsed);
+    string? CharUsed,
+    string? DataDefault = null,
+    int? ColumnId = null);
 ```
 
-When a baseline includes `schema`, DataGuard can validate against the snapshot without connecting to the database — useful for CI/CD pipelines that don't have database access.
+When a baseline includes `schema`, DataGuard can validate against the snapshot without connecting to the database — useful for CI/CD pipelines that don't have database access. The schema hash includes default values and ordinal positions when present.
 
 ## Schema Hash Computation
 
@@ -248,9 +269,12 @@ private async Task<BaselineFile?> LoadWithMemoryMappedFileAsync(CancellationToke
 }
 ```
 
-### Schema Hash Caching
+### Content-addressed baseline cache
 
-Uses `MemoryCache` for schema hash computation results:
+`LoadAsync` uses a bounded process-local `MemoryCache` keyed by the complete
+baseline content's SHA-256 digest. Entries expire after one hour and expose only
+hit/miss counters. A changed file produces a different key, so cached content is
+never evidence that fresh live acquisition or drift comparison can be skipped.
 
 ```csharp
 private static readonly MemoryCache _schemaHashCache = new MemoryCache(new MemoryCacheOptions
@@ -260,16 +284,21 @@ private static readonly MemoryCache _schemaHashCache = new MemoryCache(new Memor
 });
 ```
 
-### Atomic Writes
+### Bounded Atomic Writes
 
-Large baseline files use atomic write pattern:
+Every baseline write is size-bounded (16 MiB), cancellation-aware, and uses a
+unique same-directory temporary file. Data is flushed before an atomic replacement;
+a cancellation before publish leaves the previous target unchanged. Cleanup of a
+failed temporary write is best effort.
 
 ```csharp
-private async Task SaveWithMemoryMappedFileAsync(byte[] data)
+private async Task SaveAtomicallyAsync(byte[] data, CancellationToken ct)
 {
-    var tempPath = _baselineFilePath + ".tmp";
-    await File.WriteAllBytesAsync(tempPath, data);
-    File.Replace(tempPath, _baselineFilePath, null, false);
+    // same directory prevents cross-volume replacement
+    await stream.WriteAsync(data, ct);
+    await stream.FlushAsync(ct);
+    stream.Flush(flushToDisk: true);
+    File.Move(tempPath, _baselineFilePath, overwrite: true);
 }
 ```
 

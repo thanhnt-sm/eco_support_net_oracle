@@ -2,7 +2,10 @@
 
 > Source: `src/DataGuard.Core/Security/ZeroTrustCredentialProvider.cs`, `CredentialManager.cs`, `IAuditLogger.cs`, `SupplyChainVerifier.cs`
 
-The security subsystem implements zero-trust credential handling, hash-chain audit logging, and supply chain integrity verification. Every component follows the principle: **never log secrets, never expose credentials in memory dumps, fail closed by default**.
+The security subsystem implements zero-trust credential handling, hash-chain audit logging, and supply chain integrity verification. Every component follows the principle: **never log or serialize secrets, minimize secret lifetime with best-effort clearing, and fail closed by default**. Managed runtimes cannot promise that a secret never appears in a memory dump; callers must treat process-memory access as privileged.
+
+`EncryptConnectionStringAtRest` uses Windows DPAPI on Windows, the login Keychain on macOS, and Linux Secret Service through `secret-tool` on Linux. The Keychain bridge calls Security.framework directly; the Linux bridge supplies a secret on standard input, so neither puts it in command-line arguments. Linux helper output is bounded (1 MiB for the secret and 16 KiB for errors) and operations time out after 10 seconds. If the platform backend or Secret Service is unavailable, an encrypted write fails before any file is written and protected references fail closed. DataGuard never writes plaintext while marking it encrypted. Plaintext storage remains an explicit choice (`EncryptConnectionStringAtRest: false`).
+The additive `ICredentialSecretStore` contract allows platform-gated fakes in tests; production selection remains OS-specific and an unavailable implementation throws before persistence.
 
 ## Security Flow
 
@@ -89,7 +92,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 | 2 | Azure Key Vault | `KeyVaultUri` | Uses managed identity (IMDS) |
 | 3 | AWS Secrets Manager | `AwsRegion` | Uses AWS SDK |
 | 4 | HashiCorp Vault | `VaultAddress` | Uses `VAULT_TOKEN` env var |
-| 5 | Local encrypted store | Auto-detected | DPAPI on Windows |
+| 5 | Local encrypted store | Auto-detected | DPAPI on Windows; login Keychain on macOS; Secret Service via `secret-tool` on Linux; unavailable backends fail closed |
 | 6 | Config file | `AllowPlaintextConfigFallback` | Dev only, fail-closed by default |
 
 ### Azure Key Vault Integration
@@ -119,7 +122,7 @@ request.Headers.Add("X-Vault-Token", token);
 
 ## CredentialHandle
 
-Secure handle that prevents accidental credential exposure. Implements `IDisposable` with memory zeroing.
+Secure handle that reduces accidental credential exposure. Implements `IDisposable` with best-effort memory clearing; it is not a guarantee against process memory dumps or immutable-string copies.
 
 ```csharp
 public sealed class CredentialHandle : IDisposable
@@ -150,6 +153,12 @@ public sealed class CredentialHandle : IDisposable
 ## CredentialManager
 
 Manages credential lifecycle with rotation detection and encryption at rest.
+
+The file-backed store rejects symbolic-link/reparse-point files and ancestors (while
+allowing the operating system's fixed temporary-root alias), caps reads and records
+at 1 MiB, and publishes through a same-directory flushed temporary file with
+owner-only Unix permissions. A final path check immediately before replacement
+documents the remaining check-to-open race boundary.
 
 ```csharp
 public sealed class CredentialManager
@@ -265,7 +274,7 @@ public sealed class SupplyChainVerifier
         CancellationToken cancellationToken = default)
     {
         // 1. Assembly integrity (fail closed without anchor)
-        // 2. Dependency verification (trusted prefix list)
+        // 2. Dependency provenance verification (unverified without signed evidence)
         // 3. Expected hash file comparison
         // 4. Tampering indicators
     }
@@ -278,17 +287,14 @@ public sealed class SupplyChainVerifier
 |-------|-------------|---------------|
 | AssemblyIntegrity | SHA256 hash of assembly file | Fail closed without anchor |
 | ExpectedHashMatch | Compare against SLSA provenance file | Fail if file missing |
-| Dependency_X | Each referenced assembly checked against trusted prefixes | Warn if untrusted |
+| Dependency_X | Each referenced assembly requires signed provenance evidence | Fail closed when provenance is unavailable |
 | StrongNameSigning | Check for strong name (informational) | Always passes |
 | DebugSymbols | Detect debug builds via `IsJITTrackingEnabled` | Warn in release |
 
-### Trusted Dependency Prefixes
-
-Maintains a curated list of ~60 trusted assembly prefixes including:
-- `System.*`, `Microsoft.*`, `NuGet.*`
-- `Oracle.ManagedDataAccess`, `Npgsql`, `MySqlConnector`
-- `Dapper`, `Newtonsoft.Json`, `Spectre.Console`
-- `xunit`, `Moq`, `FluentAssertions`, `Testcontainers`
+Assembly-name prefixes are not trust evidence. The built-in verifier reports every
+referenced dependency as unverified until an independent signed provenance/SBOM
+verifier supplies artifact-bound evidence. This deliberately fails closed rather
+than treating a familiar namespace as a trusted origin.
 
 ### Security Flow Diagram
 
@@ -327,7 +333,7 @@ Security settings in `DataGuardConfiguration`:
 |---------|---------|-------------|
 | `EnableCredentialRotationDetection` | `true` | Detect connection string changes |
 | `CredentialRotationWarningDays` | `30` | Days before rotation warning |
-| `EncryptConnectionStringAtRest` | `false` | DPAPI encryption (Windows only) |
+| `EncryptConnectionStringAtRest` | `false` | DPAPI (Windows), Keychain (macOS), or Secret Service (Linux when available) |
 | `KeyVaultUri` | `null` | Azure Key Vault URI |
 | `AwsRegion` | `null` | AWS region for Secrets Manager |
 | `VaultAddress` | `null` | HashiCorp Vault address |

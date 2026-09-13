@@ -15,6 +15,8 @@ namespace DataGuard.Core.Security;
 /// </summary>
 public sealed class SupplyChainVerifier
 {
+    private const long MaximumExpectedHashBytes = 1_024;
+
     /// <summary>
     /// Verifies the integrity of the current assembly against known good hashes.
     /// </summary>
@@ -29,7 +31,7 @@ public sealed class SupplyChainVerifier
         //    the integrity check cannot pass (a self-hash comparison is meaningless).
         var assembly = typeof(SupplyChainVerifier).Assembly;
         var assemblyHash = await ComputeAssemblyHashAsync(assembly, cancellationToken);
-        var hasAnchor = !string.IsNullOrEmpty(expectedHashFile) && File.Exists(expectedHashFile);
+        var hasAnchor = IsSafeExpectedHashFile(expectedHashFile);
 
         var assemblyCheck = new SupplyChainCheck(
             "AssemblyIntegrity",
@@ -48,7 +50,7 @@ public sealed class SupplyChainVerifier
         // 3. Verify expected hash file if provided (fail closed if it is missing).
         if (!string.IsNullOrEmpty(expectedHashFile))
         {
-            if (File.Exists(expectedHashFile))
+            if (hasAnchor)
             {
                 var expectedHash = await File.ReadAllTextAsync(expectedHashFile, cancellationToken);
                 var matches = expectedHash.Trim().Equals(assemblyHash, StringComparison.OrdinalIgnoreCase);
@@ -58,6 +60,14 @@ public sealed class SupplyChainVerifier
                     "Verify assembly matches expected hash from SLSA provenance",
                     matches,
                     matches ? "Hash matches expected" : $"Expected: {expectedHash}, Actual: {assemblyHash}"));
+            }
+            else if (File.Exists(expectedHashFile) && new FileInfo(expectedHashFile).Length > MaximumExpectedHashBytes)
+            {
+                checks.Add(new SupplyChainCheck(
+                    "ExpectedHashMatch",
+                    "Verify assembly matches expected hash from SLSA provenance",
+                    false,
+                    "Expected hash anchor exceeds the safety limit."));
             }
             else
             {
@@ -85,6 +95,45 @@ public sealed class SupplyChainVerifier
             Summary: summary);
     }
 
+    private static bool IsSafeExpectedHashFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (new FileInfo(fullPath).Length > MaximumExpectedHashBytes
+                || File.ResolveLinkTarget(fullPath, returnFinalTarget: false) is not null)
+            {
+                return false;
+            }
+
+            // Do not trust an anchor reached through a linked/reparse-point
+            // directory. The file itself can be regular while its parent is
+            // redirected outside the operator-selected path.
+            for (var directory = new FileInfo(fullPath).Directory; directory is not null; directory = directory.Parent)
+            {
+                if (directory.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private async Task<string> ComputeAssemblyHashAsync(Assembly assembly, CancellationToken cancellationToken)
     {
         var location = assembly.Location;
@@ -102,88 +151,14 @@ public sealed class SupplyChainVerifier
 
         foreach (var refName in assembly.GetReferencedAssemblies())
         {
-            // Check if dependency is from trusted source (Microsoft, approved vendors)
-            var isTrusted = IsTrustedDependency(refName.Name!);
-
             checks.Add(new SupplyChainCheck(
                 $"Dependency_{refName.Name}",
-                $"Verify dependency {refName.Name} v{refName.Version} is from trusted source",
-                isTrusted,
-                isTrusted
-                    ? $"Trusted dependency: {refName.FullName}"
-                    : $"UNTRUSTED dependency: {refName.FullName} - review required"));
+                $"Verify dependency {refName.Name} v{refName.Version} has signed provenance",
+                false,
+                $"Dependency provenance is unverified for {refName.FullName}; assembly-name prefixes are not trust evidence."));
         }
 
         return checks;
-    }
-
-    private bool IsTrustedDependency(string name)
-    {
-        // Trusted prefixes for dependencies
-        var trustedPrefixes = new[]
-        {
-            "System.",
-            "Microsoft.",
-            "NuGet.",
-            "System.",
-            "runtime.",
-            "NETStandard.Library",
-            "Microsoft.NETCore.",
-            "Microsoft.AspNetCore.",
-            "Microsoft.EntityFrameworkCore",
-            "Microsoft.Extensions.",
-            "System.Text.Json",
-            "System.Text.RegularExpressions",
-            "System.Collections.Immutable",
-            "System.Diagnostics.DiagnosticSource",
-            "System.Memory",
-            "System.Runtime.",
-            "System.Threading.",
-            "System.Linq",
-            "System.ComponentModel",
-            "System.Reflection",
-            "System.IO",
-            "System.Security.Cryptography",
-            "System.Diagnostics",
-            "System.Globalization",
-            "System.Resources",
-            "System.Numerics",
-            "System.Xml",
-            "System.Configuration",
-            "System.Data",
-            "System.Drawing",
-            "System.Windows",
-            "PresentationCore",
-            "PresentationFramework",
-            "WindowsBase",
-            "Microsoft.CodeAnalysis",
-            "Microsoft.CodeAnalysis.CSharp",
-            "Microsoft.CodeAnalysis.CSharp.Scripting",
-            "Microsoft.SqlServer.TransactSql.ScriptDom",
-            "Oracle.ManagedDataAccess",
-            "Npgsql",
-            "MySqlConnector",
-            "AWSSDK.",
-            "Dapper",
-            "Newtonsoft.Json",
-            "YamlDotNet",
-            "Spectre.Console",
-            "CommandLineParser",
-            "Polly",
-            "Serilog",
-            "MediatR",
-            "AutoMapper",
-            "FluentValidation",
-            "xunit",
-            "Moq",
-            "FluentAssertions",
-            "Bogus",
-            "Testcontainers",
-            "Testcontainers.Oracle",
-            "Coverlet.Collector",
-        };
-
-        return trustedPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
     private List<SupplyChainCheck> CheckForTampering()

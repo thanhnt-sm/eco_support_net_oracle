@@ -2,10 +2,12 @@
 // Copyright (c) 2026 Than Nguyen. All rights reserved.
 // </copyright>
 
+using System.Collections.Immutable;
 using DataGuard.Analyzers;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Xunit;
 
 namespace DataGuard.Analyzers.Tests;
@@ -16,6 +18,64 @@ namespace DataGuard.Analyzers.Tests;
 /// </summary>
 public class GeneratorExecutionTests
 {
+    [Fact]
+    public async Task SemanticAnalyzer_EmitsMissingFrom_ForExecuteSqlRawLiteral()
+    {
+        const string source = """
+            public sealed class Db
+            {
+                public void ExecuteSqlRaw(string sql) { }
+            }
+            public static class Usage
+            {
+                public static void Run(Db db) => db.ExecuteSqlRaw("SELECT 1");
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var diagnostics = await compilation
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
+            .GetAnalyzerDiagnosticsAsync();
+
+        diagnostics.Should().Contain(diagnostic => diagnostic.Id == DiagnosticIds.MissingFromClause);
+    }
+
+    [Fact]
+    public async Task SemanticAnalyzer_SuppressesSqlDiagnostics_WhenCallerHasSkipContractCheckAttribute()
+    {
+        const string source = """
+            using System;
+            [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+            public sealed class SkipContractCheckAttribute : Attribute { }
+            public sealed class Db
+            {
+                public void ExecuteSqlRaw(string sql) { }
+            }
+            public static class Usage
+            {
+                [SkipContractCheck]
+                public static void Run(Db db) => db.ExecuteSqlRaw("SELECT 1");
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var diagnostics = await compilation
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
+            .GetAnalyzerDiagnosticsAsync();
+
+        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == DiagnosticIds.MissingFromClause || diagnostic.Id == DiagnosticIds.UnvalidatedSqlCall);
+    }
+
     [Fact]
     public void Generator_EmitsUnvalidatedSqlCall_ForExecuteSqlRawCall()
     {
@@ -88,5 +148,37 @@ public class GeneratorExecutionTests
             .ToList();
 
         diagnostics.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Generator_DoesNotEmit_WhenCallerHasSkipContractCheckAttribute()
+    {
+        const string source = """
+            using System;
+            [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+            public sealed class SkipContractCheckAttribute : Attribute { }
+            public class Ctx
+            {
+                public object ExecuteSqlRaw(string sql) => null;
+            }
+            public class Usage
+            {
+                [SkipContractCheck]
+                public void Run(Ctx ctx)
+                {
+                    var x = ctx.ExecuteSqlRaw("SELECT * FROM ORDERS");
+                }
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var driver = CSharpGeneratorDriver.Create(new UnvalidatedSqlCallGenerator().AsSourceGenerator());
+        driver = (CSharpGeneratorDriver)driver.RunGeneratorsAndUpdateCompilation(compilation, out _, out _);
+
+        driver.GetRunResult().Diagnostics.Should().NotContain(diagnostic => diagnostic.Id == DiagnosticIds.UnvalidatedSqlCall);
     }
 }

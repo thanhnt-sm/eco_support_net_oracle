@@ -6,6 +6,7 @@ using DataGuard.Core;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Assessment;
 using DataGuard.Core.Assessment.Internal;
+using DataGuard.Core.AutoDetection;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
 using DataGuard.Core.Reporting;
@@ -16,10 +17,70 @@ using DataGuard.PostgreSql.Adapter;
 using Microsoft.CodeAnalysis;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Validation;
+using DataGuard.Cli;
+using DataGuard.Cli.Hooks;
 
 var assembly = Assembly.GetExecutingAssembly();
 var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
     ?? assembly.GetName().Version?.ToString() ?? "0.1.0";
+
+static bool IsSafeWritablePath(string path)
+{
+    try
+    {
+        var fullPath = Path.GetFullPath(path);
+        var parent = Path.GetDirectoryName(fullPath);
+        return !string.IsNullOrWhiteSpace(parent)
+            && !IsLink(parent)
+            && !IsLink(fullPath);
+    }
+    catch (Exception)
+    {
+        return false;
+    }
+
+    static bool IsLink(string candidate)
+    {
+        try
+        {
+            return File.ResolveLinkTarget(candidate, returnFinalTarget: false) is not null;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+}
+
+static async Task WriteTextAtomicallyAsync(string outputPath, string content, CancellationToken cancellationToken)
+{
+    var directory = Path.GetDirectoryName(Path.GetFullPath(outputPath))!;
+    Directory.CreateDirectory(directory);
+    var tempPath = Path.Combine(directory, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
+    try
+    {
+        await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        File.Move(tempPath, outputPath, overwrite: true);
+    }
+    finally
+    {
+        if (File.Exists(tempPath))
+        {
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch
+            {
+            }
+        }
+    }
+}
 
 var rootCommand = new RootCommand("DataGuard - Entity ↔ SP/Raw SQL Contract Validator");
 
@@ -40,7 +101,6 @@ var verboseOption = new Option<bool>("--verbose");
 verboseOption.Description = "Enable verbose output";
 var providerOption = new Option<string>("--provider");
 providerOption.Description = "Database provider: sqlserver, oracle, mysql, postgresql";
-providerOption.DefaultValueFactory = (_) => "sqlserver";
 var assemblyOption = new Option<string>("--assembly");
 assemblyOption.Description = "Path to compiled assembly for Manual ground-truth mode (--offline)";
 var schemaOption = new Option<string>("--schema");
@@ -52,6 +112,12 @@ failOnDriftOption.Description = "Exit non-zero when snapshot drift is detected";
 var baselinePathOption = new Option<string>("--baseline");
 baselinePathOption.Description = "Path to the baseline file to migrate";
 baselinePathOption.DefaultValueFactory = (_) => ".dataguard-baseline.json";
+var efSnapshotOption = new Option<string>("--ef-snapshot");
+efSnapshotOption.Description = "Explicit ModelSnapshot.cs source to parse without loading an assembly";
+var efProjectOption = new Option<string>("--ef-project");
+efProjectOption.Description = "Project file or directory containing one source ModelSnapshot.cs; never builds or loads an assembly";
+var efContextOption = new Option<string>("--ef-context");
+efContextOption.Description = "Context name used to select one ModelSnapshot.cs under --ef-project";
 
 #endregion
 
@@ -59,21 +125,33 @@ baselinePathOption.DefaultValueFactory = (_) => ".dataguard-baseline.json";
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
 {
-    var connection = result.GetValue(connectionOption);
     var configPath = result.GetValue(configOption);
     var output = result.GetValue(outputOption);
     var format = result.GetValue(formatOption) ?? "text";
     var offline = result.GetValue(offlineOption);
     var verbose = result.GetValue(verboseOption);
-    var provider = result.GetValue(providerOption) ?? "sqlserver";
     var schema = result.GetValue(schemaOption);
     var assemblyPath = result.GetValue(assemblyOption);
-    var config = LoadConfig(configPath);
+    var efSnapshotPath = result.GetValue(efSnapshotOption);
+    var efProjectPath = result.GetValue(efProjectOption);
+    var efContextName = result.GetValue(efContextOption);
+    var snapshotResolution = ResolveEfSnapshotSource(efSnapshotPath, efProjectPath, efContextName);
+    if (!snapshotResolution.Success)
+    {
+        Console.Error.WriteLine(snapshotResolution.Error);
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    efSnapshotPath = snapshotResolution.Path;
+    var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+    var config = resolved.Configuration;
+    var provider = resolved.Provider;
 
     if (offline)
     {
@@ -84,10 +162,6 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             Environment.ExitCode = 1;
             return;
         }
-    }
-    else if (!string.IsNullOrEmpty(connection))
-    {
-        config = config with { ConnectionString = connection };
     }
     else if (config.GroundTruthMode != GroundTruthMode.Manual && string.IsNullOrEmpty(config.ConnectionString))
     {
@@ -102,9 +176,9 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     };
 
     var normalizedFormat = format.Trim().ToLowerInvariant();
-    if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "typescript"))
+    if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "yaml" or "typescript"))
     {
-        Console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence, contracts, typescript.");
+        Console.Error.WriteLine($"Unsupported --format '{format}'. Supported values: text, sarif, evidence, contracts, yaml, typescript.");
         Environment.ExitCode = 2;
         return;
     }
@@ -118,39 +192,73 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
 
     try
     {
-        var contracts = await BuildContractsAsync(config, provider);
+        ct.ThrowIfCancellationRequested();
+        var acquisition = await AcquireContractsAsync(config, provider, ct);
+        var contracts = acquisition.Contracts.ToList();
+        if (!string.IsNullOrWhiteSpace(efSnapshotPath))
+        {
+            contracts.AddRange(await EfModelSource.ExtractFromModelSnapshotAsync(efSnapshotPath, config, ct));
+        }
+
+        var unavailableOutcomes = ProviderRuleCatalog.Get(provider)
+            .Where(registration => registration.Availability == RuleAvailability.Unavailable)
+            .Select(registration => registration.CreateUnavailableOutcome())
+            .ToList();
+        if (unavailableOutcomes.Count > 0)
+        {
+            foreach (var outcome in unavailableOutcomes)
+            {
+                Console.Error.WriteLine($"Validation incomplete: {outcome.RuleId} unavailable: {outcome.PrerequisiteReason}");
+            }
+
+            Environment.ExitCode = 3;
+            return;
+        }
+
+        if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0)
+        {
+            Console.Error.WriteLine($"UNEVALUATED: contract acquisition {acquisition.Status.ToString().ToLowerInvariant()}: {acquisition.Message}");
+            Environment.ExitCode = 3;
+            return;
+        }
 
         if (normalizedFormat == "contracts")
         {
-            await ContractExportWriter.WriteJsonAsync(output!, provider, contracts);
+            await ContractExportWriter.WriteJsonAsync(output!, provider, contracts, ct);
+            Console.WriteLine($"Contracts exported to {output}.");
+            return;
+        }
+
+        if (normalizedFormat == "yaml")
+        {
+            await ContractExportWriter.WriteYamlAsync(output!, provider, contracts, ct);
             Console.WriteLine($"Contracts exported to {output}.");
             return;
         }
 
         if (normalizedFormat == "typescript")
         {
-            await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>());
+            await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>(), ct);
             Console.WriteLine($"TypeScript DTOs exported to {output}.");
             return;
         }
 
-        var violations = await ValidateContractsAsync(contracts, config, provider);
-
+        var violations = await ValidateContractsAsync(contracts, config, provider, ct);
         if (normalizedFormat == "text")
         {
             var emitter = new DiagnosticEmitter();
             emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
-            await emitter.EmitAsync(violations);
+            await emitter.EmitAsync(violations, ct);
         }
         else if (normalizedFormat == "sarif")
         {
             var emitter = new DiagnosticEmitter();
             emitter.AddSarifSink(new FileSarifSink(output!));
-            await emitter.EmitAsync(violations);
+            await emitter.EmitAsync(violations, ct);
         }
         else
         {
-            await ContractEvidenceWriter.WriteAsync(output!, provider, violations);
+            await ContractEvidenceWriter.WriteAsync(output!, provider, violations, ct);
         }
 
         var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
@@ -161,6 +269,11 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         }
 
         Environment.ExitCode = hasErrors ? 1 : 0;
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        Console.Error.WriteLine("Validation cancelled.");
+        Environment.ExitCode = 130;
     }
     catch (Exception ex)
     {
@@ -174,6 +287,63 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     }
 });
 
+var preflightTargetOption = new Option<string>("--target") { Description = "Bounded operator-owned target identifier for the offline manifest" };
+var preflightCommand = new Command("preflight", "Acquire approved metadata and write a bounded offline manifest")
+{
+    connectionOption, configOption, outputOption, providerOption, preflightTargetOption,
+};
+preflightCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
+{
+    var output = result.GetValue(outputOption);
+    var target = result.GetValue(preflightTargetOption);
+    if (string.IsNullOrWhiteSpace(output) || string.IsNullOrWhiteSpace(target))
+    {
+        Console.Error.WriteLine("preflight requires --target and --output.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    var resolved = ResolveCommandConfiguration(result.GetValue(configOption), result.GetValue(connectionOption), result.GetValue(providerOption));
+    var provider = resolved.Provider.Trim().ToLowerInvariant();
+    if (provider is not ("sqlserver" or "postgresql" or "mysql" or "oracle"))
+    {
+        Console.Error.WriteLine($"Unsupported --provider '{provider}'.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    if (string.IsNullOrWhiteSpace(resolved.Configuration.ConnectionString))
+    {
+        Console.Error.WriteLine("preflight requires an explicit --connection or configured connection string.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    try
+    {
+        var config = resolved.Configuration with { GroundTruthMode = GroundTruthMode.Full };
+        var acquisition = await AcquireContractsAsync(config, provider, ct);
+        if (acquisition.Status != ContractAcquisitionStatus.Complete)
+        {
+            Console.Error.WriteLine($"UNEVALUATED: preflight acquisition {acquisition.Status.ToString().ToLowerInvariant()}: {acquisition.Message}");
+            Environment.ExitCode = 3;
+            return;
+        }
+
+        await OfflineManifestWriter.WriteAsync(output, target.Trim(), provider, acquisition.Contracts, ct);
+        Console.WriteLine($"Offline manifest written to {output} ({acquisition.Contracts.Count} contracts).");
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        Console.Error.WriteLine("Preflight cancelled.");
+        Environment.ExitCode = 130;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Preflight failed: {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+});
 #endregion
 
 #region Baseline Command
@@ -186,15 +356,14 @@ var baselineCommand = new Command("baseline", "Create baseline from current viol
 baselineCommand.SetAction(
     async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        var connection = result.GetValue(connectionOption);
         var configPath = result.GetValue(configOption);
         var output = result.GetValue(outputOption);
         var verbose = result.GetValue(verboseOption);
-        var provider = result.GetValue(providerOption) ?? "sqlserver";
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        var config = LoadConfig(configPath);
-        config = config with { ConnectionString = connection };
+        var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+        var config = resolved.Configuration;
+        var provider = resolved.Provider;
         config = config with
         {
             DefaultSchema = schema ?? config.DefaultSchema,
@@ -203,12 +372,12 @@ baselineCommand.SetAction(
 
         try
         {
-            var violations = await RunValidationAsync(config, provider, verbose);
+            var violations = await RunValidationAsync(config, provider, verbose, ct);
 
             var outputPath = output ?? config.BaselineFilePath ?? ".dataguard-baseline.json";
             var baselineManager = new BaselineManager(outputPath);
 
-            var dbVersion = await GetDatabaseVersionAsync(config, provider);
+            var dbVersion = await GetDatabaseVersionAsync(config, provider, ct);
             var schemaHash = ComputeSchemaHash(violations);
 
             var baseline = await baselineManager.CreateBaselineAsync(
@@ -216,7 +385,8 @@ baselineCommand.SetAction(
                 GetSchemaVersion(),
                 config.GroundTruthMode.ToString(),
                 dbVersion,
-                schemaHash);
+                schemaHash,
+                cancellationToken: ct);
 
             Console.WriteLine($"Baseline created with {baseline.Violations.Count} violations at {outputPath}");
             Console.WriteLine($"Database version: {dbVersion}");
@@ -247,53 +417,76 @@ var snapshotRefreshCommand = new Command("refresh", "Refresh snapshot from datab
 snapshotRefreshCommand.SetAction(
     async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        var connection = result.GetValue(connectionOption);
         var configPath = result.GetValue(configOption);
         var verbose = result.GetValue(verboseOption);
-        var provider = result.GetValue(providerOption) ?? "sqlserver";
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        var config = LoadConfig(configPath);
-        config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Snapshot };
+        var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+        var config = resolved.Configuration with { GroundTruthMode = GroundTruthMode.Snapshot };
+        var provider = resolved.Provider;
         config = config with
         {
             DefaultSchema = schema ?? config.DefaultSchema,
             DefaultPackage = package ?? config.DefaultPackage
         };
 
+        if (string.IsNullOrWhiteSpace(config.ConnectionString))
+        {
+            Console.Error.WriteLine("UNEVALUATED: snapshot refresh requires a database connection for fresh acquisition.");
+            Environment.ExitCode = 3;
+            return;
+        }
+
         try
         {
-            var violations = await RunValidationAsync(config, provider, verbose);
+            // Acquire once so refresh validates and persists the same live source
+            // snapshot. Provider adapters that expose a schema descriptor (Oracle,
+            // MySQL and PostgreSQL) therefore retain structural ground truth.
+            var acquisition = await AcquireContractsAsync(config, provider, ct);
+            if (acquisition.Status != ContractAcquisitionStatus.Complete)
+            {
+                throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
+            }
+
+            var violations = await ValidateContractsAsync(acquisition.Contracts, config, provider, ct);
 
             var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
             var baselineManager = new BaselineManager(snapshotPath);
 
-            var dbVersion = await GetDatabaseVersionAsync(config, provider);
+            var dbVersion = await GetDatabaseVersionAsync(config, provider, ct);
             var schemaHash = ComputeSchemaHash(violations);
 
             // Persist ground-truth schema so Snapshot mode can validate offline.
-            IReadOnlyList<SnapshotTable>? snapshotSchema = null;
-            if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(config.ConnectionString))
-            {
-                var owner = config.DefaultSchema ?? config.Oracle?.Owner;
-                if (!string.IsNullOrEmpty(owner))
-                {
-                    var columnsReader = new AllTabColumnsReader(config.ConnectionString);
-                    var allColumns = await columnsReader.GetAllColumnsAsync(owner);
-                    snapshotSchema = allColumns
-                        .Select(kv => new SnapshotTable(
-                            kv.Key,
-                            kv.Value.Select(c => new SnapshotColumn(c.Name, c.DataType, c.MaxLength, c.CharLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed)).ToList()))
-                        .ToList();
-                }
-            }
+            IReadOnlyList<SnapshotTable>? snapshotSchema = acquisition.Contracts
+                .OfType<DatabaseSchemaDescriptor>()
+                .FirstOrDefault() is { } liveSchema
+                ? liveSchema.Tables
+                    .Select(table => new SnapshotTable(
+                        table.Name,
+                        table.Columns.Select(column => new SnapshotColumn(
+                            column.Name,
+                            column.DataType,
+                            column.MaxLength,
+                            column.CharLength,
+                            column.Precision,
+                            column.Scale,
+                            column.IsNullable,
+                            column.CharUsed,
+                            column.DataDefault,
+                            column.ColumnId)).ToList()))
+                    .ToList()
+                : null;
 
             // Hash the schema itself when available: schema changes that produce no
             // violations must still change the hash. Fall back to violation hashing
             // only when no schema could be captured (non-Oracle / no connection).
-            if (snapshotSchema is { Count: > 0 })
+            if (snapshotSchema is not null)
             {
-                schemaHash = BaselineManager.ComputeSchemaHash(snapshotSchema);
+                schemaHash = BaselineManager.ComputeSchemaHash(
+                    snapshotSchema,
+                    provider,
+                    GetSchemaScope(config, provider),
+                    "v1");
             }
 
             var baseline = await baselineManager.CreateBaselineAsync(
@@ -302,11 +495,21 @@ snapshotRefreshCommand.SetAction(
                 GroundTruthMode.Snapshot.ToString(),
                 dbVersion,
                 schemaHash,
-                snapshotSchema);
+                snapshotSchema,
+                schemaHashKind: snapshotSchema is null ? "violation-sha256-prefix" : "canonical-schema-v1",
+                provider: provider,
+                schemaScope: GetSchemaScope(config, provider),
+                schemaCanonicalizationVersion: snapshotSchema is null ? null : "v1",
+                cancellationToken: ct);
 
             Console.WriteLine($"Snapshot refreshed with {baseline.Violations.Count} violations");
             Console.WriteLine($"Database version: {dbVersion}");
             Console.WriteLine($"Schema hash: {schemaHash}");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("Snapshot refresh cancelled.");
+            Environment.ExitCode = 130;
         }
         catch (Exception ex)
         {
@@ -356,27 +559,33 @@ snapshotShowCommand.SetAction(
         Console.WriteLine($"  Ground Truth Mode: {baseline.GroundTruthMode}");
         Console.WriteLine($"  Database Version: {baseline.DatabaseVersion ?? "unknown"}");
         Console.WriteLine($"  Schema Hash: {baseline.SchemaHash ?? "unknown"}");
+        Console.WriteLine($"  Schema Hash Kind: {baseline.SchemaHashKind ?? "legacy"}");
+        Console.WriteLine($"  Provider: {baseline.Provider ?? "unknown"}");
+        Console.WriteLine($"  Schema Scope: {baseline.SchemaScope ?? "unknown"}");
+        Console.WriteLine($"  Canonicalization: {baseline.SchemaCanonicalizationVersion ?? "unknown"}");
         Console.WriteLine($"  Created: {baseline.CreatedAt:yyyy-MM-dd HH:mm:ss}");
         Console.WriteLine($"  Violations: {baseline.Violations.Count}");
     });
 
+var legacyViolationDiffOption = new Option<bool>("--legacy-violation-diff");
+legacyViolationDiffOption.Description = "Explicitly compare violation hashes for legacy snapshots (deprecated; not structural drift)";
 var snapshotDiffCommand = new Command("diff", "Compare current schema with snapshot")
 {
-    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption,
+    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption, legacyViolationDiffOption,
 };
 
 snapshotDiffCommand.SetAction(
     async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        var connection = result.GetValue(connectionOption);
         var configPath = result.GetValue(configOption);
         var verbose = result.GetValue(verboseOption);
-        var provider = result.GetValue(providerOption) ?? "sqlserver";
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
         var failOnDrift = result.GetValue(failOnDriftOption);
-        var config = LoadConfig(configPath);
-        config = config with { ConnectionString = connection };
+        var legacyViolationDiff = result.GetValue(legacyViolationDiffOption);
+        var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+        var config = resolved.Configuration;
+        var provider = resolved.Provider;
         config = config with
         {
             DefaultSchema = schema ?? config.DefaultSchema,
@@ -401,56 +610,127 @@ snapshotDiffCommand.SetAction(
             return;
         }
 
-        // Warn (not fail) when the major.minor database version differs from the
-        // snapshot's version (patch/CU differences are ignored).
-        var currentVersion = await GetDatabaseVersionAsync(config, provider);
-        var snapshotMajorMinor = System.Text.RegularExpressions.Regex.Match(baseline.DatabaseVersion ?? "", @"(\d+)\.(\d+)");
-        var currentViolations = await RunValidationAsync(config, provider, verbose);
-
-        // Prefer schema-based hashing: drift means the schema changed, even when the
-        // change produces no new violations. Old snapshots (format v1 / no schema)
-        // fall back to violation hashing with a warning instead of crashing.
-        if (baseline.Schema is { Count: > 0 })
+        if (baseline.Version >= 3)
         {
-            var currentSchemaHash = BaselineManager.ComputeSchemaHash(baseline.Schema);
-
-            // Note: when a live connection is available the schema should be re-read
-            // from the database; offline diff compares the snapshot against itself,
-            // which by definition reports no drift. With a live connection, refresh
-            // captures the current schema; this path re-hashes it as captured.
-            if (baseline.SchemaHash == currentSchemaHash)
+            if (!string.Equals(baseline.SchemaHashKind, "canonical-schema-v1", StringComparison.Ordinal))
             {
-                Console.WriteLine("No differences detected - schema matches snapshot");
+                Console.Error.WriteLine("UNEVALUATED: snapshot uses an unsupported schema hash kind.");
+                Environment.ExitCode = 3;
                 return;
             }
 
-            Console.WriteLine("Schema differences detected:");
-            Console.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
-            Console.WriteLine($"  Current hash:  {currentSchemaHash}");
-            Console.WriteLine();
-            Console.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
+            if (!string.Equals(baseline.SchemaCanonicalizationVersion, "v1", StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine("UNEVALUATED: snapshot uses an unsupported schema canonicalization version.");
+                Environment.ExitCode = 3;
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(baseline.Provider) &&
+                !string.Equals(baseline.Provider, provider, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"UNEVALUATED: snapshot provider '{baseline.Provider}' does not match selected provider '{provider}'.");
+                Environment.ExitCode = 3;
+                return;
+            }
+
+            var selectedScope = GetSchemaScope(config, provider);
+            if (!string.IsNullOrWhiteSpace(baseline.SchemaScope) &&
+                !string.IsNullOrWhiteSpace(selectedScope) &&
+                !string.Equals(baseline.SchemaScope, selectedScope, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"UNEVALUATED: snapshot scope '{baseline.SchemaScope}' does not match selected scope '{selectedScope}'.");
+                Environment.ExitCode = 3;
+                return;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(config.ConnectionString))
+        {
+            Console.Error.WriteLine("UNEVALUATED: snapshot diff requires a fresh database schema acquisition; no connection was configured.");
+            Environment.ExitCode = 3;
+            return;
+        }
+
+        config = config with { GroundTruthMode = GroundTruthMode.Full };
+
+        // Warn (not fail) when the major.minor database version differs from the
+        // snapshot's version (patch/CU differences are ignored).
+        var currentVersion = await GetDatabaseVersionAsync(config, provider, ct);
+        var snapshotMajorMinor = System.Text.RegularExpressions.Regex.Match(baseline.DatabaseVersion ?? "", @"(\d+)\.(\d+)");
+        var freshAcquisition = await AcquireContractsAsync(config, provider, ct);
+        if (freshAcquisition.Status != ContractAcquisitionStatus.Complete)
+        {
+            Console.Error.WriteLine($"UNEVALUATED: fresh contract acquisition {freshAcquisition.Status.ToString().ToLowerInvariant()}: {freshAcquisition.Message}");
+            Environment.ExitCode = 3;
+            return;
+        }
+
+        var freshContracts = freshAcquisition.Contracts;
+        var freshSchema = freshContracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault();
+        if (freshContracts.Count == 0)
+        {
+            Console.Error.WriteLine("UNEVALUATED: provider did not produce a fresh database acquisition result.");
+            Environment.ExitCode = 3;
+            return;
+        }
+        if (baseline.Schema is not null && freshSchema is null)
+        {
+            Console.Error.WriteLine("UNEVALUATED: fresh database schema acquisition returned no schema descriptor.");
+            Environment.ExitCode = 3;
+            return;
+        }
+
+        // Prefer schema-based hashing: drift means the schema changed, even when the
+        // change produces no new violations. Legacy violation-only diff is an
+        // explicit future opt-in and cannot be inferred from a structural command.
+        if (baseline.Schema is null)
+        {
+            if (!legacyViolationDiff)
+            {
+                Console.Error.WriteLine("UNEVALUATED: legacy snapshot has no persisted schema; refresh it or pass --legacy-violation-diff for deprecated violation comparison.");
+                Environment.ExitCode = 3;
+                return;
+            }
+
+            var currentViolations = await ValidateContractsAsync(freshContracts, config, provider, ct);
+            Console.WriteLine("Warning: --legacy-violation-diff compares violations only; it is not structural schema drift evidence.");
+            var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
+                ? BaselineManager.ComputeSchemaHash(baseline.Violations)
+                : baseline.SchemaHash;
+            var currentHash = ComputeSchemaHash(currentViolations);
+            if (snapshotHash == currentHash)
+            {
+                Console.WriteLine("No differences detected - violation set matches legacy snapshot");
+                return;
+            }
+
+            Console.WriteLine("Violation differences detected:");
+            Console.WriteLine($"  Snapshot hash: {snapshotHash}");
+            Console.WriteLine($"  Current hash:  {currentHash}");
             WriteDriftExitCode(failOnDrift);
             return;
         }
 
-        // Legacy fallback: snapshot has no persisted schema. Unmigrated v1 files
-        // also deserialize with a null SchemaHash, so recompute it from the
-        // baseline's violations (legacy hash semantics) to compare like-for-like.
-        Console.WriteLine("Warning: snapshot format v1 - run 'dataguard snapshot refresh' to upgrade");
-        var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
-            ? BaselineManager.ComputeSchemaHash(baseline.Violations)
-            : baseline.SchemaHash;
-        var currentHash = ComputeSchemaHash(currentViolations);
+        var currentSnapshot = freshSchema!.Tables.Select(table => new SnapshotTable(
+                table.Name,
+                table.Columns.Select(column => new SnapshotColumn(
+                    column.Name, column.DataType, column.MaxLength, column.CharLength,
+                    column.Precision, column.Scale, column.IsNullable, column.CharUsed,
+                    column.DataDefault, column.ColumnId)).ToList())).ToList();
+        var currentSchemaHash = baseline.Version >= 3
+            ? BaselineManager.ComputeSchemaHash(currentSnapshot, provider, GetSchemaScope(config, provider), baseline.SchemaCanonicalizationVersion ?? "v1")
+            : BaselineManager.ComputeSchemaHash(currentSnapshot);
 
-        if (snapshotHash == currentHash)
+        if (baseline.SchemaHash == currentSchemaHash)
         {
             Console.WriteLine("No differences detected - schema matches snapshot");
             return;
         }
 
         Console.WriteLine("Schema differences detected:");
-        Console.WriteLine($"  Snapshot hash: {snapshotHash}");
-        Console.WriteLine($"  Current hash:  {currentHash}");
+        Console.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
+        Console.WriteLine($"  Current hash:  {currentSchemaHash}");
         Console.WriteLine();
         Console.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
 
@@ -483,9 +763,11 @@ initOutputOption.DefaultValueFactory = (_) => ".dataguard.yml";
 var initProviderOption = new Option<string>("--provider");
 initProviderOption.Description = "Default provider: sqlserver, oracle";
 initProviderOption.DefaultValueFactory = (_) => "sqlserver";
+var initWizardOption = new Option<bool>("--wizard");
+initWizardOption.Description = "Run the interactive setup wizard";
 var initCommand = new Command("init", "Initialize DataGuard configuration")
 {
-    initOutputOption, initProviderOption,
+    initOutputOption, initProviderOption, initWizardOption,
 };
 
 initCommand.SetAction(
@@ -493,6 +775,23 @@ initCommand.SetAction(
     {
         var output = result.GetValue(initOutputOption);
         var provider = result.GetValue(initProviderOption);
+        if (result.GetValue(initWizardOption))
+        {
+            var configPath = Path.GetFullPath(output!);
+            if (!IsSafeWritablePath(configPath))
+            {
+                Console.Error.WriteLine("Refusing to write configuration through a symbolic link or invalid path.");
+                return;
+            }
+
+            await InteractiveConfigBuilder.RunWizardAsync(
+                Directory.GetCurrentDirectory(),
+                new SystemConsole(),
+                configPath,
+                ct);
+            return;
+        }
+
         var config = new DataGuardConfiguration
         {
             GroundTruthMode = GroundTruthMode.Snapshot,
@@ -500,13 +799,72 @@ initCommand.SetAction(
             BaselineFilePath = ".dataguard-baseline.json",
             NamingConvention = NamingConvention.SnakeCaseToPascalCase,
             EnableBaseline = true,
+            DefaultProvider = provider,
         };
 
         var yaml = SerializeConfig(config);
+        if (!IsSafeWritablePath(output!))
+        {
+            Console.Error.WriteLine("Refusing to write configuration through a symbolic link or invalid path.");
+            return;
+        }
+
         await File.WriteAllTextAsync(output!, yaml);
         Console.WriteLine($"Configuration written to {output}");
         Console.WriteLine($"Default provider: {provider}");
     });
+
+#endregion
+
+#region Hook Command
+
+var hookTypeOption = new Option<string>("--type");
+hookTypeOption.Description = "Hook integration: auto, native, husky, or lefthook";
+hookTypeOption.DefaultValueFactory = (_) => "auto";
+var hookForceOption = new Option<bool>("--force");
+hookForceOption.Description = "Allow replacement only of a DataGuard-managed hook";
+var hookCommand = new Command("hook", "Install, inspect, or remove DataGuard-managed pre-commit hooks");
+var hookInstallCommand = new Command("install", "Install a DataGuard-managed pre-commit hook")
+{
+    hookTypeOption, hookForceOption,
+};
+hookInstallCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
+{
+    if (!TryParseHookType(result.GetValue(hookTypeOption), out var hookType))
+    {
+        Console.Error.WriteLine("Unsupported hook type. Use auto, native, husky, or lefthook.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    var installation = await PreCommitHookInstaller.InstallAsync(
+        hookType: hookType,
+        force: result.GetValue(hookForceOption),
+        cancellationToken: ct);
+    Console.WriteLine(installation.Message);
+    if (!installation.Success)
+    {
+        Environment.ExitCode = 1;
+    }
+});
+
+var hookStatusCommand = new Command("status", "Show detected pre-commit hook status");
+hookStatusCommand.SetAction((ParseResult _) => Console.WriteLine(PreCommitHookInstaller.GetStatus()));
+
+var hookUninstallCommand = new Command("uninstall", "Remove only DataGuard-managed pre-commit hooks");
+hookUninstallCommand.SetAction(async (ParseResult _) =>
+{
+    var removal = await PreCommitHookInstaller.UninstallAsync();
+    Console.WriteLine(removal.Message);
+    if (!removal.Success)
+    {
+        Environment.ExitCode = 1;
+    }
+});
+
+hookCommand.Add(hookInstallCommand);
+hookCommand.Add(hookStatusCommand);
+hookCommand.Add(hookUninstallCommand);
 
 #endregion
 
@@ -574,15 +932,13 @@ var oracleCheckCommand = new Command("oracle-check", "Run Oracle-specific dialec
 oracleCheckCommand.SetAction(
     async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
-        var connection = result.GetValue(connectionOption);
         var configPath = result.GetValue(configOption);
         var output = result.GetValue(outputOption);
         var format = result.GetValue(formatOption) ?? "text";
         var verbose = result.GetValue(verboseOption);
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        var config = LoadConfig(configPath);
-        config = config with { ConnectionString = connection, GroundTruthMode = GroundTruthMode.Full };
+        var config = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), "oracle").Configuration with { GroundTruthMode = GroundTruthMode.Full };
         config = config with
         {
             DefaultSchema = schema ?? config.DefaultSchema,
@@ -591,7 +947,7 @@ oracleCheckCommand.SetAction(
 
         try
         {
-            var violations = await RunOracleValidationAsync(config, verbose);
+            var violations = await RunOracleValidationAsync(config, verbose, ct);
 
             var emitter = new DiagnosticEmitter();
             emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
@@ -601,7 +957,7 @@ oracleCheckCommand.SetAction(
                 emitter.AddSarifSink(new FileSarifSink(output));
             }
 
-            await emitter.EmitAsync(violations);
+            await emitter.EmitAsync(violations, ct);
 
             var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
             if (verbose)
@@ -610,6 +966,11 @@ oracleCheckCommand.SetAction(
             }
 
             Environment.ExitCode = hasErrors ? 1 : 0;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("Oracle check cancelled.");
+            Environment.ExitCode = 130;
         }
         catch (Exception ex)
         {
@@ -684,27 +1045,47 @@ assessWorkspaceOption.DefaultValueFactory = (_) => ".";
 var assessFilterOption = new Option<string[]>("--project-filter");
 assessFilterOption.Description = "Optional project path filters (substring, case-insensitive)";
 assessFilterOption.AllowMultipleArgumentsPerToken = true;
+var remoteAdvisoriesOption = new Option<string>("--remote-advisories");
+remoteAdvisoriesOption.Description = "Optional remote advisory provider; only 'osv' is supported";
+var allowNetworkOption = new Option<bool>("--allow-network");
+allowNetworkOption.Description = "Permit explicitly requested advisory egress for this assessment";
+var remotePublicPackageOption = new Option<string[]>("--remote-public-package");
+remotePublicPackageOption.Description = "Public NuGet package ID approved for advisory lookup; repeat for each package";
+remotePublicPackageOption.AllowMultipleArgumentsPerToken = true;
 var assessCommand = new Command("assess", "Run read-only environment/dependency/config assessment and emit a structured report")
 {
     assessWorkspaceOption,
     assessFilterOption,
+    remoteAdvisoriesOption,
+    allowNetworkOption,
+    remotePublicPackageOption,
     outputOption,
     formatOption,
     verboseOption,
 };
 
 assessCommand.SetAction(
-    (ParseResult result) =>
+    async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
         var workspace = result.GetValue(assessWorkspaceOption);
         var filters = result.GetValue(assessFilterOption);
         var output = result.GetValue(outputOption);
         var format = result.GetValue(formatOption) ?? "text";
         var verbose = result.GetValue(verboseOption);
+        var remoteProvider = result.GetValue(remoteAdvisoriesOption);
+        var allowNetwork = result.GetValue(allowNetworkOption);
+        var approvedPackages = result.GetValue(remotePublicPackageOption) ?? Array.Empty<string>();
         var normalizedFormat = format?.ToLowerInvariant() ?? "text";
         if (normalizedFormat is not ("text" or "json" or "sarif"))
         {
             Console.Error.WriteLine($"Unsupported --format '{format}' for assess. Supported values: text, json, sarif.");
+            Environment.ExitCode = 2;
+            return;
+        }
+
+        if (remoteProvider is not null && !string.Equals(remoteProvider, "osv", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine("Unsupported --remote-advisories provider. Supported value: osv.");
             Environment.ExitCode = 2;
             return;
         }
@@ -722,17 +1103,33 @@ assessCommand.SetAction(
             {
                 WorkspaceRoot = Path.GetFullPath(workspace ?? "."),
                 ProjectFilters = filters ?? Array.Empty<string>(),
+                AllowRemoteLookups = string.Equals(remoteProvider, "osv", StringComparison.OrdinalIgnoreCase),
             };
-            var report = AssessmentEngine.Run(request);
+            var policy = new RemoteAdvisoryPolicy
+            {
+                AllowRemoteLookups = request.AllowRemoteLookups,
+                AllowNetwork = allowNetwork,
+                Provider = remoteProvider ?? "osv",
+                ApprovedPublicPackageIds = new HashSet<string>(approvedPackages.Where(package => !string.IsNullOrWhiteSpace(package)), StringComparer.OrdinalIgnoreCase),
+            };
+            var report = await RunAssessmentWithRemoteAdvisories(request, policy, ct);
+
+            // Cancellation is causal: do not publish a partial machine-readable artifact.
+            if (ct.IsCancellationRequested || report.Errors.Any(error => error.Code == "DG1006"))
+            {
+                Console.Error.WriteLine("Assessment cancelled.");
+                Environment.ExitCode = 130;
+                return;
+            }
 
             if (normalizedFormat == "json")
             {
-                AssessmentReportWriter.WriteJsonAsync(report, output!).GetAwaiter().GetResult();
+                await AssessmentReportWriter.WriteJsonAsync(report, output!, ct);
                 Console.WriteLine($"Assessment JSON written to {output}");
             }
             else if (normalizedFormat == "sarif")
             {
-                WriteSarifAssessment(report, output!);
+                await WriteSarifAssessment(report, output!, ct);
                 Console.WriteLine($"Assessment SARIF written to {output}");
             }
             else if (verbose)
@@ -756,18 +1153,28 @@ assessCommand.SetAction(
                 Console.Error.WriteLine($"[{error.Code}] {error.Path}: {error.Message}");
             }
 
-            // Exit semantics: findings present or operational failure -> 1 (CI gates fail);
-            // invalid input -> 2 (handled above); clean assessment with no findings -> 0.
-            Environment.ExitCode = report.Findings.Count > 0 || report.Errors.Count > 0 ? 1 : 0;
+            // Findings are a failed assessment; operational/tool errors use the frozen code 4.
+            Environment.ExitCode = report.Errors.Count > 0 ? 4 : report.Findings.Count > 0 ? 1 : 0;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("Assessment cancelled.");
+            Environment.ExitCode = 130;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Assessment failed: {(verbose ? ex.ToString() : ex.Message)}");
-            Environment.ExitCode = 1;
+            Environment.ExitCode = 4;
         }
     });
 
-static void WriteSarifAssessment(AssessmentReport report, string outputPath)
+static async Task<AssessmentReport> RunAssessmentWithRemoteAdvisories(AssessmentRequest request, RemoteAdvisoryPolicy policy, CancellationToken cancellationToken)
+{
+    using var advisoryClient = new OsvAdvisoryClient();
+    return await AssessmentEngine.RunAsync(request, policy, advisoryClient, cancellationToken: cancellationToken).ConfigureAwait(false);
+}
+
+static async Task WriteSarifAssessment(AssessmentReport report, string outputPath, CancellationToken cancellationToken)
 {
     var sarif = new SarifLog
     {
@@ -801,16 +1208,23 @@ static void WriteSarifAssessment(AssessmentReport report, string outputPath)
     };
 
     var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
-    File.WriteAllText(outputPath, JsonSerializer.Serialize(sarif, jsonOptions));
+    if (!IsSafeWritablePath(outputPath))
+    {
+        throw new InvalidOperationException("Refusing to write SARIF through a symbolic link or invalid path.");
+    }
+
+    await WriteTextAtomicallyAsync(outputPath, JsonSerializer.Serialize(sarif, jsonOptions), cancellationToken);
 }
 #endregion
 
 #region Add Commands to Root
 
 rootCommand.Add(validateCommand);
+rootCommand.Add(preflightCommand);
 rootCommand.Add(baselineCommand);
 rootCommand.Add(snapshotCommand);
 rootCommand.Add(initCommand);
+rootCommand.Add(hookCommand);
 rootCommand.Add(configCommand);
 rootCommand.Add(oracleCheckCommand);
 rootCommand.Add(migrateCommand);
@@ -819,7 +1233,13 @@ rootCommand.Add(versionCommand);
 #endregion
 
 var parseResult = rootCommand.Parse(args, new ParserConfiguration());
-await parseResult.InvokeAsync(new InvocationConfiguration(), System.Threading.CancellationToken.None);
+using var invocationCancellation = new CancellationTokenSource();
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    invocationCancellation.Cancel();
+};
+await parseResult.InvokeAsync(new InvocationConfiguration(), invocationCancellation.Token);
 
 #region Helper Methods
 
@@ -834,9 +1254,118 @@ static DataGuardConfiguration LoadConfig(string? configPath)
     return DeserializeConfig(yaml);
 }
 
+static bool TryParseHookType(string? value, out HookType hookType)
+{
+    hookType = value?.Trim().ToLowerInvariant() switch
+    {
+        "auto" => HookType.Auto,
+        "native" or "nativegit" or "native-git" => HookType.NativeGit,
+        "husky" => HookType.Husky,
+        "lefthook" => HookType.Lefthook,
+        _ => HookType.None,
+    };
+
+    return hookType != HookType.None;
+}
+
+static (DataGuardConfiguration Configuration, string Provider) ResolveCommandConfiguration(
+    string? configPath,
+    string? commandLineConnection,
+    string? commandLineProvider)
+{
+    var config = LoadConfig(configPath);
+    return CliConfigurationResolver.Resolve(
+        config,
+        commandLineConnection,
+        commandLineProvider,
+        Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING"));
+}
+
+static (bool Success, string? Path, string? Error) ResolveEfSnapshotSource(
+    string? explicitSnapshotPath,
+    string? projectPath,
+    string? contextName)
+{
+    if (!string.IsNullOrWhiteSpace(explicitSnapshotPath) && !string.IsNullOrWhiteSpace(projectPath))
+    {
+        return (false, null, "Use either --ef-snapshot or --ef-project, not both.");
+    }
+
+    if (!string.IsNullOrWhiteSpace(contextName) && string.IsNullOrWhiteSpace(projectPath))
+    {
+        return (false, null, "--ef-context requires --ef-project.");
+    }
+
+    if (!string.IsNullOrWhiteSpace(explicitSnapshotPath))
+    {
+        return (true, explicitSnapshotPath, null);
+    }
+
+    if (string.IsNullOrWhiteSpace(projectPath))
+    {
+        return (true, null, null);
+    }
+
+    var fullProjectPath = Path.GetFullPath(projectPath);
+    if (File.Exists(fullProjectPath) && !fullProjectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+    {
+        return (false, null, "--ef-project must be a directory or a .csproj file.");
+    }
+
+    var root = File.Exists(fullProjectPath)
+        ? Path.GetDirectoryName(fullProjectPath)
+        : Directory.Exists(fullProjectPath) ? fullProjectPath : null;
+    if (string.IsNullOrWhiteSpace(root))
+    {
+        return (false, null, $"--ef-project path '{projectPath}' does not exist.");
+    }
+
+    try
+    {
+        var candidates = Directory.EnumerateFiles(root, "*ModelSnapshot.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Any(part => part.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                    || part.Equals("obj", StringComparison.OrdinalIgnoreCase)
+                    || part.Equals(".git", StringComparison.OrdinalIgnoreCase)))
+            .Where(path => string.IsNullOrWhiteSpace(contextName)
+                || Path.GetFileNameWithoutExtension(path).Contains(contextName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+
+        return candidates.Length switch
+        {
+            1 => (true, candidates[0], null),
+            0 => (false, null, string.IsNullOrWhiteSpace(contextName)
+                ? "--ef-project contains no source *ModelSnapshot.cs file."
+                : $"--ef-project contains no source ModelSnapshot matching --ef-context '{contextName}'."),
+            _ => (false, null, string.IsNullOrWhiteSpace(contextName)
+                ? "--ef-project contains multiple ModelSnapshot.cs files; select one with --ef-context or use --ef-snapshot."
+                : $"--ef-context '{contextName}' matches multiple ModelSnapshot.cs files; use --ef-snapshot."),
+        };
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+    {
+        return (false, null, $"Could not enumerate --ef-project source files: {exception.Message}");
+    }
+}
+
 static string GetSchemaVersion()
 {
     return "1.0";
+}
+
+static string? GetSchemaScope(DataGuardConfiguration config, string provider)
+{
+    var scope = provider.ToLowerInvariant() switch
+    {
+        "oracle" => config.DefaultSchema ?? config.Oracle?.Owner,
+        "postgres" or "postgresql" => config.DefaultSchema ?? "public",
+        "mysql" => config.DefaultSchema,
+        "sqlserver" => config.DefaultSchema,
+        _ => config.DefaultSchema,
+    };
+
+    return string.IsNullOrWhiteSpace(scope) ? null : scope.Trim();
 }
 
 static DataGuardConfiguration DeserializeConfig(string yaml)
@@ -892,6 +1421,7 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
             "EnableBaseline" => config with { EnableBaseline = B() },
             "DefaultSchema" => config with { DefaultSchema = value },
             "DefaultPackage" => config with { DefaultPackage = value },
+            "DefaultProvider" => config with { DefaultProvider = value },
             "SnapshotFilePath" => config with { SnapshotFilePath = value },
             "BaselineFilePath" => config with { BaselineFilePath = value },
             "ConnectionString" => config with { ConnectionString = value },
@@ -931,8 +1461,52 @@ static string SerializeConfig(DataGuardConfiguration config)
     return serializer.Serialize(config);
 }
 
-static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGuardConfiguration config, string provider)
+static async Task<ContractAcquisitionResult> AcquireContractsAsync(
+    DataGuardConfiguration config,
+    string provider,
+    CancellationToken cancellationToken = default)
 {
+    cancellationToken.ThrowIfCancellationRequested();
+
+    var hasSnapshotSource = config.GroundTruthMode == GroundTruthMode.Snapshot &&
+        string.IsNullOrEmpty(config.ConnectionString) &&
+        !string.IsNullOrEmpty(config.SnapshotFilePath) &&
+        File.Exists(config.SnapshotFilePath);
+    var hasManualSource = config.GroundTruthMode == GroundTruthMode.Manual &&
+        !string.IsNullOrEmpty(config.ManualAssemblyPath);
+    var requiresConnection = config.GroundTruthMode != GroundTruthMode.Manual &&
+        config.GroundTruthMode != GroundTruthMode.Snapshot;
+
+    if (!hasSnapshotSource && !hasManualSource &&
+        (requiresConnection || config.GroundTruthMode == GroundTruthMode.Manual || config.GroundTruthMode == GroundTruthMode.Snapshot) &&
+        string.IsNullOrWhiteSpace(config.ConnectionString))
+    {
+        return new(ContractAcquisitionStatus.Unavailable, Array.Empty<ContractDescriptor>(), "no configured source or connection");
+    }
+
+    try
+    {
+        var contracts = await BuildContractsAsync(config, provider, cancellationToken);
+        if (config.GroundTruthMode == GroundTruthMode.Snapshot && hasSnapshotSource && contracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault() is null)
+        {
+            return new(ContractAcquisitionStatus.Incomplete, contracts, "snapshot contains no persisted schema");
+        }
+
+        return ContractAcquisitionResult.Complete(contracts);
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception ex)
+    {
+        return new(ContractAcquisitionStatus.Failed, Array.Empty<ContractDescriptor>(), ex.Message);
+    }
+}
+
+static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGuardConfiguration config, string provider, CancellationToken cancellationToken = default)
+{
+    cancellationToken.ThrowIfCancellationRequested();
     var contracts = new List<ContractDescriptor>();
 
     // Snapshot mode reads the persisted schema only when offline (no connection);
@@ -942,15 +1516,15 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
         !string.IsNullOrEmpty(config.SnapshotFilePath) && File.Exists(config.SnapshotFilePath))
     {
         var snapshotManager = new BaselineManager(config.SnapshotFilePath);
-        var snapshot = await snapshotManager.LoadAsync();
-        if (snapshot?.Schema != null && snapshot.Schema.Count > 0)
+        var snapshot = await snapshotManager.LoadAsync(cancellationToken);
+        if (snapshot?.Schema is not null)
         {
             contracts.Add(new DatabaseSchemaDescriptor(
                 Id: "snapshot-schema",
                 Tables: snapshot.Schema
                     .Select(t => new DatabaseTableDescriptor(
                         t.Name,
-                        t.Columns.Select(c => new ColumnDescriptor(c.Name, c.DataType, c.MaxLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed, c.CharLength)).ToList()))
+                        t.Columns.Select(c => new ColumnDescriptor(c.Name, c.DataType, c.MaxLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed, c.CharLength, c.DataDefault, c.ColumnId ?? 0)).ToList()))
                     .ToList(),
                 LengthSemantics: "CHAR"));
         }
@@ -958,14 +1532,14 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
     else if (config.GroundTruthMode == GroundTruthMode.Manual && !string.IsNullOrEmpty(config.ManualAssemblyPath))
     {
         var manualSource = new ManualContractSource(config.ManualAssemblyPath);
-        contracts.AddRange(await manualSource.ExtractContractsAsync());
+        contracts.AddRange(await manualSource.ExtractContractsAsync(cancellationToken));
     }
     else if (provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
     {
         if (!string.IsNullOrEmpty(config.ConnectionString))
         {
             var spParser = new SqlServerStoredProcedureParser(config.ConnectionString, config);
-            contracts.AddRange(await spParser.ExtractContractsAsync());
+            contracts.AddRange(await spParser.ExtractContractsAsync(cancellationToken));
         }
     }
     else if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
@@ -977,9 +1551,9 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
             var packageName = config.DefaultPackage ?? "";
             if (!string.IsNullOrEmpty(owner))
             {
-                foreach (var procName in await argumentsReader.GetProcedureNamesAsync(owner, string.IsNullOrEmpty(packageName) ? null : packageName, CancellationToken.None))
+                foreach (var procName in await argumentsReader.GetProcedureNamesAsync(owner, string.IsNullOrEmpty(packageName) ? null : packageName, cancellationToken))
                 {
-                    foreach (var proc in await argumentsReader.GetOverloadsAsync(owner, packageName, procName, CancellationToken.None))
+                    foreach (var proc in await argumentsReader.GetOverloadsAsync(owner, packageName, procName, cancellationToken))
                     {
                         contracts.Add(new StoredProcedureDescriptor(
                             Id: $"oracle:{owner}.{procName}:{proc.SignatureKey}",
@@ -991,6 +1565,17 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
                             ReturnsRefCursor: false));
                     }
                 }
+
+                var columnsReader = new AllTabColumnsReader(config.ConnectionString);
+                var allColumns = await columnsReader.GetAllColumnsAsync(owner, cancellationToken);
+                var lengthSemantics = await new LengthSemanticsResolver(config.ConnectionString)
+                    .ResolveAsync(cancellationToken);
+                contracts.Add(new DatabaseSchemaDescriptor(
+                    Id: $"oracle:schema:{owner}",
+                    Tables: allColumns
+                        .Select(pair => new DatabaseTableDescriptor(pair.Key, pair.Value))
+                        .ToList(),
+                    LengthSemantics: lengthSemantics.ToString()));
             }
         }
     }
@@ -999,7 +1584,7 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
         if (!string.IsNullOrEmpty(config.ConnectionString))
         {
             var spParser = new MySqlStoredProcedureParser(config.ConnectionString, config.DefaultSchema ?? "");
-            contracts.AddRange(await spParser.ExtractContractsAsync());
+            contracts.AddRange(await spParser.ExtractContractsAsync(cancellationToken));
         }
     }
     else if (provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase) ||
@@ -1008,7 +1593,7 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
         if (!string.IsNullOrEmpty(config.ConnectionString))
         {
             var spParser = new PostgreSqlStoredProcedureParser(config.ConnectionString, config.DefaultSchema ?? "public");
-            contracts.AddRange(await spParser.ExtractContractsAsync());
+            contracts.AddRange(await spParser.ExtractContractsAsync(cancellationToken));
         }
     }
 
@@ -1018,14 +1603,15 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGua
 static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     IReadOnlyList<ContractDescriptor> contracts,
     DataGuardConfiguration config,
-    string provider)
+    string provider,
+    CancellationToken cancellationToken = default)
 {
     var allViolations = new List<ContractViolation>();
     var rules = GetRulesForProvider(provider);
     if (config.EnableConcurrentValidation)
     {
         var engine = new ConcurrentValidationEngine(config.MaxDegreeOfParallelism, config.MaxViolationQueueSize);
-        allViolations.AddRange(await engine.ValidateAsync(contracts, rules));
+        allViolations.AddRange(await engine.ValidateAsync(contracts, rules, cancellationToken));
     }
     else
     {
@@ -1033,7 +1619,7 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
         {
             foreach (var contract in contracts)
             {
-                var ruleViolations = await rule.ValidateAsync(contract, contracts, CancellationToken.None);
+                var ruleViolations = await rule.ValidateAsync(contract, contracts, cancellationToken);
                 allViolations.AddRange(ruleViolations);
             }
         }
@@ -1042,7 +1628,7 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     if (config.EnableBaseline && !string.IsNullOrEmpty(config.BaselineFilePath) && File.Exists(config.BaselineFilePath))
     {
         var baselineManager = new BaselineManager(config.BaselineFilePath);
-        var baseline = await baselineManager.LoadAsync();
+        var baseline = await baselineManager.LoadAsync(cancellationToken);
         if (baseline != null)
         {
             allViolations = baselineManager.FilterNewViolations(allViolations, baseline).ToList();
@@ -1055,16 +1641,24 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
 static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
     DataGuardConfiguration config,
     string provider,
-    bool verbose)
+    bool verbose,
+    CancellationToken cancellationToken = default)
 {
-    var contracts = await BuildContractsAsync(config, provider);
-    return await ValidateContractsAsync(contracts, config, provider);
+    var acquisition = await AcquireContractsAsync(config, provider, cancellationToken);
+    if (acquisition.Status != ContractAcquisitionStatus.Complete)
+    {
+        throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
+    }
+
+    return await ValidateContractsAsync(acquisition.Contracts, config, provider, cancellationToken);
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
     DataGuardConfiguration config,
-    bool verbose)
+    bool verbose,
+    CancellationToken cancellationToken = default)
 {
+    cancellationToken.ThrowIfCancellationRequested();
     var violations = new List<ContractViolation>();
 
     if (string.IsNullOrEmpty(config.ConnectionString))
@@ -1076,14 +1670,14 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
 
     // Read NLS length semantics (CHAR vs BYTE) to drive byte-overflow detection.
     var semanticsResolver = new LengthSemanticsResolver(config.ConnectionString);
-    var semantics = await semanticsResolver.ResolveAsync();
+    var semantics = await semanticsResolver.ResolveAsync(cancellationToken);
 
     // Read the full schema (all tables' columns) for the owner.
     var columnsReader = new AllTabColumnsReader(config.ConnectionString);
     var tables = new List<DatabaseTableDescriptor>();
     if (!string.IsNullOrEmpty(owner))
     {
-        var allColumns = await columnsReader.GetAllColumnsAsync(owner);
+        var allColumns = await columnsReader.GetAllColumnsAsync(owner, cancellationToken);
         tables = allColumns
             .Select(kv => new DatabaseTableDescriptor(kv.Key, kv.Value))
             .ToList();
@@ -1110,72 +1704,41 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
 
 static List<IContractRule> GetRulesForProvider(string provider)
 {
-    var rules = new List<IContractRule>
-    {
-        new ParameterCountRule(),
-        new ParameterTypeMatchRule(),
-        new ParameterDirectionRule(),
-        new ColumnShapeMatchRule(),
-        new NullableMismatchRule(),
-        new NamingConventionRule(),
-        new PhantomIdentifierRule(),
-    };
-
-    if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
-    {
-        rules.Add(new OracleSyntaxInNonOracleContextRule());
-        rules.Add(new NonOracleFunctionInOracleContextRule());
-
-        // ProviderOptionMismatchRule (DG012) is intentionally not wired: it needs
-        // Roslyn DbContext provider registration context, unavailable in the engine.
-        rules.Add(new SqlServerSyntaxLeakRule());
-        rules.Add(new RawSqlUnmappedTypeUsageRule());
-        rules.Add(new LengthExceedsColumnRule());
-        rules.Add(new ByteLengthOverflowRiskRule());
-        rules.Add(new InferredSizeFallbackRule());
-    }
-    else if (provider.Equals("mysql", StringComparison.OrdinalIgnoreCase))
-    {
-        rules.Add(new MySqlSyntaxInNonMySqlContextRule());
-        rules.Add(new NonMySqlSyntaxInMySqlContextRule());
-        rules.Add(new MySqlLengthExceedsColumnRule());
-    }
-    else if (provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase) ||
-             provider.Equals("postgres", StringComparison.OrdinalIgnoreCase))
-    {
-        rules.Add(new PostgreSqlSyntaxRule());
-        rules.Add(new NonPostgreSqlSyntaxRule());
-        rules.Add(new PostgreSqlLengthExceedsColumnRule());
-    }
-
-    return rules;
+    return ProviderRuleCatalog.Get(provider)
+        .Where(registration => registration.Availability == RuleAvailability.Ready)
+        .Select(registration => registration.Rule)
+        .ToList();
 }
 
-static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config, string provider)
+static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config, string provider, CancellationToken cancellationToken = default)
 {
     try
     {
         if (provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
         {
             using var conn = new Microsoft.Data.SqlClient.SqlConnection(config.ConnectionString);
-            await conn.OpenAsync();
+            await conn.OpenAsync(cancellationToken);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT @@VERSION";
-            var version = await cmd.ExecuteScalarAsync();
+            var version = await cmd.ExecuteScalarAsync(cancellationToken);
             return version?.ToString() ?? "unknown";
         }
         else if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
         {
             using var conn = new global::Oracle.ManagedDataAccess.Client.OracleConnection(config.ConnectionString);
-            await conn.OpenAsync();
+            await conn.OpenAsync(cancellationToken);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT banner FROM v$version WHERE banner LIKE 'Oracle%'";
-            using var reader = await cmd.ExecuteReaderAsync();
-            if (await reader.ReadAsync())
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
             {
                 return reader.GetString(0);
             }
         }
+    }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+    {
+        throw;
     }
     catch (Exception ex)
     {

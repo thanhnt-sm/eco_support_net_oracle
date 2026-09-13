@@ -85,7 +85,7 @@ SELECT argument_name, in_out, data_type, data_length, data_precision,
        data_scale, position, sequence, overload, type_owner, type_name, type_subname
 FROM all_arguments
 WHERE owner = UPPER(:owner)
-  AND (@packageName IS NULL OR package_name = :packageName)
+  AND (:packageName IS NULL OR package_name = :packageName)
   AND object_name = :procedureName
 ORDER BY sequence, position
 ```
@@ -138,10 +138,10 @@ public sealed class ProcedureOverloadInfo
 
 ### Chuẩn hóa CharUsed
 
-Phương thức `NormalizeCharUsed()` chuyển đổi mã một ký tự của Oracle:
+Phương thức `NormalizeCharUsed()` dùng các mã canonical của `ColumnDescriptor`:
 
-- `B` → `"BYTE"`
-- `C` → `"CHAR"`
+- `B`/`BYTE` → `"B"`
+- `C`/`CHAR` → `"C"`
 - `null` → `null` (quay lại `NLS_LENGTH_SEMANTICS` của session)
 
 ## NlsSessionReader
@@ -171,6 +171,8 @@ Trích xuất số phiên bản (`19.0.0.0.0`) và edition (`Enterprise`/`Standa
 ## RefCursorDescriber
 
 Mô tả bộ kết quả `REF CURSOR` sử dụng package `DBMS_SQL`. Đây là cơ chế của Oracle để mô tả các cột output của con trỏ động.
+
+Validation metadata thông thường không gọi describer này hoặc thực thi procedure. `OracleConfiguration.UseRefCursorDescribe` mặc định là `false`; metadata catalog có thể nhận diện REF CURSOR trong khi result shape vẫn unknown. Mọi lần gọi describe nâng cao cần một path riêng được ủy quyền tường minh với account chỉ đọc phù hợp và typed samples.
 
 ## EfCoreInferenceSimulator
 

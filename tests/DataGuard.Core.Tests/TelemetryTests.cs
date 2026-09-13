@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Telemetry;
 using FluentAssertions;
@@ -8,6 +10,159 @@ namespace DataGuard.Core.Tests;
 
 public class TelemetryCollectorTests
 {
+    [Fact]
+    public async Task Telemetry_FlushAsync_RetainsFailedBatchForRetry()
+    {
+        var attempts = 0;
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, ExportEndpoint: "https://collector.example.com/v1", FlushIntervalSeconds: 3600),
+            (payload, _) =>
+            {
+                attempts++;
+                if (attempts == 1)
+                {
+                    throw new InvalidOperationException("temporary failure");
+                }
+
+                payload.Should().Contain("retry.event");
+                return Task.CompletedTask;
+            });
+        collector.RecordEvent("retry.event", "details");
+
+        (await collector.FlushAsync()).Should().Be(TelemetryFlushResult.Failed);
+        (await collector.FlushAsync()).Should().Be(TelemetryFlushResult.Exported);
+        attempts.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Telemetry_DisposeAsync_PerformsFinalFlush()
+    {
+        var exported = false;
+        var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, ExportEndpoint: "https://collector.example.com/v1", FlushIntervalSeconds: 3600),
+            (_, _) =>
+            {
+                exported = true;
+                return Task.CompletedTask;
+            });
+        collector.RecordEvent("shutdown.event", "details");
+
+        await collector.DisposeAsync();
+
+        exported.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Telemetry_QueueLimit_DropsNewestEventAndExposesLoss()
+    {
+        var payload = string.Empty;
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, ExportEndpoint: "https://collector.example.com/v1", FlushIntervalSeconds: 3600)
+            {
+                MaxQueuedEvents = 1,
+            },
+            (value, _) =>
+            {
+                payload = value;
+                return Task.CompletedTask;
+            });
+
+        collector.RecordEvent("retained.event", "details");
+        collector.RecordEvent("dropped.event", "details");
+
+        (await collector.FlushAsync()).Should().Be(TelemetryFlushResult.Exported);
+        payload.Should().Contain("retained.event");
+        payload.Should().NotContain("dropped.event");
+        collector.DroppedEventCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Telemetry_PayloadLimit_DropsOversizedEventAndExportsFollowingEvent()
+    {
+        var payload = string.Empty;
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, ExportEndpoint: "https://collector.example.com/v1", FlushIntervalSeconds: 3600)
+            {
+                MaxPayloadBytes = 128,
+            },
+            (value, _) =>
+            {
+                payload = value;
+                return Task.CompletedTask;
+            });
+
+        collector.RecordEvent("oversized.event", new string('x', 2048));
+        collector.RecordEvent("retained.event", "ok");
+
+        (await collector.FlushAsync()).Should().Be(TelemetryFlushResult.Exported);
+        payload.Should().Contain("retained.event");
+        payload.Should().NotContain("oversized.event");
+        collector.DroppedEventCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Telemetry_ExportTimeout_RetainsBatchForLaterRetry()
+    {
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, ExportEndpoint: "https://collector.example.com/v1", FlushIntervalSeconds: 3600)
+            {
+                ExportTimeoutSeconds = 1,
+            },
+            async (_, _) => await Task.Delay(TimeSpan.FromSeconds(10)));
+        collector.RecordEvent("timeout.event", "details");
+
+        (await collector.FlushAsync()).Should().Be(TelemetryFlushResult.Failed);
+        (await collector.FlushAsync()).Should().Be(TelemetryFlushResult.InProgress);
+        collector.DroppedEventCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Telemetry_DisposeAsync_BoundsFinalFlushWhenSinkHangs()
+    {
+        var sinkStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSink = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, ExportEndpoint: "https://collector.example.com/v1", FlushIntervalSeconds: 3600)
+            {
+                ExportTimeoutSeconds = 1,
+            },
+            async (_, _) =>
+            {
+                sinkStarted.SetResult();
+                await releaseSink.Task;
+            });
+        collector.RecordEvent("shutdown.timeout", "details");
+
+        var stopwatch = Stopwatch.StartNew();
+        await collector.DisposeAsync();
+        stopwatch.Stop();
+
+        sinkStarted.Task.IsCompletedSuccessfully.Should().BeTrue();
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3));
+        releaseSink.SetResult();
+    }
+
+    [Fact]
+    public async Task Telemetry_DisposeAsync_TransitionsToStoppedAndAccountsUndeliveredEvents()
+    {
+        var releaseSink = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, ExportEndpoint: "https://collector.example.com/v1", FlushIntervalSeconds: 3600)
+            {
+                ExportTimeoutSeconds = 1,
+            },
+            async (_, _) => await releaseSink.Task);
+        collector.RecordEvent("shutdown.loss", "details");
+
+        await collector.DisposeAsync();
+
+        collector.LifecycleState.Should().Be(TelemetryLifecycleState.Stopped);
+        collector.TerminalLossCount.Should().Be(1);
+        collector.RecordEvent("after.stop", "ignored");
+        collector.TerminalLossCount.Should().Be(1);
+        (await collector.FlushAsync()).Should().Be(TelemetryFlushResult.NoWork);
+        releaseSink.SetResult();
+    }
     [Fact]
     public void Telemetry_NoHttpClientWhenDisabled()
     {

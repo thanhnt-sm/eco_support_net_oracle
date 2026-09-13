@@ -41,7 +41,11 @@ public record DataGuardConfiguration(
     bool EnableSmartDefaults = true,
     string? DefaultSchema = null,
     string? DefaultPackage = null,
-    bool EnableTelemetry = false);
+    bool EnableTelemetry = false)
+{
+    /// <summary>Persisted CLI provider fallback; null retains the product default.</summary>
+    public string? DefaultProvider { get; init; }
+}
 
 /// <summary>
 /// Ground truth retrieval mode.
@@ -68,7 +72,7 @@ public enum NamingConvention
 /// </summary>
 public record OracleConfiguration(
     string? Owner = null,
-    bool UseRefCursorDescribe = true,
+    bool UseRefCursorDescribe = false,
     bool UseAllArguments = true,
     bool UseAllTabColumns = true);
 

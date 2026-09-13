@@ -24,11 +24,17 @@ public static class PreCommitHookInstaller
         var root = repoRoot ?? FindGitRoot();
         if (string.IsNullOrEmpty(root))
         {
-            return InstallResult.Failed("Not a git repository (no .git directory found)");
+            return InstallResult.Failed("Not a git repository (no .git directory or gitdir file found)");
+        }
+
+        var gitDirectory = ResolveGitDirectory(root);
+        if (gitDirectory is null)
+        {
+            return InstallResult.Failed("Git metadata directory could not be resolved.");
         }
 
         var detectedType = hookType == HookType.Auto ? DetectHookType(root) : hookType;
-        var hookPath = Path.Combine(root, ".git", "hooks", "pre-commit");
+        var hookPath = Path.Combine(gitDirectory, "hooks", "pre-commit");
         var huskyDir = Path.Combine(root, ".husky");
         var lefthookPath = Path.Combine(root, "lefthook.yml");
 
@@ -79,11 +85,18 @@ public static class PreCommitHookInstaller
             return UninstallResult.Failed("Not a git repository");
         }
 
+        var gitDirectory = ResolveGitDirectory(root);
+        if (gitDirectory is null)
+        {
+            return UninstallResult.Failed("Git metadata directory could not be resolved.");
+        }
+
         var results = new List<string>();
 
-        // Remove native git hook
-        var hookPath = Path.Combine(root, ".git", "hooks", "pre-commit");
-        if (File.Exists(hookPath))
+        // Remove only hooks/configurations carrying our managed marker. User
+        // hooks and existing lefthook configuration are never uninstall targets.
+        var hookPath = Path.Combine(gitDirectory, "hooks", "pre-commit");
+        if (!HasSymbolicLinkAtOrBelow(gitDirectory, hookPath) && IsManagedFile(hookPath))
         {
             File.Delete(hookPath);
             results.Add("Removed .git/hooks/pre-commit");
@@ -91,10 +104,10 @@ public static class PreCommitHookInstaller
 
         // Remove husky
         var huskyDir = Path.Combine(root, ".husky");
-        if (Directory.Exists(huskyDir))
+        if (Directory.Exists(huskyDir) && !HasSymbolicLinkAtOrBelow(root, huskyDir))
         {
             var huskyHook = Path.Combine(huskyDir, "pre-commit");
-            if (File.Exists(huskyHook))
+            if (!HasSymbolicLinkAtOrBelow(root, huskyHook) && IsManagedFile(huskyHook))
             {
                 File.Delete(huskyHook);
                 results.Add("Removed .husky/pre-commit");
@@ -103,7 +116,7 @@ public static class PreCommitHookInstaller
 
         // Remove lefthook config
         var lefthookPath = Path.Combine(root, "lefthook.yml");
-        if (File.Exists(lefthookPath))
+        if (!HasSymbolicLinkAtOrBelow(root, lefthookPath) && IsManagedFile(lefthookPath))
         {
             File.Delete(lefthookPath);
             results.Add("Removed lefthook.yml");
@@ -124,14 +137,22 @@ public static class PreCommitHookInstaller
             return new HookStatus { IsGitRepo = false };
         }
 
-        var hookPath = Path.Combine(root, ".git", "hooks", "pre-commit");
+        var gitDirectory = ResolveGitDirectory(root);
+        if (gitDirectory is null)
+        {
+            return new HookStatus { IsGitRepo = true };
+        }
+
+        var hookPath = Path.Combine(gitDirectory, "hooks", "pre-commit");
         var huskyPath = Path.Combine(root, ".husky", "pre-commit");
         var lefthookPath = Path.Combine(root, "lefthook.yml");
 
-        var nativeGitHook = File.Exists(hookPath);
-        var husky = File.Exists(huskyPath);
-        var lefthook = File.Exists(lefthookPath);
-        var dataGuardManaged = nativeGitHook && File.ReadAllText(hookPath).Contains("DataGuard");
+        var nativeGitHook = !HasSymbolicLinkAtOrBelow(gitDirectory, hookPath) && File.Exists(hookPath);
+        var husky = !HasSymbolicLinkAtOrBelow(root, huskyPath) && File.Exists(huskyPath);
+        var lefthook = !HasSymbolicLinkAtOrBelow(root, lefthookPath) && File.Exists(lefthookPath);
+        var dataGuardManaged = (nativeGitHook && IsManagedFile(hookPath))
+            || (husky && IsManagedFile(huskyPath))
+            || (lefthook && IsManagedFile(lefthookPath));
 
         return new HookStatus
         {
@@ -149,7 +170,8 @@ public static class PreCommitHookInstaller
         var current = Directory.GetCurrentDirectory();
         while (!string.IsNullOrEmpty(current))
         {
-            if (Directory.Exists(Path.Combine(current, ".git")))
+            var marker = Path.Combine(current, ".git");
+            if (Directory.Exists(marker) || File.Exists(marker))
             {
                 return current;
             }
@@ -164,6 +186,60 @@ public static class PreCommitHookInstaller
         }
 
         return null;
+    }
+
+    private static string? ResolveGitDirectory(string repoRoot)
+    {
+        var marker = Path.Combine(repoRoot, ".git");
+        if (IsSymbolicLink(marker))
+        {
+            return null;
+        }
+
+        if (Directory.Exists(marker))
+        {
+            return marker;
+        }
+
+        if (!File.Exists(marker))
+        {
+            return null;
+        }
+
+        var line = File.ReadLines(marker).FirstOrDefault();
+        const string prefix = "gitdir:";
+        if (line is null || !line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var location = line.Substring(prefix.Length).Trim();
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            return null;
+        }
+
+        var resolved = Path.IsPathRooted(location)
+            ? Path.GetFullPath(location)
+            : Path.GetFullPath(Path.Combine(repoRoot, location));
+        var commonDirectoryFile = Path.Combine(resolved, "commondir");
+        var commonDirectory = IsRegularFile(commonDirectoryFile)
+            ? File.ReadLines(commonDirectoryFile).FirstOrDefault()?.Trim()
+            : null;
+        var commonDirectoryPath = string.IsNullOrWhiteSpace(commonDirectory)
+            ? null
+            : Path.IsPathRooted(commonDirectory)
+                ? Path.GetFullPath(commonDirectory)
+                : Path.GetFullPath(Path.Combine(resolved, commonDirectory));
+
+        return Directory.Exists(resolved)
+            && !IsSymbolicLink(resolved)
+            && IsRegularFile(Path.Combine(resolved, "HEAD"))
+            && commonDirectoryPath is not null
+            && Directory.Exists(commonDirectoryPath)
+            && !IsSymbolicLink(commonDirectoryPath)
+            ? resolved
+            : null;
     }
 
     private static HookType DetectHookType(string repoRoot)
@@ -188,19 +264,31 @@ public static class PreCommitHookInstaller
     {
         try
         {
+            if (HasSymbolicLinkAtOrBelow(repoRoot, huskyDir))
+            {
+                return InstallResult.Failed("Husky hook directory contains a symbolic link and will be preserved.");
+            }
+
             Directory.CreateDirectory(huskyDir);
             var hookPath = Path.Combine(huskyDir, "pre-commit");
-
-            if (File.Exists(hookPath) && !force)
+            if (HasSymbolicLinkAtOrBelow(repoRoot, hookPath))
             {
-                return InstallResult.Failed("Husky pre-commit hook already exists. Use --force to overwrite.");
+                return InstallResult.Failed("Husky hook path contains a symbolic link and will be preserved.");
+            }
+
+            if (IsSymbolicLink(hookPath))
+            {
+                return InstallResult.Failed("Husky pre-commit hook is a symbolic link and will be preserved.");
+            }
+
+            if (File.Exists(hookPath) && !IsManagedFile(hookPath))
+            {
+                return InstallResult.Failed("Husky pre-commit hook is not DataGuard-managed and will be preserved.");
             }
 
             var hookContent = GenerateHuskyHook();
-            await File.WriteAllTextAsync(hookPath, hookPath, cancellationToken);
-
-            // Make executable
-            File.SetAttributes(hookPath, File.GetAttributes(hookPath) | FileAttributes.ReadOnly);
+            await WriteAtomicallyNoFollowAsync(hookPath, repoRoot, hookContent, cancellationToken);
+            SetExecutableOnUnix(hookPath);
 
             return InstallResult.Succeeded("Husky pre-commit hook installed at .husky/pre-commit");
         }
@@ -215,13 +303,23 @@ public static class PreCommitHookInstaller
     {
         try
         {
-            if (File.Exists(lefthookPath) && !force)
+            if (HasSymbolicLinkAtOrBelow(repoRoot, lefthookPath))
             {
-                return InstallResult.Failed("lefthook.yml already exists. Use --force to overwrite.");
+                return InstallResult.Failed("lefthook.yml path contains a symbolic link and will be preserved.");
+            }
+
+            if (IsSymbolicLink(lefthookPath))
+            {
+                return InstallResult.Failed("lefthook.yml is a symbolic link and will be preserved.");
+            }
+
+            if (File.Exists(lefthookPath) && !IsManagedFile(lefthookPath))
+            {
+                return InstallResult.Failed("lefthook.yml is not DataGuard-managed and will be preserved.");
             }
 
             var config = GenerateLefthookConfig();
-            await File.WriteAllTextAsync(lefthookPath, config, cancellationToken);
+            await WriteAtomicallyNoFollowAsync(lefthookPath, repoRoot, config, cancellationToken);
 
             return InstallResult.Succeeded("Lefthook configuration installed at lefthook.yml");
         }
@@ -237,26 +335,151 @@ public static class PreCommitHookInstaller
         try
         {
             var hooksDir = Path.GetDirectoryName(hookPath)!;
-            Directory.CreateDirectory(hooksDir);
-
-            if (File.Exists(hookPath) && !force)
+            var gitDirectory = Path.GetDirectoryName(hooksDir)!;
+            if (HasSymbolicLinkAtOrBelow(gitDirectory, hooksDir))
             {
-                return InstallResult.Failed("Native git pre-commit hook already exists. Use --force to overwrite.");
+                return InstallResult.Failed("Native git hook directory contains a symbolic link and will be preserved.");
+            }
+
+            Directory.CreateDirectory(hooksDir);
+            if (HasSymbolicLinkAtOrBelow(gitDirectory, hookPath))
+            {
+                return InstallResult.Failed("Native git hook path contains a symbolic link and will be preserved.");
+            }
+
+            if (IsSymbolicLink(hookPath))
+            {
+                return InstallResult.Failed("Native git pre-commit hook is a symbolic link and will be preserved.");
+            }
+
+            if (File.Exists(hookPath) && !IsManagedFile(hookPath))
+            {
+                return InstallResult.Failed("Native git pre-commit hook is not DataGuard-managed and will be preserved.");
             }
 
             var hookContent = GenerateNativeGitHook();
-            await File.WriteAllTextAsync(hookPath, hookContent, cancellationToken);
+            await WriteAtomicallyNoFollowAsync(hookPath, gitDirectory, hookContent, cancellationToken);
 
-            // Make executable
-            var fileInfo = new FileInfo(hookPath);
-            fileInfo.IsReadOnly = false;
-            fileInfo.Attributes |= FileAttributes.ReadOnly;
+            SetExecutableOnUnix(hookPath);
 
             return InstallResult.Succeeded("Native git pre-commit hook installed at .git/hooks/pre-commit");
         }
         catch (Exception ex)
         {
             return InstallResult.Failed($"Native git hook installation failed: {ex.Message}");
+        }
+    }
+
+    private static bool IsManagedFile(string path) =>
+        !IsSymbolicLink(path)
+        && File.Exists(path)
+        && File.ReadAllText(path).Contains("DataGuard pre-commit hook", StringComparison.Ordinal);
+
+    private static async Task WriteAtomicallyNoFollowAsync(string path, string trustedAnchor, string content, CancellationToken cancellationToken)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        if (HasSymbolicLinkAtOrBelow(trustedAnchor, directory))
+        {
+            throw new IOException("Target directory contains a symbolic link.");
+        }
+
+        Directory.CreateDirectory(directory);
+        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+            await using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), 4096, leaveOpen: true))
+            {
+                await writer.WriteAsync(content.AsMemory(), cancellationToken);
+                await writer.FlushAsync(cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (HasSymbolicLinkAtOrBelow(trustedAnchor, directory))
+            {
+                throw new IOException("Target directory changed to a symbolic link.");
+            }
+
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
+    }
+
+    private static bool IsRegularFile(string path) => File.Exists(path) && !IsSymbolicLink(path);
+
+    private static bool HasSymbolicLinkAtOrBelow(string anchor, string path)
+    {
+        try
+        {
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(anchor));
+            var target = Path.GetFullPath(path);
+            if (!target.Equals(root, StringComparison.Ordinal) && !target.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (IsSymbolicLink(root))
+            {
+                return true;
+            }
+
+            var relative = Path.GetRelativePath(root, target);
+            var current = root;
+            foreach (var component in relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            {
+                if (string.IsNullOrEmpty(component) || component == ".")
+                {
+                    continue;
+                }
+
+                current = Path.Combine(current, component);
+                if (IsSymbolicLink(current))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    private static bool IsSymbolicLink(string path)
+    {
+        try
+        {
+            return File.ResolveLinkTarget(path, returnFinalTarget: false) is not null;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    private static void SetExecutableOnUnix(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         }
     }
 
@@ -269,13 +492,13 @@ public static class PreCommitHookInstaller
 echo ""🔍 Running DataGuard pre-commit validation...""
 
 # Run DataGuard validation in offline mode (fast, no DB)
-if command -v dataguard &> /dev/null; then
-    dataguard validate --offline --format text
+if command -v dataguard >/dev/null 2>&1; then
+    dataguard validate --format text
     exit_code=$?
     
     if [ $exit_code -ne 0 ]; then
         echo ""❌ DataGuard validation failed. Fix issues before committing.""
-        echo ""💡 Run 'dataguard validate --offline' to see details.""
+        echo ""💡 Run 'dataguard validate' to see details.""
         exit 1
     fi
     echo ""✅ DataGuard validation passed.""
@@ -297,13 +520,13 @@ exit 0
 echo ""🔍 Running DataGuard pre-commit validation...""
 
 # Check if dataguard is available
-if command -v dataguard &> /dev/null; then
-    dataguard validate --offline --format text
+if command -v dataguard >/dev/null 2>&1; then
+    dataguard validate --format text
     exit_code=$?
     
     if [ $exit_code -ne 0 ]; then
         echo ""❌ DataGuard validation failed. Fix issues before committing.""
-        echo ""💡 Run 'dataguard validate --offline' to see details.""
+        echo ""💡 Run 'dataguard validate' to see details.""
         exit 1
     fi
     echo ""✅ DataGuard validation passed.""
@@ -327,7 +550,7 @@ pre-commit:
   commands:
     dataguard-validate:
       tags: dotnet
-      run: dotnet dataguard validate --offline --format text
+      run: dotnet dataguard validate --format text
       glob: ""*.cs""
       exclude:
         - ""**/bin/**""

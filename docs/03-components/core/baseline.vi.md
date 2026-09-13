@@ -1,5 +1,10 @@
 # Quản Lý Baseline
 
+> **Giới hạn thực thi hiện tại (2026-09-13):** C# suite cục bộ và các gate
+> integration parser provider đều pass. Metadata snapshot v3 và capture schema
+> theo provider đã triển khai; ma trận refresh/diff đầy đủ bốn provider vẫn là gate
+> acceptance. Persistence dùng contract ghi nguyên tử có giới hạn bên dưới.
+
 > Nguồn: `src/DataGuard.Core/Baseline/BaselineManager.cs`
 
 Quản lý baseline cho phép DataGuard làm việc với codebase legacy đã có các violations đã biết. Thay vì thất bại trên mọi vấn đề hiện có, baseline chụp trạng thái hiện tại và chỉ báo cáo các violations **mới** (drift).
@@ -42,6 +47,10 @@ public class BaselineManager
         string? databaseVersion = null,
         string? schemaHash = null,
         IReadOnlyList<SnapshotTable>? schema = null,
+        string? schemaHashKind = null,
+        string? provider = null,
+        string? schemaScope = null,
+        string? schemaCanonicalizationVersion = null,
         CancellationToken cancellationToken = default) { ... }
 
     public async Task<BaselineFile?> LoadAsync(CancellationToken ct = default) { ... }
@@ -52,18 +61,24 @@ public class BaselineManager
 }
 ```
 
-## Định Dạng BaselineFile v2
+## Định Dạng BaselineFile v2/v3
 
-Định dạng baseline hiện tại (version 2) thêm theo dõi phiên bản database và schema hash để phát hiện drift.
+Version 2 thêm theo dõi phiên bản database và schema hash. Baseline có schema dùng
+version 3 và ghi `schemaHashKind`, `provider`, `schemaScope`, cùng
+`schemaCanonicalizationVersion`; các file v1/v2 cũ vẫn đọc được.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "createdAt": "2026-08-25T10:30:00Z",
   "schemaVersion": "1.0",
   "groundTruthMode": "Snapshot",
   "databaseVersion": "19c",
   "schemaHash": "A1B2C3D4E5F67890",
+  "schemaHashKind": "canonical-schema-v1",
+  "provider": "sqlserver",
+  "schemaScope": "dbo",
+  "schemaCanonicalizationVersion": "v1",
   "violations": [
     {
       "ruleId": "DG002",
@@ -102,12 +117,16 @@ public class BaselineManager
 
 | Trường | Kiểu | Mô tả |
 |--------|------|-------|
-| `version` | `int` | Phiên bản định dạng (luôn 2) |
+| `version` | `int` | Phiên bản định dạng (2 chỉ violation, 3 có schema) |
 | `createdAt` | `DateTimeOffset` | Thời gian tạo UTC |
 | `schemaVersion` | `string` | Phiên bản schema do người dùng định nghĩa |
 | `groundTruthMode` | `string` | `"Full"`, `"Snapshot"`, hoặc `"Manual"` |
 | `databaseVersion` | `string` | Phiên bản database (vd: `"19c"`, `"2022"`) |
 | `schemaHash` | `string` | Hash SHA256 để phát hiện drift |
+| `schemaHashKind` | `string?` | Định danh biểu diễn hash |
+| `provider` | `string?` | Provider dùng để capture schema |
+| `schemaScope` | `string?` | Phạm vi schema/database/owner đã chọn |
+| `schemaCanonicalizationVersion` | `string?` | Phiên bản canonicalizer (hiện là `v1`) |
 | `violations` | `BaselineViolation[]` | Các violations đã biết tại thời điểm baseline |
 | `schema` | `SnapshotTable[]?` | Snapshot schema offline tùy chọn |
 
@@ -128,10 +147,12 @@ public record SnapshotColumn(
     int? Precision,
     int? Scale,
     bool IsNullable,
-    string? CharUsed);
+    string? CharUsed,
+    string? DataDefault = null,
+    int? ColumnId = null);
 ```
 
-Khi baseline bao gồm `schema`, DataGuard có thể kiểm tra với snapshot mà không cần kết nối database — hữu ích cho CI/CD pipeline không có quyền truy cập database.
+Khi baseline bao gồm `schema`, DataGuard có thể kiểm tra với snapshot mà không cần kết nối database — hữu ích cho CI/CD pipeline không có quyền truy cập database. Schema hash bao gồm giá trị mặc định và thứ tự cột khi có dữ liệu.
 
 ## Tính Toán Schema Hash
 
@@ -247,9 +268,12 @@ private async Task<BaselineFile?> LoadWithMemoryMappedFileAsync(CancellationToke
 }
 ```
 
-### Bộ Nhớ Đệm Schema Hash
+### Cache baseline theo content-address
 
-Sử dụng `MemoryCache` cho kết quả tính toán schema hash:
+`LoadAsync` dùng `MemoryCache` process-local có giới hạn, key là SHA-256 digest của
+toàn bộ nội dung baseline. Entry hết hạn sau một giờ và chỉ xuất hit/miss counter.
+File thay đổi tạo key mới, vì vậy cache không bao giờ là bằng chứng để bỏ qua fresh
+live acquisition hoặc drift comparison.
 
 ```csharp
 private static readonly MemoryCache _schemaHashCache = new MemoryCache(new MemoryCacheOptions
@@ -259,16 +283,20 @@ private static readonly MemoryCache _schemaHashCache = new MemoryCache(new Memor
 });
 ```
 
-### Ghi Nguyên Tử
+### Ghi Nguyên Tử Có Giới Hạn
 
-Baseline files lớn sử dụng mẫu ghi nguyên tử:
+Mọi lần ghi baseline bị giới hạn kích thước (16 MiB), hỗ trợ cancellation, và dùng
+file tạm duy nhất trong cùng thư mục. Dữ liệu được flush trước khi thay thế nguyên tử;
+cancellation trước publish giữ nguyên file đích cũ. Việc dọn file tạm lỗi là best effort.
 
 ```csharp
-private async Task SaveWithMemoryMappedFileAsync(byte[] data)
+private async Task SaveAtomicallyAsync(byte[] data, CancellationToken ct)
 {
-    var tempPath = _baselineFilePath + ".tmp";
-    await File.WriteAllBytesAsync(tempPath, data);
-    File.Replace(tempPath, _baselineFilePath, null, false);
+    // cùng thư mục để không thay thế chéo volume
+    await stream.WriteAsync(data, ct);
+    await stream.FlushAsync(ct);
+    stream.Flush(flushToDisk: true);
+    File.Move(tempPath, _baselineFilePath, overwrite: true);
 }
 ```
 

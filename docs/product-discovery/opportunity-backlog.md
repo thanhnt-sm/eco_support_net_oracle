@@ -15,7 +15,7 @@ Mỗi opportunity phải map đồng thời: (a) seam thật trong `code-capabil
 
 | Candidate | Lý do loại |
 |---|---|
-| Auto-remediation / auto-fix code | Plan cấm ở release đầu; không có seam user-confirmation. |
+| Generic auto-remediation / auto-fix code | Generic file rewriting remains out of scope; shipped CodeFix providers require explicit user invocation and verifier-bound inputs. |
 | Database deployment engine | Ngoài bề mặt product; SqlPackage đã tồn tại, DataGuard là assessment. |
 | Generic dashboard/telemetry SaaS | Không có seam; vi phạm local-first boundary. |
 | Compliance certification claim | NIST SSDF chỉ hỗ trợ evidence; certification ngoài phạm vi phần mềm. |

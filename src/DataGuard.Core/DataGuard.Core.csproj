@@ -4,7 +4,7 @@
     <PackageId>DataGuard.Core</PackageId>
     <Authors>DataGuard Contributors</Authors>
     <Company>DataGuard</Company>
-    <Description>Core contract validation engine for Entity ↔ Stored Procedure/Raw SQL. Zero vendor dependencies.</Description>
+    <Description>Core contract validation engine for Entity ↔ Stored Procedure/Raw SQL, built on EF Core, Roslyn, provider, security, and configuration dependencies.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</PackageProjectUrl>
     <RepositoryUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</RepositoryUrl>

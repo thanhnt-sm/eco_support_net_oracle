@@ -37,7 +37,9 @@
   },
   "pricing": "Free",
   "qna": "marketplace",
-  "extensionKind": ["workspace"],
+  "extensionKind": [
+    "workspace"
+  ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
@@ -62,6 +64,18 @@
       {
         "command": "dataguard.cancelValidation",
         "title": "DataGuard: Cancel Validation"
+      },
+      {
+        "command": "dataguard.assess",
+        "title": "DataGuard: Assess Workspace"
+      },
+      {
+        "command": "dataguard.refreshSnapshot",
+        "title": "DataGuard: Refresh Snapshot"
+      },
+      {
+        "command": "dataguard.createBaseline",
+        "title": "DataGuard: Create Baseline"
       }
     ],
     "configuration": {
@@ -78,6 +92,13 @@
           "scope": "resource",
           "description": "Path to the DataGuard configuration file, relative to the workspace root."
         },
+        "dataguard.provider": {
+          "type": "string",
+          "enum": ["sqlserver", "postgresql", "mysql", "oracle"],
+          "default": "sqlserver",
+          "scope": "resource",
+          "description": "Database provider used by explicit DataGuard commands."
+        },
         "dataguard.cliPath": {
           "type": "string",
           "default": "dataguard",
@@ -91,6 +112,14 @@
           "maximum": 900,
           "scope": "window",
           "description": "Maximum validation duration before DataGuard terminates its process tree."
+        },
+        "dataguard.assessmentTimeoutSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 5,
+          "maximum": 900,
+          "scope": "window",
+          "description": "Maximum local assessment duration. Remote advisory lookup is never enabled by the extension."
         }
       }
     }
@@ -98,13 +127,25 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "test": "npm run compile && node --test out/security.test.js",
-    "package": "npx @vscode/vsce package"
+    "test": "npm run compile && npm run test:typescript && node --test out/security.test.js out/run-coordinator.test.js out/command-args.test.js",
+    "test:typescript": "npx --no-install tsc --noEmit --strict --skipLibCheck --target ES2020 test/fixtures/generated-contract.ts",
+    "test:extension-host": "npm run compile && node scripts/test-extension-host.cjs",
+    "prepare-lsp": "node scripts/package-lsp.cjs",
+    "package": "npm run prepare-lsp && npx @vscode/vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.7.1",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "overrides": {
+    "fast-uri": "3.1.6",
+    "js-yaml": "4.3.2",
+    "qs": "6.16.0"
   }
 }

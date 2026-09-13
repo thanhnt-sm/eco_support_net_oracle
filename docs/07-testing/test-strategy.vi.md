@@ -1,5 +1,10 @@
 # Chiến Lược QA & Kiểm Thử
 
+> **Bằng chứng thực thi (2026-09-12):** baseline macOS arm64 tại
+> `93bf7288324dd746669ad09c5e2a592adc772748` build Release với 0 warnings/errors
+> và chạy 484 C# tests pass. Đây không phải bằng chứng cho assertion database thật
+> hoặc hành vi Windows/Visual Studio; các gate đó cần lần chạy có marker riêng.
+
 ## Triết Lý Kiểm Thử
 
 DataGuard tuân theo phương pháp kiểm thử **contract-first, dựa trên bằng chứng**:
@@ -71,6 +76,39 @@ dotnet test --filter "Category=Integration"
 - **Oracle**: Kết nối thực, truy vấn ALL_ARGUMENTS/ALL_TAB_COLUMNS
 - **MySQL**: Kết nối thực, truy vấn INFORMATION_SCHEMA
 - **PostgreSQL**: Kết nối thực, truy vấn pg_catalog
+
+SQL Server fixture thông thường ghi nhận informational skip khi Docker không
+có. Để biến Docker/provider health thành gate bắt buộc, dùng:
+
+```bash
+DATAGUARD_RUN_SQLSERVER_INTEGRATION=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore \
+  --filter 'FullyQualifiedName~SqlServerIntegrationTests|FullyQualifiedName~SqlServerParserIntegrationTests'
+```
+
+Ở required-live mode, lỗi image pull, daemon, startup hoặc health-check sẽ làm
+fixture fail thay vì được báo là skip thành công.
+
+PostgreSQL extraction fixture dùng cùng chính sách opt-in:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore --filter FullyQualifiedName~PostgreSqlIntegrationTests
+```
+
+Dùng cùng biến cho MySQL:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore --filter FullyQualifiedName~MySqlIntegrationTests
+```
+
+Oracle Free dùng cùng required-live switch và user ứng dụng riêng:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+  --configuration Release --no-restore --filter FullyQualifiedName~OracleIntegrationTests
+```
 
 ### Golden Corpus Tests
 

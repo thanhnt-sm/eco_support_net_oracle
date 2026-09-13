@@ -22,8 +22,7 @@ public static partial class SecretsPack
     public static IReadOnlyList<AssessmentFinding> AssessFile(string workspaceRoot, string filePath)
     {
         var findings = new List<AssessmentFinding>();
-        var fullPath = Path.GetFullPath(filePath);
-        if (!fullPath.StartsWith(Path.GetFullPath(workspaceRoot), StringComparison.Ordinal))
+        if (!AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, filePath, out var fullPath, out var relativePath))
         {
             return findings;
         }
@@ -50,14 +49,14 @@ public static partial class SecretsPack
             var appMatch = AppConfigSecretLine().Match(lines[i]);
             if (appMatch.Success && LooksLikeSecretValue(appMatch.Groups["v"].Value))
             {
-                findings.Add(SecretFinding(facts: null, Path.GetRelativePath(workspaceRoot, fullPath), lineNo, appMatch.Groups["k"].Value));
+                findings.Add(SecretFinding(facts: null, relativePath, lineNo, appMatch.Groups["k"].Value));
                 continue;
             }
 
             var yamlMatch = YamlSecretLine().Match(lines[i]);
             if (yamlMatch.Success && LooksLikeSecretValue(yamlMatch.Groups["v"].Value) && IsDataguardYml(filePath))
             {
-                findings.Add(SecretFinding(null, Path.GetRelativePath(workspaceRoot, fullPath), lineNo, yamlMatch.Groups["k"].Value));
+                findings.Add(SecretFinding(null, relativePath, lineNo, yamlMatch.Groups["k"].Value));
                 continue;
             }
 
@@ -67,7 +66,7 @@ public static partial class SecretsPack
                 var csMatch = ConnectionStringPassword().Match(lines[i]);
                 if (csMatch.Success)
                 {
-                    findings.Add(SecretFinding(null, Path.GetRelativePath(workspaceRoot, fullPath), lineNo, "ConnectionString(password)"));
+                    findings.Add(SecretFinding(null, relativePath, lineNo, "ConnectionString(password)"));
                 }
             }
         }
@@ -117,8 +116,7 @@ public static partial class SecretsPack
     public static IReadOnlyList<AssessmentFinding> AssessMachinePaths(string workspaceRoot, string filePath)
     {
         var findings = new List<AssessmentFinding>();
-        var fullPath = Path.GetFullPath(filePath);
-        if (!fullPath.StartsWith(Path.GetFullPath(workspaceRoot), StringComparison.Ordinal))
+        if (!AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, filePath, out var fullPath, out var relativePath))
         {
             return findings;
         }
@@ -149,7 +147,7 @@ public static partial class SecretsPack
                     Severity = FindingSeverity.Warning,
                     Confidence = FindingConfidence.High,
                     Message = $"Config references a machine-specific absolute path at line {i + 1}.",
-                    Evidence = new[] { new FindingEvidence { Path = Path.GetRelativePath(workspaceRoot, fullPath), Line = i + 1 } },
+                    Evidence = new[] { new FindingEvidence { Path = relativePath, Line = i + 1 } },
                     SuggestedAction = "Replace machine-specific paths with environment-relative configuration.",
                 });
             }

@@ -152,11 +152,11 @@ Rules are executed in topological order based on their dependency graph. Indepen
 
 ## Three Ground-Truth Modes
 
-| Mode | Connection | Speed | Accuracy | Best For |
-|------|-----------|-------|----------|----------|
-| **Full** | Live database | ~2-5s | 100% (real schema) | CI/CD, pre-deploy |
-| **Snapshot** | Cached JSON file | ~200ms | 100% (at capture time) | Local dev, offline |
-| **Manual** | Compiled assembly | ~500ms | Partial (no DB schema) | Legacy, offline-first |
+| Mode | Connection | Performance evidence | Accuracy | Best For |
+|------|-----------|----------------------|----------|----------|
+| **Full** | Live database | Requires provider-specific measurement | 100% (real schema) | CI/CD, pre-deploy |
+| **Snapshot** | Cached JSON file | Requires fixed-corpus measurement | 100% (at capture time) | Local dev, offline |
+| **Manual** | Compiled assembly | Requires fixed-corpus measurement | Partial (no DB schema) | Legacy, offline-first |
 
 ### Full Mode
 
@@ -204,18 +204,18 @@ graph TD
     style ANALYZER fill:#339af0,stroke:#333,color:#fff
 ```
 
-**IDE Layer**: Runs on every keystroke via `IIncrementalGenerator`. Zero-allocation, minimal GC pressure. Only detects unvalidated SQL calls (DG001) — fast enough for real-time feedback.
+**IDE Layer**: Runs on every keystroke via `IIncrementalGenerator` and performs only local syntax analysis for unvalidated SQL calls (DG001). Allocation and latency are workload-dependent and require a reproducible benchmark run before a numeric performance claim is made.
 
-**CI Layer**: Runs as `DiagnosticAnalyzer` in CI pipeline. Full semantic analysis with database connection. Validates all rules (DG002–DG016, DG098, DG099).
+**CI Layer**: Runs as a local `DiagnosticAnalyzer` in CI. Database-backed validation is an explicit operator CLI operation and is never initiated by the analyzer. Rule availability is reported when required offline metadata is absent.
 
 ### Code Fix Providers
 
 | Fix | Trigger | Action |
 |-----|---------|--------|
-| Add `[DataContract]` | DG001 on class | Adds `[DataContract]` attribute with inferred table name |
-| Add `[SqlParameter]` | DG001 on method | Adds `[SqlParameter]` attributes to method parameters |
+| Add `[DataContract]` | DG001 inside a type | Adds a fully-qualified declaration; manual extraction uses the CLR type name unless a table is supplied |
+| Add `[SqlParameter]` | DG001 inside a method with parameters | Adds fully-qualified declarations; manual extraction uses CLR parameter name/type until metadata is verified |
 | Fix naming convention | DG006 | Suggests correct property name based on column name and convention |
-| Add validation call | DG001 | Inserts `DataGuard.Validate()` call before SQL execution |
+| Add validation call | DG001 | Open contract: no automatic call is offered because `DataGuard.Validate()` is not a compilable public API and a safe validation target has not been selected |
 
 ### VS Code Extension
 
@@ -231,7 +231,7 @@ graph TD
 - Tool window for validation results
 - One-click baseline creation and drift detection
 
-## CLI Tool — 9 Commands
+## CLI Tool — 10 Commands
 
 | Command | Purpose | Key Options |
 |---------|---------|-------------|
@@ -240,7 +240,8 @@ graph TD
 | `snapshot refresh` | Refresh schema snapshot from database | `--connection`, `--provider`, `--schema` |
 | `snapshot show` | Show current snapshot info | `--config` |
 | `snapshot diff` | Compare current schema with snapshot | `--connection`, `--fail-on-drift` |
-| `init` | Initialize DataGuard configuration | `--output`, `--provider` |
+| `init` | Initialize DataGuard configuration | `--output`, `--provider`, `--wizard` |
+| `hook` | Install, inspect, or remove managed pre-commit hooks | `install`, `status`, `uninstall`, `--type`, `--force` |
 | `config show` | Show current configuration | `--config` |
 | `config validate` | Validate configuration file | `--config` |
 | `oracle-check` | Run Oracle-specific dialect and length checks | `--connection`, `--schema`, `--package` |
@@ -429,7 +430,7 @@ For legacy codebases entering the DataGuard ecosystem:
 
 | Pack | What It Checks | Output |
 |------|---------------|--------|
-| **DependencyHealth** | NuGet package versions, known vulnerabilities, outdated packages | Health score + recommendations |
+| **DependencyHealth** | Local lock consistency; optional OSV advisories for explicitly approved public NuGet coordinates | Coverage-aware health score + recommendations |
 | **BuildCi** | Build configuration, CI pipeline setup, test coverage | Build readiness report |
 | **Secrets** | Hardcoded connection strings, API keys, credentials in source | Security findings |
 | **Inventory** | Project structure, target frameworks, package references | Project inventory |

@@ -84,9 +84,9 @@ Lệnh được định nghĩa trong file `.vsct` (Visual Studio Command Table):
 
 | Lệnh | ID | Vị trí menu |
 |------|----|-------------|
-| Chạy xác thực | `cmdidRunValidation` | Tools menu + context menu |
-| Hủy xác thực | `cmdidCancelValidation` | Tools menu |
-| Hiển thị cài đặt | `cmdidShowSettings` | Tools menu |
+| Chạy xác thực | `ValidateCommand` (`0x0100`) | Tools menu |
+| Hủy xác thực | `CancelCommand` (`0x0101`) | Tools menu |
+| Đánh giá workspace | `AssessCommand` (`0x0102`) | Tools menu; chạy assessment local-first không có remote advisory consent |
 
 ### Command Handler
 

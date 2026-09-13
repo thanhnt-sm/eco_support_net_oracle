@@ -136,7 +136,7 @@ The Oracle adapter is the deepest integration because Oracle semantics are the m
 **Where:** `DataGuard.Analyzers` (+ Workspaces in `CodeFixes`), `DataGuard.Core` (call-site analysis).
 
 **Why chosen:**
-- `IIncrementalGenerator` gives keystroke-speed IDE analysis with incremental caching and value-type intermediate models (`SqlCallSite` struct) for near-zero allocation.
+- `IIncrementalGenerator` supports incremental IDE analysis with value-type intermediate models (`SqlCallSite` struct); complete invocation allocation remains workload-specific and measured separately.
 - `DiagnosticAnalyzer` powers the CI heavy layer with full semantic model access.
 - Shared `DiagnosticDescriptors` guarantee IDE squiggles and CI failures use identical IDs.
 

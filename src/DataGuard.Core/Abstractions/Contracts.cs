@@ -181,7 +181,17 @@ public record RawSqlDescriptor(
     string SqlText,
     IReadOnlyList<ParameterDescriptor> Parameters,
     IReadOnlyList<ColumnDescriptor> ResultColumns,
-    Location? Location = null) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location);
+    Location? Location = null) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location)
+{
+    public RawSqlParseStatus ParseStatus { get; init; } = RawSqlParseStatus.Parsed;
+    public string? ParseError { get; init; }
+}
+
+public enum RawSqlParseStatus
+{
+    Parsed,
+    Invalid,
+}
 
 /// <summary>
 /// Represents database ground-truth schema (tables + columns) used by length/dialect rules.

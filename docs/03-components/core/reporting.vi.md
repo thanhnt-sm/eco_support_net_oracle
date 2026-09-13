@@ -92,6 +92,8 @@ private static readonly HashSet<string> SafePropertyKeys = new(StringComparer.Or
 
 `ContainsSensitiveValue()` phát hiện các mẫu như `password=`, `token=`, `secret=`, `authorization: bearer`, và JWT tokens (bắt đầu bằng `eyJ`).
 
+Cùng một sanitizer được áp dụng tại mọi reporting boundary tích hợp sẵn: SARIF buffered, chế độ streaming của `FileSarifSink`, cả hai overload của `StreamingSarifSink`, và text trên console. Nó chỉ giữ properties scalar nằm trong allowlist, thay message hostile bằng `[REDACTED]`, và không sửa findings hay đối tượng SARIF thuộc caller. Artifact path được chuẩn hóa tương đối với source root cấu hình (mặc định là thư mục hiện tại); absolute path nằm ngoài root, path không resolve được, hoặc path có thành phần nhạy cảm sẽ được xuất bằng URI rỗng. Sink bên thứ ba vẫn là trusted code và phải tự áp dụng policy của chúng.
+
 ## SARIF Output
 
 ### SarifTypes
@@ -259,9 +261,20 @@ public sealed class ContractExport
 | `ColumnExport` | Name, DataType, MaxLength, Precision, Scale, IsNullable |
 | `TableExport` | Name, Columns[] |
 
+Export contract được sắp xếp xác định theo entity, procedure, table và các property,
+parameter, column lồng nhau.
+
+`WriteYamlAsync` serialize chính export object đó với tên field camel-case. API tôn
+trọng cancellation và có cùng contract ghi file, không ghi stdout, như JSON.
+
 ## Tạo TypeScript DTO
 
 Tạo TypeScript interfaces từ entity contracts đã kiểm tra.
+
+Tên interface entity được chuẩn hóa thành TypeScript identifier an toàn. Key property
+được JSON-quote để giữ tên nguồn có khoảng trắng hoặc dấu câu. Hậu tố ổn định
+`__2`, `__3`, … giải quyết collision sau khi chuẩn hóa tên entity hoặc trùng key
+property theo thứ tự ordinal.
 
 ```csharp
 public static class TypeScriptContractWriter

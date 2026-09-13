@@ -2,192 +2,59 @@
 
 > Source: `src/DataGuard.Core/Validation/ConcurrentValidationEngine.cs`
 
-The concurrent validation engine runs contract rules against descriptors with bounded parallelism and backpressure. It uses `Parallel.ForEachAsync` for efficient CPU utilization while preventing memory exhaustion from unbounded violation queues.
+`ConcurrentValidationEngine` validates every rule/contract pair with bounded parallelism. It processes a bounded, ordinal batch at a time, collects each job's completed result by its input position, then applies the violation cap in that position order. Output is finally sorted by `(RuleId, Message)`.
 
-## Parallel Validation Flow
+## Execution flow
 
 ```mermaid
 flowchart TB
-    subgraph Input
-        RULES[Rules]
-        CONTRACTS[Contracts]
-    end
-
-    subgraph Engine
-        CVE[ConcurrentValidationEngine]
-        JOBS[Rule × Contract Jobs]
-        PAR[Parallel.ForEachAsync]
-        BAG[ConcurrentBag]
-    end
-
-    subgraph Backpressure
-        CNT[Interlocked Counter]
-        MAX[MaxViolationQueueSize<br/>100K default]
-    end
-
-    subgraph Output
-        SORT[Sorted Results]
-    end
-
-    RULES --> JOBS
-    CONTRACTS --> JOBS
-    JOBS --> PAR
-    PAR --> |N concurrent| R1[Rule 1 × Contract A]
-    PAR --> |N concurrent| R2[Rule 2 × Contract B]
-    PAR --> |N concurrent| R3[Rule 3 × Contract C]
-
-    R1 --> BAG
-    R2 --> BAG
-    R3 --> BAG
-
-    BAG --> CNT
-    CNT --> |count > MAX| DROP[Drop violation]
-    CNT --> |count ≤ MAX| BAG
-
-    BAG --> SORT
+    R[Rules] --> J[Ordinal rule × contract batch]
+    C[Contracts] --> J
+    J --> P[Parallel.ForEachAsync: at most MaxDegreeOfParallelism jobs]
+    P --> O[Completed results indexed by input ordinal]
+    O --> K[Apply remaining MaxViolationQueueSize in ordinal order]
+    K --> S[Sort by RuleId, Message]
+    S --> D[ValidationExecutionResult]
 ```
 
-## ConcurrentValidationEngine
+`GraphValidationExecutor` obtains dependency levels from `RuleDependencyGraph` and runs one level at a time. Rules within a level may run concurrently; a dependent level never starts before every job in its prerequisite level completes. The violation cap is global across all levels.
 
-```csharp
-public sealed class ConcurrentValidationEngine
-{
-    private readonly int _maxDegreeOfParallelism;
-    private readonly int _maxViolationQueueSize;
+## Configuration and outcomes
 
-    public ConcurrentValidationEngine(
-        int maxDegreeOfParallelism = 0,
-        int maxViolationQueueSize = 100_000) { ... }
+| Parameter | Meaning |
+|---|---|
+| `maxDegreeOfParallelism = 0` | Uses `Environment.ProcessorCount` (minimum one). |
+| `maxViolationQueueSize = 100,000` | Maximum retained violations. A negative value uses this default; zero retains none while still evaluating work. |
+| `ValidationExecutionResult` | Contains retained violations, `IsIncomplete`, and an exact dropped count when known. |
 
-    public async Task<IReadOnlyList<ContractViolation>> ValidateAsync(
-        IReadOnlyList<ContractDescriptor> contracts,
-        IReadOnlyList<IContractRule> rules,
-        CancellationToken cancellationToken = default) { ... }
-}
-```
+The engine evaluates every scheduled job even once the retained cap is full. Thus zero cap is **complete** when no job finds a violation, and **incomplete** with an exact dropped count when findings exist. `ValidateDetailedAsync` exposes that outcome. The legacy `ValidateAsync` cannot represent an incomplete result and throws `ValidationIncompleteException` rather than return a partial list.
 
-### Configuration
+If a rule throws, including an admitted in-process plugin, the pipeline contains the exception at the rule boundary, records that rule as `Failed`, and marks the run incomplete. Other rules can still run; caller cancellation is propagated rather than being recorded as a rule failure.
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `maxDegreeOfParallelism` | `0` (auto = `Environment.ProcessorCount`) | Maximum concurrent rule executions |
-| `maxViolationQueueSize` | `100,000` | Backpressure bound on violation collection |
-
-### Execution Model
-
-```csharp
-var jobs = from rule in rules
-           from contract in contracts
-           select (rule, contract);
-
-await Parallel.ForEachAsync(
-    jobs,
-    new ParallelOptions
-    {
-        MaxDegreeOfParallelism = _maxDegreeOfParallelism,
-        CancellationToken = cancellationToken,
-    },
-    async (job, ct) =>
-    {
-        var violations = await job.rule.ValidateAsync(job.contract, contracts, ct);
-        foreach (var violation in violations)
-        {
-            if (Interlocked.Increment(ref addedCount) > _maxViolationQueueSize)
-                return; // Backpressure: stop adding beyond the bound
-
-            results.Add(violation);
-        }
-    });
-```
-
-**Key design decisions:**
-
-1. **Cartesian product** — every rule runs against every contract (rules internally filter by descriptor type)
-2. **Bounded parallelism** — `MaxDegreeOfParallelism` prevents thread pool exhaustion
-3. **Atomic backpressure** — `Interlocked.Increment` ensures thread-safe count checking without locks
-4. **ConcurrentBag** — lock-free collection for concurrent adds from multiple threads
-
-### Backpressure Mechanism
-
-```mermaid
-sequenceDiagram
-    participant T1 as Thread 1
-    participant T2 as Thread 2
-    participant T3 as Thread 3
-    participant CNT as Counter
-    participant BAG as ConcurrentBag
-
-    T1->>CNT: Increment (99,999)
-    CNT-->>T1: 99,999 ≤ 100K ✓
-    T1->>BAG: Add violation
-
-    T2->>CNT: Increment (100,000)
-    CNT-->>T2: 100,000 ≤ 100K ✓
-    T2->>BAG: Add violation
-
-    T3->>CNT: Increment (100,001)
-    CNT-->>T3: 100,001 > 100K ✗
-    T3-->>T3: Drop violation (return)
-```
-
-The backpressure uses `Interlocked.Increment` for lock-free atomic counting. When the count exceeds `MaxViolationQueueSize`, new violations are silently dropped. The final result set is capped at `MaxViolationQueueSize` entries.
-
-### Result Ordering
-
-Results are sorted deterministically for reproducible output:
-
-```csharp
-return results.Take(_maxViolationQueueSize)
-    .OrderBy(v => v.RuleId, StringComparer.Ordinal)
-    .ThenBy(v => v.Message, StringComparer.Ordinal)
-    .ToList();
-```
-
-## Performance Characteristics
-
-| Metric | Behavior |
-|--------|----------|
-| **CPU utilization** | Scales with `Environment.ProcessorCount` |
-| **Memory** | Bounded by `MaxViolationQueueSize` × average violation size |
-| **Thread safety** | `ConcurrentBag` + `Interlocked` — no locks |
-| **Cancellation** | Respects `CancellationToken` across all parallel jobs |
-| **Determinism** | Results sorted by (RuleId, Message) regardless of execution order |
-
-## Usage
-
-### Direct Usage
+## Direct use
 
 ```csharp
 var engine = new ConcurrentValidationEngine(
     maxDegreeOfParallelism: 8,
     maxViolationQueueSize: 50_000);
 
-var violations = await engine.ValidateAsync(contracts, rules, cancellationToken);
+var result = await engine.ValidateDetailedAsync(contracts, rules, cancellationToken);
+if (result.IsIncomplete)
+    throw new ValidationIncompleteException("Validation was truncated.", result);
 ```
 
-### Via ValidationPipeline
+`CancellationToken` is supplied to `Parallel.ForEachAsync` and every rule invocation. Inputs are read-only; mutation is limited to the coordinator after parallel jobs finish, so there is no concurrent result collection.
 
-The `ValidationPipeline` uses the engine internally when `EnableConcurrentValidation` is true:
+## Pipeline behavior
 
-```csharp
-var pipeline = DataGuardApi.CreatePipeline(config);
-var result = await pipeline.ValidateAsync(contracts);
-```
+When `DataGuardConfiguration.EnableConcurrentValidation` is true, `ValidationPipeline` uses `GraphValidationExecutor`. It preserves the execution outcome after baseline filtering: a baseline may remove retained findings from the displayed list, but it cannot convert an incomplete run into a clean result. `ValidationResult.IsClean` is true only when there are no displayed violations and execution completed.
 
-## Comparison with Sequential Execution
+## Operational characteristics
 
-| Aspect | Sequential | Concurrent |
-|--------|-----------|------------|
-| **Speed** | Baseline | 2-4× faster on multi-core |
-| **Memory** | Linear | Bounded by backpressure |
-| **Ordering** | Execution order | Sorted deterministically |
-| **Cancellation** | Per-rule | Per-batch |
-| **Complexity** | Simple | Thread-safe collection + atomic counter |
-
-## Thread Safety Guarantees
-
-1. **ConcurrentBag** — designed for concurrent `Add()` from multiple threads
-2. **Interlocked.Increment** — atomic counter without locks
-3. **Immutable input** — `IReadOnlyList` contracts and rules are not modified
-4. **No shared mutable state** — each rule execution is independent
-5. **CancellationToken** — propagated to all parallel operations
+| Aspect | Behavior |
+|---|---|
+| Parallel work | At most `MaxDegreeOfParallelism` rule executions at once. |
+| Dependency order | Graph levels are sequential; rules in one level can run in parallel. |
+| Retained findings | Bounded by the configured cap across the full graph execution. |
+| Ordering | Deterministic `(RuleId, Message)` ordering. |
+| Cancellation | Stops queued/active work through the supplied token. |

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/DataGuard.Core/DataGuard.Core.csproj" />
+    <ProjectReference Include="../../../src/DataGuard.Analyzers/DataGuard.Analyzers.csproj" />
+    <ProjectReference Include="../../../src/DataGuard.SqlClassification/DataGuard.SqlClassification.csproj" />
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+</Project>

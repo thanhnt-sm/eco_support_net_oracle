@@ -92,6 +92,8 @@ private static readonly HashSet<string> SafePropertyKeys = new(StringComparer.Or
 
 `ContainsSensitiveValue()` detects patterns like `password=`, `token=`, `secret=`, `authorization: bearer`, and JWT tokens (starting with `eyJ`).
 
+The same sanitizer is applied at every built-in reporting boundary: buffered SARIF, `FileSarifSink` streaming mode, both `StreamingSarifSink` overloads, and console text. It retains only allowlisted scalar properties, replaces hostile message text with `[REDACTED]`, and does not mutate caller-owned findings or SARIF objects. Artifact paths are normalized relative to the configured source root (the current directory by default); absolute paths outside that root, unresolvable paths, and paths with sensitive components are emitted as an empty URI. Third-party sinks remain trusted code and must apply their own policy.
+
 ## SARIF Output
 
 ### SarifTypes
@@ -303,11 +305,20 @@ public static class ContractExportWriter
 }
 ```
 
-Builds a deterministic export with sorted entities, procedures, and tables.
+Builds a deterministic export with sorted entities, procedures, tables, and nested
+properties, parameters, and columns.
+
+`WriteYamlAsync` serializes that identical export object with camel-case field names.
+It is cancellation-aware and has the same no-stdout file-output contract as JSON.
 
 ## TypeScript DTO Generation
 
 Generates TypeScript interfaces from validated entity contracts.
+
+Entity interface names are normalized to safe TypeScript identifiers. Property keys
+are JSON-quoted, preserving source names such as spaces or punctuation. A stable
+`__2`, `__3`, … suffix resolves normalized entity-name and duplicate-property-key
+collisions after ordinal sorting.
 
 ```csharp
 public static class TypeScriptContractWriter

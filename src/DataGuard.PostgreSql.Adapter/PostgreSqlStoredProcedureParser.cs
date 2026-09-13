@@ -1,5 +1,6 @@
 using DataGuard.Core.Abstractions;
 using Npgsql;
+using NpgsqlTypes;
 
 namespace DataGuard.PostgreSql.Adapter;
 
@@ -73,7 +74,7 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                     ArgModes = reader.IsDBNull(5) ? null : reader.GetFieldValue<char[]>(5),
                     ReturnType = reader.IsDBNull(6) ? 0 : reader.GetFieldValue<uint>(6),
                     Oid = reader.GetFieldValue<uint>(7),
-                    Kind = reader.GetString(8)[0],
+                    Kind = reader.GetFieldValue<char>(8),
                     NumArgs = reader.GetInt32(9),
                 };
                 routines.Add(routine);
@@ -82,6 +83,7 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
 
         if (routines.Count == 0)
         {
+            result.Add(await BuildSchemaDescriptorAsync(cancellationToken));
             return result;
         }
 
@@ -114,7 +116,7 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
         var typeMap = new Dictionary<uint, string>();
         await using (var cmd = new NpgsqlCommand(typeSql, connection))
         {
-            cmd.Parameters.AddWithValue("oids", allOids.ToArray());
+            cmd.Parameters.Add("oids", NpgsqlDbType.Array | NpgsqlDbType.Oid).Value = allOids.ToArray();
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
@@ -137,6 +139,10 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 ResultColumns: new List<ColumnDescriptor>(),
                 ReturnsRefCursor: string.Equals(returnTypeName, "refcursor", StringComparison.OrdinalIgnoreCase)));
         }
+
+        // Persist structural ground truth alongside routine contracts so callers
+        // can create schema-bearing snapshots for PostgreSQL.
+        result.Add(await BuildSchemaDescriptorAsync(cancellationToken));
 
         return result;
     }
@@ -243,7 +249,8 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 numeric_precision,
                 numeric_scale,
                 is_nullable,
-                ordinal_position
+                ordinal_position,
+                column_default
             FROM information_schema.columns
             WHERE table_schema = @schema AND table_name = @table
             ORDER BY ordinal_position";
@@ -275,6 +282,7 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 Scale: scale,
                 IsNullable: isNullable,
                 CharUsed: null, // PostgreSQL uses character semantics natively
+                DataDefault: reader.IsDBNull(7) ? null : reader.GetString(7),
                 ColumnId: ordinal));
         }
 
@@ -296,7 +304,8 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 numeric_precision,
                 numeric_scale,
                 is_nullable,
-                ordinal_position
+                ordinal_position,
+                column_default
             FROM information_schema.columns
             WHERE table_schema = @schema
             ORDER BY table_name, ordinal_position";
@@ -320,6 +329,7 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 Scale: reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5),
                 IsNullable: !reader.IsDBNull(6) && string.Equals(reader.GetString(6), "YES", StringComparison.OrdinalIgnoreCase),
                 CharUsed: null, // PostgreSQL uses character semantics natively
+                DataDefault: reader.IsDBNull(8) ? null : reader.GetString(8),
                 ColumnId: reader.IsDBNull(7) ? 0 : reader.GetInt32(7));
 
             if (!result.TryGetValue(tableName, out var list))

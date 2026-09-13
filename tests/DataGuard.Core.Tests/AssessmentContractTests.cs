@@ -146,6 +146,140 @@ public class AssessmentContractTests : IDisposable
         Assert.True(File.Exists(outputPath));
         var json = await File.ReadAllTextAsync(outputPath);
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal("1.0", doc.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.1", doc.RootElement.GetProperty("schemaVersion").GetString());
+    }
+
+    [Fact]
+    public async Task RemoteOptIn_MapsAdvisoryProvenanceWithoutReplacingLocalFindings()
+    {
+        WriteProject("SdkLegacy", "App.csproj", SdkLegacyProject);
+        WriteProject("SdkLegacy", "packages.lock.json", """
+            { "version": 1, "dependencies": { "net462": { "Public.Package": { "type": "Direct", "resolved": "1.0.0" } } } }
+            """);
+        var client = new FakeAdvisoryClient();
+        var request = new AssessmentRequest { WorkspaceRoot = _root, AllowRemoteLookups = true };
+        var policy = new RemoteAdvisoryPolicy
+        {
+            AllowRemoteLookups = true,
+            AllowNetwork = true,
+            ApprovedPublicPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Public.Package" },
+        };
+
+        var report = await AssessmentEngine.RunAsync(request, policy, client);
+
+        Assert.Equal(new[] { new PackageCoordinate("Public.Package", "1.0.0") }, client.Coordinates);
+        var advisory = Assert.Single(report.RemoteAdvisories);
+        Assert.Equal("OSV-2026-1", advisory.AdvisoryId);
+        Assert.Contains("osv.dev/vulnerability/OSV-2026-1", advisory.Url);
+        Assert.Contains(report.Findings, finding => finding.RuleId == "DG1103");
+        Assert.Contains(report.Findings, finding => finding.RuleId == "DG1217");
+        Assert.Equal(DependencyScoreState.Partial, report.DependencyHealth.State);
+        Assert.Null(report.DependencyHealth.Score);
+    }
+
+    [Fact]
+    public async Task RemoteOptIn_CappedQueryMarksDependencyScorePartial()
+    {
+        WriteProject("SdkLegacy", "App.csproj", SdkLegacyProject);
+        WriteProject("SdkLegacy", "packages.lock.json", """
+            { "version": 1, "dependencies": { "net462": {
+              "Public.One": { "type": "Direct", "resolved": "1.0.0" },
+              "Public.Two": { "type": "Direct", "resolved": "2.0.0" }
+            } } }
+            """);
+        var policy = new RemoteAdvisoryPolicy
+        {
+            AllowRemoteLookups = true,
+            AllowNetwork = true,
+            MaximumPackagesPerRequest = 1,
+            ApprovedPublicPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Public.One", "Public.Two" },
+        };
+
+        var report = await AssessmentEngine.RunAsync(
+            new AssessmentRequest { WorkspaceRoot = _root, AllowRemoteLookups = true },
+            policy,
+            new EmptyAdvisoryClient());
+
+        Assert.Equal(DependencyScoreState.Partial, report.DependencyHealth.State);
+        Assert.Null(report.DependencyHealth.Score);
+    }
+
+    [Fact]
+    public async Task RemoteOptIn_MalformedLockMarksDependencyScorePartial()
+    {
+        WriteProject("SdkLegacy", "App.csproj", SdkLegacyProject);
+        WriteProject("SdkLegacy", "packages.lock.json", "{ malformed");
+        var policy = new RemoteAdvisoryPolicy
+        {
+            AllowRemoteLookups = true,
+            AllowNetwork = true,
+            ApprovedPublicPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Public.Package" },
+        };
+
+        var report = await AssessmentEngine.RunAsync(
+            new AssessmentRequest { WorkspaceRoot = _root, AllowRemoteLookups = true },
+            policy,
+            new EmptyAdvisoryClient());
+
+        Assert.Equal(DependencyScoreState.Partial, report.DependencyHealth.State);
+        Assert.Null(report.DependencyHealth.Score);
+    }
+
+    [Fact]
+    public async Task RemoteOptIn_UsesEffectiveSupportTableForTargetFrameworkScore()
+    {
+        WriteProject("Net10", "App.csproj", SdkLegacyProject.Replace("net462", "net10.0", StringComparison.Ordinal));
+        WriteProject("Net10", "packages.lock.json", "{ \"version\": 1, \"dependencies\": { \"net10.0\": { \"Public.Package\": { \"type\": \"Direct\", \"resolved\": \"1.0.0\" } } } }");
+        var policy = new RemoteAdvisoryPolicy
+        {
+            AllowRemoteLookups = true,
+            AllowNetwork = true,
+            ApprovedPublicPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Public.Package" },
+        };
+        var table = new LegacySupportTable(new[]
+        {
+            new SupportTableEntry
+            {
+                TargetFrameworkMoniker = "net10.0",
+                Status = SupportStatus.Unsupported,
+                SourceUrl = "https://example.test/support",
+                Retrieved = "2026-09-13",
+            },
+        });
+
+        var report = await AssessmentEngine.RunAsync(
+            new AssessmentRequest { WorkspaceRoot = _root, AllowRemoteLookups = true },
+            policy,
+            new EmptyAdvisoryClient(),
+            table);
+
+        Assert.Equal(DependencyScoreState.Partial, report.DependencyHealth.State);
+        Assert.Null(report.DependencyHealth.Score);
+    }
+
+    private sealed class FakeAdvisoryClient : IRemoteAdvisoryClient
+    {
+        public IReadOnlyList<PackageCoordinate> Coordinates { get; private set; } = Array.Empty<PackageCoordinate>();
+
+        public Task<RemoteAdvisoryResult> QueryAsync(
+            IEnumerable<PackageCoordinate> coordinates,
+            RemoteAdvisoryPolicy policy,
+            CancellationToken cancellationToken = default)
+        {
+            Coordinates = coordinates.ToArray();
+            var observation = new AdvisoryObservation(
+                "OSV-2026-1",
+                "2026-01-01T00:00:00Z",
+                Coordinates.Single(),
+                DateTimeOffset.Parse("2026-01-01T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture),
+                FindingConfidence.Medium);
+            return Task.FromResult(new RemoteAdvisoryResult(new[] { observation }, null));
+        }
+    }
+
+    private sealed class EmptyAdvisoryClient : IRemoteAdvisoryClient
+    {
+        public Task<RemoteAdvisoryResult> QueryAsync(IEnumerable<PackageCoordinate> coordinates, RemoteAdvisoryPolicy policy, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new RemoteAdvisoryResult(Array.Empty<AdvisoryObservation>(), null));
     }
 }

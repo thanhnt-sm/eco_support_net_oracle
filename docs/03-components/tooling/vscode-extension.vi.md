@@ -44,6 +44,13 @@ graph TB
 |------|----|-------|
 | Chạy xác thực | `dataguard.runValidation` | Thực thi `dataguard validate` và tải diagnostic SARIF |
 | Hủy xác thực | `dataguard.cancelValidation` | Kết thúc tiến trình xác thực đang chạy |
+| Đánh giá workspace | `dataguard.assess` | Chạy `dataguard assess` local-first; không bao giờ cấp remote-advisory consent |
+| Làm mới Snapshot | `dataguard.refreshSnapshot` | Yêu cầu xác nhận rồi chạy `dataguard snapshot refresh` với config tin cậy |
+| Tạo Baseline | `dataguard.createBaseline` | Yêu cầu xác nhận rồi chạy `dataguard baseline` với config tin cậy |
+
+Chỉ một process lệnh DataGuard chạy global tại một thời điểm. Validate hoặc Assess mới sẽ hủy và thay thế mọi Validate/Assess run trước đó, kể cả từ workspace khác.
+
+`dataguard.cancelValidation` hủy process DataGuard global, không phụ thuộc workspace. Nó gửi `SIGTERM`; nếu process chưa thoát sau 5 giây, gửi `SIGKILL`.
 
 ## Kích hoạt tiện ích
 
@@ -54,7 +61,7 @@ Tiện ích kích hoạt khi:
 
 ## Tải Diagnostic SARIF
 
-Tiện ích chạy `dataguard validate --format sarif --output <file-tạm>` và phân tích output SARIF 2.1.0 để điền vào bảng Problems của VS Code.
+Tiện ích chạy `dataguard validate --format sarif --output <file-tạm>` và phân tích output SARIF 2.1.0 để điền vào bảng Problems của VS Code. Artifact location phải là path tương đối hoặc URI `file:` giải quyết bên trong workspace đã chọn; location malformed, remote, traversal, sibling-prefix hoặc ngoài workspace được ghi log và bỏ qua.
 
 ### Ánh xạ SARIF sang VS Code
 
@@ -170,6 +177,18 @@ Khi không có file config, tiện ích quay lại mặc định CLI (chế đ�
             {
                 "command": "dataguard.cancelValidation",
                 "title": "DataGuard: Cancel Validation"
+            },
+            {
+                "command": "dataguard.assess",
+                "title": "DataGuard: Assess Workspace"
+            },
+            {
+                "command": "dataguard.refreshSnapshot",
+                "title": "DataGuard: Refresh Snapshot"
+            },
+            {
+                "command": "dataguard.createBaseline",
+                "title": "DataGuard: Create Baseline"
             }
         ],
         "configuration": {
@@ -227,6 +246,7 @@ npm run compile
 
 ```bash
 npm test
+npm run test:extension-host
 ```
 
 ### Đóng gói

@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Models;
+using DataGuard.Core.Security.SecretStores;
 using Microsoft.Extensions.Logging;
 
 namespace DataGuard.Core.Security;
@@ -17,15 +18,20 @@ namespace DataGuard.Core.Security;
 /// </summary>
 public sealed class CredentialManager
 {
+    private const int MaxCredentialStoreBytes = 1_048_576;
+    private const string KeychainAccount = "connection-string";
     private readonly DataGuardConfiguration _config;
     private readonly ILogger<CredentialManager>? _logger;
     private readonly string _credentialStorePath;
+    private readonly string _keychainService;
+    private readonly ICredentialSecretStore? _secretStore;
     private static readonly byte[] _entropy = "DataGuard.Credential.Protection"u8.ToArray();
 
     public CredentialManager(
         DataGuardConfiguration config,
         ILogger<CredentialManager>? logger = null,
-        string? credentialStorePath = null)
+        string? credentialStorePath = null,
+        ICredentialSecretStore? secretStore = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger;
@@ -33,8 +39,17 @@ public sealed class CredentialManager
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "DataGuard",
             "credentials.json");
+        _keychainService = "DataGuard.Credential." + ComputeHash(Path.GetFullPath(_credentialStorePath));
+        _secretStore = secretStore;
 
-        Directory.CreateDirectory(Path.GetDirectoryName(_credentialStorePath)!);
+        var storeDirectory = Path.GetDirectoryName(_credentialStorePath)!;
+
+        // Validate existing ancestors before creating anything, then validate
+        // again after creation so a newly materialized path cannot bypass the
+        // reparse-point policy.
+        ValidateCredentialStorePath();
+        Directory.CreateDirectory(storeDirectory);
+        ValidateCredentialStorePath();
     }
 
     /// <summary>
@@ -43,13 +58,15 @@ public sealed class CredentialManager
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task<string> GetConnectionStringAsync(CancellationToken cancellationToken = default)
     {
-        var stored = await LoadFromCredentialStoreAsync(cancellationToken);
-
         // Environment variables win over config-file values (zero-trust/CI
         // convention, matching ZeroTrustCredentialProvider priority order).
         var connectionString = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")
-            ?? _config.ConnectionString
-            ?? stored?.ConnectionString;
+            ?? _config.ConnectionString;
+
+        if (string.IsNullOrEmpty(connectionString))
+        {
+            connectionString = await GetStoredConnectionStringAsync(cancellationToken);
+        }
 
         if (string.IsNullOrEmpty(connectionString))
         {
@@ -63,6 +80,24 @@ public sealed class CredentialManager
         }
 
         // Decrypt if encrypted
+        if (IsKeychainReference(connectionString) && !OperatingSystem.IsMacOS())
+        {
+            throw new PlatformNotSupportedException("Encrypted credential data requires the macOS Keychain backend on this installation.");
+        }
+
+        if (IsKeychainReference(connectionString))
+        {
+            connectionString = (_secretStore ?? PlatformCredentialSecretStore.Create()).Read(_keychainService, KeychainAccount);
+        }
+        else if (IsSecretServiceReference(connectionString))
+        {
+            connectionString = (_secretStore ?? PlatformCredentialSecretStore.Create()).Read(_keychainService, KeychainAccount);
+        }
+        else if (_config.EncryptConnectionStringAtRest && IsEncrypted(connectionString) && !OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("Encrypted credential data requires the Windows DPAPI backend on this installation.");
+        }
+
         if (_config.EncryptConnectionStringAtRest && IsEncrypted(connectionString) && OperatingSystem.IsWindows())
         {
             connectionString = DecryptConnectionString(connectionString);
@@ -86,7 +121,26 @@ public sealed class CredentialManager
 
         string storedValue = connectionString;
 
-        if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsWindows())
+        if (_config.EncryptConnectionStringAtRest && !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
+        {
+            throw new PlatformNotSupportedException("Encrypted credential storage requires the Windows DPAPI backend. Disable EncryptConnectionStringAtRest only when explicit plaintext storage is authorized.");
+        }
+
+        if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsMacOS())
+        {
+            var secretStore = _secretStore ?? PlatformCredentialSecretStore.Create();
+            var reference = BuildProtectedReference(secretStore);
+            secretStore.Store(_keychainService, KeychainAccount, connectionString);
+            storedValue = reference;
+        }
+        else if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsLinux())
+        {
+            var secretStore = _secretStore ?? PlatformCredentialSecretStore.Create();
+            var reference = BuildProtectedReference(secretStore);
+            secretStore.Store(_keychainService, KeychainAccount, connectionString);
+            storedValue = reference;
+        }
+        else if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsWindows())
         {
             storedValue = EncryptConnectionString(connectionString);
         }
@@ -96,7 +150,7 @@ public sealed class CredentialManager
             ConnectionString = storedValue,
             CreatedAt = DateTimeOffset.UtcNow,
             LastAccessedAt = DateTimeOffset.UtcNow,
-            IsEncrypted = _config.EncryptConnectionStringAtRest,
+            IsEncrypted = IsEncrypted(storedValue) || IsKeychainReference(storedValue) || IsSecretServiceReference(storedValue),
         };
 
         await SaveToCredentialStoreAsync(credentialData, cancellationToken);
@@ -110,8 +164,8 @@ public sealed class CredentialManager
     {
         try
         {
-            var stored = await LoadFromCredentialStoreAsync(cancellationToken);
-            if (!string.IsNullOrEmpty(stored?.ConnectionString) && stored!.ConnectionString != currentConnectionString)
+            var stored = await GetStoredConnectionStringAsync(cancellationToken);
+            if (!string.IsNullOrEmpty(stored) && stored != currentConnectionString)
             {
                 var warning = $"⚠ Credential rotation detected: connection string has changed since last run. " +
                              $"If this was intentional, run 'dataguard baseline' to update. " +
@@ -122,7 +176,7 @@ public sealed class CredentialManager
 
                 await LogAuditAsync("CredentialRotationDetected", new
                 {
-                    OldHash = ComputeHash(stored!.ConnectionString),
+                    OldHash = ComputeHash(stored),
                     NewHash = ComputeHash(currentConnectionString),
                 });
             }
@@ -136,7 +190,8 @@ public sealed class CredentialManager
     [SupportedOSPlatform("windows")]
     private string EncryptConnectionString(string connectionString)
     {
-        // Use DPAPI (Windows) or libsecret (Linux) for platform-appropriate encryption
+        // This file-backed implementation uses Windows DPAPI only. Other platform
+        // backends must be explicit secret-store implementations, never a plaintext fallback.
         var data = Encoding.UTF8.GetBytes(connectionString);
         var encrypted = ProtectedData.Protect(data, _entropy, DataProtectionScope.CurrentUser);
         return "ENC:" + Convert.ToBase64String(encrypted);
@@ -158,6 +213,24 @@ public sealed class CredentialManager
     private static bool IsEncrypted(string connectionString)
         => connectionString.StartsWith("ENC:");
 
+    private static bool IsKeychainReference(string connectionString)
+        => connectionString.StartsWith("KEYCHAIN:", StringComparison.Ordinal);
+
+    private static bool IsSecretServiceReference(string connectionString)
+        => connectionString.StartsWith("SECRET-SERVICE:", StringComparison.Ordinal);
+
+    private string BuildProtectedReference(ICredentialSecretStore secretStore)
+    {
+        var prefix = secretStore.ReferencePrefix;
+        if (!string.Equals(prefix, "KEYCHAIN:", StringComparison.Ordinal)
+            && !string.Equals(prefix, "SECRET-SERVICE:", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Credential secret-store returned an unsupported protected reference prefix.");
+        }
+
+        return prefix + _keychainService;
+    }
+
     private static string ComputeHash(string input)
     {
         using var sha256 = SHA256.Create();
@@ -167,6 +240,7 @@ public sealed class CredentialManager
 
     private async Task<CredentialData?> LoadFromCredentialStoreAsync(CancellationToken cancellationToken)
     {
+        ValidateCredentialStorePath();
         if (!File.Exists(_credentialStorePath))
         {
             return null;
@@ -174,8 +248,16 @@ public sealed class CredentialManager
 
         try
         {
+            if (new FileInfo(_credentialStorePath).Length > MaxCredentialStoreBytes)
+            {
+                return null;
+            }
             var json = await File.ReadAllTextAsync(_credentialStorePath, cancellationToken);
             return JsonSerializer.Deserialize<CredentialData>(json);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -197,6 +279,34 @@ public sealed class CredentialManager
         }
 
         var value = stored.ConnectionString;
+
+        // Never return a protected payload as if it were a usable connection
+        // string when legacy or tampered metadata clears the encryption flag.
+        if (!stored.IsEncrypted && (IsEncrypted(value) || IsKeychainReference(value) || IsSecretServiceReference(value)))
+        {
+            throw new InvalidOperationException("Credential store metadata does not match its protected payload.");
+        }
+
+        if (stored.IsEncrypted && IsKeychainReference(value))
+        {
+            if (!OperatingSystem.IsMacOS())
+            {
+                throw new PlatformNotSupportedException("Encrypted credential data requires the macOS Keychain backend on this installation.");
+            }
+
+            return (_secretStore ?? PlatformCredentialSecretStore.Create()).Read(_keychainService, KeychainAccount);
+        }
+
+        if (stored.IsEncrypted && IsSecretServiceReference(value))
+        {
+            return (_secretStore ?? PlatformCredentialSecretStore.Create()).Read(_keychainService, KeychainAccount);
+        }
+
+        if (stored.IsEncrypted && IsEncrypted(value) && !OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("Encrypted credential data requires the Windows DPAPI backend on this installation.");
+        }
+
         if (stored.IsEncrypted && IsEncrypted(value) && OperatingSystem.IsWindows())
         {
             value = DecryptConnectionString(value);
@@ -208,7 +318,75 @@ public sealed class CredentialManager
     private async Task SaveToCredentialStoreAsync(CredentialData data, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(_credentialStorePath, json, cancellationToken);
+        var bytes = Encoding.UTF8.GetBytes(json);
+        if (bytes.Length > MaxCredentialStoreBytes)
+        {
+            throw new InvalidOperationException("Credential store record exceeds the 1 MiB safety limit.");
+        }
+
+        ValidateCredentialStorePath();
+        var directory = Path.GetDirectoryName(_credentialStorePath)!;
+        var temporaryPath = Path.Combine(directory, $".{Path.GetFileName(_credentialStorePath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            {
+                await stream.WriteAsync(bytes, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(temporaryPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+
+            ValidateCredentialStorePath();
+            File.Move(temporaryPath, _credentialStorePath, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+            catch
+            {
+                // Preserve the original save/cancellation failure.
+            }
+        }
+    }
+
+    private void ValidateCredentialStorePath()
+    {
+        var path = Path.GetFullPath(_credentialStorePath);
+        var tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var tempRootResolved = new DirectoryInfo(tempRoot).FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var current = new DirectoryInfo(Path.GetDirectoryName(path)!);
+        while (current != null)
+        {
+            // macOS exposes /tmp as the documented system alias for /private/tmp;
+            // permit that fixed OS temp root while rejecting user-controlled links
+            // below it.
+            var currentPath = current.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var isSystemTempAncestor = tempRoot.StartsWith(currentPath + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || tempRootResolved.StartsWith(currentPath + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || string.Equals(currentPath, tempRoot, StringComparison.Ordinal)
+                || string.Equals(currentPath, tempRootResolved, StringComparison.Ordinal);
+            if (!isSystemTempAncestor
+                && current.Exists && current.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new IOException("Credential store path traverses a symbolic link or reparse point.");
+            }
+            current = current.Parent;
+        }
+
+        if (File.Exists(path) && File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new IOException("Credential store file is a symbolic link or reparse point.");
+        }
     }
 
     private async Task LogAuditAsync(string eventType, object details, CancellationToken cancellationToken = default)
@@ -234,7 +412,7 @@ public sealed class CredentialManager
         Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
 
         var logLine = JsonSerializer.Serialize(auditEntry);
-        await File.AppendAllTextAsync(logPath, logLine + Environment.NewLine);
+        await File.AppendAllTextAsync(logPath, logLine + Environment.NewLine, cancellationToken);
     }
 }
 

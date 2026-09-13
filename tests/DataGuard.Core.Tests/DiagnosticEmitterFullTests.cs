@@ -37,11 +37,11 @@ public class DiagnosticEmitterFullTests : IDisposable
         }
     }
 
-    private static Location CreateLocation(int line, int column, int endLine, int endColumn)
+    private static Location CreateLocation(int line, int column, int endLine, int endColumn, string path = "Test.cs")
     {
         var tree = CSharpSyntaxTree.ParseText(
             "class C { int X = 1; }",
-            path: "Test.cs",
+            path: path,
             encoding: System.Text.Encoding.UTF8);
         var text = tree.GetText();
         var start = text.Lines[line].Start + column;
@@ -298,6 +298,27 @@ public class DiagnosticEmitterFullTests : IDisposable
     }
 
     [Fact]
+    public async Task ConsoleDiagnosticSink_RedactsSensitiveMessageAndRuleId()
+    {
+        var originalOut = Console.Out;
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+        try
+        {
+            await new ConsoleDiagnosticSink().WriteAsync(new[]
+            {
+                new ContractViolation("DG-token=TOPSECRET", "password=TOPSECRET", DiagnosticSeverity.Error),
+            });
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+
+        writer.ToString().Should().Be("[ERROR] [REDACTED]: [REDACTED]" + Environment.NewLine);
+    }
+
+    [Fact]
     public async Task FileSarifSink_WritesValidSarifJson()
     {
         var path = Path.Combine(_tempDir, "output.sarif");
@@ -483,6 +504,95 @@ public class DiagnosticEmitterFullTests : IDisposable
         result.GetProperty("ruleId").GetString().Should().Be("DG500");
         result.GetProperty("message").GetProperty("text").GetString().Should().Be("Rebuilt message");
         result.GetProperty("level").GetString().Should().Be("warning");
+    }
+
+    [Fact]
+    public async Task StreamingSarifSink_RedactsSecretsFiltersPropertiesAndSuppressesExternalPath()
+    {
+        var path = Path.Combine(_tempDir, "redacted-stream.sarif");
+        var sink = new StreamingSarifSink(path, sourceRoot: _tempDir);
+        var externalPath = Path.Combine(Path.GetTempPath(), "customer-a", "Models", "User.cs");
+
+        await sink.WriteAsync(new[]
+        {
+            new ContractViolation(
+                "DG600",
+                "connection string=Server=db;Password=TOPSECRET",
+                DiagnosticSeverity.Error,
+                CreateLocation(0, 10, 0, 16, externalPath),
+                new Dictionary<string, object?>
+                {
+                    ["column"] = "Email",
+                    ["syntax"] = "token=TOPSECRET",
+                    ["password"] = "TOPSECRET",
+                }),
+        });
+
+        var json = await File.ReadAllTextAsync(path);
+        json.Should().NotContain("TOPSECRET");
+        json.Should().NotContain("customer-a");
+
+        using var doc = JsonDocument.Parse(json);
+        var result = doc.RootElement.GetProperty("runs").EnumerateArray().Single()
+            .GetProperty("results").EnumerateArray().Single();
+        result.GetProperty("message").GetProperty("text").GetString().Should().Be("[REDACTED]");
+        result.GetProperty("properties").GetProperty("column").GetString().Should().Be("Email");
+        result.GetProperty("properties").TryGetProperty("syntax", out _).Should().BeFalse();
+        result.GetProperty("locations").EnumerateArray().Single()
+            .GetProperty("physicalLocation").GetProperty("artifactLocation").GetProperty("uri").GetString().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FileSarifSink_SanitizesCallerSuppliedSarifLog(bool streaming)
+    {
+        var path = Path.Combine(_tempDir, streaming ? "safe-streaming.sarif" : "safe-buffered.sarif");
+        var log = new SarifLog
+        {
+            Runs = new List<Run>
+            {
+                new()
+                {
+                    Results = new List<Result>
+                    {
+                        new()
+                        {
+                            RuleId = "DG601",
+                            Message = new Message { Text = "token=TOPSECRET" },
+                            Locations = new List<SarifLocation>
+                            {
+                                new()
+                                {
+                                    PhysicalLocation = new PhysicalLocation
+                                    {
+                                        ArtifactLocation = new ArtifactLocation { Uri = Path.Combine(Path.GetTempPath(), "customer-b", "Secret.cs") },
+                                    },
+                                },
+                            },
+                            Properties = new PropertyBag(new Dictionary<string, object?>
+                            {
+                                ["column"] = "Email",
+                                ["syntax"] = "password=TOPSECRET",
+                            }),
+                        },
+                    },
+                },
+            },
+        };
+
+        await new FileSarifSink(path, streaming, _tempDir).WriteAsync(log);
+
+        var json = await File.ReadAllTextAsync(path);
+        json.Should().NotContain("TOPSECRET");
+        json.Should().NotContain("customer-b");
+        using var doc = JsonDocument.Parse(json);
+        var result = doc.RootElement.GetProperty("runs").EnumerateArray().Single()
+            .GetProperty("results").EnumerateArray().Single();
+        result.GetProperty("properties").GetProperty("column").GetString().Should().Be("Email");
+        result.GetProperty("properties").TryGetProperty("syntax", out _).Should().BeFalse();
+        result.GetProperty("locations").EnumerateArray().Single()
+            .GetProperty("physicalLocation").GetProperty("artifactLocation").GetProperty("uri").GetString().Should().BeEmpty();
     }
 
     [Fact]

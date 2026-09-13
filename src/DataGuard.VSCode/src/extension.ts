@@ -1,13 +1,20 @@
 import { ChildProcess, spawn } from "child_process";
+import { createHash } from "crypto";
 import { once } from "events";
 import { promises as fs } from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import { redactSensitiveText, resolveWorkspaceConfigPath } from "./security";
+import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
+import { redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath } from "./security";
+import { RunCoordinator } from "./run-coordinator";
+import { buildCliArguments, normalizeProvider } from "./command-args";
 
 const RUN_VALIDATION_COMMAND = "dataguard.runValidation";
 const CANCEL_VALIDATION_COMMAND = "dataguard.cancelValidation";
+const ASSESS_COMMAND = "dataguard.assess";
+const SNAPSHOT_COMMAND = "dataguard.refreshSnapshot";
+const BASELINE_COMMAND = "dataguard.createBaseline";
 const OUTPUT_CHANNEL_NAME = "DataGuard";
 
 interface SarifLog {
@@ -41,16 +48,25 @@ interface SarifLocation {
 interface ValidationRun {
     readonly child: ChildProcess;
     readonly outputDirectory: string;
-    readonly outputPath: string;
+    readonly outputPath?: string;
     timedOut: boolean;
     cancelled: boolean;
     timeout: NodeJS.Timeout;
+    cancel: () => void;
 }
+
+interface ChildExit {
+    readonly code: number | null;
+    readonly output: string;
+}
+
+const MAX_CLI_OUTPUT = 16 * 1024;
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let diagnostics: vscode.DiagnosticCollection | undefined;
-const activeRuns = new Map<string, ValidationRun>();
+const runCoordinator = new RunCoordinator<ValidationRun>();
+let languageClient: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -64,16 +80,21 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand(RUN_VALIDATION_COMMAND, () => runValidation()),
         vscode.commands.registerCommand(CANCEL_VALIDATION_COMMAND, () => cancelValidation()),
+        vscode.commands.registerCommand(ASSESS_COMMAND, () => runAssessment()),
+        vscode.commands.registerCommand(SNAPSHOT_COMMAND, () => runConfirmedOperation("snapshot")),
+        vscode.commands.registerCommand(BASELINE_COMMAND, () => runConfirmedOperation("baseline")),
     );
+    void startLanguageServer(context);
 }
 
 export function deactivate(): void {
-    for (const run of activeRuns.values()) {
+    void languageClient?.stop();
+    languageClient = undefined;
+    const run = runCoordinator.cancel();
+    if (run) {
         clearTimeout(run.timeout);
-        terminateProcessTree(run.child);
         void fs.rm(run.outputDirectory, { recursive: true, force: true });
     }
-    activeRuns.clear();
     statusBarItem?.dispose();
     outputChannel?.dispose();
     diagnostics?.dispose();
@@ -82,7 +103,51 @@ export function deactivate(): void {
     diagnostics = undefined;
 }
 
+async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
+    const serverPath = context.asAbsolutePath(path.join("server", "DataGuard.LanguageServer.dll"));
+    try {
+        await verifyLanguageServerArtifact(serverPath);
+    } catch {
+        getOutputChannel().appendLine("[DataGuard] Local language server artifact is missing or failed integrity verification; LSP is disabled.");
+        return;
+    }
+
+    const serverOptions: ServerOptions = { run: { command: "dotnet", args: [serverPath] }, debug: { command: "dotnet", args: [serverPath] } };
+    const clientOptions: LanguageClientOptions = { documentSelector: [{ scheme: "file", language: "csharp" }] };
+    languageClient = new LanguageClient("dataguardLanguageServer", "DataGuard Language Server", serverOptions, clientOptions);
+    await languageClient.start();
+    context.subscriptions.push({ dispose: () => { void languageClient?.stop(); } });
+}
+
+async function verifyLanguageServerArtifact(serverPath: string): Promise<void> {
+    const manifestPath = path.join(path.dirname(serverPath), "manifest.json");
+    const [artifact, manifestText] = await Promise.all([fs.readFile(serverPath), fs.readFile(manifestPath, "utf8")]);
+    const manifest = JSON.parse(manifestText) as { schemaVersion?: number; artifact?: string; sha256?: string };
+    const actual = createHash("sha256").update(artifact).digest("hex");
+    if (manifest.schemaVersion !== 1 || manifest.artifact !== path.basename(serverPath) || manifest.sha256 !== actual) {
+        throw new Error("Invalid DataGuard language server artifact manifest.");
+    }
+}
+
 async function runValidation(): Promise<void> {
+    await runCliCommand("validate", "timeoutSeconds");
+}
+
+async function runAssessment(): Promise<void> {
+    await runCliCommand("assess", "assessmentTimeoutSeconds");
+}
+
+async function runConfirmedOperation(command: "snapshot" | "baseline"): Promise<void> {
+    const action = command === "snapshot" ? "refresh the schema snapshot" : "create a baseline";
+    const choice = await vscode.window.showWarningMessage(`DataGuard will ${action} using the configured provider and credentials. Continue?`, { modal: true }, "Continue");
+    if (choice !== "Continue") {
+        return;
+    }
+
+    await runCliCommand(command, "timeoutSeconds");
+}
+
+async function runCliCommand(command: "validate" | "assess" | "snapshot" | "baseline", timeoutSetting: "timeoutSeconds" | "assessmentTimeoutSeconds"): Promise<void> {
     if (!vscode.workspace.isTrusted) {
         void vscode.window.showWarningMessage("DataGuard does not run CLI commands in an untrusted workspace. Trust this workspace first.");
         return;
@@ -94,10 +159,12 @@ async function runValidation(): Promise<void> {
         return;
     }
 
-    const runKey = workspaceFolder.uri.toString();
-    if (activeRuns.has(runKey)) {
-        void vscode.window.showInformationMessage("DataGuard validation is already running for this workspace.");
-        return;
+    if (runCoordinator.current) {
+        const active = runCoordinator.cancel();
+        if (active) {
+            clearTimeout(active.timeout);
+        }
+        void vscode.window.showInformationMessage("DataGuard replaced the previous run with this command.");
     }
 
     const configuration = vscode.workspace.getConfiguration("dataguard", workspaceFolder.uri);
@@ -106,28 +173,38 @@ async function runValidation(): Promise<void> {
         return;
     }
 
-    let configPath: string;
+    let configPath: string | undefined;
+    if (command === "validate" || command === "snapshot" || command === "baseline") {
+        try {
+            configPath = resolveWorkspaceConfigPath(
+                workspaceFolder.uri.fsPath,
+                configuration.get<string>("configPath", ".dataguard.yml"),
+            );
+        } catch (error) {
+            void vscode.window.showErrorMessage(`DataGuard: ${error instanceof Error ? error.message : String(error)}`);
+            return;
+        }
+    }
+
+    const cliPath = vscode.workspace.getConfiguration("dataguard").get<string>("cliPath", "dataguard");
+    const timeoutSeconds = Math.min(900, Math.max(5, configuration.get<number>(timeoutSetting, 60)));
+    let provider: string;
     try {
-        configPath = resolveWorkspaceConfigPath(
-            workspaceFolder.uri.fsPath,
-            configuration.get<string>("configPath", ".dataguard.yml"),
-        );
+        provider = normalizeProvider(configuration.get<string>("provider", "sqlserver"));
     } catch (error) {
         void vscode.window.showErrorMessage(`DataGuard: ${error instanceof Error ? error.message : String(error)}`);
         return;
     }
-
-    const cliPath = vscode.workspace.getConfiguration("dataguard").get<string>("cliPath", "dataguard");
-    const timeoutSeconds = Math.min(900, Math.max(5, configuration.get<number>("timeoutSeconds", 60)));
     const channel = getOutputChannel();
     channel.clear();
     channel.show(true);
     diagnostics?.clear();
 
     const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "dataguard-"));
-    const outputPath = path.join(outputDirectory, "validation.sarif");
-    const args = ["validate", "--config", configPath, "--format", "sarif", "--output", outputPath];
-    channel.appendLine("[DataGuard] Validation started. Detailed CLI output is not displayed to prevent credential disclosure.");
+    const expectsSarif = command === "validate" || command === "assess";
+    const outputPath = expectsSarif ? path.join(outputDirectory, "validation.sarif") : undefined;
+    const args = buildCliArguments(command, workspaceFolder.uri.fsPath, provider, configPath, outputPath);
+    channel.appendLine(`[DataGuard] ${command === "validate" ? "Validation" : "Local assessment"} started. Detailed CLI output is not displayed to prevent credential disclosure.`);
 
     let child: ChildProcess;
     try {
@@ -153,58 +230,62 @@ async function runValidation(): Promise<void> {
             run.timedOut = true;
             terminateProcessTree(child);
         }, timeoutSeconds * 1000),
+        cancel: () => terminateProcessTree(child),
     };
-    activeRuns.set(runKey, run);
+    runCoordinator.replace(run);
     setStatus("running");
 
     try {
-        const exitCode = await waitForExit(child, channel);
+        const result = await waitForExit(child, channel);
+        const exitCode = result.code;
+        if (result.output.length > 0) {
+            channel.appendLine(`[DataGuard] ${redactAndBoundSensitiveText(result.output, MAX_CLI_OUTPUT)}`);
+        }
         if (run.timedOut) {
-            channel.appendLine(`\n[DataGuard] validation timed out after ${timeoutSeconds} seconds.`);
+            channel.appendLine(`\n[DataGuard] ${command} timed out after ${timeoutSeconds} seconds.`);
             setStatus("error");
-            void vscode.window.showErrorMessage(`DataGuard validation timed out after ${timeoutSeconds} seconds.`);
+            void vscode.window.showErrorMessage(`DataGuard ${command} timed out after ${timeoutSeconds} seconds.`);
             return;
         }
         if (run.cancelled) {
-            channel.appendLine("\n[DataGuard] validation cancelled.");
+            channel.appendLine(`\n[DataGuard] ${command} cancelled.`);
             return;
         }
 
-        await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel);
+        if (expectsSarif && outputPath) {
+            const diagnosticCount = await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel);
+            channel.appendLine(`[DataGuard] SARIF summary: ${diagnosticCount} finding(s) loaded into Problems.`);
+        }
         channel.appendLine(`\n[DataGuard] exited with code ${exitCode ?? "unknown"}`);
         if (exitCode === 0) {
             setStatus("idle");
         } else if (exitCode === 1) {
             setStatus("warning");
-            void vscode.window.showWarningMessage("DataGuard found contract violations. See Problems or the DataGuard output channel.");
+            void vscode.window.showWarningMessage(`DataGuard ${command} found findings. See Problems or the DataGuard output channel.`);
         } else {
             setStatus("error");
-            void vscode.window.showErrorMessage("DataGuard could not complete validation. See the DataGuard output channel.");
+            void vscode.window.showErrorMessage(`DataGuard could not complete ${command}. See the DataGuard output channel.`);
         }
     } finally {
         clearTimeout(run.timeout);
-        activeRuns.delete(runKey);
+        runCoordinator.clear(run);
         await fs.rm(outputDirectory, { recursive: true, force: true });
-        if (activeRuns.size === 0 && !run.timedOut && !run.cancelled) {
+        if (!runCoordinator.current && !run.timedOut && !run.cancelled) {
             setStatus("idle");
         }
     }
 }
 
 async function cancelValidation(): Promise<void> {
-    const workspaceFolder = await selectWorkspaceFolder();
-    if (!workspaceFolder) {
+    if (!runCoordinator.current) {
+        void vscode.window.showInformationMessage("No DataGuard command is running.");
         return;
     }
 
-    const run = activeRuns.get(workspaceFolder.uri.toString());
-    if (!run) {
-        void vscode.window.showInformationMessage("No DataGuard validation is running for this workspace.");
-        return;
+    const run = runCoordinator.cancel();
+    if (run) {
+        clearTimeout(run.timeout);
     }
-
-    run.cancelled = true;
-    terminateProcessTree(run.child);
     setStatus("warning");
 }
 
@@ -231,16 +312,23 @@ async function selectWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefin
     return selected?.folder;
 }
 
-async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<number | null> {
-    child.stdout?.resume();
-    child.stderr?.resume();
+async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<ChildExit> {
+    let output = "";
+    const append = (chunk: Buffer | string): void => {
+        if (output.length >= MAX_CLI_OUTPUT) {
+            return;
+        }
+        output += chunk.toString().slice(0, MAX_CLI_OUTPUT - output.length);
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
 
     try {
         const [code] = await once(child, "close");
-        return code as number | null;
+        return { code: code as number | null, output };
     } catch (error) {
         showStartError(error, channel);
-        return null;
+        return { code: null, output };
     }
 }
 
@@ -249,30 +337,35 @@ async function loadDiagnostics(
     workspaceFolder: vscode.WorkspaceFolder,
     collection: vscode.DiagnosticCollection | undefined,
     channel: vscode.OutputChannel,
-): Promise<void> {
+): Promise<number> {
     if (!collection) {
-        return;
+        return 0;
     }
     let sarif: SarifLog;
     try {
         sarif = JSON.parse(await fs.readFile(outputPath, "utf8")) as SarifLog;
     } catch (error) {
         channel.appendLine(`\n[DataGuard] SARIF output was unavailable or invalid: ${redactSensitiveText(String(error))}`);
-        return;
+        return 0;
     }
 
     collection.clear();
     const byDocument = new Map<string, { uri: vscode.Uri; diagnostics: vscode.Diagnostic[] }>();
-    for (const result of sarif.runs?.flatMap((run) => run.results ?? []) ?? []) {
+    const results = sarif.runs?.flatMap((run) => run.results ?? []) ?? [];
+    for (const result of results) {
         const location = result.locations?.[0]?.physicalLocation;
         const sourceUri = location?.artifactLocation?.uri;
         if (!sourceUri) {
             continue;
         }
 
-        const filePath = path.isAbsolute(sourceUri)
-            ? sourceUri
-            : path.resolve(workspaceFolder.uri.fsPath, sourceUri);
+        let filePath: string;
+        try {
+            filePath = resolveWorkspaceSarifPath(workspaceFolder.uri.fsPath, sourceUri);
+        } catch (error) {
+            channel.appendLine(`[DataGuard] Ignored external SARIF location: ${redactSensitiveText(error instanceof Error ? error.message : String(error))}`);
+            continue;
+        }
         const uri = vscode.Uri.file(filePath);
         const key = uri.toString();
         const entry = byDocument.get(key) ?? { uri, diagnostics: [] };
@@ -284,9 +377,12 @@ async function loadDiagnostics(
         byDocument.set(key, entry);
     }
 
+    let loadedCount = 0;
     for (const { uri, diagnostics: documentDiagnostics } of byDocument.values()) {
         collection.set(uri, documentDiagnostics);
+        loadedCount += documentDiagnostics.length;
     }
+    return loadedCount;
 }
 
 function toRange(region: SarifRegion | undefined): vscode.Range {

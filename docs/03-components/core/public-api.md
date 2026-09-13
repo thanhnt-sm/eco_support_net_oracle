@@ -61,6 +61,10 @@ Follows semantic versioning (MAJOR.MINOR.PATCH):
 - **MINOR** — new features, backward compatible
 - **PATCH** — bug fixes
 
+### Configuration defaults
+
+`CreatePipeline()` starts from `DataGuardConfigurationExtensions.Default()` and applies smart defaults. `CreatePipeline(config)` preserves the caller's record and applies smart defaults only when `config.EnableSmartDefaults` is true. Setting that flag to `false` is an opt-out: caller-owned values are passed through without automatic provider/schema changes.
+
 ## ValidationPipeline
 
 Fluent API for configuring and running validations. Implements `IDisposable`.
@@ -72,6 +76,13 @@ public sealed class ValidationPipeline : IDisposable
 
     public ValidationPipeline WithRules(params IContractRule[] rules) { ... }
     public ValidationPipeline WithPlugins(string pluginDirectory) { ... }
+    public ValidationPipeline WithPlugins(
+        string pluginDirectory,
+        PluginTrustPolicy? trustPolicy,
+        IPluginProvenanceVerifier? provenanceVerifier) { ... }
+
+`WithPlugins(path)` retains the strict default policy and admits a plugin only when a provenance verifier is supplied. The three-argument overload lets the host pass its operator-owned policy and verifier; a plugin never supplies its own trust root.
+
     public ValidationPipeline WithTelemetry(TelemetryConfig? config = null) { ... }
     public ValidationPipeline WithBaselineFile(string baselinePath = ".dataguard-baseline.json") { ... }
 
@@ -141,9 +152,20 @@ Loads an existing baseline file for drift comparison.
 
 ### CheckDriftAsync
 
-Compares current violations against baseline to detect schema drift.
+Compares current violations against baseline to detect violation drift. An
+overload accepts `DatabaseSchemaDescriptor` for structural schema drift and
+returns an explicit `DriftEvaluationStatus`; missing, corrupt, unsupported, or
+unevaluated input cannot be interpreted as a clean result.
 
 ## ValidationResult
+
+Detailed results expose additive `RuleOutcomes` for both concurrent and sequential
+execution. A rule is `Evaluated` because it actually ran, even when it produced
+zero violations. `Unavailable` and `Failed` make requested validation incomplete.
+`Skipped` records a rule that did not run; for example, sequential validation adds
+the configured-cap reason after retained findings fill its result capacity. In that
+case the enclosing `ExecutionStatus` is incomplete. Existing positional
+construction and legacy result members remain unchanged.
 
 Result of a validation run.
 
@@ -166,6 +188,8 @@ public sealed record ValidationResult(
         ? (double)TotalViolations / ContractsValidated : 0;
 }
 ```
+
+`ExecutionStatus` and `DroppedViolationCount` are additive result properties. A result is clean only when it has no displayed violations and execution is complete; baseline filtering cannot hide an incomplete run.
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -199,6 +223,10 @@ public sealed record DriftReport(
     public int NewViolationCount => NewViolations.Length;
 }
 ```
+
+`Status` is `Complete`, `Missing`, `Corrupt`, `UnsupportedVersion`,
+`Unevaluated`, or `Failed`.
+The default status is `Missing`; evaluated paths set it to `Complete` explicitly.
 
 | Property | Type | Description |
 |----------|------|-------------|

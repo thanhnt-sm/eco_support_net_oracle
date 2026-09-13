@@ -61,6 +61,10 @@ Tuân theo semantic versioning (MAJOR.MINOR.PATCH):
 - **MINOR** — tính năng mới, tương thích ngược
 - **PATCH** — sửa lỗi
 
+### Cấu hình mặc định
+
+`CreatePipeline()` khởi đầu từ `DataGuardConfigurationExtensions.Default()` và áp dụng smart defaults. `CreatePipeline(config)` giữ nguyên record của caller và chỉ áp dụng smart defaults khi `config.EnableSmartDefaults` là true. Đặt cờ này thành `false` là opt-out: các giá trị do caller sở hữu được truyền qua mà không tự động đổi provider/schema.
+
 ## ValidationPipeline
 
 API fluent để cấu hình và chạy validations. Implement `IDisposable`.
@@ -72,6 +76,13 @@ public sealed class ValidationPipeline : IDisposable
 
     public ValidationPipeline WithRules(params IContractRule[] rules) { ... }
     public ValidationPipeline WithPlugins(string pluginDirectory) { ... }
+    public ValidationPipeline WithPlugins(
+        string pluginDirectory,
+        PluginTrustPolicy? trustPolicy,
+        IPluginProvenanceVerifier? provenanceVerifier) { ... }
+
+`WithPlugins(path)` giữ policy strict mặc định và chỉ nhận plugin khi có provenance verifier. Overload ba tham số cho phép host truyền policy và verifier do operator sở hữu; plugin không tự cấp trust root.
+
     public ValidationPipeline WithTelemetry(TelemetryConfig? config = null) { ... }
     public ValidationPipeline WithBaselineFile(string baselinePath = ".dataguard-baseline.json") { ... }
 
@@ -133,6 +144,13 @@ public async Task<ValidationResult> ValidateAsync(
 
 ## ValidationResult
 
+Kết quả chi tiết của cả đường concurrent lẫn sequential có thêm `RuleOutcomes`.
+Rule là `Evaluated` vì nó đã thực sự chạy, kể cả khi không tạo violation.
+`Unavailable` và `Failed` làm requested validation incomplete. `Skipped` ghi nhận
+rule không chạy; chẳng hạn sequential validation ghi lý do violation cap sau khi
+các finding giữ lại đã đầy dung lượng. Khi đó `ExecutionStatus` bao quanh là
+incomplete. Cách tạo positional và các thành viên kết quả legacy vẫn không đổi.
+
 Kết quả của một lần chạy validation.
 
 ```csharp
@@ -155,6 +173,8 @@ public sealed record ValidationResult(
 }
 ```
 
+`ExecutionStatus` và `DroppedViolationCount` là các thuộc tính kết quả được thêm theo hướng tương thích. Kết quả chỉ clean khi không có violation hiển thị và execution complete; lọc baseline không thể che một run incomplete.
+
 | Thuộc tính | Kiểu | Mô tả |
 |------------|------|-------|
 | `ContractsValidated` | `int` | Số contracts đã kiểm tra |
@@ -170,7 +190,10 @@ public sealed record ValidationResult(
 
 ## DriftReport
 
-Báo cáo từ phát hiện drift so với baseline.
+Báo cáo từ phát hiện violation drift so với baseline. Overload nhận
+`DatabaseSchemaDescriptor` dùng cho structural schema drift và trả về
+`DriftEvaluationStatus` tường minh; input thiếu, hỏng, không hỗ trợ hoặc chưa
+đánh giá không thể bị hiểu thành kết quả clean.
 
 ```csharp
 public sealed record DriftReport(
@@ -186,6 +209,10 @@ public sealed record DriftReport(
     public int NewViolationCount => NewViolations.Length;
 }
 ```
+
+`Status` có thể là `Complete`, `Missing`, `Corrupt`, `UnsupportedVersion`,
+`Unevaluated` hoặc `Failed`.
+Mặc định là `Missing`; các đường chạy đã đánh giá sẽ gán tường minh `Complete`.
 
 | Thuộc tính | Kiểu | Mô tả |
 |------------|------|-------|

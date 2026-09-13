@@ -127,7 +127,7 @@ dataguard hook install  # Auto-detect: Husky, lefthook, native git
 - **ConcurrentValidationEngine**: Parallel rules, configurable parallelism
 - **Streaming SARIF**: Utf8JsonWriter, no full object graph in memory
 - **Baseline v2**: Memory-mapped I/O >1MB, SchemaHash (SHA256-64bit)
-- **SchemaHash Caching**: Memory + File cache, 1hr TTL
+- **Baseline content cache**: bounded process-local memory cache keyed by content digest, 1hr TTL; not used as fresh-live evidence
 
 ### ✅ Health Checks (K8s Ready)
 - `/health/live` - Liveness probe
@@ -228,15 +228,19 @@ SELECT NVL(col, 'default') FROM table;
 
 ## Hiệu Suất / Performance / Hiệu Suất
 
-| Metric | Target | Typical |
-|--------|--------|---------|
-| **IDE Latency** (per keystroke) | < 10ms | ~2-5ms |
-| **Full Validation** (100 contracts) | < 5s | ~2-3s |
-| **Offline Validation** | < 1s | ~200ms |
-| **Baseline Create** (1000 violations) | < 500ms | ~200ms |
-| **SARIF Streaming** (10k violations) | < 1s | ~500ms |
-| **Memory Peak** (10k violations) | < 200MB | ~80MB |
-| **SchemaHash Compute** | < 50ms | ~10ms (cached) |
+| Metric | Target | Current evidence |
+|--------|--------|------------------|
+| **IDE Latency** (per keystroke) | < 10ms | Not yet measured in a Roslyn host scenario |
+| **Full Validation** (100 contracts) | < 5s | Not yet measured on a fixed validation corpus |
+| **Offline Validation** | < 1s | Not yet measured on a fixed corpus |
+| **Baseline Create** (1000 violations) | < 500ms | Not yet measured |
+| **SARIF Streaming** (10k violations) | < 1s | Not yet measured |
+| **Memory Peak** (10k violations) | < 200MB | Not yet measured |
+| **SchemaHash Compute** | < 50ms | Not yet measured |
+
+The reproducible parser and local classifier measurements are documented in
+[`docs/PERFORMANCE.md`](PERFORMANCE.md). Targets above remain unaccepted until
+their matching benchmark corpus and baseline exist.
 
 ---
 

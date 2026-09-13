@@ -10,6 +10,9 @@ graph TB
         SCA[SkipContractCheckAttribute]
         ECA[ExpectedColumnAttribute]
         ESPA[ExpectedSpParameterAttribute]
+        DCA[DataContractAttribute]
+        SPA[SqlParameterAttribute]
+        RSA[ResultSetAttribute]
         PD[ParameterDirection enum]
         NC[NameConventions utility]
     end
@@ -32,6 +35,9 @@ graph TB
 
     ECA -->|đọc qua reflection| MS
     ESPA -->|đọc qua reflection| MS
+    DCA -->|đọc qua reflection| MS
+    SPA -->|đọc qua reflection| MS
+    RSA -->|đọc qua reflection| MS
     SCA -->|kiểm tra trong analyzer| IDE
     NC -->|sử dụng bởi| IDE
 ```
@@ -40,7 +46,7 @@ graph TB
 
 | File | Dòng | Mục đích |
 |------|------|----------|
-| `ContractAttributes.cs` | ~110 | SkipContractCheckAttribute, ExpectedColumnAttribute, ExpectedSpParameterAttribute, ParameterDirection |
+| `ContractAttributes.cs` | ~210 | Contract attributes, compatibility facade, ParameterDirection |
 | `NameConventions.cs` | ~60 | Chuyển đổi ToSnakeCase, ToPascalCase |
 
 ## Cấu hình project
@@ -54,6 +60,27 @@ graph TB
 ```
 
 Nhắm đến `netstandard2.0` để tương thích tối đa — có thể được tham chiếu từ .NET Framework 4.6.1+, .NET Core 2.0+, và .NET 5+.
+
+## Attribute tương thích
+
+Manual extraction cũng chấp nhận các attribute tương thích được định danh đầy đủ:
+
+```csharp
+[global::DataGuard.Contracts.DataContract("CUSTOMERS", Schema = "dbo")]
+public sealed class Customer
+{
+    public int Id { get; set; }
+
+    [global::DataGuard.Contracts.ResultSet("CUSTOMER_NAME", "string", MaxLength = 100)]
+    public string Find([global::DataGuard.Contracts.SqlParameter("p_id", "NUMBER")] int id) => string.Empty;
+}
+```
+
+`DataContract` cung cấp định danh entity/table, `SqlParameter` cung cấp một
+method parameter, và mỗi `ResultSet` cung cấp một result column. Phải qualify
+`DataContract` vì `System.Runtime.Serialization.DataContractAttribute` có cùng
+tên ngắn. Các attribute này là additive; `ExpectedColumn` và
+`ExpectedSpParameter` giữ nguyên hành vi hiện có.
 
 ## SkipContractCheckAttribute
 

@@ -65,7 +65,7 @@ public static class ContractEvidenceWriter
                 .ToList(),
         };
         var json = JsonSerializer.Serialize(evidence, new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-        return File.WriteAllTextAsync(outputPath, json, cancellationToken);
+        return ContractExportWriter.WriteAtomicallyAsync(outputPath, json, cancellationToken);
     }
 
     private static string ToSeverity(DiagnosticSeverity severity) => severity switch

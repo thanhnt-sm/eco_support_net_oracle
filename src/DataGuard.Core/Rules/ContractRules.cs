@@ -519,3 +519,22 @@ public class NamingConventionRule : ContractRuleBase
     public static string ToPascalCase(string snakeCase)
         => DataGuard.Contracts.NameConventions.ToPascalCase(snakeCase);
 }
+
+/// <summary>Rule: raw SQL must parse before semantic validation can be complete.</summary>
+public sealed class RawSqlParseStatusRule : ContractRuleBase
+{
+    public override string RuleId => "DG016";
+    public override string Name => "Raw SQL Parse Status";
+    public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+    public override string Description => "Raw SQL must parse successfully before validation";
+
+    protected override Task ValidateCoreAsync(ContractDescriptor contract, IReadOnlyList<ContractDescriptor> allContracts, List<ContractViolation> violations, CancellationToken cancellationToken)
+    {
+        if (contract is RawSqlDescriptor { ParseStatus: RawSqlParseStatus.Invalid } rawSql)
+        {
+            violations.Add(CreateViolation(RuleId, $"Raw SQL could not be parsed: {rawSql.ParseError ?? "unknown parse error"}", Severity, contract.Location));
+        }
+
+        return Task.CompletedTask;
+    }
+}

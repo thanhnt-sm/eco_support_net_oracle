@@ -207,7 +207,7 @@ Note: the raw-SQL parsing surface lives in `DataGuard.Core/Sources/SqlServerPars
 
 | Type | Kind | Purpose |
 |------|------|---------|
-| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | IDE light layer: syntax-only analysis on keystroke (~ms), zero-allocation value-type call sites |
+| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | IDE light layer: bounded syntax-only analysis on keystroke; value-type call-site representation |
 | `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | CI heavy layer: full semantic analysis |
 | `DiagnosticIds` / `DiagnosticDescriptors` | Static classes | Shared DG-prefixed diagnostic identities |
 

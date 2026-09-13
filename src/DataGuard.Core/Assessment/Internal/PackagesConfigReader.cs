@@ -14,8 +14,7 @@ public static class PackagesConfigReader
     {
         try
         {
-            var fullPath = Path.GetFullPath(configPath);
-            if (!fullPath.StartsWith(Path.GetFullPath(workspaceRoot), StringComparison.Ordinal))
+            if (!AssessmentPathPolicy.TryResolveInsideRoot(workspaceRoot, configPath, out var fullPath, out _))
             {
                 return (Array.Empty<PackageEntry>(), new ToolError { Code = "DG1001", Path = configPath, Message = "packages.config resolves outside the requested workspace" });
             }

@@ -50,7 +50,7 @@ jobs:
         run: dotnet build DataGuard.sln --configuration Release --no-restore /p:RunAnalyzers=true
 
       - name: Enforce formatting (dotnet format gate)
-        run: dotnet format DataGuard.sln --verify-no-changes --no-restore
+        run: timeout --signal=TERM --kill-after=30s 5m dotnet format DataGuard.sln --verify-no-changes --no-restore
 
       - name: Run tests (fail-fast)
         run: dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
@@ -69,9 +69,15 @@ jobs:
           for f in files:
               r = ET.parse(f).getroot()
               for cls in r.iter('class'):
-                  fn = cls.attrib['filename']
-                  if "/obj/" in fn.replace("\\", "/"):
+                  fn = cls.attrib['filename'].replace("\\", "/")
+                  if "/obj/" in fn:
                       continue
+                  # Coverlet can emit the same source both relative to `src/`
+                  # and as an absolute checkout path.  Collapse them before
+                  # aggregating so one file is not counted twice.
+                  marker = "/src/"
+                  if marker in fn:
+                      fn = fn.split(marker, 1)[1]
                   for line in cls.iter('line'):
                       key = (fn, int(line.attrib['number']))
                       hits[key] = hits[key] or int(line.attrib['hits']) > 0
@@ -208,6 +214,44 @@ jobs:
         with:
           name: sbom
           path: ./sbom/**/*
+          retention-days: 7
+
+  benchmark:
+    name: Benchmark (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore benchmark project
+        run: dotnet restore tools/benchmarks/DataGuard.Benchmarks/DataGuard.Benchmarks.csproj --locked-mode
+
+      - name: Run deterministic benchmark smoke
+        run: |
+          DATAGUARD_BENCHMARK_COMMIT="$(git rev-parse HEAD)" \
+          DATAGUARD_BENCHMARK_SDK="$(dotnet --version)" \
+          DATAGUARD_BENCHMARK_WORKTREE=clean \
+          dotnet run --project tools/benchmarks/DataGuard.Benchmarks/DataGuard.Benchmarks.csproj --configuration Release --no-restore -- --classifier-only --job Dry
+
+      - name: Validate benchmark metadata
+        run: python3 tools/benchmarks/DataGuard.Benchmarks/scripts/validate_benchmark_claim.py tools/benchmarks/DataGuard.Benchmarks/BenchmarkDotNet.Artifacts/benchmark-metadata.json
+
+      - name: Upload benchmark artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmark-artifacts
+          path: tools/benchmarks/DataGuard.Benchmarks/BenchmarkDotNet.Artifacts/**
+          if-no-files-found: warn
           retention-days: 7
 
   docker-smoke:

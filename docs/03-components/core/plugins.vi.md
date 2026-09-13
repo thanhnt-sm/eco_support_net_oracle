@@ -72,7 +72,7 @@ public sealed class RulePluginManager : IDisposable
 
 ### Thư Mục Plugin
 
-Chỉ thư mục plugin được cung cấp rõ ràng mới được quét. Vị trí mặc định (`%APPDATA%/DataGuard/Plugins`) có thể ghi bởi người dùng và không bao giờ tự động tải code.
+Chỉ thư mục plugin được cung cấp rõ ràng mới được quét. Vị trí mặc định (`%APPDATA%/DataGuard/Plugins`) có thể ghi bởi người dùng và không bao giờ tự động tải code. Trước khi tạo `AssemblyLoadContext`, DataGuard yêu cầu manifest `.dataguard-plugin.json` kề DLL để bind plugin ID, rule ID, version, host API version và SHA-256 digest. Policy mặc định cũng yêu cầu provenance verifier do operator cung cấp; verifier nhận manifest cùng snapshot copy của main/dependency bytes đã admission thay vì tự đọc lại path. Plugin thiếu, malformed, symlinked, incompatible, unsigned, sai digest, trùng rule hoặc xung đột rule built-in bị từ chối trước load và được ghi thành admission result. Admission giữ lại managed bytes đã hash, gồm từng entry `managedDependencies` đã khai báo. Collectible context chỉ resolve các dependency đã khai báo từ bytes đã xác thực và không probe lại thư mục plugin. Native dependency bị từ chối. Admission đọc metadata PE của DLL chính và mọi dependency đã khai báo: reference managed ngoài framework/host allowlist phải có entry manifest với assembly identity khớp. Vẫn còn acceptance work về one-handle/no-follow và signed provenance. Load context chỉ cô lập lifecycle, không sandbox code đã được nhận. Interface provenance verifier là điểm tích hợp, không phải bằng chứng signed provenance đã được xác minh.
 
 ```csharp
 var dir = pluginDirectory;
@@ -83,7 +83,7 @@ if (dir != null && Directory.Exists(dir))
         var alc = new AssemblyLoadContext(
             $"DataGuard.Plugin:{Path.GetFileName(assemblyFile)}",
             isCollectible: true);
-        var assembly = alc.LoadFromAssemblyPath(assemblyFile);
+        var assembly = alc.LoadFromStream(verifiedStream);
         config = config.WithAssembly(assembly);
     }
 }
@@ -236,6 +236,11 @@ stateDiagram-v2
     Active --> Unloaded: Dispose() được gọi
     Unloaded --> [*]: AssemblyLoadContext.Unload()
 ```
+
+`ValidationPipeline.WithPlugins(...)` sở hữu mọi manager được tạo, kể cả khi gọi
+nhiều lần. Khi dispose pipeline, tất cả manager được sở hữu sẽ được dispose và xóa
+tham chiếu; việc unload là hợp tác và có thể bị trì hoãn nếu bên ngoài vẫn giữ
+tham chiếu plugin.
 
 ## Tạo Plugin
 

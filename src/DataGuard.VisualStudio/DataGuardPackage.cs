@@ -32,6 +32,7 @@ public sealed class DataGuardPackage : AsyncPackage
 
     private const int ValidateCommandId = 0x0100;
     private const int CancelCommandId = 0x0101;
+    private const int AssessCommandId = 0x0102;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
     private static readonly Guid CommandSet = new (CommandSetGuidString);
     private static readonly Guid OutputPaneGuid = new ("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
@@ -56,6 +57,9 @@ public sealed class DataGuardPackage : AsyncPackage
         commandService.AddCommand(new OleMenuCommand(
             (_, _) => this.JoinableTaskFactory.RunAsync(this.CancelValidationAsync).FileAndForget("DataGuard/CancelValidation"),
             new CommandID(CommandSet, CancelCommandId)));
+        commandService.AddCommand(new OleMenuCommand(
+            (_, _) => this.JoinableTaskFactory.RunAsync(this.RunAssessmentAsync).FileAndForget("DataGuard/Assess"),
+            new CommandID(CommandSet, AssessCommandId)));
     }
 
     /// <inheritdoc />
@@ -134,6 +138,16 @@ public sealed class DataGuardPackage : AsyncPackage
 
     private async Task RunValidationAsync()
     {
+        await this.RunCliAsync("validate");
+    }
+
+    private async Task RunAssessmentAsync()
+    {
+        await this.RunCliAsync("assess");
+    }
+
+    private async Task RunCliAsync(string command)
+    {
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         var solution = await this.GetServiceAsync(typeof(SVsSolution)) as IVsSolution;
         if (solution == null)
@@ -145,7 +159,7 @@ public sealed class DataGuardPackage : AsyncPackage
         ErrorHandler.ThrowOnFailure(solution.GetSolutionInfo(out var solutionDirectory, out _, out _));
         if (string.IsNullOrWhiteSpace(solutionDirectory))
         {
-            await this.WriteOutputAsync("[DataGuard] Open a solution before validation.\r\n");
+            await this.WriteOutputAsync("[DataGuard] Open a solution before running " + command + ".\r\n");
             return;
         }
 
@@ -153,7 +167,7 @@ public sealed class DataGuardPackage : AsyncPackage
         {
             if (this.activeProcess != null)
             {
-                _ = this.WriteOutputAsync("[DataGuard] Validation is already running for this solution.\r\n");
+                _ = this.WriteOutputAsync("[DataGuard] A DataGuard command is already running for this solution.\r\n");
                 return;
             }
         }
@@ -161,12 +175,13 @@ public sealed class DataGuardPackage : AsyncPackage
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
-        var configPath = Path.Combine(solutionDirectory, ".dataguard.yml");
         var cliPath = Environment.GetEnvironmentVariable("DATAGUARD_CLI_PATH") ?? "dataguard";
         var startInfo = new ProcessStartInfo
         {
             FileName = cliPath,
-            Arguments = "validate --config " + Quote(configPath) + " --format sarif --output " + Quote(sarifPath),
+            Arguments = command == "validate"
+                ? "validate --config " + Quote(Path.Combine(solutionDirectory, ".dataguard.yml")) + " --format sarif --output " + Quote(sarifPath)
+                : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath),
             WorkingDirectory = solutionDirectory,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -183,7 +198,7 @@ public sealed class DataGuardPackage : AsyncPackage
             }
 
             process.Start();
-            await this.WriteOutputAsync("[DataGuard] Validation started. Detailed CLI output is not displayed to prevent credential disclosure.\r\n");
+            await this.WriteOutputAsync("[DataGuard] " + command + " started. Detailed CLI output is not displayed to prevent credential disclosure.\r\n");
 
             var stdoutDrainTask = DrainAsync(process.StandardOutput);
             var stderrDrainTask = DrainAsync(process.StandardError);
@@ -193,18 +208,18 @@ public sealed class DataGuardPackage : AsyncPackage
             {
                 var terminated = StopProcess(process);
                 await this.WriteOutputAsync(terminated
-                    ? "[DataGuard] Validation timed out after 60 seconds and its process tree was terminated.\r\n"
-                    : "[DataGuard] Validation timed out, but its process tree could not be terminated. Stop it manually.\r\n");
+                    ? "[DataGuard] " + command + " timed out after 60 seconds and its process tree was terminated.\r\n"
+                    : "[DataGuard] " + command + " timed out, but its process tree could not be terminated. Stop it manually.\r\n");
                 return;
             }
 
             await Task.WhenAll(stdoutDrainTask, stderrDrainTask);
             await this.PublishSarifAsync(sarifPath);
-            await this.WriteOutputAsync("[DataGuard] Validation exited with code " + process.ExitCode + ".\r\n");
+            await this.WriteOutputAsync("[DataGuard] " + command + " exited with code " + process.ExitCode + ".\r\n");
         }
         catch (Exception ex)
         {
-            await this.WriteOutputAsync("[DataGuard] Failed to start validation: " + Redact(ex.Message) + "\r\n");
+            await this.WriteOutputAsync("[DataGuard] Failed to start " + command + ": " + Redact(ex.Message) + "\r\n");
         }
         finally
         {

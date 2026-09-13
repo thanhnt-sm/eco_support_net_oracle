@@ -69,6 +69,18 @@ public static class AssessmentEngine
 6. Quét config files với `SecretsPack.AssessFile()`
 7. Tạo `AssessmentReport` với tổng hợp số lượng
 
+Việc khám phá filesystem được giới hạn 10.000 file cho mỗi pattern để workspace
+bất thường không khiến bộ nhớ tăng không giới hạn. Path của reader được kiểm tra
+containment cả lexical và resolved-target trước khi mở; lỗi link hoặc quyền không
+được biến thành finding đoán mò.
+Các parser project, SDK và lock-file áp dụng cùng giới hạn input 2 MiB trước khi parse.
+Khi discovery chạm giới hạn, report chứa `DG1007` để kết quả bị cắt được đánh dấu
+partial rõ ràng.
+Directory reparse point được bỏ qua trong quá trình discovery đệ quy.
+Lock file quá lớn phát ra `DG1204`, không bị coi như graph rỗng nhưng khỏe mạnh.
+`RunAsync` truyền cancellation qua local scan và trả về tool error `DG1006` được đánh
+dấu partial trước khi thực hiện bất kỳ remote advisory call nào.
+
 ## AssessmentRequest
 
 ```csharp
@@ -85,7 +97,7 @@ public sealed record AssessmentRequest
 ```csharp
 public sealed record AssessmentReport
 {
-    public string SchemaVersion { get; init; } = "1.0";
+    public string SchemaVersion { get; init; } = "1.1";
     required public string ToolVersion { get; init; }
     required public string Target { get; init; }
     required public DateTimeOffset GeneratedAt { get; init; }
@@ -142,6 +154,29 @@ Khám phá projects và phân tích target framework monikers (TFMs).
 
 Kiểm tra tính nhất quán lock file và sức khỏe dependencies.
 
+`DependencyHealthScoreCalculator` chỉ dùng công thức có phiên bản
+`dependency-health-v1` khi mọi public package coordinate đã được phê duyệt có
+advisory coverage hoàn chỉnh. Inventory rỗng hoặc không có public coordinate được
+phê duyệt là `Unknown`; thiếu coverage là `Partial` và không có numeric score. Vì
+vậy score không thể hiển thị `100` lạc quan cho lookup offline hoặc chưa hoàn chỉnh.
+Entry lock lỗi/chưa resolve, lock không khớp TFM, và TFM không hỗ trợ/EOL cũng là
+`Partial` và không có numeric score.
+Envelope additive `AssessmentReport.DependencyHealth` chứa state, score số khi
+hoàn chỉnh và phiên bản công thức.
+
+Remote advisory bị tắt mặc định. Nó cần cả opt-in remote lookup của assessment và
+policy do operator đặt để cho phép network egress, dùng đúng HTTPS endpoint cố định
+`api.osv.dev`, và liệt kê từng NuGet package public được phép rời process. OSV client
+chỉ gửi package name cùng resolved version, từ chối redirect, giới hạn page, detail,
+response size và timeout, rồi trả `ToolError` nếu remote thất bại. Lock-file finding
+local vẫn tiếp tục khi service không dùng được. Coordinate private hoặc chưa phân loại
+không bao giờ được gửi.
+Endpoint là field additive của policy để test deterministic, nhưng request fail-closed
+nếu không còn là HTTPS trên `api.osv.dev`.
+
+Mọi giới hạn công việc egress phải dương: package batch, page, advisory-detail,
+response-byte và timeout. Giá trị bằng 0 hoặc âm sẽ tắt lookup trước khi tạo HTTP request.
+
 **Kiểm tra:**
 - Sự tồn tại và tính mới của `packages.lock.json`
 - Migration `packages.config` vs `PackageReference`
@@ -164,6 +199,14 @@ Phát hiện giá trị giống secret trong config files.
 - Connection strings cứng trong config files
 - API keys, tokens, passwords dạng plain text
 - Đường dẫn đặc thù máy ảnh hưởng tính di động
+
+### Giới hạn input
+
+Reader trước hết xác thực containment theo lexical, sau đó resolve mọi file hoặc
+directory link đang tồn tại từ workspace root đến input. Traversal, sibling-prefix
+và link target nằm ngoài root bị từ chối trước khi mở file; evidence chỉ dùng path
+chuẩn hóa tương đối với workspace. Đây là kiểm tra best effort tại thời điểm open,
+không khẳng định chống lại thay đổi filesystem hostile giữa lúc kiểm tra và mở file.
 
 ## UpgradePlanner
 

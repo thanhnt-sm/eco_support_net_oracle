@@ -1,5 +1,11 @@
 # Release evidence — .NET Developer Platform assessment capability
 
+> Historical evidence only. The 2026-08-23 assessment below is not current release
+> proof. Current local baseline evidence is recorded in
+> `plans/260912-2016-scout-remediation/reports/execution-evidence.md`; it still does
+> not include live database, Windows/Visual Studio, coverage, benchmark, signing, or
+> marketplace-publish evidence.
+
 Ngày: 2026-08-23. Commit baseline: `ea17a05`. Mọi lệnh chạy từ repository root, macOS arm64, .NET SDK 9.0.310.
 
 ## 1. Commands và kết quả
@@ -33,7 +39,7 @@ Chạy bằng binary build Release `src/DataGuard.Cli/bin/Release/net9.0/DataGua
 
 ## 3. Schema version
 
-`AssessmentReport.CurrentSchemaVersion = "1.0"` (`src/DataGuard.Core/Assessment/AssessmentContracts.cs`). Bump bắt buộc khi đổi serialized shape.
+`AssessmentReport.CurrentSchemaVersion = "1.1"` (`src/DataGuard.Core/Assessment/AssessmentContracts.cs`) after adding the dependency-health envelope; future serialized-shape changes require another bump.
 
 ## 4. Shipped capabilities
 
@@ -50,8 +56,8 @@ Chạy bằng binary build Release `src/DataGuard.Cli/bin/Release/net9.0/DataGua
 
 - Chưa chạy trên máy Windows/Linux thật; chỉ verified trên macOS arm64.
 - `packages.config` legacy format: reader có sẵn (`PackagesConfigReader.cs`) nhưng chưa có rule pack riêng dùng nó trong release này.
-- Remote advisory lookup (opt-in): chưa implement trong release đầu; matrix cell ghi rõ là không ship.
-- Visual Studio / VS Code extension surfaces chưa expose assess command; chỉ CLI + programmatic API.
+- Remote advisory lookup (opt-in): implemented with double opt-in, bounded OSV client, provenance-backed findings, and explicit external-origin acceptance still open.
+- Visual Studio / VS Code surfaces expose the local assess command; Windows VSIX host acceptance remains unverified, while VS Code local extension-host smoke passes.
 
 ## 6. Cách tái lập
 

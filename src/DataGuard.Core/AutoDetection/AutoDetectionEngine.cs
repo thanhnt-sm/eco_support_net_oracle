@@ -491,7 +491,25 @@ public static class InteractiveConfigBuilder
         string projectRoot,
         IConsole console,
         CancellationToken cancellationToken = default)
+        => await RunWizardAsync(
+            projectRoot,
+            console,
+            Path.Combine(projectRoot, ".dataguard.yml"),
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Runs the interactive setup wizard and writes the resulting configuration to
+    /// an explicit path. The caller owns that path; the wizard does not infer a
+    /// different destination from project files.
+    /// </summary>
+    public static async Task<DataGuardConfiguration> RunWizardAsync(
+        string projectRoot,
+        IConsole console,
+        string configPath,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(configPath);
         console.WriteLine("🔧 DataGuard Interactive Setup Wizard");
         console.WriteLine("=====================================");
         console.WriteLine("");
@@ -542,7 +560,6 @@ public static class InteractiveConfigBuilder
         };
 
         // Save config
-        var configPath = Path.Combine(projectRoot, ".dataguard.yml");
         await SaveConfigAsync(config, configPath, cancellationToken);
 
         console.WriteLine($"✅ Configuration saved to {configPath}");

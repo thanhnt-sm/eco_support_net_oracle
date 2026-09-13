@@ -102,6 +102,81 @@ public class AuditAndConfigTests
     }
 
     [Fact]
+    public async Task LogDatabaseOperationAsync_SanitizesDetailsAndErrors()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-audit-db-{Guid.NewGuid():N}.log");
+        try
+        {
+            var logger = new FileAuditLogger(path);
+            await logger.LogDatabaseOperationAsync(
+                "query",
+                "sqlserver",
+                "hash",
+                "SELECT 1; Password=TOPSECRET; operation=read",
+                false,
+                "authorization: Bearer bearer-token-value; payload={\"password\":\"JSONSECRET\"}; Password=\"LONG SECRET\"");
+
+            var json = await File.ReadAllTextAsync(path);
+            json.Should().Contain("operation=read");
+            json.Should().NotContain("TOPSECRET");
+            json.Should().NotContain("bearer-token-value");
+            json.Should().NotContain("JSONSECRET");
+            json.Should().NotContain("LONG SECRET");
+            json.Should().Contain("[REDACTED]");
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + ".checkpoint");
+        }
+    }
+
+    [Fact]
+    public void FileAuditLogger_RejectsSymlinkedParent()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), $"dg-audit-link-{Guid.NewGuid():N}");
+        var target = Path.Combine(root, "target");
+        var link = Path.Combine(root, "link");
+        Directory.CreateDirectory(target);
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, target);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+            {
+                return;
+            }
+
+            var act = () => new FileAuditLogger(Path.Combine(link, "audit.log"));
+            act.Should().Throw<IOException>();
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+            {
+                Directory.Delete(link);
+            }
+
+            if (Directory.Exists(target))
+            {
+                Directory.Delete(target);
+            }
+
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root);
+            }
+        }
+    }
+
+    [Fact]
     public async Task LogConfigurationChangeAsync_ShortValue_MasksFully()
     {
         var path = NewTempLogPath();
@@ -267,6 +342,16 @@ public class ConfigurationDefaultsTests
         config.AutoDetectDapper.Should().BeTrue();
         config.EnableSmartDefaults.Should().BeTrue();
         config.EnableTelemetry.Should().BeFalse();
+        config.DefaultProvider.Should().BeNull();
+    }
+
+    [Fact]
+    public void DataGuardConfiguration_DefaultProvider_IsAdditiveAndDoesNotAlterPositionalConstruction()
+    {
+        var config = new DataGuardConfiguration { DefaultProvider = "oracle" };
+
+        config.DefaultProvider.Should().Be("oracle");
+        config.Deconstruct(out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _);
     }
 
     [Fact]
@@ -302,7 +387,7 @@ public class ConfigurationDefaultsTests
         var oracle = new OracleConfiguration();
 
         oracle.Owner.Should().BeNull();
-        oracle.UseRefCursorDescribe.Should().BeTrue();
+        oracle.UseRefCursorDescribe.Should().BeFalse();
         oracle.UseAllArguments.Should().BeTrue();
         oracle.UseAllTabColumns.Should().BeTrue();
     }

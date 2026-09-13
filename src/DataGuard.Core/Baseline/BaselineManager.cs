@@ -21,6 +21,9 @@ namespace DataGuard.Core.Baseline;
 /// </summary>
 public class BaselineManager
 {
+    /// <summary>Maximum serialized baseline size accepted for persistence and loading.</summary>
+    public const long MaxBaselineBytes = 16 * 1024 * 1024;
+
     private readonly string _baselineFilePath;
     private static readonly MemoryCache _schemaHashCache = new MemoryCache(new MemoryCacheOptions
     {
@@ -29,11 +32,16 @@ public class BaselineManager
     });
 
     private static readonly ConcurrentDictionary<string, string> _fileHashCache = new();
+    private static long _baselineCacheHits;
+    private static long _baselineCacheMisses;
 
     public BaselineManager(string baselineFilePath)
     {
         _baselineFilePath = baselineFilePath ?? throw new ArgumentNullException(nameof(baselineFilePath));
     }
+
+    /// <summary>Returns bounded in-memory baseline-cache counters for operational observation.</summary>
+    public static BaselineCacheMetrics CacheMetrics => new(Interlocked.Read(ref _baselineCacheHits), Interlocked.Read(ref _baselineCacheMisses));
 
     /// <summary>
     /// Creates a new baseline from current violations.
@@ -46,6 +54,10 @@ public class BaselineManager
         string? databaseVersion = null,
         string? schemaHash = null,
         IReadOnlyList<SnapshotTable>? schema = null,
+        string? schemaHashKind = null,
+        string? provider = null,
+        string? schemaScope = null,
+        string? schemaCanonicalizationVersion = null,
         CancellationToken cancellationToken = default)
     {
         var baselineViolations = violations.Select(v => new BaselineViolation(
@@ -60,20 +72,26 @@ public class BaselineManager
                 v.Location.GetLineSpan().EndLinePosition.Character + 1) : null,
             v.Properties?.ToImmutableDictionary())).ToList();
 
-        var computedSchemaHash = schemaHash ?? ComputeSchemaHash(violations);
+        var computedSchemaHash = schemaHash ?? (schema is not null
+            ? ComputeSchemaHash(schema, provider, schemaScope, schemaCanonicalizationVersion ?? "v1")
+            : ComputeSchemaHash(violations));
         var dbVersion = databaseVersion ?? "unknown";
 
         var baseline = new BaselineFile(
-            Version: 2,
+            Version: schema is null ? 2 : 3,
             CreatedAt: DateTimeOffset.UtcNow,
             SchemaVersion: schemaVersion,
             GroundTruthMode: groundTruthMode,
             DatabaseVersion: dbVersion,
             SchemaHash: computedSchemaHash,
             Violations: baselineViolations,
-            Schema: schema);
+            Schema: schema,
+            SchemaHashKind: schemaHashKind ?? (schema is null ? "violation-sha256-prefix" : "canonical-schema-v1"),
+            Provider: provider,
+            SchemaScope: schemaScope,
+            SchemaCanonicalizationVersion: schemaCanonicalizationVersion ?? (schema is null ? null : "v1"));
 
-        await SaveAsync(baseline);
+        await SaveAsync(baseline, cancellationToken);
         return baseline;
     }
 
@@ -89,6 +107,11 @@ public class BaselineManager
         }
 
         var fileInfo = new FileInfo(_baselineFilePath);
+        if (fileInfo.Length > MaxBaselineBytes)
+        {
+            throw new InvalidDataException($"Baseline exceeds the {MaxBaselineBytes} byte limit.");
+        }
+
         if (fileInfo.Length > 1024 * 1024)
         {
             return await LoadWithMemoryMappedFileAsync(cancellationToken);
@@ -97,12 +120,26 @@ public class BaselineManager
         try
         {
             var json = await File.ReadAllTextAsync(_baselineFilePath, cancellationToken);
+            var cacheKey = "baseline-content-v1:" + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json)));
+            if (_schemaHashCache.TryGetValue(cacheKey, out BaselineFile? cached))
+            {
+                Interlocked.Increment(ref _baselineCacheHits);
+                return cached;
+            }
+
+            Interlocked.Increment(ref _baselineCacheMisses);
             var options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
                 Converters = { new JsonStringEnumConverter() },
             };
-            return JsonSerializer.Deserialize<BaselineFile>(json, options);
+            var parsed = JsonSerializer.Deserialize<BaselineFile>(json, options);
+            if (parsed is not null)
+            {
+                _schemaHashCache.Set(cacheKey, parsed, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1), Size = 1 });
+            }
+
+            return parsed;
         }
         catch (JsonException)
         {
@@ -130,10 +167,16 @@ public class BaselineManager
     /// </summary>
     private async Task<BaselineFile?> LoadWithMemoryMappedFileAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var mmf = MemoryMappedFile.CreateFromFile(_baselineFilePath, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
         using var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
 
-        var length = (int)accessor.Capacity;
+        if (accessor.Capacity > MaxBaselineBytes)
+        {
+            throw new InvalidDataException($"Baseline exceeds the {MaxBaselineBytes} byte limit.");
+        }
+
+        var length = checked((int)accessor.Capacity);
         var buffer = new byte[length];
         accessor.ReadArray(0, buffer, 0, length);
 
@@ -146,8 +189,9 @@ public class BaselineManager
         return JsonSerializer.Deserialize<BaselineFile>(json, options);
     }
 
-    private async Task SaveAsync(BaselineFile baseline)
+    private async Task SaveAsync(BaselineFile baseline, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var options = new JsonSerializerOptions
         {
             WriteIndented = true,
@@ -155,27 +199,34 @@ public class BaselineManager
         };
         var json = JsonSerializer.Serialize(baseline, options);
         var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        if (bytes.Length > MaxBaselineBytes)
+        {
+            throw new InvalidDataException($"Baseline exceeds the {MaxBaselineBytes} byte limit.");
+        }
 
-        if (bytes.Length > 1024 * 1024)
-        {
-            await SaveWithMemoryMappedFileAsync(bytes);
-        }
-        else
-        {
-            await File.WriteAllTextAsync(_baselineFilePath, json);
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        await SaveAtomicallyAsync(bytes, cancellationToken);
     }
 
-    private async Task SaveWithMemoryMappedFileAsync(byte[] data)
+    private async Task SaveAtomicallyAsync(byte[] data, CancellationToken cancellationToken)
     {
-        var tempPath = _baselineFilePath + ".tmp";
+        var directory = Path.GetDirectoryName(Path.GetFullPath(_baselineFilePath))!;
+        Directory.CreateDirectory(directory);
+        var tempPath = Path.Combine(directory, $".{Path.GetFileName(_baselineFilePath)}.{Guid.NewGuid():N}.tmp");
         try
         {
-            await File.WriteAllBytesAsync(tempPath, data);
+            await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.WriteThrough | FileOptions.Asynchronous))
+            {
+                await stream.WriteAsync(data, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (File.Exists(_baselineFilePath))
             {
-                File.Replace(tempPath, _baselineFilePath, null, false);
+                File.Move(tempPath, _baselineFilePath, overwrite: true);
             }
             else
             {
@@ -184,11 +235,11 @@ public class BaselineManager
         }
         finally
         {
-            if (File.Exists(_baselineFilePath + ".tmp"))
+            if (File.Exists(tempPath))
             {
                 try
                 {
-                    File.Delete(_baselineFilePath + ".tmp");
+                    File.Delete(tempPath);
                 }
                 catch
                 {
@@ -219,8 +270,28 @@ public class BaselineManager
     /// changes that produce no violations still change the hash.
     /// </summary>
     public static string ComputeSchemaHash(IReadOnlyList<SnapshotTable> schema)
+        => ComputeSchemaHashCore(schema, null);
+
+    /// <summary>
+    /// Computes the canonical v3 schema hash, including provider scope metadata.
+    /// </summary>
+    public static string ComputeSchemaHash(
+        IReadOnlyList<SnapshotTable> schema,
+        string? provider,
+        string? schemaScope,
+        string? canonicalizationVersion = "v1")
     {
-        var canonical = string.Join("|", schema
+        var metadata = string.Join(
+            "|",
+            provider ?? "unknown-provider",
+            schemaScope ?? "unknown-scope",
+            canonicalizationVersion ?? "unknown-canonicalizer");
+        return ComputeSchemaHashCore(schema, metadata);
+    }
+
+    private static string ComputeSchemaHashCore(IReadOnlyList<SnapshotTable> schema, string? metadata)
+    {
+        var canonicalSchema = string.Join("|", schema
             .OrderBy(t => t.Name, StringComparer.Ordinal)
             .Select(t =>
             {
@@ -232,14 +303,39 @@ public class BaselineManager
                         c.DataType,
                         c.IsNullable,
                         c.MaxLength?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null",
+                        c.CharLength?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null",
                         c.Precision?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null",
-                        c.Scale?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null")));
+                        c.Scale?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null",
+                        c.CharUsed ?? "null",
+                        c.DataDefault ?? "null",
+                        c.ColumnId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null")));
                 return $"{t.Name}{{{cols}}}";
             }));
+        var canonical = metadata is null ? canonicalSchema : metadata + "||" + canonicalSchema;
 
         using var sha256 = SHA256.Create();
         var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(canonical));
         return Convert.ToHexString(hash);
+    }
+
+    /// <summary>Computes the same canonical schema hash directly from a fresh database descriptor.</summary>
+    public static string ComputeSchemaHash(DatabaseSchemaDescriptor schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        var snapshot = schema.Tables.Select(table => new SnapshotTable(
+            table.Name,
+            table.Columns.Select(column => new SnapshotColumn(
+                column.Name,
+                column.DataType,
+                column.MaxLength,
+                column.CharLength,
+                column.Precision,
+                column.Scale,
+                column.IsNullable,
+                column.CharUsed,
+                column.DataDefault,
+                column.ColumnId)).ToArray())).ToArray();
+        return ComputeSchemaHash(snapshot);
     }
 
     /// <summary>
@@ -290,7 +386,8 @@ public class BaselineManager
             GroundTruthMode: legacy.GroundTruthMode,
             DatabaseVersion: "unknown",
             SchemaHash: ComputeSchemaHashFromLegacy(legacy),
-            Violations: legacy.Violations);
+            Violations: legacy.Violations,
+            SchemaHashKind: "violation-sha256-prefix");
     }
 
     /// <summary>
@@ -322,7 +419,7 @@ public class BaselineManager
         }
 
         var migrated = MigrateFromLegacy(legacy);
-        await SaveAsync(migrated);
+        await SaveAsync(migrated, cancellationToken);
         return migrated;
     }
 
@@ -339,6 +436,9 @@ public class BaselineManager
     }
 }
 
+/// <summary>Monotonic cache counters; values are process-local and intentionally contain no baseline content.</summary>
+public sealed record BaselineCacheMetrics(long Hits, long Misses);
+
 /// <summary>
 /// Legacy baseline file format (version 1) for migration.
 /// </summary>
@@ -351,8 +451,8 @@ internal record LegacyBaselineFile(
     IReadOnlyList<BaselineViolation> Violations);
 
 /// <summary>
-/// Baseline file format.
-/// Version 2 adds DatabaseVersion and SchemaHash for drift detection.
+/// Baseline file format. Version 2 adds database/hash metadata; version 3 adds
+/// schema hash kind, provider scope and canonicalization metadata.
 /// </summary>
 [JsonSerializable(typeof(BaselineFile))]
 public record BaselineFile(
@@ -363,7 +463,11 @@ public record BaselineFile(
     string DatabaseVersion,
     string SchemaHash,
     IReadOnlyList<BaselineViolation> Violations,
-    IReadOnlyList<SnapshotTable>? Schema = null);
+    IReadOnlyList<SnapshotTable>? Schema = null,
+    string? SchemaHashKind = null,
+    string? Provider = null,
+    string? SchemaScope = null,
+    string? SchemaCanonicalizationVersion = null);
 
 /// <summary>
 /// Serializable ground-truth table snapshot (used by Snapshot mode offline validation).
@@ -380,7 +484,9 @@ public record SnapshotColumn(
     int? Precision,
     int? Scale,
     bool IsNullable,
-    string? CharUsed);
+    string? CharUsed,
+    string? DataDefault = null,
+    int? ColumnId = null);
 
 /// <summary>
 /// A violation in the baseline file.

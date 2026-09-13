@@ -18,8 +18,8 @@ public static class AssessmentReportWriter
     /// <summary>Writes the report as indented JSON to the given file path.</summary>
     public static async Task WriteJsonAsync(AssessmentReport report, string outputPath, CancellationToken cancellationToken = default)
     {
-        await using var stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await JsonSerializer.SerializeAsync(stream, report, Options, cancellationToken).ConfigureAwait(false);
+        var json = JsonSerializer.Serialize(report, Options);
+        await DataGuard.Core.Reporting.ContractExportWriter.WriteAtomicallyAsync(outputPath, json, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Serializes the report to a JSON string (for tests and programmatic callers).</summary>

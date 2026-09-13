@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
@@ -78,7 +79,58 @@ public class SqlServerStoredProcedureParser : IContractSource
                 Location: Location.None));
         }
 
+        // Include the live relational schema so snapshot refresh can persist
+        // structural ground truth instead of hashing violations as a fallback.
+        contracts.Add(await GetSchemaAsync(connection, cancellationToken));
+
         return contracts;
+    }
+
+    private async Task<DatabaseSchemaDescriptor> GetSchemaAsync(
+        SqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        const string schemaSql = @"
+            SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE,
+                   CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE,
+                   IS_NULLABLE, COLUMN_DEFAULT, ORDINAL_POSITION
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE (@Schema = '' OR TABLE_SCHEMA = @Schema)
+            ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION";
+
+        await using var command = new SqlCommand(schemaSql, connection);
+        command.Parameters.AddWithValue("@Schema", _config.DefaultSchema ?? string.Empty);
+        var tables = new Dictionary<string, List<ColumnDescriptor>>(StringComparer.OrdinalIgnoreCase);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var schema = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+            var table = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+            var tableKey = string.IsNullOrEmpty(schema) ? table : $"{schema}.{table}";
+            var column = new ColumnDescriptor(
+                Name: reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                DataType: reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                MaxLength: reader.IsDBNull(4) ? null : Convert.ToInt32(reader.GetValue(4)),
+                Precision: reader.IsDBNull(5) ? null : Convert.ToInt32(reader.GetValue(5)),
+                Scale: reader.IsDBNull(6) ? null : Convert.ToInt32(reader.GetValue(6)),
+                IsNullable: !reader.IsDBNull(7) && string.Equals(reader.GetString(7), "YES", StringComparison.OrdinalIgnoreCase),
+                CharUsed: null,
+                DataDefault: reader.IsDBNull(8) ? null : reader.GetValue(8)?.ToString(),
+                ColumnId: reader.IsDBNull(9) ? 0 : reader.GetInt32(9));
+
+            if (!tables.TryGetValue(tableKey, out var columns))
+            {
+                columns = new List<ColumnDescriptor>();
+                tables[tableKey] = columns;
+            }
+
+            columns.Add(column);
+        }
+
+        return new DatabaseSchemaDescriptor(
+            Id: "sqlserver-schema",
+            Tables: tables.Select(pair => new DatabaseTableDescriptor(pair.Key, pair.Value)).ToList(),
+            LengthSemantics: "CHAR");
     }
 
     private async Task<List<ParameterDescriptor>> GetParametersAsync(
@@ -155,7 +207,13 @@ public class SqlServerStoredProcedureParser : IContractSource
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                var name = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                var isHidden = !reader.IsDBNull(0) && reader.GetBoolean(0);
+                if (isHidden || reader.IsDBNull(2))
+                {
+                    continue;
+                }
+
+                var name = reader.GetString(2);
                 var isNullable = reader.GetBoolean(3);
                 var systemType = reader.IsDBNull(5) ? "" : reader.GetString(5);
                 var maxLength = reader.IsDBNull(6) ? (int?)null : (int)reader.GetInt16(6); // smallint
@@ -228,6 +286,9 @@ public class RawSqlParser : IContractSource
             new LinePosition(0, 0));
         var location = Location.Create(_filePath, new TextSpan(0, _sqlText.Length), lineSpan);
 
+        var parseError = errors.Count == 0
+            ? null
+            : string.Join("; ", errors.Select(error => error.Message));
         var contracts = new List<ContractDescriptor>
         {
             new RawSqlDescriptor(
@@ -235,7 +296,11 @@ public class RawSqlParser : IContractSource
                 SqlText: _sqlText,
                 Parameters: parameters,
                 ResultColumns: new List<ColumnDescriptor>(),
-                Location: location),
+                Location: location)
+            {
+                ParseStatus = errors.Count == 0 ? RawSqlParseStatus.Parsed : RawSqlParseStatus.Invalid,
+                ParseError = parseError,
+            },
         };
 
         return Task.FromResult<IReadOnlyList<ContractDescriptor>>(contracts);

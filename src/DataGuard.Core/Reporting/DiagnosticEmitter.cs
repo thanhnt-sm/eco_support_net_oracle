@@ -11,14 +11,25 @@ public class DiagnosticEmitter
 {
     private readonly List<ISarifSink> _sarifSinks = new();
     private readonly List<IDiagnosticSink> _diagnosticSinks = new();
+    private readonly string? _sourceRoot;
 
-    private static readonly HashSet<string> SafePropertyKeys = new(StringComparer.Ordinal)
+    internal static readonly HashSet<string> SafePropertyKeys = new(StringComparer.Ordinal)
     {
         "column", "columnMaxBytes", "columnMaxLength", "dbColumnType",
         "entityMaxBytes", "entityMaxLength", "function", "inferredType",
         "keyword", "operator", "property", "referencedIssue", "semantics",
         "suggestion", "syntax", "table", "type",
     };
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DiagnosticEmitter"/> class.
+    /// Artifact paths are projected relative to an operator-controlled source root;
+    /// paths outside that root are omitted.
+    /// </summary>
+    public DiagnosticEmitter(string? sourceRoot = null)
+    {
+        _sourceRoot = sourceRoot ?? Directory.GetCurrentDirectory();
+    }
 
     public void AddSarifSink(ISarifSink sink) => _sarifSinks.Add(sink);
 
@@ -28,7 +39,7 @@ public class DiagnosticEmitter
         IEnumerable<ContractViolation> violations,
         CancellationToken cancellationToken = default)
     {
-        var sarifLog = CreateSarifLog(violations);
+        var sarifLog = CreateSarifLog(violations, _sourceRoot);
 
         foreach (var sink in _sarifSinks)
         {
@@ -41,7 +52,7 @@ public class DiagnosticEmitter
         }
     }
 
-    private SarifLog CreateSarifLog(IEnumerable<ContractViolation> violations)
+    internal static SarifLog CreateSarifLog(IEnumerable<ContractViolation> violations, string? sourceRoot)
     {
         var run = new Run
         {
@@ -95,7 +106,7 @@ public class DiagnosticEmitter
                             {
                                 ArtifactLocation = new ArtifactLocation
                                 {
-                                    Uri = v.Location.SourceTree?.FilePath ?? "",
+                                    Uri = ProjectArtifactUri(v.Location.SourceTree?.FilePath, sourceRoot),
                                     UriBaseId = "%SRCROOT%"
                                 },
                                 Region = new Region
@@ -119,7 +130,7 @@ public class DiagnosticEmitter
         };
     }
 
-    private static PropertyBag CreateSafeProperties(IReadOnlyDictionary<string, object?>? properties)
+    internal static PropertyBag CreateSafeProperties(IReadOnlyDictionary<string, object?>? properties)
     {
         if (properties == null)
         {
@@ -138,7 +149,7 @@ public class DiagnosticEmitter
         return new PropertyBag(safeProperties);
     }
 
-    private static bool IsSafePropertyValue(object? value)
+    internal static bool IsSafePropertyValue(object? value)
     {
         if (ContainsSensitiveValue(value))
         {
@@ -153,8 +164,103 @@ public class DiagnosticEmitter
             || value.GetType().IsEnum;
     }
 
-    private static string SafeText(string? text) =>
+    internal static string SafeText(string? text) =>
         string.IsNullOrEmpty(text) || !ContainsSensitiveValue(text) ? text ?? string.Empty : "[REDACTED]";
+
+    internal static string ProjectArtifactUri(string? path, string? sourceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(sourceRoot))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var root = Path.GetFullPath(sourceRoot);
+            var fullPath = Path.IsPathFullyQualified(path)
+                ? Path.GetFullPath(path)
+                : Path.GetFullPath(path, root);
+            var relative = Path.GetRelativePath(root, fullPath);
+            if (relative == ".." || relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                || relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal)
+                || Path.IsPathFullyQualified(relative) || ContainsSensitivePathComponent(relative))
+            {
+                return string.Empty;
+            }
+
+            return NormalizePath(relative);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+        {
+            return string.Empty;
+        }
+    }
+
+    internal static SarifLog SanitizeSarifLog(SarifLog log, string? sourceRoot)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+
+        return new SarifLog
+        {
+            Version = log.Version,
+            SchemaUri = log.SchemaUri,
+            Runs = (log.Runs ?? new List<Run>()).Select(run => new Run
+            {
+                Tool = new Tool
+                {
+                    Driver = new ToolComponent
+                    {
+                        Name = SafeText(run.Tool?.Driver?.Name),
+                        Version = SafeText(run.Tool?.Driver?.Version),
+                        InformationUri = SafeText(run.Tool?.Driver?.InformationUri),
+                        Rules = (run.Tool?.Driver?.Rules ?? new List<ReportingDescriptor>()).Select(rule => new ReportingDescriptor
+                        {
+                            Id = SafeText(rule.Id),
+                            Name = SafeText(rule.Name),
+                            ShortDescription = new MultiformatMessageString { Text = SafeText(rule.ShortDescription?.Text) },
+                            DefaultConfiguration = new ReportingConfiguration { Level = SafeText(rule.DefaultConfiguration?.Level) },
+                        }).ToList(),
+                    },
+                },
+                Results = (run.Results ?? new List<Result>()).Select(result => new Result
+                {
+                    RuleId = SafeText(result.RuleId),
+                    Message = new Message { Text = SafeText(result.Message?.Text) },
+                    Level = SafeText(result.Level),
+                    Locations = (result.Locations ?? new List<SarifLocation>()).Select(location => new SarifLocation
+                    {
+                        PhysicalLocation = new PhysicalLocation
+                        {
+                            ArtifactLocation = new ArtifactLocation
+                            {
+                                Uri = ProjectArtifactUri(location.PhysicalLocation?.ArtifactLocation?.Uri, sourceRoot),
+                                UriBaseId = SafeText(location.PhysicalLocation?.ArtifactLocation?.UriBaseId),
+                            },
+                            Region = new Region
+                            {
+                                StartLine = location.PhysicalLocation?.Region?.StartLine ?? 0,
+                                StartColumn = location.PhysicalLocation?.Region?.StartColumn ?? 0,
+                                EndLine = location.PhysicalLocation?.Region?.EndLine ?? 0,
+                                EndColumn = location.PhysicalLocation?.Region?.EndColumn ?? 0,
+                            },
+                        },
+                    }).ToList(),
+                    Properties = CreateSafeProperties(result.Properties.ToDictionary(pair => pair.Key, pair => (object?)pair.Value)),
+                }).ToList(),
+            }).ToList(),
+        };
+    }
+
+    private static bool ContainsSensitivePathComponent(string path) =>
+        path.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries)
+            .Any(component => ContainsSensitiveValue(component));
+
+    private static string NormalizePath(string path) => path.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
 
     private static bool ContainsSensitiveValue(object? value)
     {
@@ -203,139 +309,164 @@ public class FileSarifSink : ISarifSink
 {
     private readonly string _outputPath;
     private readonly bool _streaming;
+    private readonly string? _sourceRoot;
 
-    public FileSarifSink(string outputPath, bool streaming = false)
+    public FileSarifSink(string outputPath, bool streaming = false, string? sourceRoot = null)
     {
         _outputPath = outputPath ?? throw new ArgumentNullException(nameof(outputPath));
         _streaming = streaming;
+        _sourceRoot = sourceRoot ?? Directory.GetCurrentDirectory();
     }
 
     public async Task WriteAsync(SarifLog log, CancellationToken cancellationToken = default)
     {
+        var safeLog = DiagnosticEmitter.SanitizeSarifLog(log, _sourceRoot);
         if (_streaming)
         {
-            await WriteStreamingAsync(log, cancellationToken);
+            await WriteStreamingAsync(safeLog, cancellationToken);
         }
         else
         {
-            var json = log.ToJson();
-            await File.WriteAllTextAsync(_outputPath, json, cancellationToken);
+            var json = safeLog.ToJson();
+            await ContractExportWriter.WriteAtomicallyAsync(_outputPath, json, cancellationToken);
         }
     }
 
     private async Task WriteStreamingAsync(SarifLog log, CancellationToken cancellationToken)
     {
         // Stream SARIF output directly to file without loading full object graph
-        await using var fileStream = new FileStream(_outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-        await using var writer = new System.Text.Json.Utf8JsonWriter(fileStream, new JsonWriterOptions { Indented = true });
-
-        writer.WriteStartObject();
-        writer.WriteString("version", log.Version ?? "2.1.0");
-        writer.WriteString("$schema", log.SchemaUri ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
-
-        writer.WritePropertyName("runs");
-        writer.WriteStartArray();
-
-        foreach (var run in log.Runs ?? Enumerable.Empty<Run>())
+        var directory = Path.GetDirectoryName(Path.GetFullPath(_outputPath))!;
+        Directory.CreateDirectory(directory);
+        var tempPath = Path.Combine(directory, $".{Path.GetFileName(_outputPath)}.{Guid.NewGuid():N}.tmp");
+        try
         {
-            writer.WriteStartObject();
+            await using var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
+            await using var writer = new System.Text.Json.Utf8JsonWriter(fileStream, new JsonWriterOptions { Indented = true });
 
-            // Tool
-            writer.WritePropertyName("tool");
             writer.WriteStartObject();
-            writer.WritePropertyName("driver");
-            writer.WriteStartObject();
-            writer.WriteString("name", run.Tool?.Driver?.Name ?? "DataGuard");
-            writer.WriteString("version", run.Tool?.Driver?.Version ?? "0.1.0");
-            writer.WriteString("informationUri", run.Tool?.Driver?.InformationUri ?? "https://github.com/DataGuard/DataGuard");
+            writer.WriteString("version", log.Version ?? "2.1.0");
+            writer.WriteString("$schema", log.SchemaUri ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
 
-            // Rules
-            writer.WritePropertyName("rules");
+            writer.WritePropertyName("runs");
             writer.WriteStartArray();
-            foreach (var rule in run.Tool?.Driver?.Rules ?? Enumerable.Empty<ReportingDescriptor>())
+
+            foreach (var run in log.Runs ?? Enumerable.Empty<Run>())
             {
                 writer.WriteStartObject();
-                writer.WriteString("id", rule.Id ?? "");
-                writer.WriteString("name", rule.Name ?? "");
-                writer.WritePropertyName("shortDescription");
+
+                // Tool
+                writer.WritePropertyName("tool");
                 writer.WriteStartObject();
-                writer.WriteString("text", rule.ShortDescription?.Text ?? "");
-                writer.WriteEndObject();
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-
-            // Results - stream one by one
-            writer.WritePropertyName("results");
-            writer.WriteStartArray();
-            foreach (var result in run.Results ?? Enumerable.Empty<Result>())
-            {
+                writer.WritePropertyName("driver");
                 writer.WriteStartObject();
-                writer.WriteString("ruleId", result.RuleId ?? "");
+                writer.WriteString("name", run.Tool?.Driver?.Name ?? "DataGuard");
+                writer.WriteString("version", run.Tool?.Driver?.Version ?? "0.1.0");
+                writer.WriteString("informationUri", run.Tool?.Driver?.InformationUri ?? "https://github.com/DataGuard/DataGuard");
 
-                writer.WritePropertyName("message");
-                writer.WriteStartObject();
-                writer.WriteString("text", result.Message?.Text ?? "");
-                writer.WriteEndObject();
-
-                writer.WriteString("level", result.Level ?? "error");
-
-                // Locations
-                if (result.Locations?.Any() == true)
+                // Rules
+                writer.WritePropertyName("rules");
+                writer.WriteStartArray();
+                foreach (var rule in run.Tool?.Driver?.Rules ?? Enumerable.Empty<ReportingDescriptor>())
                 {
-                    writer.WritePropertyName("locations");
-                    writer.WriteStartArray();
-                    foreach (var loc in result.Locations)
-                    {
-                        writer.WriteStartObject();
-                        writer.WritePropertyName("physicalLocation");
-                        writer.WriteStartObject();
-                        writer.WritePropertyName("artifactLocation");
-                        writer.WriteStartObject();
-                        writer.WriteString("uri", loc.PhysicalLocation?.ArtifactLocation?.Uri ?? "");
-                        writer.WriteString("uriBaseId", loc.PhysicalLocation?.ArtifactLocation?.UriBaseId ?? "%SRCROOT%");
-                        writer.WriteEndObject();
-                        writer.WritePropertyName("region");
-                        writer.WriteStartObject();
-                        writer.WriteNumber("startLine", loc.PhysicalLocation?.Region?.StartLine ?? 0);
-                        writer.WriteNumber("startColumn", loc.PhysicalLocation?.Region?.StartColumn ?? 0);
-                        writer.WriteNumber("endLine", loc.PhysicalLocation?.Region?.EndLine ?? 0);
-                        writer.WriteNumber("endColumn", loc.PhysicalLocation?.Region?.EndColumn ?? 0);
-                        writer.WriteEndObject();
-                        writer.WriteEndObject();
-                        writer.WriteEndObject();
-                    }
-
-                    writer.WriteEndArray();
+                    writer.WriteStartObject();
+                    writer.WriteString("id", rule.Id ?? "");
+                    writer.WriteString("name", rule.Name ?? "");
+                    writer.WritePropertyName("shortDescription");
+                    writer.WriteStartObject();
+                    writer.WriteString("text", rule.ShortDescription?.Text ?? "");
+                    writer.WriteEndObject();
+                    writer.WriteEndObject();
                 }
 
-                // Properties
-                if (result.Properties?.Count > 0)
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+
+                // Results - stream one by one
+                writer.WritePropertyName("results");
+                writer.WriteStartArray();
+                foreach (var result in run.Results ?? Enumerable.Empty<Result>())
                 {
-                    writer.WritePropertyName("properties");
                     writer.WriteStartObject();
-                    foreach (var prop in result.Properties)
+                    writer.WriteString("ruleId", result.RuleId ?? "");
+
+                    writer.WritePropertyName("message");
+                    writer.WriteStartObject();
+                    writer.WriteString("text", result.Message?.Text ?? "");
+                    writer.WriteEndObject();
+
+                    writer.WriteString("level", result.Level ?? "error");
+
+                    // Locations
+                    if (result.Locations?.Any() == true)
                     {
-                        writer.WriteString(prop.Key, prop.Value?.ToString() ?? "");
+                        writer.WritePropertyName("locations");
+                        writer.WriteStartArray();
+                        foreach (var loc in result.Locations)
+                        {
+                            writer.WriteStartObject();
+                            writer.WritePropertyName("physicalLocation");
+                            writer.WriteStartObject();
+                            writer.WritePropertyName("artifactLocation");
+                            writer.WriteStartObject();
+                            writer.WriteString("uri", loc.PhysicalLocation?.ArtifactLocation?.Uri ?? "");
+                            writer.WriteString("uriBaseId", loc.PhysicalLocation?.ArtifactLocation?.UriBaseId ?? "%SRCROOT%");
+                            writer.WriteEndObject();
+                            writer.WritePropertyName("region");
+                            writer.WriteStartObject();
+                            writer.WriteNumber("startLine", loc.PhysicalLocation?.Region?.StartLine ?? 0);
+                            writer.WriteNumber("startColumn", loc.PhysicalLocation?.Region?.StartColumn ?? 0);
+                            writer.WriteNumber("endLine", loc.PhysicalLocation?.Region?.EndLine ?? 0);
+                            writer.WriteNumber("endColumn", loc.PhysicalLocation?.Region?.EndColumn ?? 0);
+                            writer.WriteEndObject();
+                            writer.WriteEndObject();
+                            writer.WriteEndObject();
+                        }
+
+                        writer.WriteEndArray();
+                    }
+
+                    // Properties
+                    if (result.Properties?.Count > 0)
+                    {
+                        writer.WritePropertyName("properties");
+                        writer.WriteStartObject();
+                        foreach (var prop in result.Properties)
+                        {
+                            writer.WriteString(prop.Key, prop.Value?.ToString() ?? "");
+                        }
+
+                        writer.WriteEndObject();
                     }
 
                     writer.WriteEndObject();
                 }
 
+                writer.WriteEndArray();
+
                 writer.WriteEndObject();
             }
 
             writer.WriteEndArray();
-
             writer.WriteEndObject();
+            await writer.FlushAsync(cancellationToken);
+            fileStream.Flush(flushToDisk: true);
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(tempPath, _outputPath, overwrite: true);
         }
-
-        writer.WriteEndArray();
-        writer.WriteEndObject();
-        await writer.FlushAsync(cancellationToken);
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch
+                {
+                }
+            }
+        }
     }
 }
 
@@ -346,16 +477,44 @@ public class StreamingSarifSink : ISarifSink
 {
     private readonly string _outputPath;
     private readonly int _bufferSize;
+    private readonly string? _sourceRoot;
 
-    public StreamingSarifSink(string outputPath, int bufferSize = 81920)
+    public StreamingSarifSink(string outputPath, int bufferSize = 81920, string? sourceRoot = null)
     {
         _outputPath = outputPath ?? throw new ArgumentNullException(nameof(outputPath));
         _bufferSize = bufferSize;
+        _sourceRoot = sourceRoot ?? Directory.GetCurrentDirectory();
     }
 
     public async Task WriteAsync(IEnumerable<ContractViolation> violations, CancellationToken cancellationToken = default)
     {
-        await using var fileStream = new FileStream(_outputPath, FileMode.Create, FileAccess.Write, FileShare.None, _bufferSize, true);
+        var directory = Path.GetDirectoryName(Path.GetFullPath(_outputPath))!;
+        Directory.CreateDirectory(directory);
+        var tempPath = Path.Combine(directory, $".{Path.GetFileName(_outputPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await WriteToPathAsync(tempPath, violations, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(tempPath, _outputPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch
+                {
+                }
+            }
+        }
+    }
+
+    private async Task WriteToPathAsync(string outputPath, IEnumerable<ContractViolation> violations, CancellationToken cancellationToken)
+    {
+        await using var fileStream = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, _bufferSize, true);
         await using var writer = new System.Text.Json.Utf8JsonWriter(fileStream, new JsonWriterOptions { Indented = true });
 
         writer.WriteStartObject();
@@ -381,11 +540,11 @@ public class StreamingSarifSink : ISarifSink
         foreach (var ruleId in ruleIds)
         {
             writer.WriteStartObject();
-            writer.WriteString("id", ruleId);
-            writer.WriteString("name", ruleId);
+            writer.WriteString("id", DiagnosticEmitter.SafeText(ruleId));
+            writer.WriteString("name", DiagnosticEmitter.SafeText(ruleId));
             writer.WritePropertyName("shortDescription");
             writer.WriteStartObject();
-            writer.WriteString("text", ruleId);
+            writer.WriteString("text", DiagnosticEmitter.SafeText(ruleId));
             writer.WriteEndObject();
             writer.WriteEndObject();
         }
@@ -403,10 +562,10 @@ public class StreamingSarifSink : ISarifSink
             cancellationToken.ThrowIfCancellationRequested();
 
             writer.WriteStartObject();
-            writer.WriteString("ruleId", violation.RuleId);
+            writer.WriteString("ruleId", DiagnosticEmitter.SafeText(violation.RuleId));
             writer.WritePropertyName("message");
             writer.WriteStartObject();
-            writer.WriteString("text", violation.Message);
+            writer.WriteString("text", DiagnosticEmitter.SafeText(violation.Message));
             writer.WriteEndObject();
             writer.WriteString("level", violation.Severity.ToString().ToLowerInvariant());
 
@@ -419,7 +578,7 @@ public class StreamingSarifSink : ISarifSink
                 writer.WriteStartObject();
                 writer.WritePropertyName("artifactLocation");
                 writer.WriteStartObject();
-                writer.WriteString("uri", violation.Location.SourceTree?.FilePath ?? "");
+                writer.WriteString("uri", DiagnosticEmitter.ProjectArtifactUri(violation.Location.SourceTree?.FilePath, _sourceRoot));
                 writer.WriteString("uriBaseId", "%SRCROOT%");
                 writer.WriteEndObject();
                 writer.WritePropertyName("region");
@@ -438,7 +597,7 @@ public class StreamingSarifSink : ISarifSink
             {
                 writer.WritePropertyName("properties");
                 writer.WriteStartObject();
-                foreach (var prop in violation.Properties)
+                foreach (var prop in DiagnosticEmitter.CreateSafeProperties(violation.Properties))
                 {
                     writer.WriteString(prop.Key, prop.Value?.ToString() ?? "");
                 }
@@ -462,12 +621,10 @@ public class StreamingSarifSink : ISarifSink
 
     public Task WriteAsync(SarifLog log, CancellationToken cancellationToken = default)
     {
-        // Convert violations from log and use streaming write
-        var violations = log.Runs?.SelectMany(r => r.Results ?? Enumerable.Empty<Result>())
-            .Select(r => new ContractViolation(r.RuleId, r.Message?.Text ?? "", Enum.Parse<DiagnosticSeverity>(r.Level, true)))
-            ?? Enumerable.Empty<ContractViolation>();
-
-        return WriteAsync(violations, cancellationToken);
+        // Keep locations, safe properties, and run metadata from an already-buffered
+        // SARIF log while applying the same boundary sanitizer used by every sink.
+        return new FileSarifSink(_outputPath, streaming: true, sourceRoot: _sourceRoot)
+            .WriteAsync(log, cancellationToken);
     }
 }
 
@@ -484,7 +641,7 @@ public class ConsoleDiagnosticSink : IDiagnosticSink
             var location = violation.Location != null
                 ? $" ({violation.Location.GetLineSpan().StartLinePosition.Line + 1}:{violation.Location.GetLineSpan().StartLinePosition.Character + 1})"
                 : "";
-            Console.WriteLine($"[{severity}] {violation.RuleId}: {violation.Message}{location}");
+            Console.WriteLine($"[{severity}] {DiagnosticEmitter.SafeText(violation.RuleId)}: {DiagnosticEmitter.SafeText(violation.Message)}{location}");
         }
 
         await Task.CompletedTask;

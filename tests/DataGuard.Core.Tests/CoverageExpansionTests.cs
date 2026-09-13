@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Contracts;
@@ -51,9 +52,56 @@ public class ConcurrentValidationEngineBackpressureTests
         var rules = new IContractRule[] { new AlwaysViolateRule() };
         var engine = new ConcurrentValidationEngine(maxDegreeOfParallelism: 4, maxViolationQueueSize: 5);
 
-        var result = await engine.ValidateAsync(contracts, rules);
+        var result = await engine.ValidateDetailedAsync(contracts, rules);
 
-        result.Should().HaveCount(5, "backpressure must cap the collected violations");
+        result.Violations.Should().HaveCount(5, "backpressure must cap the collected violations");
+        result.IsIncomplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidateDetailedAsync_Overflow_IsIncompleteAndLegacyFailsClosed()
+    {
+        var contracts = Enumerable.Range(0, 2)
+            .Select(i => (ContractDescriptor)new RawSqlDescriptor($"raw:{i}", "EXEC p", Array.Empty<ParameterDescriptor>(), Array.Empty<ColumnDescriptor>()))
+            .ToList();
+        var engine = new ConcurrentValidationEngine(maxDegreeOfParallelism: 1, maxViolationQueueSize: 1);
+
+        var detailed = await engine.ValidateDetailedAsync(contracts, new IContractRule[] { new AlwaysViolateRule() });
+
+        detailed.Violations.Should().HaveCount(1);
+        detailed.IsIncomplete.Should().BeTrue();
+        detailed.DroppedViolationCount.Should().Be(1);
+        var legacy = async () => await engine.ValidateAsync(contracts, new IContractRule[] { new AlwaysViolateRule() });
+        await legacy.Should().ThrowAsync<ValidationIncompleteException>();
+    }
+
+    [Fact]
+    public async Task ValidateDetailedAsync_Overflow_UsesStableJobOrder()
+    {
+        var contracts = Enumerable.Range(0, 5)
+            .Select(i => (ContractDescriptor)new RawSqlDescriptor($"raw:{i}", "EXEC p", Array.Empty<ParameterDescriptor>(), Array.Empty<ColumnDescriptor>()))
+            .ToList();
+        var engine = new ConcurrentValidationEngine(maxDegreeOfParallelism: 5, maxViolationQueueSize: 2);
+
+        for (var run = 0; run < 5; run++)
+        {
+            var result = await engine.ValidateDetailedAsync(contracts, new IContractRule[] { new OrderedViolationRule() });
+            result.Violations.Select(v => v.Message).Should().Equal("raw:0", "raw:1");
+        }
+    }
+
+    [Fact]
+    public async Task ValidateDetailedAsync_ZeroCap_IsCompleteForNoViolationsAndCountsDrops()
+    {
+        var engine = new ConcurrentValidationEngine(maxDegreeOfParallelism: 1, maxViolationQueueSize: 0);
+        var empty = await engine.ValidateDetailedAsync(Array.Empty<ContractDescriptor>(), new IContractRule[] { new AlwaysViolateRule() });
+        empty.IsIncomplete.Should().BeFalse();
+        empty.DroppedViolationCount.Should().Be(0);
+
+        var contract = new RawSqlDescriptor("raw:0", "EXEC p", Array.Empty<ParameterDescriptor>(), Array.Empty<ColumnDescriptor>());
+        var overflow = await engine.ValidateDetailedAsync(new ContractDescriptor[] { contract }, new IContractRule[] { new AlwaysViolateRule() });
+        overflow.IsIncomplete.Should().BeTrue();
+        overflow.DroppedViolationCount.Should().Be(1);
     }
 
     private sealed class AlwaysViolateRule : IContractRule
@@ -73,6 +121,20 @@ public class ConcurrentValidationEngineBackpressureTests
                 new ContractViolation("DGTEST", "always", DiagnosticSeverity.Error, null, null),
             ];
             return Task.FromResult(list);
+        }
+    }
+
+    private sealed class OrderedViolationRule : IContractRule
+    {
+        public string RuleId => "DGORDER";
+        public string Name => "Ordered";
+        public string Description => "Ordered";
+        public DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
+        public async Task<IReadOnlyList<ContractViolation>> ValidateAsync(ContractDescriptor contract, IReadOnlyList<ContractDescriptor> allContracts, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(contract.Id == "raw:0" ? 20 : 1, cancellationToken);
+            return new[] { new ContractViolation(RuleId, contract.Id, Severity, null, null) };
         }
     }
 }
@@ -95,6 +157,24 @@ public class ManualContractSourceTests
     }
 
     [Fact]
+    public async Task ExtractContractsAsync_ReadsCompatibilityAttributesWithoutDatabaseAccess()
+    {
+        var source = new ManualContractSource(typeof(CompatibilityManualSample).Assembly.Location);
+
+        var contracts = await source.ExtractContractsAsync();
+
+        var entity = contracts.OfType<EntityDescriptor>()
+            .Should().ContainSingle(value => value.Name == nameof(CompatibilityManualSample)).Subject;
+        entity.TableName.Should().Be("CUSTOMERS");
+        entity.Properties.Should().ContainSingle(value => value.Name == nameof(CompatibilityManualSample.Id) && value.ColumnName == nameof(CompatibilityManualSample.Id));
+
+        var sp = contracts.OfType<StoredProcedureDescriptor>()
+            .Should().ContainSingle(value => value.Name == nameof(CompatibilityManualSample.Find)).Subject;
+        sp.Parameters.Should().ContainSingle(value => value.Name == "p_id" && value.DataType == "NUMBER" && value.Direction == CoreDirection.Input);
+        sp.ResultColumns.Should().ContainSingle(value => value.Name == "CUSTOMER_NAME" && value.DataType == "string" && value.MaxLength == 100);
+    }
+
+    [Fact]
     public void Constructor_NullPath_Throws()
     {
         var act = () => new ManualContractSource(null!);
@@ -110,6 +190,15 @@ public class ManualSample
     [ExpectedSpParameter("p_id", "int", "Input", ClrType = "int")]
     [ExpectedSpParameter("p_out", "varchar2", "Output", MaxLength = 200, ClrType = "string")]
     public string GetCustomer() => "";
+}
+
+[global::DataGuard.Contracts.DataContract("CUSTOMERS", Schema = "dbo")]
+public class CompatibilityManualSample
+{
+    public int Id { get; set; }
+
+    [global::DataGuard.Contracts.ResultSet("CUSTOMER_NAME", "string", MaxLength = 100)]
+    public string Find([global::DataGuard.Contracts.SqlParameter("p_id", "NUMBER")] int id) => string.Empty;
 }
 
 public class EfModelSourceLiveTests

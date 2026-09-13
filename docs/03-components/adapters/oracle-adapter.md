@@ -85,7 +85,7 @@ SELECT argument_name, in_out, data_type, data_length, data_precision,
        data_scale, position, sequence, overload, type_owner, type_name, type_subname
 FROM all_arguments
 WHERE owner = UPPER(:owner)
-  AND (@packageName IS NULL OR package_name = :packageName)
+  AND (:packageName IS NULL OR package_name = :packageName)
   AND object_name = :procedureName
 ORDER BY sequence, position
 ```
@@ -138,10 +138,10 @@ Reads column metadata from `ALL_TAB_COLUMNS`, including the critical `CHAR_USED`
 
 ### CharUsed Normalization
 
-The `NormalizeCharUsed()` method converts Oracle's single-character codes:
+The `NormalizeCharUsed()` method uses the `ColumnDescriptor` canonical codes:
 
-- `B` → `"BYTE"`
-- `C` → `"CHAR"`
+- `B`/`BYTE` → `"B"`
+- `C`/`CHAR` → `"C"`
 - `null` → `null` (falls back to session `NLS_LENGTH_SEMANTICS`)
 
 ## NlsSessionReader
@@ -171,6 +171,8 @@ Extracts version number (`19.0.0.0.0`) and edition (`Enterprise`/`Standard`/`Exp
 ## RefCursorDescriber
 
 Describes `REF CURSOR` result sets using `DBMS_SQL` package. This is Oracle's mechanism for describing dynamic cursor output columns.
+
+Normal metadata validation never invokes this describer or executes a procedure. `OracleConfiguration.UseRefCursorDescribe` defaults to `false`; catalog metadata can identify a REF CURSOR while its result shape remains unknown. Any advanced describe invocation requires a separate, explicitly authorized path with a suitable read-only account and typed samples.
 
 ## EfCoreInferenceSimulator
 

@@ -152,11 +152,11 @@ Quy tắc được thực thi theo thứ tự topo dựa trên đồ thị phụ
 
 ## Ba Chế Độ Ground-Truth
 
-| Chế Độ | Kết Nối | Tốc Độ | Độ Chính Xác | Phù Hợp Cho |
-|--------|---------|--------|-------------|-------------|
-| **Full** | Database trực tiếp | ~2-5s | 100% (schema thực) | CI/CD, trước deploy |
-| **Snapshot** | File JSON cache | ~200ms | 100% (tại thời điểm chụp) | Dev local, offline |
-| **Manual** | Assembly đã biên dịch | ~500ms | Một phần (không có schema DB) | Legacy, offline-first |
+| Chế Độ | Kết Nối | Bằng chứng hiệu năng | Độ Chính Xác | Phù Hợp Cho |
+|--------|---------|---------------------|-------------|-------------|
+| **Full** | Database trực tiếp | Cần measurement riêng cho từng provider | 100% (schema thực) | CI/CD, trước deploy |
+| **Snapshot** | File JSON cache | Cần measurement với corpus cố định | 100% (tại thời điểm chụp) | Dev local, offline |
+| **Manual** | Assembly đã biên dịch | Cần measurement với corpus cố định | Một phần (không có schema DB) | Legacy, offline-first |
 
 ## Tích Hợp IDE
 
@@ -182,11 +182,20 @@ graph TD
     style ANALYZER fill:#339af0,stroke:#333,color:#fff
 ```
 
-**Lớp IDE**: Chạy trên mỗi lần gõ phím qua `IIncrementalGenerator`. Zero-allocation, áp lực GC tối thiểu. Chỉ phát hiện SQL call chưa validate (DG001) — đủ nhanh cho phản hồi thời gian thực.
+**Lớp IDE**: Chạy trên mỗi lần gõ phím qua `IIncrementalGenerator` và chỉ phân tích syntax local cho SQL call chưa validate (DG001). Allocation và latency phụ thuộc workload; chỉ được công bố số liệu sau benchmark tái lập được.
 
-**Lớp CI**: Chạy như `DiagnosticAnalyzer` trong pipeline CI. Phân tích ngữ nghĩa đầy đủ với kết nối database. Kiểm tra tất cả quy tắc (DG002–DG016, DG098, DG099).
+**Lớp CI**: Chạy như `DiagnosticAnalyzer` local trong CI. Database-backed validation là thao tác CLI tường minh do operator chạy và analyzer không bao giờ tự khởi tạo. Rule thiếu offline metadata cần thiết được báo availability.
 
-## Công Cụ CLI — 9 Lệnh
+### Code Fix Provider
+
+| Fix | Trigger | Hành động |
+|-----|---------|-----------|
+| Thêm `[DataContract]` | DG001 trong type | Thêm declaration fully qualified; manual extraction dùng CLR type name khi chưa có table |
+| Thêm `[SqlParameter]` | DG001 trong method có parameter | Thêm declaration fully qualified; manual extraction dùng CLR parameter name/type đến khi metadata được xác minh |
+| Sửa naming convention | DG006 | Gợi ý tên property đúng theo column name và convention |
+| Thêm validation call | DG001 | Contract mở: không có automatic call vì `DataGuard.Validate()` không phải public API biên dịch được và chưa chọn validation target an toàn |
+
+## Công Cụ CLI — 10 Lệnh
 
 | Lệnh | Mục Đích | Tùy Chọn Chính |
 |------|----------|----------------|
@@ -195,7 +204,8 @@ graph TD
 | `snapshot refresh` | Làm mới snapshot schema từ database | `--connection`, `--provider`, `--schema` |
 | `snapshot show` | Hiển thị thông tin snapshot hiện tại | `--config` |
 | `snapshot diff` | So sánh schema hiện tại với snapshot | `--connection`, `--fail-on-drift` |
-| `init` | Khởi tạo cấu hình DataGuard | `--output`, `--provider` |
+| `init` | Khởi tạo cấu hình DataGuard | `--output`, `--provider`, `--wizard` |
+| `hook` | Cài đặt, kiểm tra hoặc gỡ hook pre-commit được quản lý | `install`, `status`, `uninstall`, `--type`, `--force` |
 | `config show` | Hiển thị cấu hình hiện tại | `--config` |
 | `config validate` | Kiểm tra file cấu hình | `--config` |
 | `oracle-check` | Chạy kiểm tra phương言 và độ dài Oracle | `--connection`, `--schema`, `--package` |

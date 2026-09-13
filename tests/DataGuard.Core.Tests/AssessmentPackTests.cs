@@ -30,6 +30,46 @@ public class AssessmentPackTests : IDisposable
         }
     }
 
+    [Fact]
+    public void BoundedAssessmentEnumerator_CapsDiscovery()
+    {
+        for (var i = 0; i < 10_025; i++)
+        {
+            File.WriteAllText(Path.Combine(_root, $"{i:D5}.csproj"), "<Project />");
+        }
+
+        var files = InventoryPack.DiscoverProjects(_root, Array.Empty<string>());
+
+        Assert.Equal(10_000, files.Count);
+        var report = AssessmentEngine.Run(new AssessmentRequest { WorkspaceRoot = _root });
+        Assert.Contains(report.Errors, error => error.Code == "DG1007");
+    }
+
+    [Fact]
+    public void AssessmentEngine_ReportsPartialWhenConfigDiscoveryIsCapped()
+    {
+        WriteFile("App/App.csproj", SdkProject("net8.0"));
+        for (var i = 0; i < 10_001; i++)
+        {
+            File.WriteAllText(Path.Combine(_root, $"config-{i:D5}.config"), "<configuration />");
+        }
+
+        var report = AssessmentEngine.Run(new AssessmentRequest { WorkspaceRoot = _root });
+
+        Assert.Contains(report.Errors, error => error.Code == "DG1007");
+    }
+
+    [Fact]
+    public void DependencyHealth_ReportsOversizedLockFileInsteadOfCleanResult()
+    {
+        WriteFile("App/App.csproj", SdkProject("net8.0"));
+        WriteFile("App/packages.lock.json", new string('x', 2_000_001));
+
+        var report = AssessmentEngine.Run(new AssessmentRequest { WorkspaceRoot = _root });
+
+        Assert.Contains(report.Findings, finding => finding.RuleId == "DG1204");
+    }
+
     private void WriteFile(string relativePath, string content)
     {
         var path = Path.Combine(_root, relativePath);
@@ -159,6 +199,79 @@ public class AssessmentPackTests : IDisposable
 
         Assert.Contains(report.Findings, f => f.RuleId == "DG1402");
     }
+
+    [Fact]
+    public async Task RunAsync_DoesNotSendCoordinatesFromSymlinkedLockDirectory()
+    {
+        WriteFile("App/App.csproj", SdkProject("net8.0"));
+        var outside = Path.Combine(Path.GetTempPath(), "dataguard-lock-outside-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "packages.lock.json"), "{ \"version\": 1, \"dependencies\": { \"net8.0\": { \"Public.Package\": { \"type\": \"Direct\", \"requested\": \"1.0.0\", \"resolved\": \"1.0.0\" } } } }");
+        var linked = Path.Combine(_root, "linked");
+        try
+        {
+            Directory.CreateSymbolicLink(linked, outside);
+        }
+        catch (PlatformNotSupportedException)
+        {
+            Directory.Delete(outside, recursive: true);
+            return;
+        }
+
+        try
+        {
+            var client = new CapturingAdvisoryClient();
+            await AssessmentEngine.RunAsync(
+                new AssessmentRequest { WorkspaceRoot = _root, AllowRemoteLookups = true },
+                new RemoteAdvisoryPolicy
+                {
+                    AllowRemoteLookups = true,
+                    AllowNetwork = true,
+                    ApprovedPublicPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Public.Package" },
+                },
+                client);
+
+            Assert.Empty(client.Coordinates);
+        }
+        finally
+        {
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_CancellationProducesPartialErrorWithoutRemoteCall()
+    {
+        WriteFile("App/App.csproj", SdkProject("net8.0"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var client = new CapturingAdvisoryClient();
+
+        var report = await AssessmentEngine.RunAsync(
+            new AssessmentRequest { WorkspaceRoot = _root, AllowRemoteLookups = true },
+            new RemoteAdvisoryPolicy
+            {
+                AllowRemoteLookups = true,
+                AllowNetwork = true,
+                ApprovedPublicPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Public.Package" },
+            },
+            client,
+            cancellationToken: cancellation.Token);
+
+        Assert.Contains(report.Errors, error => error.Code == "DG1006");
+        Assert.Empty(client.Coordinates);
+    }
+
+    private sealed class CapturingAdvisoryClient : IRemoteAdvisoryClient
+    {
+        public IReadOnlyList<PackageCoordinate> Coordinates { get; private set; } = Array.Empty<PackageCoordinate>();
+
+        public Task<RemoteAdvisoryResult> QueryAsync(IEnumerable<PackageCoordinate> coordinates, RemoteAdvisoryPolicy policy, CancellationToken cancellationToken = default)
+        {
+            Coordinates = coordinates.ToArray();
+            return Task.FromResult(new RemoteAdvisoryResult(Array.Empty<AdvisoryObservation>(), null));
+        }
+    }
 }
 
 /// <summary>
@@ -243,5 +356,53 @@ public class PackagesConfigReaderTests : IDisposable
         Assert.Empty(packages);
         Assert.NotNull(error);
         Assert.Equal("DG1001", error!.Code);
+    }
+
+    [Fact]
+    public void Read_SiblingPrefixAndTraversal_ReturnContainmentErrors()
+    {
+        var sibling = _root + "-sibling";
+        Directory.CreateDirectory(sibling);
+        var siblingPath = Path.Combine(sibling, "packages.config");
+        File.WriteAllText(siblingPath, "<packages />");
+        var traversalPath = Path.Combine(_root, "..", Path.GetFileName(sibling), "packages.config");
+
+        var (_, siblingError) = PackagesConfigReader.Read(_root, siblingPath);
+        var (_, traversalError) = PackagesConfigReader.Read(_root, traversalPath);
+
+        Assert.Equal("DG1001", siblingError?.Code);
+        Assert.Equal("DG1001", traversalError?.Code);
+        Directory.Delete(sibling, recursive: true);
+    }
+
+    [Fact]
+    public void Read_FileLinkOutsideWorkspace_ReturnsContainmentErrorWhenSupported()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "dataguard-outside-" + Guid.NewGuid().ToString("N") + ".config");
+        var linkedPath = Path.Combine(_root, "linked.config");
+        File.WriteAllText(outside, "<packages><package id=\"Outside\" version=\"1.0\" /></packages>");
+        try
+        {
+            try
+            {
+                File.CreateSymbolicLink(linkedPath, outside);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+            {
+                return;
+            }
+
+            var (packages, error) = PackagesConfigReader.Read(_root, linkedPath);
+
+            Assert.Empty(packages);
+            Assert.Equal("DG1001", error?.Code);
+        }
+        finally
+        {
+            if (File.Exists(outside))
+            {
+                File.Delete(outside);
+            }
+        }
     }
 }

@@ -10,6 +10,9 @@ graph TB
         SCA[SkipContractCheckAttribute]
         ECA[ExpectedColumnAttribute]
         ESPA[ExpectedSpParameterAttribute]
+        DCA[DataContractAttribute]
+        SPA[SqlParameterAttribute]
+        RSA[ResultSetAttribute]
         PD[ParameterDirection enum]
         NC[NameConventions utility]
     end
@@ -32,6 +35,9 @@ graph TB
 
     ECA -->|reads via reflection| MS
     ESPA -->|reads via reflection| MS
+    DCA -->|reads via reflection| MS
+    SPA -->|reads via reflection| MS
+    RSA -->|reads via reflection| MS
     SCA -->|checks in analyzer| IDE
     NC -->|used by| IDE
 ```
@@ -40,7 +46,7 @@ graph TB
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `ContractAttributes.cs` | ~110 | SkipContractCheckAttribute, ExpectedColumnAttribute, ExpectedSpParameterAttribute, ParameterDirection |
+| `ContractAttributes.cs` | ~210 | Contract attributes, compatibility facades, ParameterDirection |
 | `NameConventions.cs` | ~60 | ToSnakeCase, ToPascalCase conversions |
 
 ## Project Configuration
@@ -54,6 +60,27 @@ graph TB
 ```
 
 Targets `netstandard2.0` for maximum compatibility — can be referenced from .NET Framework 4.6.1+, .NET Core 2.0+, and .NET 5+.
+
+## Compatibility attributes
+
+Manual extraction also accepts fully-qualified compatibility attributes:
+
+```csharp
+[global::DataGuard.Contracts.DataContract("CUSTOMERS", Schema = "dbo")]
+public sealed class Customer
+{
+    public int Id { get; set; }
+
+    [global::DataGuard.Contracts.ResultSet("CUSTOMER_NAME", "string", MaxLength = 100)]
+    public string Find([global::DataGuard.Contracts.SqlParameter("p_id", "NUMBER")] int id) => string.Empty;
+}
+```
+
+`DataContract` supplies the entity/table identity, `SqlParameter` supplies one
+method parameter, and each `ResultSet` supplies one result column. Qualify
+`DataContract` because `System.Runtime.Serialization.DataContractAttribute` has
+the same short name. These attributes are additive; `ExpectedColumn` and
+`ExpectedSpParameter` retain their existing behavior.
 
 ## SkipContractCheckAttribute
 

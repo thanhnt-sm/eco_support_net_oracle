@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace DataGuard.Core.Security;
 
@@ -64,7 +66,9 @@ public sealed class FileAuditLogger : IAuditLogger
             "DataGuard",
             "audit.log");
 
+        ValidateLogPath();
         Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!);
+        ValidateLogPath();
     }
 
     public async Task LogDatabaseOperationAsync(
@@ -82,9 +86,9 @@ public sealed class FileAuditLogger : IAuditLogger
             operation,
             provider,
             connectionStringHash,
-            details,
+            SanitizeSensitiveText(details) ?? string.Empty,
             success,
-            errorMessage,
+            SanitizeSensitiveText(errorMessage),
             Environment.MachineName,
             Environment.UserName,
             Environment.ProcessId);
@@ -149,6 +153,40 @@ public sealed class FileAuditLogger : IAuditLogger
         }
 
         return value[..4] + "****" + value[^4..];
+    }
+
+    private static string? SanitizeSensitiveText(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var sanitized = Regex.Replace(
+            value,
+            @"(?ix)\b(password|passwd|pwd|secret|token|api[_ -]?key|connection[_ -]?string)\s*[""']?\s*([=:])\s*[""'][^""']*[""']",
+            "$1$2[REDACTED]");
+        sanitized = Regex.Replace(
+            sanitized,
+            @"(?ix)\b(password|passwd|pwd|secret|token|api[_ -]?key|connection[_ -]?string)\s*[""']?\s*([=:])\s*[""']?[^""'\s;,]+",
+            "$1$2[REDACTED]");
+        sanitized = Regex.Replace(sanitized, @"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+", "bearer [REDACTED]");
+        return sanitized.Length <= 4096 ? sanitized : sanitized[..4096];
+    }
+
+    private void ValidateLogPath()
+    {
+        var path = Path.GetFullPath(_logPath);
+        var directory = new DirectoryInfo(Path.GetDirectoryName(path)!);
+        if (directory.Exists && directory.Attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new IOException("Audit log directory is a symbolic link or reparse point.");
+        }
+
+        if (File.Exists(path) && File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new IOException("Audit log file is a symbolic link or reparse point.");
+        }
     }
 
     private async Task WriteEntryAsync(AuditEntry entry, CancellationToken cancellationToken)

@@ -2,7 +2,7 @@
 title: "DataGuard VS Code and Visual Studio Marketplace"
 status: in-progress
 priority: P1
-blockedBy: []
+blockedBy: [260912-2016-scout-remediation]
 blocks: [2026-08-20-workspace-rationalization]
 ---
 

@@ -55,7 +55,7 @@ public class AllArgumentsReader
                 type_subname
             FROM all_arguments
             WHERE owner = UPPER(:owner)
-              AND (@packageName IS NULL OR package_name = :packageName)
+              AND (:packageName IS NULL OR package_name = :packageName)
               AND object_name = :procedureName";
 
         if (sequence.HasValue)
@@ -69,6 +69,7 @@ public class AllArgumentsReader
         await connection.OpenAsync(cancellationToken);
 
         await using var command = new OracleCommand(sql, connection);
+        command.BindByName = true;
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
         command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
         command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
@@ -152,6 +153,7 @@ public class AllArgumentsReader
         await connection.OpenAsync(cancellationToken);
 
         await using var command = new OracleCommand(sql, connection);
+        command.BindByName = true;
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
         if (!string.IsNullOrEmpty(packageName))
         {
@@ -193,7 +195,7 @@ public class AllArgumentsReader
                 subprogram_id
             FROM all_arguments
             WHERE owner = UPPER(:owner)
-              AND (@packageName IS NULL OR package_name = :packageName)
+              AND (:packageName IS NULL OR package_name = :packageName)
               AND object_name = :procedureName
             ORDER BY overload, sequence, position";
 
@@ -201,6 +203,7 @@ public class AllArgumentsReader
         await connection.OpenAsync(cancellationToken);
 
         await using var command = new OracleCommand(sql, connection);
+        command.BindByName = true;
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
         command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
         command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
@@ -468,8 +471,8 @@ public class AllTabColumnsReader
     {
         return charUsed?.ToUpperInvariant() switch
         {
-            "B" => "BYTE",
-            "C" => "CHAR",
+            "B" or "BYTE" => "B",
+            "C" or "CHAR" => "C",
             _ => charUsed // Keep as-is or null
         };
     }

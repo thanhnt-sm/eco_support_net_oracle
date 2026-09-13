@@ -204,9 +204,9 @@ DataGuard sử dụng **kiến trúc analyzer tầng kép**:
 | **IDE Nhẹ** | `IIncrementalGenerator` | ~ms mỗi phím | Chỉ syntax: calls SQL chưa validate, attributes thiếu |
 | **CI Nặng** | `DiagnosticAnalyzer` | Giây | Semantic đầy đủ: validate kết nối database |
 
-Tầng IDE chạy trên từng phím và đánh dấu các calls SQL chưa validate bằng gạch chân sóng. Nó dùng `IIncrementalGenerator` cho zero-allocation, caching tăng dần — không có áp lực GC khi gõ.
+Tầng IDE chạy trên từng phím và đánh dấu SQL call chưa validate bằng gạch chân sóng. Nó dùng phân tích syntax local tăng dần. Allocation và GC được đo theo hot-path corpus đã khai báo; không có claim zero-allocation phổ quát cho compiler-host setup hay tài liệu tùy ý.
 
-Tầng CI chạy trong pipeline build và thực hiện validate contract đầy đủ với ground truth database. Nó dùng cùng diagnostic IDs với tầng IDE, nên warnings thấy trong IDE là tập con của failures CI.
+Analyzer CI chạy trong pipeline build chỉ với offline metadata. Full database-ground-truth validation là thao tác CLI riêng do operator khởi chạy, nên project property không thể cấp quyền database access trong lúc build.
 
 ```mermaid
 flowchart TD

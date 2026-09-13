@@ -182,6 +182,9 @@
       },
       "dataguard.contracts": {
         "type": "Project"
+      },
+      "dataguard.sqlclassification": {
+        "type": "Project"
       }
     }
   }
