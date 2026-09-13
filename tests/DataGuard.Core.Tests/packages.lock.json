@@ -14,6 +14,20 @@
         "resolved": "8.10.0",
         "contentHash": "yGvv+xp0gHFgGwhQcGoDdKIrhLhPi3zYYWWLLHPMctr+G6PWD7QH8L4wqoa5WRZquPbfSV/cP1MraI7ppAHrWw=="
       },
+      "Microsoft.Build.Utilities.Core": {
+        "type": "Direct",
+        "requested": "[17.14.28, )",
+        "resolved": "17.14.28",
+        "contentHash": "rhSdPo8QfLXXWM+rY0x0z1G4KK4ZhMoIbHROyDj8MUBFab9nvHR0NaMnjzOgXldhmD2zi2ir8d6xCatNzlhF5g==",
+        "dependencies": {
+          "Microsoft.Build.Framework": "17.14.28",
+          "Microsoft.NET.StringTools": "17.14.28",
+          "System.Collections.Immutable": "9.0.0",
+          "System.Configuration.ConfigurationManager": "9.0.0",
+          "System.Diagnostics.EventLog": "9.0.0",
+          "System.Security.Cryptography.ProtectedData": "9.0.0"
+        }
+      },
       "Microsoft.CodeAnalysis.NetAnalyzers": {
         "type": "Direct",
         "requested": "[10.0.401, )",
@@ -78,6 +92,33 @@
         "requested": "[4.15.0, )",
         "resolved": "4.15.0",
         "contentHash": "lpRFX62aTuf91WT+WxqTIRHI/HO+xgxxZ6lNtXP6SYTt/5KmoY2Qdt3vZj41IDx4MwSlupDMlofjW9yoQPmpyQ==",
+        "dependencies": {
+          "Testcontainers": "4.15.0"
+        }
+      },
+      "Testcontainers.MySql": {
+        "type": "Direct",
+        "requested": "[4.15.0, )",
+        "resolved": "4.15.0",
+        "contentHash": "pgY+pjNJ8z/kwdv1bdAPWSnSXqFiDGg4rmQcX4ubzZCgiX8Q2CFOaOAJrM9ADdFP9mPas5GemyZH4zmwU39ekg==",
+        "dependencies": {
+          "Testcontainers": "4.15.0"
+        }
+      },
+      "Testcontainers.Oracle": {
+        "type": "Direct",
+        "requested": "[4.15.0, )",
+        "resolved": "4.15.0",
+        "contentHash": "eLzC+YPWdgCmJo5Fsd8jNHYCuDSfswhEh69dHju2IQ+Ep5Ebb1ldJrD34VRXSBU12P/rv671+mNT6MQN37agiQ==",
+        "dependencies": {
+          "Testcontainers": "4.15.0"
+        }
+      },
+      "Testcontainers.PostgreSql": {
+        "type": "Direct",
+        "requested": "[4.15.0, )",
+        "resolved": "4.15.0",
+        "contentHash": "45ZvqAzrh9BoI15Z4id7WEfhk1pVKqVeAX76aef8fR5ScglD75fSQtYuXhKFx4kIcgRL5aLKt3pRiqCVIgsL9g==",
         "dependencies": {
           "Testcontainers": "4.15.0"
         }
@@ -200,6 +241,11 @@
         "type": "Transitive",
         "resolved": "9.0.13",
         "contentHash": "5T+bH3Lb1nEe8Hf/ixMxLmhlrx5wRi53wv7OhVwG2F1ZviW1ejFRS1NHur3uqPpJRGtkQwUchtY6zhVK2R+v+w=="
+      },
+      "Microsoft.Build.Framework": {
+        "type": "Transitive",
+        "resolved": "17.14.28",
+        "contentHash": "wRcyTzGV0LRAtFdrddtioh59Ky4/zbvyraP0cQkDzRSRkhgAQb0K88D/JNC6VHLIXanRi3mtV1jU0uQkBwmiVg=="
       },
       "Microsoft.Build.Tasks.Git": {
         "type": "Transitive",
@@ -551,6 +597,11 @@
           "Microsoft.IdentityModel.Logging": "8.16.0"
         }
       },
+      "Microsoft.NET.StringTools": {
+        "type": "Transitive",
+        "resolved": "17.14.28",
+        "contentHash": "DMIeWDlxe0Wz0DIhJZ2FMoGQAN2yrGZOi5jjFhRYHWR5ONd0CS6IpAHlRnA7uA/5BF+BADvgsETxW2XrPiFc1A=="
+      },
       "Microsoft.SourceLink.Common": {
         "type": "Transitive",
         "resolved": "10.0.401",
@@ -632,6 +683,11 @@
         "type": "Transitive",
         "resolved": "10.0.3",
         "contentHash": "gpKPycgDFS2oAPr0yaqwBmShE1ya4yMMkn3lxBPcXrsCI4KL10xSu0cSUzeajQ7LKjb3EsUAgjhBiPGrGU6vSQ=="
+      },
+      "System.CommandLine": {
+        "type": "Transitive",
+        "resolved": "2.0.12",
+        "contentHash": "FpW672e6qqrTd1EfKqsvUtFZaJWlTlszUR1o8tdakXhkzKbnEZVndtpfd4K3fUPCFcIs9UmcswMyYGJP1zp/rg=="
       },
       "System.Composition": {
         "type": "Transitive",
@@ -856,6 +912,29 @@
         "resolved": "18.1.0",
         "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
       },
+      "dataguard.analyzers": {
+        "type": "Project",
+        "dependencies": {
+          "DataGuard.Contracts": "[1.0.0, )",
+          "DataGuard.SqlClassification": "[1.0.0, )",
+          "System.Composition.Hosting": "[10.0.12, )"
+        }
+      },
+      "dataguard.build": {
+        "type": "Project"
+      },
+      "dataguard.cli": {
+        "type": "Project",
+        "dependencies": {
+          "DataGuard.Analyzers": "[1.0.0, )",
+          "DataGuard.Core": "[1.0.0, )",
+          "DataGuard.MySql.Adapter": "[1.0.0, )",
+          "DataGuard.Oracle.Adapter": "[1.0.0, )",
+          "DataGuard.PostgreSql.Adapter": "[1.0.0, )",
+          "DataGuard.SqlServer.Adapter": "[1.0.0, )",
+          "System.CommandLine": "[2.0.12, )"
+        }
+      },
       "dataguard.contracts": {
         "type": "Project"
       },
@@ -880,6 +959,12 @@
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )",
           "System.Text.Json": "[10.0.12, )",
           "YamlDotNet": "[18.1.0, )"
+        }
+      },
+      "dataguard.host": {
+        "type": "Project",
+        "dependencies": {
+          "DataGuard.Core": "[1.0.0, )"
         }
       },
       "dataguard.mysql.adapter": {
@@ -935,6 +1020,9 @@
           "Npgsql": "[10.0.3, )",
           "System.Text.Json": "[10.0.12, )"
         }
+      },
+      "dataguard.sqlclassification": {
+        "type": "Project"
       },
       "dataguard.sqlserver.adapter": {
         "type": "Project",
