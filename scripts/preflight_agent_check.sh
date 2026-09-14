@@ -50,6 +50,7 @@ ALLOWED_ROOT_PATTERNS=(
     "^\.git$"
     "^claude"
     "^docs"
+    "^_observability_discovery$"
     "^rules"
     "^plans"
     "^brainstorm"
