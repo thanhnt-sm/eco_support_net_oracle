@@ -6,11 +6,16 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+    <AssemblyName>DataGuard.Observability.Benchmarks</AssemblyName>
+    <RootNamespace>DataGuard.Observability.Benchmarks</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\DataGuard.Core\DataGuard.Core.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.Analyzers\DataGuard.Analyzers.csproj" />
+    <ProjectReference Include="..\..\src\DataGuard.Observability\DataGuard.Observability.csproj" />
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
   </ItemGroup>
 </Project>

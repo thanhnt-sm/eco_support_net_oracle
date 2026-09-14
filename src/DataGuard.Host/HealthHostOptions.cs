@@ -1,5 +1,18 @@
 public sealed class HealthHostOptions
 {
+    /// <summary>
+    /// Enables the optional host process. The CLI/library product leaves this
+    /// false so running the host assembly alone does not bind a listener.
+    /// </summary>
+    public bool EnableHost { get; init; }
+
+    /// <summary>
+    /// Enables the optional loopback health routes. The CLI/library product does
+    /// not expose HTTP endpoints by default; set this explicitly only for a
+    /// controlled host integration test or owner-approved process wrapper.
+    /// </summary>
+    public bool ExposeEndpoints { get; init; }
+
     public string? SnapshotPath { get; init; }
 
     public string? BaselinePath { get; init; }

@@ -45,6 +45,18 @@ public record DataGuardConfiguration(
 {
     /// <summary>Persisted CLI provider fallback; null retains the product default.</summary>
     public string? DefaultProvider { get; init; }
+
+    /// <summary>Optional root directory for the product-native daily observability archive.</summary>
+    public string? TelemetryFileDirectory { get; init; }
+
+    /// <summary>Stable service name used in local observability records.</summary>
+    public string TelemetryServiceName { get; init; } = "dataguard";
+
+    /// <summary>Service version used in local observability records.</summary>
+    public string TelemetryServiceVersion { get; init; } = "unknown";
+
+    /// <summary>Allows only redacted, bounded event details in local observability files.</summary>
+    public bool IncludeTelemetryEventDetails { get; init; }
 }
 
 /// <summary>

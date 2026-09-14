@@ -58,6 +58,8 @@ public sealed class HealthHostIntegrationTests
         startInfo.ArgumentList.Add(typeof(HealthHostBinding).Assembly.Location);
         startInfo.ArgumentList.Add("--urls");
         startInfo.ArgumentList.Add("http://0.0.0.0:0");
+        startInfo.ArgumentList.Add("--DataGuardHealth:EnableHost");
+        startInfo.ArgumentList.Add("true");
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start DataGuard.Host.");
         await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
@@ -123,6 +125,10 @@ public sealed class HealthHostIntegrationTests
         startInfo.ArgumentList.Add("0");
         startInfo.ArgumentList.Add("--DataGuardHealth:MaximumManagedMemoryBytes");
         startInfo.ArgumentList.Add(long.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add("--DataGuardHealth:ExposeEndpoints");
+        startInfo.ArgumentList.Add("true");
+        startInfo.ArgumentList.Add("--DataGuardHealth:EnableHost");
+        startInfo.ArgumentList.Add("true");
 
         return Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start DataGuard.Host.");
     }

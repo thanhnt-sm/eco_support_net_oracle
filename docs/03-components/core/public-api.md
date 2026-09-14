@@ -291,8 +291,11 @@ using var pipeline = DataGuardApi.CreatePipeline(config)
     .WithRules(new MyCustomRule())
     .WithPlugins("/opt/dataguard/plugins")
     .WithTelemetry(new TelemetryConfig(
-        Enabled: true,
-        ExportEndpoint: "https://otel.example.com/v1/logs"))
+        Enabled: true)
+    {
+        FileSinkDirectory = "/var/lib/dataguard/observability/archive",
+        RemoteExportEnabled = false,
+    })
     .WithBaselineFile(".dataguard-baseline.json");
 
 // 3. Extract contracts

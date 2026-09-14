@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>DataGuard.Observability.Messaging</PackageId>
+    <Version>0.1.0</Version>
+    <PackageVersion>0.1.0</PackageVersion>
+    <MinVerSkip>true</MinVerSkip>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Description>Bounded W3C trace context propagation for message transports.</Description>
+    <NoWarn>$(NoWarn);SA1010;SA1106;SA1107;SA1136;SA1500;SA1501;SA1502;SA1503;SA1508</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../../docs/observability/README.md" Pack="true" PackagePath="README.md" />
+    <ProjectReference Include="../DataGuard.Observability/DataGuard.Observability.csproj" />
+  </ItemGroup>
+</Project>

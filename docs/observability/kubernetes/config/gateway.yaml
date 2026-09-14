@@ -1,0 +1,188 @@
+# OpenTelemetry Collector Contrib 0.160.0 (image digest pinned in Kubernetes artifacts).
+# Gateway tier: redaction, tail sampling and trace-aware fan-out. Backend endpoints are
+# intentionally environment supplied; no secret or insecure transport is committed.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /etc/otel/receiver-tls/tls.crt
+          key_file: /etc/otel/receiver-tls/tls.key
+          client_ca_file: /etc/otel/receiver-tls/ca.crt
+      http:
+        endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: /etc/otel/receiver-tls/tls.crt
+          key_file: /etc/otel/receiver-tls/tls.key
+          client_ca_file: /etc/otel/receiver-tls/ca.crt
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1024
+    spike_limit_mib: 256
+  redaction:
+    allow_all_keys: false
+    allowed_keys:
+      - service.name
+      - service.namespace
+      - service.version
+      - service.instance.id
+      - deployment.environment.name
+      - k8s.namespace.name
+      - k8s.pod.name
+      - k8s.deployment.name
+      - k8s.node.name
+      - dataguard.workload.identity
+      - http.request.method
+      - http.response.status_code
+      - http.route
+      - url.scheme
+      - server.address
+      - server.port
+      - rpc.system
+      - rpc.service
+      - rpc.method
+      - db.system.name
+      - db.namespace
+      - messaging.system
+      - messaging.destination.name
+      - banking.operation.name
+      - banking.slo.class
+      - error.type
+      - exception.type
+      - trace_id
+      - span_id
+    blocked_key_patterns:
+      - (?i).*authorization.*
+      - (?i).*cookie.*
+      - (?i).*token.*
+      - (?i).*secret.*
+      - (?i).*password.*
+      - (?i).*pan.*
+      - (?i).*account.*id.*
+      - (?i).*customer.*id.*
+    blocked_values:
+      - (?i)bearer\s+[a-z0-9._~+/=-]+
+      - \b4[0-9]{12}(?:[0-9]{3})?\b
+      - \b(?:[0-9]{4}[- ]?){3}[0-9]{4}\b
+    redact_all_types: true
+    summary: silent
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    expected_new_traces_per_sec: 1000
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 1000
+      - name: critical-operation
+        type: string_attribute
+        string_attribute:
+          key: banking.slo.class
+          values: [critical]
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+  batch:
+    send_batch_size: 512
+    send_batch_max_size: 1024
+    timeout: 5s
+  filter/drop-probes:
+    error_mode: ignore
+    metric_conditions:
+      - datapoint.attributes["http.route"] != nil and IsMatch(datapoint.attributes["http.route"], "^/(health|metrics)(/|$)")
+
+exporters:
+  load_balancing/tempo:
+    routing_key: traceID
+    protocol:
+      otlp:
+        timeout: 5s
+        tls:
+          ca_file: /etc/otel/tls/ca.crt
+    resolver:
+      k8s:
+        service: tempo-distributor.observability
+        ports: [4317]
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 60s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 4096
+  otlphttp/loki:
+    endpoint: ${env:LOKI_OTLP_ENDPOINT}
+    headers:
+      X-Scope-OrgID: ${env:GRAFANA_TENANT_ID}
+    tls:
+      ca_file: /etc/otel/tls/ca.crt
+    timeout: 5s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 60s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 4096
+  otlphttp/mimir:
+    endpoint: ${env:MIMIR_OTLP_ENDPOINT}
+    headers:
+      X-Scope-OrgID: ${env:GRAFANA_TENANT_ID}
+    tls:
+      ca_file: /etc/otel/tls/ca.crt
+    timeout: 5s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 60s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 4096
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, tail_sampling, batch]
+      exporters: [load_balancing/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, filter/drop-probes, batch]
+      exporters: [otlphttp/mimir]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, redaction, batch]
+      exporters: [otlphttp/loki]
+  telemetry:
+    metrics:
+      level: Normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+    logs:
+      level: warn

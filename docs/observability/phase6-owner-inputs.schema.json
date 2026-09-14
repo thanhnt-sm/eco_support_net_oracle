@@ -1,0 +1,338 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.dataguard.example/observability/phase6-owner-inputs.schema.json",
+  "title": "DataGuard Phase 6B owner input packet",
+  "description": "Redacted, machine-readable evidence required before an owner-approved Phase 6B runtime gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "packet_id",
+    "approved",
+    "environment",
+    "owner",
+    "kubernetes",
+    "clients",
+    "backends",
+    "traffic",
+    "slos",
+    "profiler"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "packet_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 64,
+      "pattern": "^phase6-[a-z0-9][a-z0-9.-]{1,62}$"
+    },
+    "approved": { "type": "boolean" },
+    "environment": { "enum": ["integration", "synthetic-canary", "canary"] },
+    "owner": { "$ref": "#/$defs/owner" },
+    "kubernetes": { "$ref": "#/$defs/kubernetes" },
+    "clients": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/client" }
+    },
+    "backends": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loki", "tempo", "mimir", "pyroscope"],
+      "properties": {
+        "loki": {
+          "allOf": [
+            { "$ref": "#/$defs/backend" },
+            {
+              "if": { "properties": { "status": { "const": "enabled" } } },
+              "then": { "properties": { "protocol": { "const": "otlp-http" } } }
+            }
+          ]
+        },
+        "tempo": {
+          "allOf": [
+            { "$ref": "#/$defs/backend" },
+            {
+              "if": { "properties": { "status": { "const": "enabled" } } },
+              "then": { "properties": { "protocol": { "enum": ["otlp-http", "otlp-grpc"] } } }
+            }
+          ]
+        },
+        "mimir": {
+          "allOf": [
+            { "$ref": "#/$defs/backend" },
+            {
+              "if": { "properties": { "status": { "const": "enabled" } } },
+              "then": { "properties": { "protocol": { "enum": ["otlp-http", "prometheus-remote-write"] } } }
+            }
+          ]
+        },
+        "pyroscope": {
+          "allOf": [
+            { "$ref": "#/$defs/backend" },
+            {
+              "if": { "properties": { "status": { "const": "enabled" } } },
+              "then": { "properties": { "protocol": { "const": "pyroscope-http" } } }
+            }
+          ]
+        }
+      }
+    },
+    "traffic": { "$ref": "#/$defs/traffic" },
+    "slos": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/slo" }
+    },
+    "profiler": { "$ref": "#/$defs/profiler" }
+  },
+  "$defs": {
+    "bounded": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 192,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]*$"
+    },
+    "ref": {
+      "type": "string",
+      "maxLength": 192,
+      "pattern": "^(ref|ticket)://[a-z0-9][a-z0-9._/-]{1,190}(?:#[a-z0-9._-]+)?$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["team", "owner_ref", "approval_ref", "reviewed_at"],
+      "properties": {
+        "team": { "$ref": "#/$defs/bounded" },
+        "owner_ref": { "$ref": "#/$defs/ref" },
+        "approval_ref": {
+          "type": "string",
+          "maxLength": 192,
+          "pattern": "^ticket://[a-z0-9][a-z0-9._/-]{1,190}$"
+        },
+        "reviewed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "kubernetes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "context_ref",
+        "api_version",
+        "cni",
+        "namespace",
+        "namespace_labels",
+        "workload_identity",
+        "server_dry_run_approved"
+      ],
+      "properties": {
+        "context_ref": { "$ref": "#/$defs/ref" },
+        "api_version": {
+          "type": "string",
+          "pattern": "^v[0-9]+(?:\\.[0-9]+){0,2}$"
+        },
+        "cni": { "$ref": "#/$defs/bounded" },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "namespace_labels": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9][-A-Za-z0-9./_]{0,62}$"
+          },
+          "additionalProperties": { "$ref": "#/$defs/bounded" }
+        },
+        "workload_identity": { "$ref": "#/$defs/ref" },
+        "server_dry_run_approved": { "type": "boolean" }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "status",
+        "package",
+        "version",
+        "retry_policy",
+        "dlq_policy",
+        "streaming_policy",
+        "duplicate_policy",
+        "idempotency_policy"
+      ],
+      "properties": {
+        "component": {
+          "enum": ["grpc", "kafka", "rabbitmq", "npgsql", "redis"]
+        },
+        "status": { "enum": ["used", "not_used"] },
+        "package": { "$ref": "#/$defs/bounded" },
+        "version": { "$ref": "#/$defs/bounded" },
+        "retry_policy": { "$ref": "#/$defs/bounded" },
+        "dlq_policy": { "$ref": "#/$defs/bounded" },
+        "streaming_policy": { "$ref": "#/$defs/bounded" },
+        "duplicate_policy": { "$ref": "#/$defs/bounded" },
+        "idempotency_policy": { "$ref": "#/$defs/bounded" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "used" } } },
+          "then": {
+            "properties": {
+              "package": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$" },
+              "version": { "$ref": "#/$defs/semver" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "not_used" } } },
+          "then": {
+            "properties": {
+              "package": { "const": "not-used" },
+              "version": { "const": "not-used" }
+            }
+          }
+        }
+      ]
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "protocol",
+        "endpoint_ref",
+        "tenant_ref",
+        "tls_mode",
+        "residency",
+        "retention_days"
+      ],
+      "properties": {
+        "status": { "enum": ["enabled", "disabled"] },
+        "protocol": {
+          "enum": ["otlp-http", "otlp-grpc", "prometheus-remote-write", "pyroscope-http", "not-used"]
+        },
+        "endpoint_ref": { "$ref": "#/$defs/bounded" },
+        "tenant_ref": { "$ref": "#/$defs/bounded" },
+        "tls_mode": { "enum": ["tls", "mtls", "not-used"] },
+        "residency": { "$ref": "#/$defs/bounded" },
+        "retention_days": { "type": "integer", "minimum": 0, "maximum": 3650 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "enabled" } } },
+          "then": {
+            "properties": {
+              "endpoint_ref": { "$ref": "#/$defs/ref" },
+              "tenant_ref": { "$ref": "#/$defs/ref" },
+              "tls_mode": { "enum": ["tls", "mtls"] },
+              "retention_days": { "minimum": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "disabled" } } },
+          "then": {
+            "properties": {
+              "endpoint_ref": { "const": "not-used" },
+              "tenant_ref": { "const": "not-used" },
+              "tls_mode": { "const": "not-used" },
+              "retention_days": { "const": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "traffic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "average_rps",
+        "peak_rps",
+        "average_payload_bytes",
+        "max_payload_bytes",
+        "telemetry_outage_tolerance_seconds",
+        "rto_seconds",
+        "rpo_seconds"
+      ],
+      "properties": {
+        "average_rps": { "type": "number", "exclusiveMinimum": 0 },
+        "peak_rps": { "type": "number", "exclusiveMinimum": 0 },
+        "average_payload_bytes": { "type": "integer", "minimum": 1, "maximum": 104857600 },
+        "max_payload_bytes": { "type": "integer", "minimum": 1, "maximum": 104857600 },
+        "telemetry_outage_tolerance_seconds": { "type": "integer", "minimum": 1, "maximum": 604800 },
+        "rto_seconds": { "type": "integer", "minimum": 0, "maximum": 604800 },
+        "rpo_seconds": { "type": "integer", "minimum": 0, "maximum": 604800 }
+      }
+    },
+    "slo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "owner_ref", "target", "window", "minimum_valid_events"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{2,95}$"
+        },
+        "owner_ref": { "$ref": "#/$defs/ref" },
+        "target": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "window": { "enum": ["7d", "28d", "30d"] },
+        "minimum_valid_events": { "type": "integer", "minimum": 1, "maximum": 1000000000 }
+      }
+    },
+    "profiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "runtime",
+        "os_arch",
+        "symbol_policy",
+        "overhead_budget_percent",
+        "kill_switch_ref"
+      ],
+      "properties": {
+        "mode": { "enum": ["disabled", "native-dotnet", "ebpf"] },
+        "runtime": { "$ref": "#/$defs/bounded" },
+        "os_arch": { "$ref": "#/$defs/bounded" },
+        "symbol_policy": { "enum": ["none", "private-symbols", "redacted-source-map"] },
+        "overhead_budget_percent": { "type": "number", "minimum": 0, "maximum": 20 },
+        "kill_switch_ref": { "$ref": "#/$defs/ref" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "disabled" } } },
+          "then": {
+            "properties": {
+              "runtime": { "const": "not-used" },
+              "os_arch": { "const": "not-used" },
+              "symbol_policy": { "const": "none" },
+              "overhead_budget_percent": { "const": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "mode": { "enum": ["native-dotnet", "ebpf"] } } },
+          "then": {
+            "properties": {
+              "runtime": { "not": { "const": "not-used" } },
+              "os_arch": { "not": { "const": "not-used" } },
+              "symbol_policy": { "not": { "const": "none" } },
+              "overhead_budget_percent": { "exclusiveMinimum": 0 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

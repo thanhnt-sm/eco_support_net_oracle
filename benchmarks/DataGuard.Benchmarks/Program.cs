@@ -5,8 +5,11 @@ using DataGuard.Analyzers;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Validation;
+using DataGuard.Observability;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DataGuard.Benchmarks;
 
@@ -74,4 +77,41 @@ public class IncrementalGeneratorBenchmarks
 
     [Benchmark]
     public GeneratorDriver RunGenerator() => _driver.RunGenerators(_compilation);
+}
+
+[MemoryDiagnoser]
+public class ObservabilityOverheadBenchmarks
+{
+    private readonly ObservedOperationDescriptor _operation = new(
+        "banking.transfer.initiate",
+        "critical",
+        ObservedOperationKind.Command);
+    private IBusinessOperationObserver _observer = null!;
+    private ServiceProvider _provider = null!;
+
+    [Params(false, true)]
+    public bool SdkEnabled { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _provider = new ServiceCollection()
+            .AddLogging()
+            .AddCoreObservability(options =>
+            {
+                options.ServiceName = "benchmark";
+                options.Enabled = SdkEnabled;
+            })
+            .BuildServiceProvider();
+        _observer = _provider.GetRequiredService<IBusinessOperationObserver>();
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => _provider.Dispose();
+
+    [Benchmark(Baseline = true)]
+    public Task<int> Direct() => Task.FromResult(42);
+
+    [Benchmark]
+    public Task<int> Observed() => _observer.ExecuteAsync(_operation, _ => Task.FromResult(42));
 }

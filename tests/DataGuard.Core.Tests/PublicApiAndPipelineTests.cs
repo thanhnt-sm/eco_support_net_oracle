@@ -38,6 +38,39 @@ public class PublicApiAndPipelineTests
     }
 
     [Fact]
+    public async Task ValidationPipeline_TelemetryWritesLocalDailyArchive()
+    {
+        var directory = Directory.CreateTempSubdirectory("dg-pipeline-observability-");
+        try
+        {
+            var config = new DataGuardConfiguration
+            {
+                EnableTelemetry = true,
+                EnableAuditLogging = false,
+                TelemetryFileDirectory = directory.FullName,
+                TelemetryServiceName = "dataguard-pipeline-tests",
+            };
+
+            using (var pipeline = DataGuardApi.CreatePipeline(config))
+            {
+                var result = await pipeline.ValidateAsync(Array.Empty<ContractDescriptor>());
+                result.ContractsValidated.Should().Be(0);
+            }
+
+            var archiveFiles = Directory.GetFiles(directory.FullName, "*.ndjson", SearchOption.AllDirectories);
+            archiveFiles.Should().ContainSingle();
+            (await File.ReadAllTextAsync(archiveFiles[0])).Should().Contain("dataguard.validation");
+        }
+        finally
+        {
+            if (directory.Exists)
+            {
+                directory.Delete(recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task ValidationPipeline_FluentConfiguration_ChainsCorrectly()
     {
         var tempBaseline = Path.Combine(Path.GetTempPath(), $"dg-base-{Guid.NewGuid():N}.json");

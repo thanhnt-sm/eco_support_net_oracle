@@ -1,0 +1,144 @@
+# Prometheus rule templates for DataGuard.Observability.
+# Metric names are the Prometheus-normalized form expected from the OTel exporter
+# (dots become underscores and monotonic counters receive _total). Validate them against
+# one deployed sample before activation; this repository has no production scrape target.
+groups:
+  - name: dataguard.business.recording
+    interval: 30s
+    rules:
+      - record: dataguard:business_operation_requests:rate5m
+        expr: sum by (operation) (rate(business_operation_count_total[5m]))
+      - record: dataguard:business_operation_requests:rate30m
+        expr: sum by (operation) (rate(business_operation_count_total[30m]))
+      - record: dataguard:business_operation_requests:rate1h
+        expr: sum by (operation) (rate(business_operation_count_total[1h]))
+      - record: dataguard:business_operation_requests:rate6h
+        expr: sum by (operation) (rate(business_operation_count_total[6h]))
+      # Technical-availability denominator: cancelled, invalid-input and auth-policy
+      # outcomes are excluded; handled business rejections remain valid good responses.
+      # Acceptance/completion SLOs must define an operation-specific valid selector.
+      - record: dataguard:business_operation_valid_events:rate5m
+        expr: sum by (operation) (rate(business_operation_count_total{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[5m]))
+      - record: dataguard:business_operation_bad_events:rate5m
+        expr: sum by (operation) (rate(business_operation_failure_count_total{result=~"technical_failure|timeout|dependency_unavailable|unknown"}[5m]))
+      - record: dataguard:business_operation_error_ratio:rate5m
+        expr: sum by (operation) (rate(business_operation_failure_count_total{result=~"technical_failure|timeout|dependency_unavailable|unknown"}[5m])) / clamp_min(sum by (operation) (rate(business_operation_count_total{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[5m])), 1e-9)
+      - record: dataguard:business_operation_error_ratio:rate30m
+        expr: sum by (operation) (rate(business_operation_failure_count_total{result=~"technical_failure|timeout|dependency_unavailable|unknown"}[30m])) / clamp_min(sum by (operation) (rate(business_operation_count_total{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[30m])), 1e-9)
+      - record: dataguard:business_operation_error_ratio:rate1h
+        expr: sum by (operation) (rate(business_operation_failure_count_total{result=~"technical_failure|timeout|dependency_unavailable|unknown"}[1h])) / clamp_min(sum by (operation) (rate(business_operation_count_total{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[1h])), 1e-9)
+      - record: dataguard:business_operation_error_ratio:rate6h
+        expr: sum by (operation) (rate(business_operation_failure_count_total{result=~"technical_failure|timeout|dependency_unavailable|unknown"}[6h])) / clamp_min(sum by (operation) (rate(business_operation_count_total{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[6h])), 1e-9)
+      - record: dataguard:transfer_initiate_latency_compliance:rate5m
+        expr: sum(rate(business_operation_duration_milliseconds_bucket{operation="banking.transfer.initiate",result!~"cancellation|validation_failure|authentication_failure|authorization_denial",le="500"}[5m])) / clamp_min(sum(rate(business_operation_duration_milliseconds_count{operation="banking.transfer.initiate",result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[5m])), 1e-9)
+      - record: dataguard:transfer_initiate_latency_bad_ratio:rate5m
+        expr: 1 - dataguard:transfer_initiate_latency_compliance:rate5m
+
+  - name: dataguard.telemetry.quality
+    interval: 30s
+    rules:
+      # Collector metric names must be confirmed from the deployed distribution before use.
+      - record: dataguard:collector_trace_export_failure_ratio:rate5m
+        expr: sum(rate(otelcol_exporter_send_failed_spans[5m])) / clamp_min(sum(rate(otelcol_receiver_accepted_spans[5m])), 1e-9)
+      - record: dataguard:collector_trace_refusal_ratio:rate5m
+        expr: sum(rate(otelcol_receiver_refused_spans[5m])) / clamp_min(sum(rate(otelcol_receiver_accepted_spans[5m])), 1e-9)
+
+  - name: dataguard.business.alerts
+    interval: 30s
+    rules:
+      # For a 99.99% availability SLO, 1-SLO = 0.0001. 14.4 is the two-hour budget
+      # exhaustion burn baseline (1h long / 5m short) and is gated by event volume.
+      - alert: DataGuardBusinessOperationFastBurn
+        expr: |
+          (
+            dataguard:business_operation_error_ratio:rate5m > (14.4 * 0.0001)
+            and dataguard:business_operation_error_ratio:rate1h > (14.4 * 0.0001)
+          )
+          and on (operation)
+          (sum by (operation) (increase(business_operation_count_total{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[1h])) >= 100)
+        for: 2m
+        labels:
+          severity: page
+          team: sre
+          service: dataguard
+          slo: business-operation-availability
+        annotations:
+          summary: "Fast error-budget burn for {{ $labels.operation }}"
+          description: "Technical/timeout/unknown failures exceed the 99.99% SLO burn threshold in both 5m and 1h windows."
+          runbook_url: https://runbooks.example.invalid/observability/fast-burn
+          dashboard_url: https://grafana.example.invalid/d/dataguard-business/business-journeys
+          trace_query_url: https://tempo.example.invalid/search?tags=banking.operation.name%3D{{ $labels.operation }}
+          maintenance: "Silence only with an approved change window; do not edit the rule."
+
+      # 6h/30m catches slow degradation; the longer event gate avoids paging on a few calls.
+      - alert: DataGuardBusinessOperationSlowBurn
+        expr: |
+          (
+            dataguard:business_operation_error_ratio:rate30m > (6 * 0.0001)
+            and dataguard:business_operation_error_ratio:rate6h > (6 * 0.0001)
+          )
+          and on (operation)
+          (sum by (operation) (increase(business_operation_count_total{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[6h])) >= 1000)
+        for: 15m
+        labels:
+          severity: ticket
+          team: sre
+          service: dataguard
+          slo: business-operation-availability
+        annotations:
+          summary: "Slow error-budget burn for {{ $labels.operation }}"
+          description: "Sustained technical/timeout/unknown failure ratio is consuming the 99.99% error budget."
+          runbook_url: https://runbooks.example.invalid/observability/slow-burn
+          dashboard_url: https://grafana.example.invalid/d/dataguard-slo/executive-slo
+          maintenance: "Respect Alertmanager maintenance silence and attach the change record."
+
+      - alert: DataGuardTransferLatencySloViolation
+        expr: |
+          dataguard:transfer_initiate_latency_bad_ratio:rate5m > (4 * 0.001)
+          and on (operation)
+          (sum by (operation) (increase(business_operation_count_total{operation="banking.transfer.initiate"}[1h])) >= 100)
+        for: 10m
+        labels:
+          severity: page
+          team: sre
+          service: dataguard
+          slo: transfer-initiation-latency
+        annotations:
+          summary: "Transfer initiation latency SLO violation"
+          description: "At least 0.4% of transfer initiation durations exceed the 500ms budgeted threshold."
+          runbook_url: https://runbooks.example.invalid/observability/latency-slo
+          dashboard_url: https://grafana.example.invalid/d/dataguard-business/business-journeys
+
+  - name: dataguard.low-traffic.alerts
+    interval: 1m
+    rules:
+      - alert: DataGuardCriticalOperationNoTraffic
+        # Counters continue to be scraped even when they do not increase, so
+        # absent_over_time() would not detect a silent operation. Use increase and
+        # retain a zero-vector fallback for a series that has never been created.
+        expr: (sum(increase(business_operation_count_total{operation="banking.transfer.initiate",result=~"success|accepted"}[15m])) or vector(0)) == 0
+        for: 5m
+        labels:
+          severity: ticket
+          team: sre
+          service: dataguard
+          slo: transfer-initiation-availability
+        annotations:
+          summary: "No transfer-initiate telemetry observed"
+          description: "No success/accepted event was observed for a low-traffic critical operation; require a synthetic heartbeat or approved maintenance before treating this as an outage."
+          runbook_url: https://runbooks.example.invalid/observability/low-traffic
+          dashboard_url: https://grafana.example.invalid/d/dataguard-business/business-journeys
+
+      - alert: DataGuardTelemetryExportFailure
+        expr: dataguard:collector_trace_export_failure_ratio:rate5m > 0.01
+        for: 10m
+        labels:
+          severity: ticket
+          team: platform
+          service: otel-collector
+          slo: telemetry-pipeline
+        annotations:
+          summary: "Collector trace export failure ratio above 1%"
+          description: "Telemetry pipeline degradation can hide incidents but is not itself a business availability failure."
+          runbook_url: https://runbooks.example.invalid/observability/telemetry-drop
+          dashboard_url: https://grafana.example.invalid/d/dataguard-collector/collector-health

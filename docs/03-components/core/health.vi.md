@@ -16,14 +16,18 @@ connection string, token, hash và absolute path không được đưa vào snap
 Lớp Core này không mở HTTP route hoặc bind listener. Host tường minh cùng policy
 loopback/authentication là hạng mục delivery riêng.
 
-`DataGuard.Host` chỉ nhận một hoặc nhiều URL HTTP(S) loopback không rỗng; URL malformed, remote, hoặc scheme khác bị từ chối trước khi bind.
+`DataGuard.Host` bị tắt nếu chưa đặt `DataGuardHealth:EnableHost=true`. Khi bật, host chỉ nhận
+một hoặc nhiều URL HTTP(S) loopback không rỗng; URL malformed, remote, hoặc scheme khác bị từ
+chối trước khi bind. Route mapping là opt-in lần hai qua
+`DataGuardHealth:ExposeEndpoints=false` (mặc định), nên CLI/library không mở HTTP endpoint trừ khi
+host wrapper có kiểm soát bật cả hai switch.
 
 Local probe đã ship kiểm tra khả năng đọc snapshot/baseline được cấu hình, dung
 lượng disk trống và managed-memory budget. Snapshot hoặc baseline không cấu hình
 là `Unknown`; readiness definition rỗng không bao giờ healthy. Các probe này không
 mở database connection, resolve credential hoặc gọi network.
 
-Readiness cũng yêu cầu snapshot còn mới. Host mặc định cho phép snapshot tối đa
+Khi route được bật, readiness cũng yêu cầu snapshot còn mới. Host mặc định cho phép snapshot tối đa
 30 giây (`DataGuardHealth:MaximumSnapshotAgeSeconds`); khi quá thời hạn,
 `/health/ready` trả 503 cho đến khi coordinator nền công bố quan sát mới.
 `/health/live` không phụ thuộc tuổi của probe.

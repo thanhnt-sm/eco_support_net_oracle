@@ -6,6 +6,13 @@ namespace DataGuard.Core.Tests;
 public class HealthHostBindingTests
 {
     [Fact]
+    public void HealthHostOptions_DefaultsToNoHttpEndpoints()
+    {
+        new HealthHostOptions().EnableHost.Should().BeFalse();
+        new HealthHostOptions().ExposeEndpoints.Should().BeFalse();
+    }
+
+    [Fact]
     public void HealthHostOptions_RejectsRefreshIntervalAtOrAboveSnapshotAge()
     {
         var options = new HealthHostOptions { MaximumSnapshotAgeSeconds = 30, RefreshIntervalSeconds = 30 };

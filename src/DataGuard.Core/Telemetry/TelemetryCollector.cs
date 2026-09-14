@@ -26,12 +26,18 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
     private readonly ConcurrentDictionary<string, Counter<long>> _counters = new();
     private readonly ConcurrentDictionary<string, Histogram<double>> _histograms = new();
     private readonly ConcurrentQueue<TelemetryEvent> _eventQueue = new();
+    private readonly ConcurrentQueue<ObservabilityRecord> _fileRecordQueue = new();
     private readonly SemaphoreSlim _flushGate = new(1, 1);
     private readonly Timer? _flushTimer;
     private readonly Func<string, string, Task> _exportSink;
+    private readonly FileObservabilitySink? _fileSink;
+    private readonly bool _injectedExportSink;
     private int _consecutiveExportFailures;
+    private int _consecutiveFileWriteFailures;
     private int _queuedEventCount;
+    private int _queuedFileRecordCount;
     private long _droppedEventCount;
+    private long _droppedFileRecordCount;
     private long _terminalLossCount;
     private int _lifecycleState;
 
@@ -44,7 +50,26 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _meter = new Meter("DataGuard.Core", "1.0.0");
+        _injectedExportSink = exportSink is not null;
         _exportSink = exportSink ?? ExportEventsAsync;
+
+        // The CLI/library product has no observability endpoint. A local,
+        // bounded NDJSON sink is therefore the default path whenever no test or
+        // owner-supplied exporter is injected. Remote OTLP remains an explicit
+        // compatibility mode and is never selected implicitly.
+        if (_config.Enabled && _config.FileSinkEnabled && !_injectedExportSink)
+        {
+            _fileSink = new FileObservabilitySink(new ObservabilityFileOptions
+            {
+                DirectoryPath = _config.FileSinkDirectory,
+                FilePrefix = _config.FileSinkFilePrefix,
+                IncludeEventDetails = _config.IncludeEventDetails,
+                ServiceName = _config.ServiceName,
+                ServiceVersion = _config.ServiceVersion,
+                EnvironmentName = _config.EnvironmentName,
+                MaxRecordBytes = NormalizePositive(_config.MaxRecordBytes, FileObservabilitySinkDefaults.MaxRecordBytes),
+            });
+        }
 
         if (_config.Enabled)
         {
@@ -55,6 +80,12 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
 
     /// <summary>Events discarded because a configured queue or payload limit was reached.</summary>
     public long DroppedEventCount => Interlocked.Read(ref _droppedEventCount);
+
+    /// <summary>Local observability records discarded because the bounded file queue was full or oversized.</summary>
+    public long DroppedObservabilityRecordCount => Interlocked.Read(ref _droppedFileRecordCount);
+
+    /// <summary>Most recently written local observability archive file.</summary>
+    public string? LastObservabilityFilePath => _fileSink?.LastFilePath;
 
     /// <summary>Current collector lifecycle state.</summary>
     public TelemetryLifecycleState LifecycleState => (TelemetryLifecycleState)Volatile.Read(ref _lifecycleState);
@@ -72,11 +103,24 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
             return;
         }
 
-        var counter = _counters.GetOrAdd(name, n =>
-            _meter.CreateCounter<long>(n, description: $"Counter for {n}"));
+        try
+        {
+            var counter = _counters.GetOrAdd(name, n =>
+                _meter.CreateCounter<long>(n, description: $"Counter for {n}"));
 
-        var tagsList = tags?.ToList() ?? new List<KeyValuePair<string, object?>>();
-        counter.Add(value, tagsList.ToArray());
+            var tagsList = tags?.ToList() ?? new List<KeyValuePair<string, object?>>();
+            counter.Add(value, tagsList.ToArray());
+            TryEnqueueFileRecord(() => ObservabilityRecordFactory.CreateMetric(
+                GetFileOptions(),
+                name,
+                value,
+                "1",
+                tagsList));
+        }
+        catch (Exception exception)
+        {
+            RecordTelemetryFault("counter", exception);
+        }
     }
 
     /// <summary>
@@ -89,11 +133,33 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
             return;
         }
 
-        var histogram = _histograms.GetOrAdd(name, n =>
-            _meter.CreateHistogram<double>(n, unit: "ms", description: $"Histogram for {n}"));
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            if (_fileSink is not null)
+            {
+                Interlocked.Increment(ref _droppedFileRecordCount);
+            }
+            return;
+        }
 
-        var tagsList = tags?.ToList() ?? new List<KeyValuePair<string, object?>>();
-        histogram.Record(value, tagsList.ToArray());
+        try
+        {
+            var histogram = _histograms.GetOrAdd(name, n =>
+                _meter.CreateHistogram<double>(n, unit: "ms", description: $"Histogram for {n}"));
+
+            var tagsList = tags?.ToList() ?? new List<KeyValuePair<string, object?>>();
+            histogram.Record(value, tagsList.ToArray());
+            TryEnqueueFileRecord(() => ObservabilityRecordFactory.CreateMetric(
+                GetFileOptions(),
+                name,
+                value,
+                "ms",
+                tagsList));
+        }
+        catch (Exception exception)
+        {
+            RecordTelemetryFault("histogram", exception);
+        }
     }
 
     /// <summary>
@@ -115,13 +181,39 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
             return;
         }
 
-        var evt = new TelemetryEvent(
-            DateTimeOffset.UtcNow,
-            eventType,
-            details,
-            properties?.ToImmutableDictionary() ?? ImmutableDictionary<string, object?>.Empty);
+        if (_fileSink is not null)
+        {
+            TryEnqueueFileRecord(() => ObservabilityRecordFactory.CreateLog(
+                GetFileOptions(),
+                eventType,
+                details,
+                properties));
+            return;
+        }
 
-        TryEnqueue(evt);
+        // Legacy/custom sinks remain available for compatibility and tests.
+        // Without an injected sink or an explicit remote-export flag, drop the
+        // event rather than opening a network path implicitly.
+        if (!_injectedExportSink && !_config.RemoteExportEnabled)
+        {
+            Interlocked.Increment(ref _droppedEventCount);
+            return;
+        }
+
+        try
+        {
+            var evt = new TelemetryEvent(
+                DateTimeOffset.UtcNow,
+                eventType,
+                details,
+                properties?.ToImmutableDictionary() ?? ImmutableDictionary<string, object?>.Empty);
+
+            TryEnqueue(evt);
+        }
+        catch (Exception exception)
+        {
+            RecordTelemetryFault("log", exception);
+        }
     }
 
     /// <summary>
@@ -163,6 +255,15 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
         IncrementCounter("violations.warnings", warningCount);
         RecordHistogram("validation.contracts", contractCount);
         RecordHistogram("validation.duration", totalDuration.TotalMilliseconds);
+        TryEnqueueFileRecord(() => ObservabilityRecordFactory.CreateSpan(
+            GetFileOptions(),
+            "dataguard.validation",
+            totalDuration,
+            "ok",
+            new[]
+            {
+                new KeyValuePair<string, object?>("result", errorCount > 0 ? "validation_failure" : "success"),
+            }));
     }
 
     /// <summary>
@@ -183,9 +284,11 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
     private async Task<TelemetryFlushResult> FlushAsyncCore(bool allowStopping, CancellationToken cancellationToken)
     {
         // Zero-egress guarantee: a disabled collector never reaches any export path.
+        var hasFileWork = !_fileRecordQueue.IsEmpty;
+        var hasRemoteWork = !_eventQueue.IsEmpty;
         if ((!allowStopping && LifecycleState != TelemetryLifecycleState.Active)
             || LifecycleState == TelemetryLifecycleState.Stopped
-            || !_config.Enabled || _eventQueue.IsEmpty)
+            || !_config.Enabled || (!hasFileWork && !hasRemoteWork))
         {
             return TelemetryFlushResult.NoWork;
         }
@@ -206,6 +309,17 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
         var releaseGate = true;
         try
         {
+            if (_fileSink is not null && hasFileWork)
+            {
+                return await FlushFileRecordsAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!_config.RemoteExportEnabled && !_injectedExportSink)
+            {
+                DropQueuedEvents();
+                return TelemetryFlushResult.RemoteExportDisabled;
+            }
+
             var exportEndpoint = _config.ExportEndpoint;
             if (!IsAllowedExportEndpoint(exportEndpoint))
             {
@@ -262,10 +376,7 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
             }
             catch (Exception ex)
             {
-                foreach (var evt in events)
-                {
-                    _eventQueue.Enqueue(evt);
-                }
+                RequeueEventsOrRecordTerminalLoss(events);
                 _consecutiveExportFailures++;
 
                 // Legacy delegates do not accept a cancellation token. Keep the
@@ -343,6 +454,123 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
         }
     }
 
+    private void TryEnqueueFileRecord(Func<ObservabilityRecord> recordFactory)
+    {
+        if (_fileSink is null || LifecycleState != TelemetryLifecycleState.Active)
+        {
+            return;
+        }
+
+        try
+        {
+            TryEnqueueFileRecord(recordFactory());
+        }
+        catch (Exception exception)
+        {
+            Interlocked.Increment(ref _droppedFileRecordCount);
+            System.Diagnostics.Debug.WriteLine($"[Telemetry] Local record creation failed: {exception.Message}");
+        }
+    }
+
+    private void TryEnqueueFileRecord(ObservabilityRecord record)
+    {
+        if (_fileSink is null || LifecycleState != TelemetryLifecycleState.Active)
+        {
+            return;
+        }
+
+        var maxQueuedRecords = NormalizePositive(_config.MaxQueuedEvents, DefaultMaxQueuedEvents);
+        while (true)
+        {
+            var current = Volatile.Read(ref _queuedFileRecordCount);
+            if (current >= maxQueuedRecords)
+            {
+                Interlocked.Increment(ref _droppedFileRecordCount);
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _queuedFileRecordCount, current + 1, current) == current)
+            {
+                if (LifecycleState != TelemetryLifecycleState.Active)
+                {
+                    Interlocked.Decrement(ref _queuedFileRecordCount);
+                    Interlocked.Increment(ref _terminalLossCount);
+                    return;
+                }
+
+                _fileRecordQueue.Enqueue(record);
+                return;
+            }
+        }
+    }
+
+    private async Task<TelemetryFlushResult> FlushFileRecordsAsync(CancellationToken cancellationToken)
+    {
+        if (_fileSink is null || _fileRecordQueue.IsEmpty)
+        {
+            return TelemetryFlushResult.NoWork;
+        }
+
+        if (_consecutiveFileWriteFailures >= MaxConsecutiveExportFailures)
+        {
+            return TelemetryFlushResult.CircuitOpen;
+        }
+
+        var records = new List<ObservabilityRecord>();
+        var payloadBytes = 0;
+        var maxBatchEvents = NormalizePositive(_config.MaxBatchEvents, DefaultMaxBatchEvents);
+        var maxPayloadBytes = NormalizePositive(_config.MaxPayloadBytes, DefaultMaxPayloadBytes);
+        while (records.Count < maxBatchEvents && _fileRecordQueue.TryDequeue(out var record))
+        {
+            var line = FileObservabilitySink.SerializeLine(record);
+            var lineBytes = System.Text.Encoding.UTF8.GetByteCount(line) + Environment.NewLine.Length;
+            if (lineBytes > maxPayloadBytes)
+            {
+                Interlocked.Decrement(ref _queuedFileRecordCount);
+                Interlocked.Increment(ref _droppedFileRecordCount);
+                continue;
+            }
+
+            if (records.Count > 0 && payloadBytes + lineBytes > maxPayloadBytes)
+            {
+                _fileRecordQueue.Enqueue(record);
+                break;
+            }
+
+            records.Add(record);
+            payloadBytes += lineBytes;
+        }
+
+        if (records.Count == 0)
+        {
+            return TelemetryFlushResult.NoWork;
+        }
+
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(NormalizePositive(_config.ExportTimeoutSeconds, 5));
+            var writeTask = _fileSink.WriteBatchAsync(records, cancellationToken);
+            var result = await writeTask.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+            Interlocked.Add(ref _queuedFileRecordCount, -records.Count);
+            if (result.DroppedRecords > 0)
+            {
+                Interlocked.Add(ref _droppedFileRecordCount, result.DroppedRecords);
+            }
+
+            _consecutiveFileWriteFailures = 0;
+            return TelemetryFlushResult.Exported;
+        }
+        catch (Exception exception)
+        {
+            RequeueFileRecordsOrRecordTerminalLoss(records);
+
+            _consecutiveFileWriteFailures++;
+            System.Diagnostics.Debug.WriteLine(
+                $"[Telemetry] Local observability archive write failed ({_consecutiveFileWriteFailures}/{MaxConsecutiveExportFailures}): {exception.Message}");
+            return cancellationToken.IsCancellationRequested ? TelemetryFlushResult.Cancelled : TelemetryFlushResult.Failed;
+        }
+    }
+
     private void DropQueuedEvents(bool terminalLoss = false)
     {
         while (_eventQueue.TryDequeue(out _))
@@ -354,6 +582,72 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
                 Interlocked.Increment(ref _terminalLossCount);
             }
         }
+    }
+
+    private void RequeueEventsOrRecordTerminalLoss(IEnumerable<TelemetryEvent> events)
+    {
+        foreach (var evt in events)
+        {
+            if (LifecycleState == TelemetryLifecycleState.Active)
+            {
+                _eventQueue.Enqueue(evt);
+                continue;
+            }
+
+            Interlocked.Decrement(ref _queuedEventCount);
+            Interlocked.Increment(ref _droppedEventCount);
+            Interlocked.Increment(ref _terminalLossCount);
+        }
+    }
+
+    private void DropFileRecords(bool terminalLoss = false)
+    {
+        while (_fileRecordQueue.TryDequeue(out _))
+        {
+            Interlocked.Decrement(ref _queuedFileRecordCount);
+            Interlocked.Increment(ref _droppedFileRecordCount);
+            if (terminalLoss)
+            {
+                Interlocked.Increment(ref _terminalLossCount);
+            }
+        }
+    }
+
+    private void RequeueFileRecordsOrRecordTerminalLoss(IEnumerable<ObservabilityRecord> records)
+    {
+        foreach (var record in records)
+        {
+            if (LifecycleState == TelemetryLifecycleState.Active)
+            {
+                _fileRecordQueue.Enqueue(record);
+                continue;
+            }
+
+            Interlocked.Decrement(ref _queuedFileRecordCount);
+            Interlocked.Increment(ref _droppedFileRecordCount);
+            Interlocked.Increment(ref _terminalLossCount);
+        }
+    }
+
+    private ObservabilityFileOptions GetFileOptions() => new()
+    {
+        DirectoryPath = _config.FileSinkDirectory,
+        FilePrefix = _config.FileSinkFilePrefix,
+        IncludeEventDetails = _config.IncludeEventDetails,
+        ServiceName = _config.ServiceName,
+        ServiceVersion = _config.ServiceVersion,
+        EnvironmentName = _config.EnvironmentName,
+        MaxRecordBytes = NormalizePositive(_config.MaxRecordBytes, FileObservabilitySinkDefaults.MaxRecordBytes),
+    };
+
+    private void RecordTelemetryFault(string signal, Exception exception)
+    {
+        if (_fileSink is not null)
+        {
+            Interlocked.Increment(ref _droppedFileRecordCount);
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[Telemetry] {signal} recording failed: {exception.Message}");
     }
 
     private static int NormalizePositive(int value, int fallback) => value > 0 ? value : fallback;
@@ -370,6 +664,13 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
         }
 
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
         {
             return false;
         }
@@ -398,12 +699,27 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
 
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _lifecycleState, (int)TelemetryLifecycleState.Stopped, (int)TelemetryLifecycleState.Active)
+        if (Interlocked.CompareExchange(ref _lifecycleState, (int)TelemetryLifecycleState.Stopping, (int)TelemetryLifecycleState.Active)
             == (int)TelemetryLifecycleState.Active)
         {
             _flushTimer?.Dispose();
+            if (_fileSink is not null && !_fileRecordQueue.IsEmpty)
+            {
+                try
+                {
+                    var timeout = TimeSpan.FromSeconds(NormalizePositive(_config.ExportTimeoutSeconds, 5));
+                    FlushAsyncCore(allowStopping: true, CancellationToken.None).Wait(timeout);
+                }
+                catch (Exception exception)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Telemetry] Final local archive flush failed: {exception.Message}");
+                }
+            }
             DropQueuedEvents(terminalLoss: true);
+            DropFileRecords(terminalLoss: true);
+            _fileSink?.Dispose();
             _meter.Dispose();
+            Volatile.Write(ref _lifecycleState, (int)TelemetryLifecycleState.Stopped);
         }
     }
 
@@ -423,6 +739,11 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
         _flushTimer?.Dispose();
         _ = await FlushAsyncCore(allowStopping: true, CancellationToken.None).ConfigureAwait(false);
         DropQueuedEvents(terminalLoss: true);
+        DropFileRecords(terminalLoss: true);
+        if (_fileSink is not null)
+        {
+            await _fileSink.DisposeAsync().ConfigureAwait(false);
+        }
         _meter.Dispose();
         Volatile.Write(ref _lifecycleState, (int)TelemetryLifecycleState.Stopped);
     }
@@ -444,6 +765,7 @@ public enum TelemetryFlushResult
     InProgress,
     CircuitOpen,
     RejectedEndpoint,
+    RemoteExportDisabled,
     Failed,
     Cancelled,
 }
@@ -457,6 +779,38 @@ public sealed record TelemetryConfig(
     int FlushIntervalSeconds = 30,
     bool IncludeStackTraces = false)
 {
+    /// <summary>
+    /// Enables the product-native local observability archive. This is the
+    /// default sink for the CLI/library and never opens a network endpoint.
+    /// </summary>
+    public bool FileSinkEnabled { get; init; } = true;
+
+    /// <summary>Optional root directory for UTC-day observability archives.</summary>
+    public string? FileSinkDirectory { get; init; }
+
+    /// <summary>File prefix for daily local observability archives.</summary>
+    public string FileSinkFilePrefix { get; init; } = "observability";
+
+    /// <summary>Stable service name written into the local resource envelope.</summary>
+    public string ServiceName { get; init; } = "dataguard";
+
+    /// <summary>Service version written into the local resource envelope.</summary>
+    public string ServiceVersion { get; init; } = "unknown";
+
+    /// <summary>Deployment environment written into the local resource envelope.</summary>
+    public string EnvironmentName { get; init; } = "local";
+
+    /// <summary>
+    /// Explicit owner-gated compatibility switch for the legacy remote exporter.
+    /// It is false by default and is ignored when the local file sink is active.
+    /// </summary>
+    public bool RemoteExportEnabled { get; init; }
+
+    /// <summary>
+    /// Allows redacted event bodies in the local archive. Disabled by default.
+    /// </summary>
+    public bool IncludeEventDetails { get; init; }
+
     /// <summary>Maximum events held across queued and in-flight batches.</summary>
     public int MaxQueuedEvents { get; init; } = TelemetryCollector.DefaultMaxQueuedEvents;
 
@@ -468,6 +822,14 @@ public sealed record TelemetryConfig(
 
     /// <summary>Maximum wait for one export attempt.</summary>
     public int ExportTimeoutSeconds { get; init; } = 5;
+
+    /// <summary>Maximum serialized local record size in UTF-8 bytes.</summary>
+    public int MaxRecordBytes { get; init; } = FileObservabilitySinkDefaults.MaxRecordBytes;
+}
+
+internal static class FileObservabilitySinkDefaults
+{
+    public const int MaxRecordBytes = 64 * 1024;
 }
 
 /// <summary>

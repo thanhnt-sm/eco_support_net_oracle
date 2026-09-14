@@ -8,10 +8,10 @@
 | Trục | Default | Bằng chứng |
 |---|---|---|
 | Ground truth | `Snapshot` (offline, không cần DB/credentials trong CI) | `Configuration.cs:8` — `GroundTruthMode.Snapshot` |
-| Telemetry | `Enabled=false`, `ExportEndpoint=null` — zero network egress | `TelemetryCollector.cs` — `TelemetryConfig(Enabled: false, ExportEndpoint: null)` |
+| Telemetry | `Enabled=false` — zero network egress; when enabled, local UTC-day NDJSON archive is primary | `TelemetryCollector.cs`, `ObservabilityFileSink.cs` |
 | Credentials | env var / secret manager (Key Vault, AWS, Vault); plaintext config-file bị chặn | `ZeroTrustCredentialProvider.cs` — `AllowPlaintextConfigFallback=false` |
 | Redaction | `config show` không in connection string | `Program.cs:491-497` — `"***redacted***"` |
-| Telemetry egress | allowlist HTTPS + localhost/127.0.0.1; circuit breaker sau 3 lỗi liên tiếp | SEC-006 (`TelemetryCollector.cs`) |
+| Telemetry egress | remote exporter disabled unless `RemoteExportEnabled=true`; endpoint allowlist/circuit breaker only apply to explicit compatibility path | `TelemetryConfig`, SEC-006 (`TelemetryCollector.cs`) |
 
 ## 2. Least-privilege DB role runbook
 

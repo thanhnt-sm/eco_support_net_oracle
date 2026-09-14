@@ -68,6 +68,10 @@ defaultPackage: null
 
 # Telemetry (opt-in, chỉ local)
 enableTelemetry: false
+telemetryFileDirectory: null       # Gốc archive NDJSON theo ngày UTC; null = local-app-data OS
+telemetryServiceName: dataguard
+telemetryServiceVersion: unknown
+includeTelemetryEventDetails: false # body mặc định bỏ hoặc redact
 
 # Oracle
 oracle:

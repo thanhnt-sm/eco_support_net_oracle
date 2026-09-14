@@ -68,6 +68,10 @@ defaultPackage: null
 
 # Telemetry (opt-in, local only)
 enableTelemetry: false
+telemetryFileDirectory: null       # UTC-day NDJSON archive root; OS local-app-data when null
+telemetryServiceName: dataguard
+telemetryServiceVersion: unknown
+includeTelemetryEventDetails: false # bodies omitted/redacted by default
 
 # Oracle-specific
 oracle:

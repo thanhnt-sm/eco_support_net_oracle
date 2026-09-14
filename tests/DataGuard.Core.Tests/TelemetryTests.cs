@@ -257,6 +257,9 @@ public class TelemetryExportAllowlistTests
     [InlineData("http://collector.example.com/v1/metrics")]
     [InlineData("ftp://collector.example.com/v1/metrics")]
     [InlineData("not-a-uri")]
+    [InlineData("https://user:secret@collector.example.com/v1/metrics")]
+    [InlineData("https://collector.example.com/v1/metrics?token=secret")]
+    [InlineData("https://collector.example.com/v1/metrics#secret")]
     public void Telemetry_Allowlist_RejectsPlainHttpRemoteAndInvalid(string endpoint)
     {
         var exported = false;

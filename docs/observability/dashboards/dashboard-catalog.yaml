@@ -1,0 +1,94 @@
+# Backend-neutral dashboard catalog. A platform-owned Grafana provisioning job can render
+# these entries after datasource UIDs, tenant routing and deployed metric samples are approved.
+# Queries marked owner-verification-required are templates only; they are not activation evidence.
+apiVersion: observability.dataguard/v1
+kind: DashboardCatalog
+query_status: owner-verification-required
+datasources:
+  metrics:
+    uid: mimir
+    type: prometheus
+  traces:
+    uid: tempo
+    type: tempo
+  logs:
+    uid: loki
+    type: loki
+  profiles:
+    uid: pyroscope
+    type: grafana-pyroscope-datasource
+dashboards:
+  - uid: dataguard-executive-slo
+    title: Executive SLO
+    panels: [slo-compliance, burn-rate, budget-remaining, traffic-sufficiency]
+  - uid: dataguard-business-journeys
+    title: Business journeys
+    panels: [operation-rate, operation-result, operation-duration, async-completion-lag]
+  - uid: dataguard-service-red
+    title: Service RED
+    panels: [request-rate, error-ratio, p50-p95-p99-duration, active-requests]
+  - uid: dataguard-dependencies
+    title: Dependencies
+    panels: [http-client, grpc-client, postgres, redis, retry-timeout]
+  - uid: dataguard-messaging
+    title: Messaging
+    panels: [consumer-lag, processing-duration, redelivery, dead-letter]
+  - uid: dataguard-dotnet-runtime
+    title: .NET runtime
+    panels: [cpu, working-set, gc-heap, allocation-rate, threadpool, lock-contention]
+  - uid: dataguard-collector-health
+    title: Collector health
+    panels: [accepted-refused, exporter-failures, queue-depth, retry-rate]
+  - uid: dataguard-telemetry-quality
+    title: Telemetry quality
+    panels: [freshness, dropped-ratio, sampling-rate, duplicate-series]
+  - uid: dataguard-cardinality-cost
+    title: Cardinality and cost
+    panels: [active-series, span-name-count, log-events, bytes-ingested]
+  - uid: dataguard-profiling
+    title: Continuous profiling
+    panels: [cpu-flamegraph, allocations, lock-contention, profiler-overhead]
+  - uid: dataguard-security-privacy
+    title: Security and privacy telemetry
+    panels: [redaction-count, pii-canary, access-audit, baggage-rejections]
+
+panel_queries:
+  slo-compliance: dataguard:business_operation_error_ratio:rate30m
+  burn-rate: dataguard:business_operation_error_ratio:rate5m
+  budget-remaining: 1 - (dataguard:business_operation_error_ratio:rate30m / 0.0001)
+  traffic-sufficiency: sum by (operation) (increase(business_operation_count_total[1h]))
+  operation-rate: dataguard:business_operation_requests:rate5m
+  operation-result: sum by (operation, result) (rate(business_operation_count_total[5m]))
+  operation-duration: histogram_quantile(0.99, sum by (operation, le) (rate(business_operation_duration_milliseconds_bucket{result!~"cancellation|validation_failure|authentication_failure|authorization_denial"}[5m])))
+  async-completion-lag: business_journey_completion_lag_seconds
+  request-rate: http_server_request_duration_seconds_count
+  error-ratio: sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_server_request_duration_seconds_count[5m])), 1e-9)
+  p50-p95-p99-duration: histogram_quantile(0.99, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket[5m])))
+  consumer-lag: messaging_delivery_lag_seconds
+  processing-duration: messaging_processing_duration_milliseconds_bucket
+  redelivery: messaging_redelivery_count_total
+  dead-letter: messaging_dead_letter_count_total
+  accepted-refused: otelcol_receiver_accepted_spans - otelcol_receiver_refused_spans
+  exporter-failures: dataguard:collector_trace_export_failure_ratio:rate5m
+  queue-depth: otelcol_exporter_queue_size
+  active-series: count({__name__=~"business_operation_.*"})
+  bytes-ingested: sum(rate(otelcol_exporter_sent_bytes_total[5m]))
+
+links:
+  metrics_to_trace:
+    type: exemplar
+    datasource: tempo
+    requirement: "SDK/collector must preserve exemplars and trace IDs; not verified here."
+  trace_to_logs:
+    type: derived-field
+    datasource: loki
+    field: trace_id
+    query: '{service_name="$service"} |= "$trace_id"'
+  trace_to_profile:
+    type: derived-field
+    datasource: pyroscope
+    query: 'service_name="$service" from="$__from" to="$__to"'
+    requirement: "Requires Pyroscope trace correlation configuration and matching service/time labels."
+  trace_to_deployment:
+    type: dashboard-link
+    query: 'service.version="$version"'

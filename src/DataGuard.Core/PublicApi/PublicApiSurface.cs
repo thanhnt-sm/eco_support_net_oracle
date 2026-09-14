@@ -65,7 +65,15 @@ public sealed class ValidationPipeline : IDisposable
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _ruleGraph = BuiltInRuleDependencies.CreateDefault();
-        _telemetry = config.EnableTelemetry ? new TelemetryCollector(new TelemetryConfig(Enabled: true)) : null;
+        _telemetry = config.EnableTelemetry
+            ? new TelemetryCollector(new TelemetryConfig(Enabled: true)
+            {
+                FileSinkDirectory = config.TelemetryFileDirectory,
+                ServiceName = config.TelemetryServiceName,
+                ServiceVersion = config.TelemetryServiceVersion,
+                IncludeEventDetails = config.IncludeTelemetryEventDetails,
+            })
+            : null;
         _credentialManager = new CredentialManager(config);
         _auditLogger = config.EnableAuditLogging ? new FileAuditLogger(config.AuditLogPath) : new NullAuditLogger();
     }
@@ -123,7 +131,13 @@ public sealed class ValidationPipeline : IDisposable
     public ValidationPipeline WithTelemetry(TelemetryConfig? config = null)
     {
         _telemetry?.Dispose();
-        _telemetry = new TelemetryCollector(config ?? new TelemetryConfig(Enabled: true));
+        _telemetry = new TelemetryCollector(config ?? new TelemetryConfig(Enabled: true)
+        {
+            FileSinkDirectory = _config.TelemetryFileDirectory,
+            ServiceName = _config.TelemetryServiceName,
+            ServiceVersion = _config.TelemetryServiceVersion,
+            IncludeEventDetails = _config.IncludeTelemetryEventDetails,
+        });
         return this;
     }
 

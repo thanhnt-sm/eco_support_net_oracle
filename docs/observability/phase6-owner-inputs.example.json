@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.0",
+  "packet_id": "phase6-owner-template",
+  "approved": false,
+  "environment": "integration",
+  "owner": {
+    "team": "replace-me",
+    "owner_ref": "ref://replace/owner",
+    "approval_ref": "ticket://replace/approval",
+    "reviewed_at": "2026-09-14T00:00:00Z"
+  },
+  "kubernetes": {
+    "context_ref": "ref://replace/kubernetes-context",
+    "api_version": "v1.30",
+    "cni": "replace-me",
+    "namespace": "observability",
+    "namespace_labels": {
+      "observability.dataguard.io/owner": "replace-me"
+    },
+    "workload_identity": "ref://replace/workload-identity",
+    "server_dry_run_approved": false
+  },
+  "clients": [
+    {
+      "component": "grpc",
+      "status": "not_used",
+      "package": "not-used",
+      "version": "not-used",
+      "retry_policy": "replace-me",
+      "dlq_policy": "replace-me",
+      "streaming_policy": "replace-me",
+      "duplicate_policy": "replace-me",
+      "idempotency_policy": "replace-me"
+    },
+    {
+      "component": "kafka",
+      "status": "not_used",
+      "package": "not-used",
+      "version": "not-used",
+      "retry_policy": "replace-me",
+      "dlq_policy": "replace-me",
+      "streaming_policy": "replace-me",
+      "duplicate_policy": "replace-me",
+      "idempotency_policy": "replace-me"
+    },
+    {
+      "component": "rabbitmq",
+      "status": "not_used",
+      "package": "not-used",
+      "version": "not-used",
+      "retry_policy": "replace-me",
+      "dlq_policy": "replace-me",
+      "streaming_policy": "replace-me",
+      "duplicate_policy": "replace-me",
+      "idempotency_policy": "replace-me"
+    },
+    {
+      "component": "npgsql",
+      "status": "not_used",
+      "package": "not-used",
+      "version": "not-used",
+      "retry_policy": "replace-me",
+      "dlq_policy": "replace-me",
+      "streaming_policy": "replace-me",
+      "duplicate_policy": "replace-me",
+      "idempotency_policy": "replace-me"
+    },
+    {
+      "component": "redis",
+      "status": "not_used",
+      "package": "not-used",
+      "version": "not-used",
+      "retry_policy": "replace-me",
+      "dlq_policy": "replace-me",
+      "streaming_policy": "replace-me",
+      "duplicate_policy": "replace-me",
+      "idempotency_policy": "replace-me"
+    }
+  ],
+  "backends": {
+    "loki": {
+      "status": "disabled",
+      "protocol": "not-used",
+      "endpoint_ref": "not-used",
+      "tenant_ref": "not-used",
+      "tls_mode": "not-used",
+      "residency": "not-used",
+      "retention_days": 0
+    },
+    "tempo": {
+      "status": "disabled",
+      "protocol": "not-used",
+      "endpoint_ref": "not-used",
+      "tenant_ref": "not-used",
+      "tls_mode": "not-used",
+      "residency": "not-used",
+      "retention_days": 0
+    },
+    "mimir": {
+      "status": "disabled",
+      "protocol": "not-used",
+      "endpoint_ref": "not-used",
+      "tenant_ref": "not-used",
+      "tls_mode": "not-used",
+      "residency": "not-used",
+      "retention_days": 0
+    },
+    "pyroscope": {
+      "status": "disabled",
+      "protocol": "not-used",
+      "endpoint_ref": "not-used",
+      "tenant_ref": "not-used",
+      "tls_mode": "not-used",
+      "residency": "not-used",
+      "retention_days": 0
+    }
+  },
+  "traffic": {
+    "average_rps": 1,
+    "peak_rps": 1,
+    "average_payload_bytes": 1,
+    "max_payload_bytes": 1,
+    "telemetry_outage_tolerance_seconds": 60,
+    "rto_seconds": 60,
+    "rpo_seconds": 60
+  },
+  "slos": [
+    {
+      "name": "replace-me.slo",
+      "owner_ref": "ref://replace/slo-owner",
+      "target": 0.999,
+      "window": "30d",
+      "minimum_valid_events": 1
+    }
+  ],
+  "profiler": {
+    "mode": "disabled",
+    "runtime": "not-used",
+    "os_arch": "not-used",
+    "symbol_policy": "none",
+    "overhead_budget_percent": 0,
+    "kill_switch_ref": "ref://replace/profiler-kill-switch"
+  }
+}

@@ -2,7 +2,11 @@
 
 > Nguồn: `src/DataGuard.Core/Telemetry/TelemetryCollector.cs`
 
-Hệ thống telemetry của DataGuard là **opt-in, chỉ local** theo mặc định. Nó sử dụng `System.Diagnostics.Metrics` (tiêu chuẩn .NET 9) cho counters và histograms, với endpoint export NDJSON tùy chọn để tích hợp với các stacks observability.
+Hệ thống telemetry của DataGuard là **opt-in, chỉ local** theo mặc định. Nó sử dụng
+`System.Diagnostics.Metrics` (tiêu chuẩn .NET 9) và tự động ghi envelope observability bounded,
+allowlist vào file archive NDJSON theo ngày UTC khi được bật. Legacy NDJSON HTTP exporter chỉ còn là
+compatibility path explicit; `RemoteExportEnabled` mặc định `false` và không gọi endpoint ngầm.
+Xem [`local-file-observability.md`](../../observability/local-file-observability.md).
 
 ## Luồng Telemetry
 
@@ -22,11 +26,12 @@ flowchart TB
         EVT[Event Queue]
     end
 
-    subgraph Export
+    subgraph Local archive
         FLUSH[Flush Timer<br/>30s mặc định]
-        NDJSON[NDJSON Export]
-        OTLP[OTLP/HTTP Collector]
+        NDJSON[Observability NDJSON chuẩn]
+        ARCHIVE[Archive file theo ngày UTC]
     end
+    REMOTE[Remote exporter tùy chọn<br/>RemoteExportEnabled=true]
 
     VP --> TC
     RR --> TC
@@ -39,7 +44,8 @@ flowchart TB
 
     EVT --> FLUSH
     FLUSH --> NDJSON
-    NDJSON --> OTLP
+    NDJSON --> ARCHIVE
+    FLUSH -. switch explicit .-> REMOTE
 ```
 
 ## TelemetryCollector
@@ -65,10 +71,10 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
 | Quyết định | Lý do |
 |------------|-------|
 | **Chỉ opt-in** | `TelemetryConfig.Enabled = false` theo mặc định |
-| **Chỉ metrics local** | Không gửi dữ liệu ra ngoài trừ khi cấu hình export endpoint |
+| **Local archive trước** | Event và metric ghi vào NDJSON theo ngày, không egress mạng |
 | **APIs .NET tiêu chuẩn** | Sử dụng `System.Diagnostics.Metrics` cho tương thích OpenTelemetry |
-| **Circuit breaker** | Dừng export sau 3 lần thất bại liên tiếp |
-| **Chỉ export HTTPS** | Từ chối endpoints không phải HTTPS (trừ localhost cho dev) |
+| **Bounded/fail-open** | Giới hạn queue/payload/record, đo drop mà không fail validation |
+| **Remote switch** | `RemoteExportEnabled=false` khóa HTTP exporter compatibility |
 
 `FlushAsync(CancellationToken)` là API flush bất đồng bộ được bổ sung. Một flush gate duy nhất ngăn export chồng nhau; export lỗi hoặc bị hủy đưa events đã lấy ra trở lại queue để retry. `FlushEvents(object?)` vẫn giữ cho caller cũ và chờ cùng đường thực thi. `TelemetryFlushResult` cho phép quan sát các trạng thái no-work, in-progress, circuit-open, rejected-endpoint, failed/cancelled và exported. Endpoint bị từ chối chủ động bỏ queue vì không có đích hợp lệ để gửi.
 
@@ -92,15 +98,22 @@ public sealed record TelemetryConfig(
 | Trường | Mặc định | Mô tả |
 |--------|----------|-------|
 | `Enabled` | `false` | Công tắc chính — không hoạt động khi false |
-| `ExportEndpoint` | `null` | URL HTTPS cho export NDJSON |
+| `ExportEndpoint` | `null` | URL HTTPS legacy; chỉ dùng khi bật remote và tắt file sink |
 | `FlushIntervalSeconds` | `30` | Khoảng thời gian timer cho flush events |
 | `IncludeStackTraces` | `false` | Bao gồm stack traces trong events |
 | `MaxQueuedEvents` | `10.000` | Số event tối đa trong queue cộng batch đang chạy; event mới hơn bị bỏ khi đầy |
 | `MaxBatchEvents` | `1.000` | Số event tối đa trong một export request |
 | `MaxPayloadBytes` | `1.048.576` | Giới hạn byte UTF-8 mỗi request; event đơn lẻ quá lớn sẽ bị bỏ |
 | `ExportTimeoutSeconds` | `5` | Thời gian chờ có giới hạn cho một delegate export |
+| `FileSinkEnabled` | `true` | Archive local chính khi không inject exporter delegate |
+| `FileSinkDirectory` | local app-data của OS | Gốc thư mục archive `yyyy/MM/dd/` |
+| `FileSinkFilePrefix` | `observability` | Prefix file hằng ngày |
+| `ServiceName` / `ServiceVersion` / `EnvironmentName` | `dataguard` / `unknown` / `local` | Resource metadata bounded |
+| `RemoteExportEnabled` | `false` | Công tắc network legacy do owner kiểm soát |
+| `IncludeEventDetails` | `false` | Body event tùy chọn, đã redact/cap; mặc định không body |
+| `MaxRecordBytes` | `65.536` | Kích thước tối đa một record local |
 
-Bốn giới hạn là init property được thêm vào nên primary constructor và deconstruction
+Các giới hạn là init property được thêm vào nên primary constructor và deconstruction
 hiện có không đổi. `DroppedEventCount` cho biết event mất do giới hạn queue, payload
 hoặc endpoint bị từ chối.
 
@@ -190,7 +203,8 @@ public sealed record TelemetryEvent(
     IReadOnlyDictionary<string, object?> Properties);
 ```
 
-Events được xếp hàng và flush định kỳ đến export endpoint.
+Events được xếp hàng và flush định kỳ đến local archive. `TelemetryEvent` vẫn giữ cho injected
+export legacy; đường file dùng envelope `ObservabilityRecord` an toàn hơn.
 
 ## Cơ Chế Export
 
@@ -214,7 +228,8 @@ private static bool IsAllowedExportEndpoint(string? endpoint)
 }
 ```
 
-Chỉ endpoints HTTPS (hoặc loopback HTTP cho phát triển) được phép.
+Chỉ compatibility exporter explicit mới dùng endpoint validation. File sink native không tạo hoặc
+gọi endpoint.
 
 ### Circuit Breaker
 
@@ -234,8 +249,11 @@ if (_consecutiveExportFailures >= MaxConsecutiveExportFailures)
 ```csharp
 var pipeline = DataGuardApi.CreatePipeline(config)
     .WithTelemetry(new TelemetryConfig(
-        Enabled: true,
-        ExportEndpoint: "https://otel.example.com/v1/logs"));
+        Enabled: true)
+    {
+        FileSinkDirectory = "/var/lib/dataguard/observability/archive",
+        RemoteExportEnabled = false,
+    });
 
 var result = await pipeline.ValidateAsync(contracts);
 // Telemetry tự động ghi nhận
@@ -246,8 +264,8 @@ var result = await pipeline.ValidateAsync(contracts);
 | Đảm bảo | Triển khai |
 |----------|------------|
 | **Opt-in** | `Enabled = false` theo mặc định |
-| **Không secrets** | Chỉ export metrics số và loại event |
-| **Chỉ HTTPS** | Từ chối endpoints không phải HTTPS |
-| **Local-first** | Metrics có sẵn qua `System.Diagnostics.Metrics` listeners |
+| **Không secrets** | Attributes allowlist; body mặc định bỏ hoặc redact |
+| **Local-first** | Metrics/event archive local qua async write bounded |
+| **Không endpoint ngầm** | Remote cần `RemoteExportEnabled=true`; host routes là opt-in riêng |
 | **Circuit breaker** | 3 lần thất bại → dừng export |
-| **Shared HttpClient** | Ngăn chặn cạn kiệt socket (SEC-005) |
+| **Shared HttpClient** | Chỉ áp dụng legacy exporter compatibility (SEC-005) |

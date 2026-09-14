@@ -17,14 +17,18 @@ snapshot.
 This Core layer does not expose HTTP routes or bind a listener. The explicit host
 and its loopback/authentication policy are a separate delivery item.
 
-`DataGuard.Host` accepts only one or more non-empty loopback HTTP(S) URLs; malformed, remote, or other-scheme URLs are rejected before binding.
+`DataGuard.Host` is disabled unless `DataGuardHealth:EnableHost=true`. When enabled, it accepts
+only one or more non-empty loopback HTTP(S) URLs; malformed, remote, or other-scheme URLs are
+rejected before binding. Route mapping is a second opt-in via
+`DataGuardHealth:ExposeEndpoints=false` (default), so the CLI/library does not expose HTTP
+endpoints unless a controlled host wrapper explicitly enables both switches.
 
 The shipped local probes cover configured snapshot and baseline readability, free
 disk space, and managed-memory budget. An omitted snapshot or baseline is
 `Unknown`; an empty readiness definition is never healthy. These probes do not
 open database connections, resolve credentials, or make network requests.
 
-Readiness also requires a fresh snapshot. The host defaults to a 30-second
+When routes are explicitly enabled, readiness also requires a fresh snapshot. The host defaults to a 30-second
 maximum snapshot age (`DataGuardHealth:MaximumSnapshotAgeSeconds`); once that
 window expires, `/health/ready` returns 503 until the background coordinator
 publishes a new observation. `/health/live` remains independent of probe age.

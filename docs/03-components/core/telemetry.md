@@ -2,7 +2,12 @@
 
 > Source: `src/DataGuard.Core/Telemetry/TelemetryCollector.cs`
 
-DataGuard's telemetry system is **opt-in, local-only** by default. It uses `System.Diagnostics.Metrics` (the .NET 9 standard) for counters and histograms, with an optional NDJSON export endpoint for integration with observability stacks.
+DataGuard's telemetry system is **opt-in, local-only** by default. It uses
+`System.Diagnostics.Metrics` (the .NET 9 standard) and automatically writes a bounded,
+allowlisted observability envelope to UTC-day NDJSON archive files when enabled. The legacy
+NDJSON HTTP exporter is retained only as an explicit compatibility path; `RemoteExportEnabled`
+defaults to `false` and no endpoint is contacted implicitly. See
+[`docs/observability/local-file-observability.md`](../../observability/local-file-observability.md).
 
 ## Telemetry Flow
 
@@ -22,11 +27,12 @@ flowchart TB
         EVT[Event Queue]
     end
 
-    subgraph Export
+    subgraph Local archive
         FLUSH[Flush Timer<br/>30s default]
-        NDJSON[NDJSON Export]
-        OTLP[OTLP/HTTP Collector]
+        NDJSON[Standard observability NDJSON]
+        ARCHIVE[UTC-day archive file]
     end
+    REMOTE[Optional remote exporter<br/>RemoteExportEnabled=true]
 
     VP --> TC
     RR --> TC
@@ -39,7 +45,8 @@ flowchart TB
 
     EVT --> FLUSH
     FLUSH --> NDJSON
-    NDJSON --> OTLP
+    NDJSON --> ARCHIVE
+    FLUSH -. explicit switch .-> REMOTE
 ```
 
 ## TelemetryCollector
@@ -65,10 +72,10 @@ public sealed class TelemetryCollector : IDisposable, IAsyncDisposable
 | Decision | Rationale |
 |----------|-----------|
 | **Opt-in only** | `TelemetryConfig.Enabled = false` by default |
-| **Local-only metrics** | No data sent externally unless export endpoint configured |
+| **Local archive first** | Events and metrics are written to daily NDJSON without network egress |
 | **Standard .NET APIs** | Uses `System.Diagnostics.Metrics` for compatibility with OpenTelemetry |
-| **Circuit breaker** | Stops exporting after 3 consecutive failures |
-| **HTTPS-only export** | Rejects non-HTTPS endpoints (except localhost for dev) |
+| **Bounded/fail-open** | Queue, payload and record limits expose drops without failing validation |
+| **Remote switch** | `RemoteExportEnabled=false` blocks the compatibility HTTP exporter |
 
 `FlushAsync(CancellationToken)` is the additive asynchronous flush API. A single flush gate prevents overlapping exports; a failed or cancelled export returns its drained events to the queue for retry. `FlushEvents(object?)` remains for existing callers and waits for the same path. `TelemetryFlushResult` exposes no-work, in-progress, circuit-open, rejected-endpoint, failed/cancelled, and exported outcomes. Rejected endpoints intentionally drop queued events because no permitted destination exists.
 
@@ -94,15 +101,22 @@ public sealed record TelemetryConfig(
 | Field | Default | Description |
 |-------|---------|-------------|
 | `Enabled` | `false` | Master switch — nothing happens when false |
-| `ExportEndpoint` | `null` | HTTPS URL for NDJSON export |
+| `ExportEndpoint` | `null` | Legacy HTTPS URL; used only when `RemoteExportEnabled=true` and the file sink is disabled |
 | `FlushIntervalSeconds` | `30` | Timer interval for event flushing |
 | `IncludeStackTraces` | `false` | Include stack traces in events |
 | `MaxQueuedEvents` | `10,000` | Maximum queued plus in-flight events; newer events are dropped after the cap |
 | `MaxBatchEvents` | `1,000` | Maximum events in one export request |
 | `MaxPayloadBytes` | `1,048,576` | UTF-8 byte ceiling for one request; an individually oversized event is dropped |
 | `ExportTimeoutSeconds` | `5` | Bounded wait for one export delegate |
+| `FileSinkEnabled` | `true` | Primary local archive when no exporter delegate is injected |
+| `FileSinkDirectory` | OS local app-data | Root of `yyyy/MM/dd/` archive directories |
+| `FileSinkFilePrefix` | `observability` | Daily file prefix |
+| `ServiceName` / `ServiceVersion` / `EnvironmentName` | `dataguard` / `unknown` / `local` | Bounded resource metadata |
+| `RemoteExportEnabled` | `false` | Explicit owner-gated legacy network switch |
+| `IncludeEventDetails` | `false` | Optional redacted/capped event body; no body by default |
+| `MaxRecordBytes` | `65,536` | Maximum serialized local record size |
 
-The four bounds are additive init properties, so the primary constructor and its
+The bounds are additive init properties, so the primary constructor and its
 existing deconstruction shape remain unchanged. `DroppedEventCount` exposes losses
 from queue, payload, and rejected-endpoint limits.
 
@@ -149,8 +163,8 @@ using (collector.MeasureOperation("rule.duration"))
 // Event recording
 collector.RecordEvent("BaselineCreated", "New baseline created", new Dictionary<string, object?>
 {
-    ["violationCount"] = 42,
-    ["schemaVersion"] = "1.0",
+    ["operation"] = "banking.reconciliation.execute",
+    ["result"] = "success",
 });
 ```
 
@@ -192,17 +206,20 @@ public sealed record TelemetryEvent(
     IReadOnlyDictionary<string, object?> Properties);
 ```
 
-Events are queued and flushed periodically to the export endpoint.
+Events are queued and flushed periodically to the local archive. `TelemetryEvent` remains the
+legacy injected-export model; the file path serializes the safer `ObservabilityRecord` envelope.
 
 ## Export Mechanism
 
 ### NDJSON Format
 
-Events are exported as newline-delimited JSON:
+The local sink writes newline-delimited JSON. The legacy `TelemetryEvent` shape below is shown only
+for injected exporters; local files use the `ObservabilityRecord` envelope from the dedicated
+[local sink guide](../../observability/local-file-observability.md):
 
 ```json
-{"Timestamp":"2026-08-25T10:30:00Z","EventType":"BaselineCreated","Details":"New baseline","Properties":{"violationCount":42}}
-{"Timestamp":"2026-08-25T10:30:01Z","EventType":"ValidationComplete","Details":"Validation finished","Properties":{"duration":1500}}
+{"record_id":"01b3...","timestamp":"2026-08-25T10:30:00Z","signal":"log","event_name":"baseline.created","service_name":"dataguard","attributes":{"result":"success"},"resource":{"service.name":"dataguard"}}
+{"record_id":"02c4...","timestamp":"2026-08-25T10:30:01Z","signal":"metric","event_name":"validation.duration","service_name":"dataguard","value":1500,"unit":"ms","attributes":{},"resource":{"service.name":"dataguard"}}
 ```
 
 ### Endpoint Validation
@@ -216,7 +233,8 @@ private static bool IsAllowedExportEndpoint(string? endpoint)
 }
 ```
 
-Only HTTPS endpoints (or loopback HTTP for development) are allowed.
+Only the explicit compatibility exporter uses endpoint validation. The product-native file sink
+does not create or call an endpoint.
 
 ### Circuit Breaker
 
@@ -257,8 +275,11 @@ public void RecordValidationSummary(
 ```csharp
 var pipeline = DataGuardApi.CreatePipeline(config)
     .WithTelemetry(new TelemetryConfig(
-        Enabled: true,
-        ExportEndpoint: "https://otel.example.com/v1/logs"));
+        Enabled: true)
+    {
+        FileSinkDirectory = "/var/lib/dataguard/observability/archive",
+        RemoteExportEnabled = false,
+    });
 
 var result = await pipeline.ValidateAsync(contracts);
 // Telemetry automatically recorded
@@ -269,8 +290,8 @@ var result = await pipeline.ValidateAsync(contracts);
 | Guarantee | Implementation |
 |-----------|----------------|
 | **Opt-in** | `Enabled = false` by default |
-| **No secrets** | Only numeric metrics and event types exported |
-| **HTTPS-only** | Non-HTTPS endpoints rejected |
-| **Local-first** | Metrics available via `System.Diagnostics.Metrics` listeners |
+| **No secrets** | Allowlisted attributes; bodies omitted/redacted by default |
+| **Local-first** | Metrics and events archive locally through bounded async writes |
+| **No implicit endpoint** | Remote exporter requires `RemoteExportEnabled=true`; host routes are separate opt-in |
 | **Circuit breaker** | 3 failures → stop exporting |
-| **Shared HttpClient** | Prevents socket exhaustion (SEC-005) |
+| **Shared HttpClient** | Applies only to the legacy compatibility exporter (SEC-005) |

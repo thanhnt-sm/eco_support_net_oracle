@@ -1444,6 +1444,10 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
             "AutoDetectDapper" => config with { AutoDetectDapper = B() },
             "EnableSmartDefaults" => config with { EnableSmartDefaults = B() },
             "EnableTelemetry" => config with { EnableTelemetry = B() },
+            "TelemetryFileDirectory" => config with { TelemetryFileDirectory = value },
+            "TelemetryServiceName" => config with { TelemetryServiceName = value },
+            "TelemetryServiceVersion" => config with { TelemetryServiceVersion = value },
+            "IncludeTelemetryEventDetails" => config with { IncludeTelemetryEventDetails = B() },
             _ => config
         };
     }

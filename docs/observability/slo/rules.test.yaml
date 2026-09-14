@@ -1,0 +1,44 @@
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 30s
+    input_series:
+      - series: 'business_operation_count_total{operation="banking.transfer.initiate",result="success"}'
+        values: '0+100x20'
+      - series: 'business_operation_count_total{operation="banking.transfer.initiate",result="technical_failure"}'
+        values: '0+1x20'
+      - series: 'business_operation_failure_count_total{operation="banking.transfer.initiate",result="technical_failure",error_type="technical"}'
+        values: '0+1x20'
+      - series: 'business_operation_count_total{operation="banking.transfer.initiate",result="unknown"}'
+        values: '0+1x20'
+      - series: 'business_operation_failure_count_total{operation="banking.transfer.initiate",result="unknown",error_type="unknown"}'
+        values: '0+1x20'
+      - series: 'business_operation_count_total{operation="banking.transfer.initiate",result="validation_failure"}'
+        values: '0+50x20'
+    promql_expr_test:
+      - expr: dataguard:business_operation_error_ratio:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="dataguard:business_operation_error_ratio:rate5m",operation="banking.transfer.initiate"}'
+            value: 0.019607843137254898
+  - interval: 30s
+    input_series:
+      - series: 'business_operation_count_total{operation="banking.transfer.initiate",result="success"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: DataGuardCriticalOperationNoTraffic
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              team: sre
+              service: dataguard
+              slo: transfer-initiation-availability
+            exp_annotations:
+              summary: "No transfer-initiate telemetry observed"
+              description: "No success/accepted event was observed for a low-traffic critical operation; require a synthetic heartbeat or approved maintenance before treating this as an outage."
+              runbook_url: https://runbooks.example.invalid/observability/low-traffic
+              dashboard_url: https://grafana.example.invalid/d/dataguard-business/business-journeys

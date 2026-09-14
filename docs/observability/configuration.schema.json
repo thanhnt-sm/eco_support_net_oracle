@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.dataguard.example/observability/core-options.schema.json",
+  "title": "DataGuard CoreObservabilityOptions",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "Observability": {
+      "$ref": "#/$defs/options"
+    }
+  },
+  "$defs": {
+    "boundedResource": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]*$"
+    },
+    "stableOperation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[^\\s{}\\u0000-\\u001F\\u007F]+$"
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ServiceName"],
+      "allOf": [
+        {
+          "if": {
+            "required": ["UseAlwaysOnHeadSamplingForTailSampling"],
+            "properties": {
+              "UseAlwaysOnHeadSamplingForTailSampling": { "const": true }
+            }
+          },
+          "then": {
+            "properties": {
+              "TraceSamplingRatio": { "const": 1.0 }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "Enabled": { "type": "boolean", "default": false },
+        "TracingEnabled": { "type": "boolean", "default": true },
+        "MetricsEnabled": { "type": "boolean", "default": true },
+        "LogsEnabled": { "type": "boolean", "default": true },
+        "RuntimeInstrumentationEnabled": { "type": "boolean", "default": true },
+        "ServiceName": { "$ref": "#/$defs/boundedResource" },
+        "ServiceNamespace": { "$ref": "#/$defs/boundedResource" },
+        "ServiceVersion": { "$ref": "#/$defs/boundedResource", "default": "0.0.0" },
+        "ServiceInstanceId": { "$ref": "#/$defs/boundedResource" },
+        "DeploymentEnvironment": { "$ref": "#/$defs/boundedResource" },
+        "ClusterName": { "$ref": "#/$defs/boundedResource" },
+        "KubernetesNamespace": { "$ref": "#/$defs/boundedResource" },
+        "WorkloadIdentity": { "$ref": "#/$defs/boundedResource" },
+        "RemoteExportEnabled": { "type": "boolean", "default": false, "description": "Owner-gated switch; no OTLP network exporter is registered when false." },
+        "OtlpEndpoint": { "type": "string", "format": "uri", "pattern": "^https://[^@?#]+$", "description": "HTTPS endpoint without inline credentials, query or fragment." },
+        "MaxQueueSize": { "type": "integer", "minimum": 128, "maximum": 100000, "default": 2048 },
+        "TraceSamplingRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.1 },
+        "UseAlwaysOnHeadSamplingForTailSampling": { "type": "boolean", "default": false, "description": "When true, TraceSamplingRatio must be 1.0 and every root trace is sent to the gateway for tail-sampling decisions." },
+        "CaptureExceptionDetails": { "type": "boolean", "default": false },
+        "AllowedOperations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableOperation" }
+        }
+      }
+    }
+  }
+}

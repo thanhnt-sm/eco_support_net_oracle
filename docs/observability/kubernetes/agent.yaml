@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-agent
+  labels:
+    app.kubernetes.io/name: otel-agent
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 10%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-agent
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: otel-agent
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: docker.io/otel/opentelemetry-collector-contrib@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6
+          imagePullPolicy: IfNotPresent
+          args: [--config=/conf/agent.yaml]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: health
+              containerPort: 13133
+              protocol: TCP
+            - name: metrics
+              containerPort: 8888
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            periodSeconds: 20
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+            - name: gateway-client-tls
+              mountPath: /etc/otel/tls
+              readOnly: true
+            - name: receiver-server-tls
+              mountPath: /etc/otel/receiver-tls
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: observability-collector-agent-config
+        - name: gateway-client-tls
+          secret:
+            secretName: otel-gateway-client-tls
+            optional: false
+        - name: receiver-server-tls
+          secret:
+            secretName: otel-agent-server-tls
+            optional: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-agent
+  labels:
+    app.kubernetes.io/name: otel-agent
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    app.kubernetes.io/name: otel-agent
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+    - name: metrics
+      port: 8888
+      targetPort: metrics
+      protocol: TCP
