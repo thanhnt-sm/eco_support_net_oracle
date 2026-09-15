@@ -380,6 +380,7 @@ public static class BuiltInRuleDependencies
         // Level 6: Phantom identifiers (schema ground truth)
         graph.AddRule(new PhantomIdentifierRule());
         graph.AddRule(new RawSqlParseStatusRule());
+        graph.AddRule(new SelectStarUsageRule());
         return graph;
     }
 }

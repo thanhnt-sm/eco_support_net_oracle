@@ -47,6 +47,20 @@ public class RulesEngineTests
     }
 
     [Fact]
+    public async Task SelectStarUsageRule_SelectStar_Flags()
+    {
+        var violations = await RunAsync(new SelectStarUsageRule(), RawSql("SELECT * FROM Orders"));
+        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG017");
+    }
+
+    [Fact]
+    public async Task SelectStarUsageRule_ExplicitColumns_NoViolation()
+    {
+        var violations = await RunAsync(new SelectStarUsageRule(), RawSql("SELECT Id, Total FROM Orders"));
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task RawSqlParseStatusRule_InvalidSql_FlagsError()
     {
         var invalid = RawSql("SELECT FROM") with
@@ -153,6 +167,15 @@ public class RulesEngineTests
         var sql = RawSql("SELECT Id, Name FROM Customers");
         var violations = await RunAsync(new ColumnShapeMatchRule(), entity, entity, sql);
         violations.Should().ContainSingle(v => v.RuleId == "DG004" && v.Message.Contains("Email"));
+    }
+
+    [Fact]
+    public async Task ColumnShapeMatchRule_SelectStar_SkipsShapeValidation()
+    {
+        var entity = Entity("Customer", Prop("Id"), Prop("Name"), Prop("Email"));
+        var sql = RawSql("SELECT * FROM Customers");
+        var violations = await RunAsync(new ColumnShapeMatchRule(), entity, entity, sql);
+        violations.Should().BeEmpty();
     }
 
     [Fact]

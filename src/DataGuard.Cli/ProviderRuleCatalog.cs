@@ -58,6 +58,7 @@ public static class ProviderRuleCatalog
         Add(rules, new NamingConventionRule());
         Add(rules, new PhantomIdentifierRule());
         Add(rules, new RawSqlParseStatusRule());
+        Add(rules, new SelectStarUsageRule());
     }
 
     private static void Add(List<ProviderRuleRegistration> rules, IContractRule rule, RuleAvailability availability = RuleAvailability.Ready, string? reason = null) =>

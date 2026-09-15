@@ -1,5 +1,5 @@
 import * as path from "path";
-
+import { fileURLToPath } from "url";
 const SENSITIVE_ASSIGNMENT = /\b(password|pwd|secret|token|api[_ -]?key|connection\s*string)\s*[:=]\s*(?:bearer\s+)?[^\s;,]+/gi;
 const AUTHORIZATION_BEARER = /\bauthorization\s*:\s*bearer\s+[^\s,;]+/gi;
 
@@ -47,7 +47,7 @@ export function resolveWorkspaceSarifPath(workspacePath: string, artifactUri: st
         if (parsed.protocol !== "file:") {
             throw new Error("SARIF artifact URI must be a relative path or file URI inside the workspace.");
         }
-        candidate = parsed.pathname;
+        candidate = fileURLToPath(parsed);
     }
 
     try {

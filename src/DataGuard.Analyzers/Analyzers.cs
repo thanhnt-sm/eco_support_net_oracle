@@ -6,8 +6,10 @@
 #nullable enable annotations
 
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -56,7 +58,8 @@ public static class DiagnosticIds
     public const string PhantomTable = "DG015";              // CI heavy: table reference doesn't exist
     /// <summary>Diagnostic ID for a referenced column absent from schema.</summary>
     public const string PhantomColumn = "DG016";             // CI heavy: column reference doesn't exist
-    /// <summary>Diagnostic ID for a SELECT statement without a FROM clause.</summary>
+    /// <summary>Diagnostic ID for SELECT * usage.</summary>
+    public const string SelectStarUsage = "DG017";           // Avoid SELECT *
     public const string MissingFromClause = "DG098";         // CI heavy: SELECT without FROM clause
     /// <summary>Diagnostic ID for a potential SQL injection pattern.</summary>
     public const string SqlInjectionPattern = "DG099";       // CI heavy: potential SQL injection pattern
@@ -211,6 +214,15 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true,
         description: "Raw SQL references a column that doesn't exist in its table (AI hallucination).");
+
+    public static readonly DiagnosticDescriptor SelectStarUsage = new (
+        id: DiagnosticIds.SelectStarUsage,
+        title: "Avoid SELECT *",
+        messageFormat: "{0}",
+        category: "DataGuard.Performance",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation.");
 
     public static readonly DiagnosticDescriptor MissingFromClause = new (
         id: DiagnosticIds.MissingFromClause,
@@ -507,6 +519,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         DiagnosticDescriptors.UnmappedTypeUsage,
         DiagnosticDescriptors.PhantomTable,
         DiagnosticDescriptors.PhantomColumn,
+        DiagnosticDescriptors.SelectStarUsage,
         DiagnosticDescriptors.MissingFromClause,
         DiagnosticDescriptors.SqlInjectionPattern
     ];
@@ -575,7 +588,9 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
     private static bool IsEfCoreFromSqlMethod(IMethodSymbol method)
     {
         return (method.Name == "FromSqlRaw" || method.Name == "FromSqlInterpolated") &&
-               method.ContainingType?.Name.StartsWith("DbSet", StringComparison.Ordinal) == true;
+               (method.ContainingType?.Name.StartsWith("DbSet", StringComparison.Ordinal) == true ||
+                method.ContainingType?.Name.Contains("QueryableExtensions") == true ||
+                method.IsExtensionMethod);
     }
 
     private static bool IsExecuteSqlMethod(IMethodSymbol method)
@@ -594,9 +609,9 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
     private void AnalyzeEfCoreFromSql(OperationAnalysisContext context, IInvocationOperation invocation, IMethodSymbol method)
     {
         var sqlText = ExtractSqlFromArguments(invocation.Arguments);
-        var entityType = GetEntityTypeFromDbSet(method);
+        var entityType = GetEntityType(invocation, method);
         
-        if (string.IsNullOrEmpty(sqlText) || entityType == null)
+        if (string.IsNullOrEmpty(sqlText))
             return;
 
         // Real validation: extract SQL, run IDE-layer checks (no DB ground truth)
@@ -607,6 +622,9 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
         // Validate using the inline checks (the heavy rules engine runs in the CLI)
         var violations = ValidateEntityContract(sqlText, isStoredProc, context.CancellationToken);
+
+        // Check SELECT * and column shape matching against entity type
+        ValidateSelectStarAndShape(sqlText, entityType, violations);
         
         foreach (var violation in violations)
         {
@@ -630,6 +648,15 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
         // For ExecuteSqlRaw, we validate the SQL against known contracts
         var violations = ValidateRawSqlContract(sqlText, isStoredProc, context.CancellationToken);
+
+        if (ContainsSelectStar(sqlText))
+        {
+            violations.Add(new AnalyzerViolation(
+                DiagnosticIds.SelectStarUsage,
+                "Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation.",
+                DiagnosticSeverity.Warning,
+                Location.None));
+        }
         
         foreach (var violation in violations)
         {
@@ -653,6 +680,10 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
         // For Dapper queries, validate the SQL against known contracts
         var violations = ValidateRawSqlContract(sqlText, isStoredProc, cancellationToken);
+
+        // Check SELECT * and column shape matching if generic projection type is available
+        var targetType = GetGenericTypeArgument(method);
+        ValidateSelectStarAndShape(sqlText, targetType, violations);
         
         foreach (var violation in violations)
         {
@@ -757,27 +788,285 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         if (arguments.IsDefaultOrEmpty)
             return string.Empty;
 
-        var value = arguments[0].Value;
-        if (value.ConstantValue.HasValue && value.ConstantValue.Value is string constant)
-            return constant;
+        foreach (var arg in arguments)
+        {
+            var value = arg.Value;
+            if (value.ConstantValue.HasValue && value.ConstantValue.Value is string constant)
+                return constant;
 
-        if (value.Syntax is InterpolatedStringExpressionSyntax interp)
-            return interp.ToString();
+            if (value.Syntax is InterpolatedStringExpressionSyntax interp)
+                return interp.ToString();
+        }
 
         return string.Empty;
     }
 
-    private static ITypeSymbol? GetEntityTypeFromDbSet(IMethodSymbol method)
+    private static ITypeSymbol? GetGenericTypeArgument(IMethodSymbol method)
     {
-        if (method.ContainingType is INamedTypeSymbol dbSet &&
-            dbSet.Name.StartsWith("DbSet", StringComparison.Ordinal) &&
-            dbSet.TypeArguments.Length == 1)
+        if (method.IsGenericMethod && method.TypeArguments.Length > 0)
         {
-            return dbSet.TypeArguments[0];
+            return method.TypeArguments[0];
         }
         return null;
     }
 
+    private static ITypeSymbol? GetEntityType(IInvocationOperation invocation, IMethodSymbol method)
+    {
+        if (method.IsGenericMethod && method.TypeArguments.Length > 0)
+        {
+            return method.TypeArguments[0];
+        }
+
+        if (method.ContainingType is INamedTypeSymbol containingDbSet &&
+            containingDbSet.Name.StartsWith("DbSet", StringComparison.Ordinal) &&
+            containingDbSet.TypeArguments.Length == 1)
+        {
+            return containingDbSet.TypeArguments[0];
+        }
+
+        if (invocation.Instance?.Type is INamedTypeSymbol instanceType &&
+            instanceType.TypeArguments.Length == 1)
+        {
+            return instanceType.TypeArguments[0];
+        }
+
+        if (invocation.Arguments.Length > 0 &&
+            invocation.Arguments[0].Value.Type is INamedTypeSymbol argType &&
+            argType.TypeArguments.Length == 1)
+        {
+            return argType.TypeArguments[0];
+        }
+
+        return null;
+    }
+
+    private static void ValidateSelectStarAndShape(string sqlText, ITypeSymbol? targetType, List<AnalyzerViolation> violations)
+    {
+        if (ContainsSelectStar(sqlText))
+        {
+            violations.Add(new AnalyzerViolation(
+                DiagnosticIds.SelectStarUsage,
+                "Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation.",
+                DiagnosticSeverity.Warning,
+                Location.None));
+            return;
+        }
+
+        if (targetType == null)
+        {
+            return;
+        }
+
+        var properties = GetEntityScalarProperties(targetType);
+        if (properties.Count == 0)
+        {
+            return;
+        }
+
+        var columnNames = ExtractColumnNamesFromSql(sqlText);
+        if (columnNames.Count == 0)
+        {
+            return;
+        }
+
+        var allPropertyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in properties)
+        {
+            allPropertyNames.Add(prop.Name);
+            allPropertyNames.Add(NameConventions.ToSnakeCase(prop.Name));
+
+            var colAttr = prop.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "ColumnAttribute" or "Column");
+            if (colAttr != null && colAttr.ConstructorArguments.Length > 0 && colAttr.ConstructorArguments[0].Value is string colName && !string.IsNullOrEmpty(colName))
+            {
+                allPropertyNames.Add(colName);
+            }
+        }
+
+        var missingColumns = new List<string>();
+        foreach (var prop in properties)
+        {
+            var propNames = new List<string> { prop.Name, NameConventions.ToSnakeCase(prop.Name) };
+            var colAttr = prop.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "ColumnAttribute" or "Column");
+            if (colAttr != null && colAttr.ConstructorArguments.Length > 0 && colAttr.ConstructorArguments[0].Value is string colName && !string.IsNullOrEmpty(colName))
+            {
+                propNames.Add(colName);
+            }
+
+            if (!propNames.Any(n => columnNames.Contains(n)))
+            {
+                missingColumns.Add(prop.Name);
+            }
+        }
+
+        if (missingColumns.Count > 0)
+        {
+            violations.Add(new AnalyzerViolation(
+                DiagnosticIds.ColumnShapeMismatch,
+                $"Result set is missing required columns: {string.Join(", ", missingColumns.Take(5))}",
+                DiagnosticSeverity.Error,
+                Location.None));
+        }
+
+        var extraColumns = columnNames.Where(c => !allPropertyNames.Contains(c)).ToList();
+        if (extraColumns.Count > 0)
+        {
+            violations.Add(new AnalyzerViolation(
+                DiagnosticIds.ColumnShapeMismatch,
+                $"Result set has {extraColumns.Count} extra columns not mapped to entity properties: {string.Join(", ", extraColumns.Take(5))}",
+                DiagnosticSeverity.Error,
+                Location.None));
+        }
+    }
+
+    private static bool ContainsSelectStar(string sqlText)
+    {
+        var match = Regex.Match(
+            sqlText, @"\bSELECT\s+(DISTINCT\s+|ALL\s+)?(.+?)\bFROM\b", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (!match.Success)
+        {
+            return Regex.IsMatch(sqlText, @"\bSELECT\s+(DISTINCT\s+|ALL\s+)?\*", RegexOptions.IgnoreCase);
+        }
+
+        var selectClause = match.Groups[2].Value;
+        var items = selectClause.Split(',');
+        foreach (var item in items)
+        {
+            var trimmed = item.Trim();
+            if (trimmed == "*" || Regex.IsMatch(trimmed, @"^(?:\w+\.)?\*$"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static HashSet<string> ExtractColumnNamesFromSql(string sqlText)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var selectMatch = Regex.Match(
+            sqlText, @"\bSELECT\s+(.+?)\bFROM\b", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        if (!selectMatch.Success)
+        {
+            return columns;
+        }
+
+        var selectClause = selectMatch.Groups[1].Value;
+        if (selectClause.Trim() == "*")
+        {
+            return columns;
+        }
+
+        foreach (var part in selectClause.Split(','))
+        {
+            var trimmed = part.Trim();
+            if (trimmed.Length == 0 || trimmed == "*")
+            {
+                continue;
+            }
+            if (trimmed.IndexOfAny(new[] { '(', '+', '-', '/', '*' }) >= 0)
+            {
+                continue;
+            }
+
+            var tokens = trimmed.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length == 0)
+            {
+                continue;
+            }
+
+            var asIndex = Array.FindIndex(tokens, t => t.Equals("AS", StringComparison.OrdinalIgnoreCase));
+            var token = asIndex >= 0 && asIndex + 1 < tokens.Length
+                ? tokens[asIndex + 1]
+                : tokens[tokens.Length - 1];
+
+            var dotIndex = token.LastIndexOf('.');
+            var columnName = dotIndex >= 0 ? token.Substring(dotIndex + 1) : token;
+            columnName = columnName.Trim('[', ']', '"', '`');
+
+            if (string.IsNullOrEmpty(columnName) || IsSqlKeyword(columnName))
+            {
+                continue;
+            }
+
+            columns.Add(columnName);
+        }
+
+        return columns;
+    }
+
+    private static bool IsSqlKeyword(string token)
+    {
+        return token.ToUpperInvariant() is "SELECT" or "FROM" or "WHERE" or "AS" or
+            "SUM" or "COUNT" or "MAX" or "MIN" or "AVG" or "DISTINCT" or "CASE" or
+            "WHEN" or "THEN" or "ELSE" or "END" or "NULL";
+    }
+
+    private static List<IPropertySymbol> GetEntityScalarProperties(ITypeSymbol? typeSymbol)
+    {
+        var properties = new List<IPropertySymbol>();
+        if (typeSymbol == null)
+        {
+            return properties;
+        }
+
+        if (typeSymbol.SpecialType != SpecialType.None || typeSymbol.TypeKind is TypeKind.Dynamic or TypeKind.TypeParameter)
+        {
+            return properties;
+        }
+
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var current = typeSymbol; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
+        {
+            foreach (var member in current.GetMembers())
+            {
+                if (member is IPropertySymbol prop && !prop.IsStatic && !prop.IsIndexer)
+                {
+                    if (prop.GetAttributes().Any(a => a.AttributeClass?.Name is "NotMappedAttribute" or "NotMapped"))
+                    {
+                        continue;
+                    }
+
+                    if (IsScalarColumnType(prop.Type))
+                    {
+                        if (seenNames.Add(prop.Name))
+                        {
+                            properties.Add(prop);
+                        }
+                    }
+                }
+            }
+        }
+
+        return properties;
+    }
+
+    private static bool IsScalarColumnType(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol named && named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && named.TypeArguments.Length == 1)
+        {
+            type = named.TypeArguments[0];
+        }
+
+        if (type.IsValueType)
+        {
+            return true;
+        }
+
+        if (type.SpecialType == SpecialType.System_String)
+        {
+            return true;
+        }
+
+        if (type is IArrayTypeSymbol arrayType && arrayType.ElementType.SpecialType == SpecialType.System_Byte)
+        {
+            return true;
+        }
+
+        return false;
+    }
 
     private DiagnosticDescriptor GetDiagnosticDescriptor(string ruleId)
     {

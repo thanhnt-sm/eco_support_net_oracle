@@ -65,6 +65,36 @@ public class RuleCoverageTests
         vs.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Dg004_SelectStar_SkipsShapeMatch()
+    {
+        var entity = new EntityDescriptor("e1", "Order", "Order", "ORDERS", new List<PropertyDescriptor>
+        {
+            new ("Id", "int", "ID", null, false, null, true, false),
+            new ("Total", "decimal", "TOTAL", null, false, null, false, false),
+        });
+        var raw = Raw("SELECT * FROM orders");
+        var vs = await RunAsync(new ColumnShapeMatchRule(), entity, entity, raw);
+        vs.Should().BeEmpty();
+    }
+
+    // ---- DG017 Select Star ----
+    [Fact]
+    public async Task Dg017_SelectStar_Flags()
+    {
+        var raw = Raw("SELECT * FROM customers");
+        var vs = await RunAsync(new SelectStarUsageRule(), raw, raw);
+        vs.Should().ContainSingle(v => v.RuleId == "DG017");
+    }
+
+    [Fact]
+    public async Task Dg017_SelectColumns_DoesNotFlag()
+    {
+        var raw = Raw("SELECT id, name FROM customers");
+        var vs = await RunAsync(new SelectStarUsageRule(), raw, raw);
+        vs.Should().BeEmpty();
+    }
+
     // ---- DG005 Nullable ----
     [Fact]
     public async Task Dg005_RequiredButNullable_Flags()

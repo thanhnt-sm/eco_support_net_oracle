@@ -52,6 +52,7 @@ public class DescriptorArityTests
             .Should().Contain(DiagnosticIds.MissingFromClause)
             .And.Contain(DiagnosticIds.SqlInjectionPattern)
             .And.Contain(DiagnosticIds.PhantomTable)
-            .And.Contain(DiagnosticIds.PhantomColumn);
+            .And.Contain(DiagnosticIds.PhantomColumn)
+            .And.Contain(DiagnosticIds.SelectStarUsage);
     }
 }

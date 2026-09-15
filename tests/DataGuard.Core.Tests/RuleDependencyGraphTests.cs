@@ -133,12 +133,13 @@ public class RuleDependencyGraphTests
         ruleIds.Should().Contain("DG005");  // NullableMismatchRule
         ruleIds.Should().Contain("DG006");  // NamingConventionRule
         ruleIds.Should().Contain("DG015");  // PhantomIdentifierRule
+        ruleIds.Should().Contain("DG017");  // SelectStarUsageRule
     }
 
     [Fact]
-    public void CreateDefault_ExecutionOrder_HasEightRules()
+    public void CreateDefault_ExecutionOrder_HasNineRules()
     {
         var order = BuiltInRuleDependencies.CreateDefault().GetExecutionOrder();
-        order.Length.Should().Be(8);
+        order.Length.Should().Be(9);
     }
 }

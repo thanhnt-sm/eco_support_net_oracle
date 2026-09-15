@@ -46,6 +46,227 @@ public class GeneratorExecutionTests
     }
 
     [Fact]
+    public async Task SemanticAnalyzer_EmitsColumnShapeMismatch_ForDapperQueryMissingProperty()
+    {
+        const string source = """
+            using System.Collections.Generic;
+
+            public class Customer
+            {
+                public int Id { get; set; }
+                public string Name { get; set; }
+                public string Email { get; set; }
+            }
+
+            public interface IDbConnection { }
+
+            public static class DapperExtensions
+            {
+                public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql) => null;
+            }
+
+            public static class Usage
+            {
+                public static void Run(IDbConnection connection)
+                {
+                    connection.Query<Customer>("SELECT Id, Name FROM Customers");
+                }
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.IEnumerable<>).Assembly.Location),
+            ],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var diagnostics = await compilation
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
+            .GetAnalyzerDiagnosticsAsync();
+
+        diagnostics.Should().Contain(diagnostic => diagnostic.Id == DiagnosticIds.ColumnShapeMismatch);
+    }
+
+    [Fact]
+    public async Task SemanticAnalyzer_EmitsColumnShapeMismatch_ForDapperQueryExtraColumn()
+    {
+        const string source = """
+            using System.Collections.Generic;
+
+            public class Customer
+            {
+                public int Id { get; set; }
+                public string Name { get; set; }
+            }
+
+            public interface IDbConnection { }
+
+            public static class DapperExtensions
+            {
+                public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql) => null;
+            }
+
+            public static class Usage
+            {
+                public static void Run(IDbConnection connection)
+                {
+                    connection.Query<Customer>("SELECT Id, Name, ExtraColumn FROM Customers");
+                }
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.IEnumerable<>).Assembly.Location),
+            ],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var diagnostics = await compilation
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
+            .GetAnalyzerDiagnosticsAsync();
+
+        diagnostics.Should().Contain(diagnostic => diagnostic.Id == DiagnosticIds.ColumnShapeMismatch);
+    }
+
+    [Fact]
+    public async Task SemanticAnalyzer_EmitsSelectStarUsage_ForDapperQueryWithSelectStar()
+    {
+        const string source = """
+            using System.Collections.Generic;
+
+            public class Customer
+            {
+                public int Id { get; set; }
+                public string Name { get; set; }
+                public string Email { get; set; }
+            }
+
+            public interface IDbConnection { }
+
+            public static class DapperExtensions
+            {
+                public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql) => null;
+            }
+
+            public static class Usage
+            {
+                public static void Run(IDbConnection connection)
+                {
+                    connection.Query<Customer>("SELECT * FROM Customers");
+                }
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.IEnumerable<>).Assembly.Location),
+            ],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var diagnostics = await compilation
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
+            .GetAnalyzerDiagnosticsAsync();
+
+        diagnostics.Should().Contain(diagnostic => diagnostic.Id == DiagnosticIds.SelectStarUsage);
+        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == DiagnosticIds.ColumnShapeMismatch);
+    }
+
+    [Fact]
+    public async Task SemanticAnalyzer_DoesNotEmitColumnMismatch_WhenAllPropertiesMatch()
+    {
+        const string source = """
+            using System.Collections.Generic;
+
+            public class Customer
+            {
+                public int Id { get; set; }
+                public string Name { get; set; }
+            }
+
+            public interface IDbConnection { }
+
+            public static class DapperExtensions
+            {
+                public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql) => null;
+            }
+
+            public static class Usage
+            {
+                public static void Run(IDbConnection connection)
+                {
+                    connection.Query<Customer>("SELECT Id, Name FROM Customers");
+                }
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.IEnumerable<>).Assembly.Location),
+            ],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var diagnostics = await compilation
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
+            .GetAnalyzerDiagnosticsAsync();
+
+        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == DiagnosticIds.ColumnShapeMismatch);
+        diagnostics.Should().NotContain(diagnostic => diagnostic.Id == DiagnosticIds.SelectStarUsage);
+    }
+
+    [Fact]
+    public async Task SemanticAnalyzer_EmitsSelectStarUsage_ForEfCoreFromSqlRaw()
+    {
+        const string source = """
+            public class Order
+            {
+                public int Id { get; set; }
+            }
+
+            public interface IQueryable<T> { }
+            public class DbSet<T> : IQueryable<T> { }
+
+            public static class RelationalExtensions
+            {
+                public static IQueryable<T> FromSqlRaw<T>(this DbSet<T> source, string sql, params object[] parameters) => source;
+            }
+
+            public static class Usage
+            {
+                public static void Run(DbSet<Order> orders)
+                {
+                    orders.FromSqlRaw("SELECT * FROM Orders");
+                }
+            }
+            """;
+
+        var compilation = CSharpCompilation.Create(
+            "TestApp",
+            [CSharpSyntaxTree.ParseText(source)],
+            [
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            ],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var diagnostics = await compilation
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
+            .GetAnalyzerDiagnosticsAsync();
+
+        diagnostics.Should().Contain(diagnostic => diagnostic.Id == DiagnosticIds.SelectStarUsage);
+    }
+
+    [Fact]
     public async Task SemanticAnalyzer_SuppressesSqlDiagnostics_WhenCallerHasSkipContractCheckAttribute()
     {
         const string source = """

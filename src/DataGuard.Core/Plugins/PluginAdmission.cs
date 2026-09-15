@@ -359,9 +359,20 @@ public static class PluginAdmission
         var token = keyOrToken is null || keyOrToken.Length == 0
             ? "null"
             : publicKey
-                ? Convert.ToHexString(SHA1.HashData(keyOrToken).AsSpan(12, 8).ToArray().Reverse().ToArray()).ToLowerInvariant()
+                ? ComputePublicKeyToken(keyOrToken)
                 : Convert.ToHexString(keyOrToken).ToLowerInvariant();
         return $"{name}, Version={version}, Culture={culture ?? "neutral"}, PublicKeyToken={token}";
+    }
+
+    private static string ComputePublicKeyToken(byte[] publicKey)
+    {
+        var hash = SHA1.HashData(publicKey);
+        var tokenBytes = new byte[8];
+        for (var i = 0; i < 8; i++)
+        {
+            tokenBytes[i] = hash[hash.Length - 1 - i];
+        }
+        return Convert.ToHexString(tokenBytes).ToLowerInvariant();
     }
 
     private static PluginManifest CloneManifest(PluginManifest manifest) => new(

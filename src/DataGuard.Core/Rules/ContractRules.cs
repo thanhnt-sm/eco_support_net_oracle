@@ -338,7 +338,7 @@ public class ColumnShapeMatchRule : ContractRuleBase
         }
 
         var selectClause = selectMatch.Groups[1].Value;
-        if (selectClause.Trim() == "*")
+        if (SelectStarUsageRule.ContainsSelectStar(sqlText))
         {
             return columns; // SELECT *: column list is unknown, skip shape comparison.
         }
@@ -536,5 +536,69 @@ public sealed class RawSqlParseStatusRule : ContractRuleBase
         }
 
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Rule: Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation.
+/// </summary>
+public class SelectStarUsageRule : ContractRuleBase
+{
+    public override string RuleId => "DG017";
+
+    public override string Name => "Select Star Usage";
+
+    public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
+
+    public override string Description => "Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation";
+
+    protected override Task ValidateCoreAsync(
+        ContractDescriptor contract,
+        IReadOnlyList<ContractDescriptor> allContracts,
+        List<ContractViolation> violations,
+        CancellationToken cancellationToken)
+    {
+        if (contract is RawSqlDescriptor sqlDesc)
+        {
+            var sqlText = sqlDesc.SqlText;
+            if (string.IsNullOrEmpty(sqlText))
+            {
+                return Task.CompletedTask;
+            }
+
+            if (ContainsSelectStar(sqlText))
+            {
+                violations.Add(CreateViolation(
+                    RuleId,
+                    "Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation.",
+                    Severity,
+                    contract.Location));
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public static bool ContainsSelectStar(string sqlText)
+    {
+        var match = Regex.Match(
+            sqlText, @"\bSELECT\s+(DISTINCT\s+|ALL\s+)?(.+?)\bFROM\b", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (!match.Success)
+        {
+            return Regex.IsMatch(sqlText, @"\bSELECT\s+(DISTINCT\s+|ALL\s+)?\*", RegexOptions.IgnoreCase);
+        }
+
+        var selectClause = match.Groups[2].Value;
+        var items = selectClause.Split(',');
+        foreach (var item in items)
+        {
+            var trimmed = item.Trim();
+            if (trimmed == "*" || Regex.IsMatch(trimmed, @"^(?:\w+\.)?\*$"))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

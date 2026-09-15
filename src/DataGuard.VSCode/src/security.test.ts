@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as path from "path";
+import { pathToFileURL } from "url";
 import { redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath } from "./security";
 
 test("redactSensitiveText removes connection and bearer credentials", () => {
@@ -19,11 +20,11 @@ test("redactAndBoundSensitiveText caps output after redaction", () => {
 });
 
 test("resolveWorkspaceSarifPath confines relative and file URI locations", () => {
-    const workspace = path.join(path.sep, "workspace", "service");
-    const inside = path.join(workspace, "src", "contract.cs");
+    const workspace = path.resolve(path.sep, "workspace", "service");
+    const inside = path.resolve(workspace, "src", "contract.cs");
 
     assert.equal(resolveWorkspaceSarifPath(workspace, "src/contract.cs"), inside);
-    assert.equal(resolveWorkspaceSarifPath(workspace, `file://${inside}`), inside);
+    assert.equal(resolveWorkspaceSarifPath(workspace, pathToFileURL(inside).toString()), inside);
     assert.throws(() => resolveWorkspaceSarifPath(workspace, "../outside.cs"), /remain inside/);
     assert.throws(() => resolveWorkspaceSarifPath(workspace, "/workspace/service-other/secret.cs"), /remain inside/);
     assert.throws(() => resolveWorkspaceSarifPath(workspace, "https://example.test/result.cs"), /relative path or file URI/);
@@ -31,9 +32,9 @@ test("resolveWorkspaceSarifPath confines relative and file URI locations", () =>
 });
 
 test("resolveWorkspaceConfigPath refuses workspace escapes", () => {
-    const workspace = path.join(path.sep, "workspace", "service");
+    const workspace = path.resolve(path.sep, "workspace", "service");
 
-    assert.equal(resolveWorkspaceConfigPath(workspace, ".dataguard.yml"), path.join(workspace, ".dataguard.yml"));
+    assert.equal(resolveWorkspaceConfigPath(workspace, ".dataguard.yml"), path.resolve(workspace, ".dataguard.yml"));
     assert.throws(
         () => resolveWorkspaceConfigPath(workspace, "../outside.yml"),
         /remain inside the trusted workspace folder/,

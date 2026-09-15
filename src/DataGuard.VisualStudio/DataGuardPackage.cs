@@ -22,8 +22,9 @@ using Task = System.Threading.Tasks.Task;
 /// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials into devenv.
 /// </summary>
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("DataGuard", "Database contract validation for .NET code and stored procedures.", "0.1.0")]
+[InstalledProductRegistration("DataGuard", "Database contract validation for .NET code and stored procedures.", "1.0.0")]
 [ProvideMenuResource("Menus.ctmenu", 1)]
+[ProvideOptionPage(typeof(DataGuardOptionsPage), "DataGuard", "General", 0, 0, true)]
 [System.Runtime.InteropServices.Guid(PackageGuidString)]
 public sealed class DataGuardPackage : AsyncPackage
 {
@@ -33,6 +34,7 @@ public sealed class DataGuardPackage : AsyncPackage
     private const int ValidateCommandId = 0x0100;
     private const int CancelCommandId = 0x0101;
     private const int AssessCommandId = 0x0102;
+    private const int ExportLogsCommandId = 0x0103;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
     private static readonly Guid CommandSet = new (CommandSetGuidString);
     private static readonly Guid OutputPaneGuid = new ("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
@@ -44,6 +46,28 @@ public sealed class DataGuardPackage : AsyncPackage
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await this.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+
+        // Load configuration from Tools -> Options -> DataGuard -> General
+        var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
+        DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
+
+        var vsVersion = "Visual Studio (Process " + Process.GetCurrentProcess().Id + ")";
+        try
+        {
+            var dte = await this.GetServiceAsync(typeof(EnvDTE.DTE)) as EnvDTE.DTE;
+            if (dte != null)
+            {
+                vsVersion = $"{dte.Name} {dte.Version} ({dte.Edition})";
+            }
+        }
+        catch
+        {
+            // Non-fatal if DTE is not available
+        }
+
+        DataGuardLogger.EnsureInitialized(vsVersion, "1.0.0");
+        DataGuardLogger.LogInfo("DataGuard Visual Studio Package initialized successfully.");
+
         this.errorListProvider = new ErrorListProvider(this);
         var commandService = await this.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
         if (commandService == null)
@@ -60,6 +84,9 @@ public sealed class DataGuardPackage : AsyncPackage
         commandService.AddCommand(new OleMenuCommand(
             (_, _) => this.JoinableTaskFactory.RunAsync(this.RunAssessmentAsync).FileAndForget("DataGuard/Assess"),
             new CommandID(CommandSet, AssessCommandId)));
+        commandService.AddCommand(new OleMenuCommand(
+            (_, _) => this.JoinableTaskFactory.RunAsync(this.ViewLogsAsync).FileAndForget("DataGuard/ViewLogs"),
+            new CommandID(CommandSet, ExportLogsCommandId)));
     }
 
     /// <inheritdoc />
@@ -175,7 +202,11 @@ public sealed class DataGuardPackage : AsyncPackage
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
-        var cliPath = Environment.GetEnvironmentVariable("DATAGUARD_CLI_PATH") ?? "dataguard";
+
+        var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
+        DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
+        var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
+
         var startInfo = new ProcessStartInfo
         {
             FileName = cliPath,
@@ -189,6 +220,7 @@ public sealed class DataGuardPackage : AsyncPackage
             CreateNoWindow = true,
         };
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+        var stopwatch = Stopwatch.StartNew();
 
         try
         {
@@ -214,8 +246,9 @@ public sealed class DataGuardPackage : AsyncPackage
             }
 
             await Task.WhenAll(stdoutDrainTask, stderrDrainTask);
+            stopwatch.Stop();
             await this.PublishSarifAsync(sarifPath);
-            await this.WriteOutputAsync("[DataGuard] " + command + " exited with code " + process.ExitCode + ".\r\n");
+            await this.WriteOutputAsync("[DataGuard] " + command + " completed in " + stopwatch.ElapsedMilliseconds + " ms with exit code " + process.ExitCode + ".\r\n");
         }
         catch (Exception ex)
         {
@@ -352,8 +385,17 @@ public sealed class DataGuardPackage : AsyncPackage
             : "[DataGuard] Cancellation requested, but the process tree could not be terminated. Stop it manually.\r\n");
     }
 
+    private async Task ViewLogsAsync()
+    {
+        await this.WriteOutputAsync("[DataGuard] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
+        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+        DataGuardLogger.OpenLog(this);
+    }
+
     private async Task WriteOutputAsync(string text)
     {
+        DataGuardLogger.LogInfo(text.TrimEnd('\r', '\n'));
+
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         var outputWindow = await this.GetServiceAsync(typeof(SVsOutputWindow)) as IVsOutputWindow;
         if (outputWindow == null)
@@ -363,8 +405,10 @@ public sealed class DataGuardPackage : AsyncPackage
 
         var paneGuid = OutputPaneGuid;
         outputWindow.CreatePane(ref paneGuid, "DataGuard", 1, 1);
-        ErrorHandler.ThrowOnFailure(outputWindow.GetPane(ref paneGuid, out var pane));
-        pane.OutputStringThreadSafe(text);
-        pane.Activate();
+        if (ErrorHandler.Succeeded(outputWindow.GetPane(ref paneGuid, out var pane)) && pane != null)
+        {
+            pane.OutputStringThreadSafe(text);
+            pane.Activate();
+        }
     }
 }

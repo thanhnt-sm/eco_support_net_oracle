@@ -1,3 +1,4 @@
+using System.Linq;
 using DataGuard.Core.Assessment;
 using FluentAssertions;
 using Xunit;
@@ -43,7 +44,7 @@ public class DependencyHealthScoreTests
         };
 
         var first = DependencyHealthScoreCalculator.Calculate(inputs);
-        var second = DependencyHealthScoreCalculator.Calculate(inputs.Reverse());
+        var second = DependencyHealthScoreCalculator.Calculate(Enumerable.Reverse(inputs));
 
         first.Should().BeEquivalentTo(second);
         first.State.Should().Be(DependencyScoreState.Partial);
