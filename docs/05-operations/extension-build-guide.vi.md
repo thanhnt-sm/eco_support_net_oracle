@@ -47,7 +47,17 @@ $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerI
 Set-Content -LiteralPath "$destination.sha256" -Value "$hash  $(Split-Path -Leaf $destination)" -NoNewline
 ```
 
-Cài trong VS Code bằng **Extensions: Install from VSIX...**, sau đó reload window.
+### Cài đặt gói VS Code
+
+> [!IMPORTANT]
+> **Không nhấp đúp (double-click) file `.vsix` của VS Code trên Windows.** Windows mặc định liên kết file `.vsix` với trình cài đặt Visual Studio (`VSIXInstaller.exe`), điều này sẽ gây ra lỗi `VSIXInstaller.NoApplicableSKUsException`.
+
+Cài đặt bằng một trong hai cách sau:
+1. **Dòng lệnh (CLI)**:
+   ```powershell
+   code --install-extension artifacts/vscode/dataguard-vscode-<version>.vsix
+   ```
+2. **Giao diện VS Code**: Mở VS Code -> `Ctrl + Shift + X` (Extensions) -> bấm menu `...` ở góc trên bên phải -> chọn **Install from VSIX...** và chọn file trên, sau đó reload window.
 
 ## Visual Studio VSIX
 
@@ -95,6 +105,9 @@ artifacts/visualstudio/dataguard-visualstudio-<version>.vsix.sha256
 
 | Hiện tượng | Cách xử lý |
 | --- | --- |
+| `VSIXInstaller.NoApplicableSKUsException` khi cài extension VS Code | Do nhấp đúp mở file bằng Visual Studio VSIX Installer. Hãy cài qua CLI: `code --install-extension artifacts/vscode/...` hoặc qua menu VS Code **Install from VSIX...**. |
+| `VSIXInstaller.NoApplicableSKUsException` khi cài extension Visual Studio | Kiểm tra manifest `source.extension.vsixmanifest` có đủ SKU (`Community`, `Professional`, `Enterprise`) và dải phiên bản mục tiêu (hỗ trợ `[17.0,19.0)` cho cả VS 2022 và VS 2026). |
+| Lệnh PowerShell trong bash bị nuốt dấu gạch chéo (`scriptsbuild-extensions.ps1`) | Dùng dấu gạch chéo xuôi (`scripts/build-extensions.ps1`) hoặc bọc trong ngoặc kép `"-File 'scripts\build-extensions.ps1'"`. |
 | Không tìm thấy `vswhere.exe` | Cài Visual Studio hoặc Build Tools có workload MSBuild và Visual Studio SDK. |
 | `MSBuild.exe was not found by vswhere` | Thêm MSBuild component qua Visual Studio Installer rồi chạy lại. |
 | VSIX bị chặn khi cài | Đóng IDE đích và đối chiếu SHA-256 trước khi thử lại. |
