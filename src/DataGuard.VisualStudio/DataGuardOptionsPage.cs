@@ -34,10 +34,18 @@ public class DataGuardOptionsPage : DialogPage
     public string CustomLogDirectory { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets an optional custom path to the dataguard CLI binary.
+    /// Gets or sets an optional custom path to the dataguard.exe CLI executable.
     /// </summary>
     [Category("CLI Configuration")]
     [DisplayName("Custom CLI Executable Path")]
-    [Description("Full path to the dataguard CLI binary. If left empty, defaults to DATAGUARD_CLI_PATH or PATH.")]
+    [Description("Absolute path to dataguard.exe. If left empty, the extension looks for DATAGUARD_CLI_PATH, %USERPROFILE%\\.dotnet\\tools\\dataguard.exe, standard install paths, or PATH (restart Visual Studio after installing dotnet tools).")]
     public string CustomCliPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to automatically run validation when a solution build or rebuild completes.
+    /// </summary>
+    [Category("Automation")]
+    [DisplayName("Run Validation on Build")]
+    [Description("Automatically trigger the DataGuard 'validate' command when a solution build or rebuild finishes successfully.")]
+    public bool RunValidationOnBuild { get; set; } = false;
 }

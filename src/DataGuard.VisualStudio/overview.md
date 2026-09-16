@@ -13,11 +13,20 @@ DataGuard validates database contracts between .NET code, stored procedures, and
 
 ## Requirements
 
-Install `DataGuard.Cli` globally or set the machine environment variable `DATAGUARD_CLI_PATH` to an approved CLI executable path:
+The extension executes `dataguard.exe` directly without invoking a shell. It discovers the executable in the following precedence order:
+1. An absolute `dataguard.exe` path configured in **Tools > Options > DataGuard > General > Custom CLI Executable Path**.
+2. An approved `dataguard.exe` path set in the machine or user environment variable `DATAGUARD_CLI_PATH`.
+3. `%USERPROFILE%\.dotnet\tools\dataguard.exe`.
+4. Standard install directories (`%ProgramFiles%\DataGuard\dataguard.exe`, `%LocalAppData%\Programs\DataGuard\dataguard.exe`).
+5. Directories listed in the `PATH` environment variable.
+
+Install `DataGuard.Cli` globally:
 
 ```powershell
 dotnet tool install -g DataGuard.Cli
 ```
+
+> **Note:** After installing `DataGuard.Cli` globally, restart Visual Studio so its inherited `PATH` and user profile environment variables are refreshed.
 
 Place `.dataguard.yml` at the solution root. Snapshot/manual mode is appropriate for offline and regulated environments; live database access remains an explicit CLI configuration decision.
 
