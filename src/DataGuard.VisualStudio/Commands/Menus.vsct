@@ -49,6 +49,13 @@
           <CommandName>DataGuardExportLogs</CommandName>
         </Strings>
       </Button>
+      <Button guid="guidDataGuardCommandSet" id="ViewRulesCommand" priority="0x0104" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>Validation Rules &amp; Descriptions</ButtonText>
+          <CommandName>DataGuardViewRules</CommandName>
+        </Strings>
+      </Button>
     </Buttons>
   </Commands>
   <Symbols>
@@ -61,6 +68,7 @@
       <IDSymbol name="CancelCommand" value="0x0101" />
       <IDSymbol name="AssessCommand" value="0x0102" />
       <IDSymbol name="ExportLogsCommand" value="0x0103" />
+      <IDSymbol name="ViewRulesCommand" value="0x0104" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>
