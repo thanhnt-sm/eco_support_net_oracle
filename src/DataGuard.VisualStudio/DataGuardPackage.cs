@@ -41,6 +41,8 @@ public sealed class DataGuardPackage : AsyncPackage
     private readonly object processGate = new ();
     private Process? activeProcess;
     private ErrorListProvider? errorListProvider;
+    private uint updateSolutionEventsCookie;
+    private BuildEventsHandler? buildEventsHandler;
 
     /// <inheritdoc />
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
@@ -87,6 +89,13 @@ public sealed class DataGuardPackage : AsyncPackage
         commandService.AddCommand(new OleMenuCommand(
             (_, _) => this.JoinableTaskFactory.RunAsync(this.ViewLogsAsync).FileAndForget("DataGuard/ViewLogs"),
             new CommandID(CommandSet, ExportLogsCommandId)));
+
+        var buildManager = await this.GetServiceAsync(typeof(SVsSolutionBuildManager)) as IVsSolutionBuildManager;
+        if (buildManager != null)
+        {
+            this.buildEventsHandler = new BuildEventsHandler(this);
+            buildManager.AdviseUpdateSolutionEvents(this.buildEventsHandler, out this.updateSolutionEventsCookie);
+        }
     }
 
     /// <inheritdoc />
@@ -105,6 +114,19 @@ public sealed class DataGuardPackage : AsyncPackage
             {
                 StopProcess(process);
                 process.Dispose();
+            }
+
+            if (this.updateSolutionEventsCookie != 0)
+            {
+#pragma warning disable VSTHRD108 // Thread affinity checks should be unconditional
+#pragma warning disable VSTHRD010 // Invoke single-threaded types on Main thread
+                if (this.GetService(typeof(SVsSolutionBuildManager)) as IVsSolutionBuildManager is { } buildManager)
+                {
+                    buildManager.UnadviseUpdateSolutionEvents(this.updateSolutionEventsCookie);
+                    this.updateSolutionEventsCookie = 0;
+                }
+#pragma warning restore VSTHRD010
+#pragma warning restore VSTHRD108
             }
 
             this.errorListProvider?.Dispose();
@@ -163,6 +185,38 @@ public sealed class DataGuardPackage : AsyncPackage
         }
     }
 
+    private class BuildEventsHandler : IVsUpdateSolutionEvents
+    {
+        private readonly DataGuardPackage package;
+
+        public BuildEventsHandler(DataGuardPackage package) => this.package = package;
+
+        public int UpdateSolution_Begin(ref int pfCancelUpdate) => VSConstants.S_OK;
+
+        public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
+        {
+            if (fSucceeded != 0 && fCancelCommand == 0)
+            {
+                var options = (DataGuardOptionsPage)this.package.GetDialogPage(typeof(DataGuardOptionsPage));
+                if (options != null && options.RunValidationOnBuild)
+                {
+                    this.package.JoinableTaskFactory.RunAsync(async () =>
+                    {
+                        await this.package.RunValidationAsync();
+                    }).FileAndForget("DataGuard/RunValidationOnBuild");
+                }
+            }
+
+            return VSConstants.S_OK;
+        }
+
+        public int UpdateSolution_StartUpdate(ref int pfCancelUpdate) => VSConstants.S_OK;
+
+        public int UpdateSolution_Cancel() => VSConstants.S_OK;
+
+        public int OnActiveProjectCfgChange(IVsHierarchy pIVsHierarchy) => VSConstants.S_OK;
+    }
+
     private async Task RunValidationAsync()
     {
         await this.RunCliAsync("validate");
@@ -199,14 +253,18 @@ public sealed class DataGuardPackage : AsyncPackage
             }
         }
 
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(temporaryDirectory);
-        var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
-
         var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
         DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
         var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
+        if (string.IsNullOrEmpty(cliPath))
+        {
+            await this.WriteOutputAsync("[DataGuard] CLI executable was not found. Install it with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe.\r\n");
+            return;
+        }
 
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
         var startInfo = new ProcessStartInfo
         {
             FileName = cliPath,

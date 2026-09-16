@@ -442,6 +442,26 @@ public class DiagnosticEmitterFullTests : IDisposable
     }
 
     [Fact]
+    public async Task FileSarifSink_Streaming_RetriesTransientDestinationLock()
+    {
+        var path = Path.Combine(_tempDir, "locked.sarif");
+        await File.WriteAllTextAsync(path, "old");
+        var sink = new FileSarifSink(path, streaming: true);
+
+        Task writeTask;
+        await using (var lockedDestination = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            writeTask = sink.WriteAsync(new SarifLog());
+            await Task.Delay(100);
+        }
+
+        await writeTask;
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        document.RootElement.GetProperty("version").GetString().Should().Be("2.1.0");
+    }
+
+    [Fact]
     public async Task StreamingSarifSink_WritesSarifFromViolations()
     {
         var path = Path.Combine(_tempDir, "stream.sarif");

@@ -120,6 +120,22 @@ public class ConcurrentValidationExecutionTests
     }
 
     [Fact]
+    public async Task Engine_StreamAsync_YieldsViolationsWithoutResultBuffer()
+    {
+        var engine = new ConcurrentValidationEngine(maxDegreeOfParallelism: 1, maxViolationQueueSize: 1);
+        var rule = new TestRule("DG102", (_, _) => Task.FromResult(Violations("DG102", "streamed")));
+        var streamed = new List<ContractViolation>();
+
+        await foreach (var violation in engine.StreamAsync(Contracts(2), new IContractRule[] { rule }))
+        {
+            streamed.Add(violation);
+        }
+
+        streamed.Should().HaveCount(2);
+        streamed.Should().OnlyContain(violation => violation.RuleId == "DG102");
+    }
+
+    [Fact]
     public async Task NegativeCap_UsesTheSameDefaultAtEveryConcurrentEntryPoint()
     {
         var contracts = Contracts(2);

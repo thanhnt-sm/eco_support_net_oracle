@@ -8,8 +8,17 @@ using Microsoft.SqlServer.TransactSql.ScriptDom;
 /// <summary>
 /// Oracle dialect checker - detects Oracle-specific syntax in non-Oracle context and vice versa.
 /// </summary>
-public class OracleDialectChecker
+public class OracleDialectChecker : IDialectAnalyzer
 {
+    /// <inheritdoc />
+    public string DialectName => "oracle";
+
+    /// <inheritdoc />
+    public IReadOnlyList<ContractViolation> Analyze(string sqlText, bool isTargetDialect, Location? location = null) =>
+        isTargetDialect
+            ? CheckNonOracleSyntaxInOracleContext(sqlText, isOracleContext: true, location)
+            : CheckOracleSyntaxInNonOracleContext(sqlText, isOracleContext: false, location);
+
     // Only genuinely Oracle-exclusive constructs. Standard SQL (window functions,
     // PIVOT, PARTITION BY, KEEP, MODEL) is valid in modern SQL Server/PostgreSQL too
     // and must not be flagged as "Oracle-only".

@@ -183,16 +183,18 @@ public static class DataGuardLogger
     /// </summary>
     public static string FindCliExecutable(string? customCliPath)
     {
-        if (!string.IsNullOrWhiteSpace(customCliPath) && File.Exists(customCliPath))
+        var normalizedCustom = customCliPath?.Trim(' ', '"');
+        if (IsValidExecutablePath(normalizedCustom, requireRooted: true))
         {
-            return customCliPath!;
+            return normalizedCustom!;
         }
 
-        var envPath = Environment.GetEnvironmentVariable("DATAGUARD_CLI_PATH");
-        if (!string.IsNullOrWhiteSpace(envPath) && File.Exists(envPath))
+        var envPath = Environment.GetEnvironmentVariable("DATAGUARD_CLI_PATH")?.Trim(' ', '"');
+        if (IsValidExecutablePath(envPath, requireRooted: true))
         {
             return envPath!;
         }
+
         var candidatePaths = new[]
         {
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "tools", "dataguard.exe"),
@@ -216,7 +218,13 @@ public static class DataGuardLogger
             {
                 try
                 {
-                    var file = Path.Combine(dir.Trim(), "dataguard.exe");
+                    var trimmed = dir.Trim(' ', '"');
+                    if (string.IsNullOrWhiteSpace(trimmed))
+                    {
+                        continue;
+                    }
+
+                    var file = Path.Combine(trimmed, "dataguard.exe");
                     if (File.Exists(file))
                     {
                         return file;
@@ -229,7 +237,29 @@ public static class DataGuardLogger
             }
         }
 
-        return "dataguard";
+        return string.Empty;
+    }
+
+    private static bool IsValidExecutablePath(string? path, bool requireRooted = false)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (requireRooted && !Path.IsPathRooted(path))
+            {
+                return false;
+            }
+
+            return string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

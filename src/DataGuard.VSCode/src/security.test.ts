@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as path from "path";
 import { pathToFileURL } from "url";
-import { redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath } from "./security";
+import { connectionSecretKey, readConnectionSecret, redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath, storeConnectionSecret } from "./security";
 
 test("redactSensitiveText removes connection and bearer credentials", () => {
     const output = redactSensitiveText("Password=s3cret Authorization: Bearer abc.def.ghi api-key: key-value");
@@ -43,4 +43,31 @@ test("resolveWorkspaceConfigPath refuses workspace escapes", () => {
         () => resolveWorkspaceConfigPath(workspace, path.join(path.sep, "etc", "dataguard.yml")),
         /must be relative/,
     );
+});
+
+test("connection secrets are workspace-scoped and never persisted as plaintext configuration", async () => {
+    const values = new Map<string, string>();
+    const operations: string[] = [];
+    const secrets = {
+        get: async (key: string) => values.get(key),
+        store: async (key: string, value: string) => {
+            operations.push(`store:${key}`);
+            values.set(key, value);
+        },
+        delete: async (key: string) => {
+            operations.push(`delete:${key}`);
+            values.delete(key);
+        },
+    };
+
+    await storeConnectionSecret(secrets, "file:///workspace/payments", "Server=db;Password=not-in-settings;");
+
+    const key = connectionSecretKey("file:///workspace/payments");
+    assert.equal(await readConnectionSecret(secrets, "file:///workspace/payments"), "Server=db;Password=not-in-settings;");
+    assert.notEqual(key, connectionSecretKey("file:///workspace/reporting"));
+    assert.deepEqual(operations, [`store:${key}`]);
+
+    await storeConnectionSecret(secrets, "file:///workspace/payments", "  ");
+    assert.equal(await readConnectionSecret(secrets, "file:///workspace/payments"), undefined);
+    assert.deepEqual(operations, [`store:${key}`, `delete:${key}`]);
 });

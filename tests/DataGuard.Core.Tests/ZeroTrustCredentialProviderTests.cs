@@ -18,6 +18,7 @@ public class ZeroTrustCredentialProviderTests : IDisposable
     {
         Environment.SetEnvironmentVariable(EnvVar, null);
         Environment.SetEnvironmentVariable("DATAGUARD_DATABASECONNECTION", null);
+        Environment.SetEnvironmentVariable("DATAGUARD_CONNECTION_STRING", null);
     }
 
     private static ZeroTrustCredentialProvider CreateProvider(
@@ -93,6 +94,17 @@ public class ZeroTrustCredentialProviderTests : IDisposable
         using var handle = await provider.GetDatabaseConnectionAsync();
 
         handle.GetString().Should().Be("Server=localhost;Database=Test");
+    }
+
+    [Fact]
+    public async Task GetDatabaseConnection_ResolvesFromHeadlessCiEnvironmentVariable()
+    {
+        Environment.SetEnvironmentVariable("DATAGUARD_CONNECTION_STRING", "Server=ci;Database=Test");
+        var provider = CreateProvider();
+
+        using var handle = await provider.GetDatabaseConnectionAsync();
+
+        handle.GetString().Should().Be("Server=ci;Database=Test");
     }
 
     [Fact]

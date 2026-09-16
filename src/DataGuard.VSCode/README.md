@@ -27,6 +27,7 @@ Commit a `.dataguard.yml` in the trusted workspace. Use snapshot/manual mode for
 | --- | --- |
 | **DataGuard: Run Validation** | Validate the selected trusted workspace and populate Problems from SARIF. |
 | **DataGuard: Cancel Validation** | Terminate the active validation process tree for the selected workspace. |
+| **DataGuard: Configure Connection Credential** | Prompts for a connection string and stores it in encrypted VS Code SecretStorage for the selected workspace; an empty value removes it. |
 
 ## Settings
 
@@ -40,7 +41,7 @@ Commit a `.dataguard.yml` in the trusted workspace. Use snapshot/manual mode for
 ## Security and enterprise use
 
 - The extension invokes a fixed argument vector with `shell: false`.
-- It never stores connection strings, passwords, tokens, or SARIF output in workspace settings.
+- It never stores connection strings, passwords, tokens, or SARIF output in workspace settings; connection credentials are encrypted by VS Code SecretStorage and passed only to the spawned CLI process.
 - Raw CLI output is never displayed. Generated SARIF is deleted after diagnostics load.
 - DataGuard source is [MIT licensed](LICENSE). These controls help operate in regulated environments but are not a compliance certification.
 

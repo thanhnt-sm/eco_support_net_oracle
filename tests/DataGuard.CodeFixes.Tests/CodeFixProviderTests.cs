@@ -347,7 +347,20 @@ public class CodeFixProviderTests
     {
         var runtimeDirectory = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         return System.IO.Directory.EnumerateFiles(runtimeDirectory, "*.dll")
-            .Select(path => MetadataReference.CreateFromFile(path))
+            .Where(path =>
+            {
+                try
+                {
+                    using var stream = System.IO.File.OpenRead(path);
+                    using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+                    return peReader.HasMetadata;
+                }
+                catch
+                {
+                    return false;
+                }
+            })
+            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
             .Append(MetadataReference.CreateFromFile(typeof(DataGuard.Contracts.DataContractAttribute).Assembly.Location));
     }
 

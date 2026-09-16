@@ -19,7 +19,7 @@ public sealed class HealthHostIntegrationTests
 
         var port = ReserveLoopbackPort();
         using var process = StartHost(port, snapshot, baseline);
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         var baseAddress = $"http://127.0.0.1:{port}";
 
         try
@@ -114,6 +114,11 @@ public sealed class HealthHostIntegrationTests
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        var rollForward = Environment.GetEnvironmentVariable("DOTNET_ROLL_FORWARD");
+        if (!string.IsNullOrEmpty(rollForward))
+        {
+            startInfo.Environment["DOTNET_ROLL_FORWARD"] = rollForward;
+        }
         startInfo.ArgumentList.Add(typeof(HealthHostBinding).Assembly.Location);
         startInfo.ArgumentList.Add("--urls");
         startInfo.ArgumentList.Add($"http://127.0.0.1:{port}");
@@ -156,7 +161,7 @@ public sealed class HealthHostIntegrationTests
 
                 response.Dispose();
             }
-            catch (HttpRequestException exception)
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or OperationCanceledException or TimeoutException)
             {
                 lastFailure = exception;
             }

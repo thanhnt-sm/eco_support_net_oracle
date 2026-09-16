@@ -9,8 +9,17 @@ namespace DataGuard.PostgreSql.Adapter;
 /// PostgreSQL dialect checker — detects PostgreSQL-specific syntax in non-PostgreSQL
 /// context and vice versa. Follows the OracleDialectChecker pattern.
 /// </summary>
-public sealed class PostgreSqlDialectChecker
+public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
 {
+    /// <inheritdoc />
+    public string DialectName => "postgresql";
+
+    /// <inheritdoc />
+    public IReadOnlyList<ContractViolation> Analyze(string sqlText, bool isTargetDialect, Location? location = null) =>
+        isTargetDialect
+            ? CheckNonPostgreSqlSyntaxInPostgreSqlContext(sqlText, isPostgreSqlContext: true, location)
+            : CheckPostgreSqlSyntaxInNonPostgreSqlContext(sqlText, isPostgreSqlContext: false, location);
+
     // Only genuinely PostgreSQL-specific. Standard SQL (window functions, CTEs,
     // LATERAL, MERGE) is valid in modern databases and must not be flagged.
     private static readonly HashSet<string> PostgreSqlKeywords = new(StringComparer.OrdinalIgnoreCase)
