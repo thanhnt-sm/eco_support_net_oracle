@@ -28,6 +28,8 @@
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
     <AdditionalFiles Include="stylecop.json" />
-    <VSCTCompile Include="Commands\DataGuard.vsct" />
+    <VSCTCompile Include="Commands\Menus.vsct">
+      <ResourceName>Menus.ctmenu</ResourceName>
+    </VSCTCompile>
   </ItemGroup>
 </Project>

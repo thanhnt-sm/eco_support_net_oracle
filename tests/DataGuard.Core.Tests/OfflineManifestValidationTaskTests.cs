@@ -61,7 +61,7 @@ public sealed class OfflineManifestValidationTaskTests
             {
                 File.CreateSymbolicLink(link, target);
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
             {
                 return;
             }
@@ -72,7 +72,10 @@ public sealed class OfflineManifestValidationTaskTests
         }
         finally
         {
-            File.Delete(link);
+            if (File.Exists(link))
+            {
+                File.Delete(link);
+            }
             File.Delete(target);
         }
     }

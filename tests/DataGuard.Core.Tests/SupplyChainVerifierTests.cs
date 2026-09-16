@@ -77,7 +77,7 @@ public class SupplyChainVerifierTests
             {
                 File.CreateSymbolicLink(link, target);
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
             {
                 return;
             }
@@ -88,7 +88,11 @@ public class SupplyChainVerifierTests
         }
         finally
         {
-            File.Delete(link);
+            if (File.Exists(link))
+            {
+                File.Delete(link);
+            }
+
             File.Delete(target);
         }
     }
@@ -108,7 +112,7 @@ public class SupplyChainVerifierTests
             {
                 Directory.CreateSymbolicLink(linkDirectory, targetDirectory);
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
             {
                 return;
             }
@@ -119,8 +123,16 @@ public class SupplyChainVerifierTests
         }
         finally
         {
-            File.Delete(link);
-            Directory.Delete(linkDirectory, recursive: false);
+            if (File.Exists(link))
+            {
+                File.Delete(link);
+            }
+
+            if (Directory.Exists(linkDirectory))
+            {
+                Directory.Delete(linkDirectory, recursive: false);
+            }
+
             File.Delete(target);
             Directory.Delete(targetDirectory, recursive: true);
         }

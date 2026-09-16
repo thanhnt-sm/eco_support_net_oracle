@@ -78,7 +78,7 @@
 | `src/DataGuard.VSCode/src/security.test.ts` | TypeScript | DataGuard.VSCode | configuration/resource | project-local / declared package refs | CLI/extension host I/O | not discovered in DataGuard.sln |
 | `src/DataGuard.VSCode/src/security.ts` | TypeScript | DataGuard.VSCode | redactSensitiveText, resolveWorkspaceConfigPath | project-local / declared package refs | CLI/extension host I/O | not discovered in DataGuard.sln |
 | `src/DataGuard.VSCode/tsconfig.json` | JSON | DataGuard.VSCode | configuration/resource | project-local / declared package refs | none (declarative/resource) | not discovered in DataGuard.sln |
-| `src/DataGuard.VisualStudio/Commands/DataGuard.vsct` | VSCT | DataGuard.VisualStudio | configuration/resource | project-local / declared package refs | none (declarative/resource) | not discovered in DataGuard.sln |
+| `src/DataGuard.VisualStudio/Commands/Menus.vsct` | VSCT | DataGuard.VisualStudio | configuration/resource | project-local / declared package refs | none (declarative/resource) | not discovered in DataGuard.sln |
 | `src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj` | MSBuild XML | DataGuard.VisualStudio | configuration/resource | project-local / declared package refs | none (declarative/resource) | not discovered in DataGuard.sln |
 | `src/DataGuard.VisualStudio/DataGuardPackage.cs` | C# | DataGuard.VisualStudio | DataGuardPackage | project-local / declared package refs | CLI/extension host I/O | not discovered in DataGuard.sln |
 | `src/DataGuard.VisualStudio/LICENSE.txt` | Text | DataGuard.VisualStudio | configuration/resource | project-local / declared package refs | none (declarative/resource) | not discovered in DataGuard.sln |

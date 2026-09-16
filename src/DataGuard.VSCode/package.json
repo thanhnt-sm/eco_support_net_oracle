@@ -76,8 +76,86 @@
       {
         "command": "dataguard.createBaseline",
         "title": "DataGuard: Create Baseline"
+      },
+      {
+        "command": "dataguard.configureConnection",
+        "title": "DataGuard: Configure Connection Credential"
+      },
+      {
+        "command": "dataguard.openDashboard",
+        "title": "DataGuard: Open Drift Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "dataguard.refreshFindings",
+        "title": "DataGuard: Refresh Findings",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dataguard.clearFindings",
+        "title": "DataGuard: Clear Findings",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "dataguard.groupBySeverity",
+        "title": "DataGuard: Group by Severity"
+      },
+      {
+        "command": "dataguard.groupByRule",
+        "title": "DataGuard: Group by Rule"
+      },
+      {
+        "command": "dataguard.groupByFile",
+        "title": "DataGuard: Group by File"
+      },
+      {
+        "command": "dataguard.applyQuickFix",
+        "title": "DataGuard: Apply Quick-Fix"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dataguard-explorer",
+          "title": "DataGuard",
+          "icon": "media/shield.svg"
+        }
+      ]
+    },
+    "views": {
+      "dataguard-explorer": [
+        {
+          "id": "dataguard.findingsView",
+          "name": "Contract Drift Findings"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "dataguard.openDashboard",
+          "when": "view == dataguard.findingsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dataguard.refreshFindings",
+          "when": "view == dataguard.findingsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "dataguard.clearFindings",
+          "when": "view == dataguard.findingsView",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dataguard.applyQuickFix",
+          "when": "view == dataguard.findingsView && viewItem == findingWithQuickFix",
+          "group": "inline"
+        }
+      ]
+    },
     "configuration": {
       "title": "DataGuard",
       "properties": {
@@ -127,7 +205,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "test": "npm run compile && npm run test:typescript && node --test out/security.test.js out/run-coordinator.test.js out/command-args.test.js",
+    "test": "npm run compile && npm run test:typescript && node --test out/security.test.js out/run-coordinator.test.js out/command-args.test.js out/ui/design-tokens.test.js out/ui/redaction.test.js out/ui/csp-security.test.js out/ui/performance-smoke.test.js",
     "test:typescript": "npx --no-install tsc --noEmit --strict --skipLibCheck --target ES2020 test/fixtures/generated-contract.ts",
     "test:extension-host": "npm run compile && node scripts/test-extension-host.cjs",
     "prepare-lsp": "node scripts/package-lsp.cjs",

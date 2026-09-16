@@ -10,8 +10,17 @@ namespace DataGuard.MySql.Adapter;
 /// MySQL dialect checker — detects MySQL-specific syntax in non-MySQL context and vice versa.
 /// Follows the same pattern as OracleDialectChecker.
 /// </summary>
-public sealed class MySqlDialectChecker
+public sealed class MySqlDialectChecker : IDialectAnalyzer
 {
+    /// <inheritdoc />
+    public string DialectName => "mysql";
+
+    /// <inheritdoc />
+    public IReadOnlyList<ContractViolation> Analyze(string sqlText, bool isTargetDialect, Location? location = null) =>
+        isTargetDialect
+            ? CheckNonMySqlSyntaxInMySqlContext(sqlText, isMySqlContext: true, location)
+            : CheckMySqlSyntaxInNonMySqlContext(sqlText, isMySqlContext: false, location);
+
     // MySQL-exclusive keywords and constructs.
     // Only genuinely MySQL-specific items — standard SQL (LIMIT in PostgreSQL/SQLite,
     // window functions, CTEs) is excluded to avoid false positives.

@@ -109,6 +109,16 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         CredentialType type,
         CancellationToken cancellationToken)
     {
+        if (type == CredentialType.DatabaseConnection)
+        {
+            var connectionString = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING");
+            if (!string.IsNullOrEmpty(connectionString))
+            {
+                await LogSourceAsync("EnvironmentVariable", credentialName);
+                return connectionString;
+            }
+        }
+
         // Priority 1: Environment variable (CI/CD injection)
         var envVar = GetEnvironmentVariableName(credentialName);
         var envValue = Environment.GetEnvironmentVariable(envVar);

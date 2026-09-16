@@ -212,7 +212,7 @@ public class AssessmentPackTests : IDisposable
         {
             Directory.CreateSymbolicLink(linked, outside);
         }
-        catch (PlatformNotSupportedException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
         {
             Directory.Delete(outside, recursive: true);
             return;

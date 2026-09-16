@@ -20,6 +20,46 @@ export function redactAndBoundSensitiveText(value: string, maximumLength = 16 * 
         : `${redacted.slice(0, maximumLength)}\n[DataGuard] output truncated.`;
 }
 
+export interface ConnectionSecretStorage {
+    get(key: string): PromiseLike<string | undefined>;
+    store(key: string, value: string): PromiseLike<void>;
+    delete(key: string): PromiseLike<void>;
+}
+
+const CONNECTION_SECRET_PREFIX = "dataguard.connectionString.";
+
+/** Returns an opaque, workspace-scoped key for VS Code's encrypted SecretStorage. */
+export function connectionSecretKey(workspaceIdentity: string): string {
+    if (workspaceIdentity.length === 0) {
+        throw new Error("workspaceIdentity must not be empty.");
+    }
+
+    return `${CONNECTION_SECRET_PREFIX}${Buffer.from(workspaceIdentity).toString("base64url")}`;
+}
+
+/** Reads an optional connection string from VS Code's encrypted secret store. */
+export async function readConnectionSecret(
+    secrets: Pick<ConnectionSecretStorage, "get">,
+    workspaceIdentity: string,
+): Promise<string | undefined> {
+    return secrets.get(connectionSecretKey(workspaceIdentity));
+}
+
+/** Stores a connection string only in VS Code's encrypted secret store. */
+export async function storeConnectionSecret(
+    secrets: Pick<ConnectionSecretStorage, "store" | "delete">,
+    workspaceIdentity: string,
+    connectionString: string,
+): Promise<void> {
+    const key = connectionSecretKey(workspaceIdentity);
+    if (connectionString.trim().length === 0) {
+        await secrets.delete(key);
+        return;
+    }
+
+    await secrets.store(key, connectionString);
+}
+
 export function resolveWorkspaceConfigPath(workspacePath: string, configuredPath: string): string {
     if (path.isAbsolute(configuredPath)) {
         throw new Error("dataguard.configPath must be relative to the trusted workspace folder.");

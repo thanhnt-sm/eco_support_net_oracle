@@ -25,6 +25,26 @@ public interface IContractSource
 }
 
 /// <summary>
+/// Provides dialect-specific SQL syntax analysis through a uniform adapter contract.
+/// </summary>
+public interface IDialectAnalyzer
+{
+    /// <summary>Gets the canonical database dialect name.</summary>
+    string DialectName { get; }
+
+    /// <summary>
+    /// Analyzes SQL for syntax that is invalid for the current dialect context.
+    /// </summary>
+    /// <param name="sqlText">SQL text to inspect.</param>
+    /// <param name="isTargetDialect">Whether <paramref name="sqlText"/> executes in this analyzer's dialect.</param>
+    /// <param name="location">Optional source location for emitted violations.</param>
+    IReadOnlyList<ContractViolation> Analyze(
+        string sqlText,
+        bool isTargetDialect,
+        Location? location = null);
+}
+
+/// <summary>
 /// Represents a contract rule that validates a specific aspect of the contract.
 /// </summary>
 public interface IContractRule

@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
 
@@ -37,6 +39,86 @@ public sealed class ConcurrentValidationEngine
         }
 
         return result.Violations;
+    }
+
+    /// <summary>
+    /// Validates contracts with bounded concurrency and yields violations as they are
+    /// produced. Consumers that write results incrementally need not retain all
+    /// violations in memory.
+    /// </summary>
+    public async IAsyncEnumerable<ContractViolation> StreamAsync(
+        IReadOnlyList<ContractDescriptor> contracts,
+        IReadOnlyList<IContractRule> rules,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var capacity = Math.Max(1, _maxViolationQueueSize);
+        var channel = Channel.CreateBounded<ContractViolation>(new BoundedChannelOptions(capacity)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,
+            SingleWriter = false,
+        });
+
+        var producer = ProduceAsync();
+        await foreach (var violation in channel.Reader.ReadAllAsync(cancellationToken))
+        {
+            yield return violation;
+        }
+
+        await producer;
+
+        async Task ProduceAsync()
+        {
+            try
+            {
+                var batch = new List<Task>(_maxDegreeOfParallelism);
+                foreach (var rule in rules)
+                {
+                    foreach (var contract in contracts)
+                    {
+                        batch.Add(ValidateAndWriteAsync(rule, contract));
+                        if (batch.Count == _maxDegreeOfParallelism)
+                        {
+                            await Task.WhenAll(batch);
+                            batch.Clear();
+                        }
+                    }
+                }
+
+                if (batch.Count > 0)
+                {
+                    await Task.WhenAll(batch);
+                }
+
+                channel.Writer.TryComplete();
+            }
+            catch (Exception exception)
+            {
+                channel.Writer.TryComplete(exception);
+            }
+        }
+
+        async Task ValidateAndWriteAsync(IContractRule rule, ContractDescriptor contract)
+        {
+            IReadOnlyList<ContractViolation> violations;
+            try
+            {
+                violations = await rule.ValidateAsync(contract, contracts, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return;
+            }
+
+            foreach (var violation in violations)
+            {
+                await channel.Writer.WriteAsync(violation, cancellationToken);
+            }
+        }
     }
 
     public async Task<ValidationExecutionResult> ValidateDetailedAsync(

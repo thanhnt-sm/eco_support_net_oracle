@@ -6,44 +6,21 @@ import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
-import { redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath } from "./security";
+import { readConnectionSecret, redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath, storeConnectionSecret } from "./security";
 import { RunCoordinator } from "./run-coordinator";
 import { buildCliArguments, normalizeProvider } from "./command-args";
+import { DataGuardDashboardPanel } from "./ui/dashboard-panel";
+import { DataGuardFindingsTreeProvider, FindingTreeItem } from "./ui/findings-tree-provider";
+import { DataGuardQuickFixProvider } from "./ui/quick-fix-provider";
+import { parseSarifToFindings, redactForUi, SarifLocation, SarifLog, SarifRegion, SarifResult, SarifRun } from "./ui/redaction";
 
 const RUN_VALIDATION_COMMAND = "dataguard.runValidation";
 const CANCEL_VALIDATION_COMMAND = "dataguard.cancelValidation";
 const ASSESS_COMMAND = "dataguard.assess";
 const SNAPSHOT_COMMAND = "dataguard.refreshSnapshot";
 const BASELINE_COMMAND = "dataguard.createBaseline";
+const CONFIGURE_CONNECTION_COMMAND = "dataguard.configureConnection";
 const OUTPUT_CHANNEL_NAME = "DataGuard";
-
-interface SarifLog {
-    runs?: SarifRun[];
-}
-
-interface SarifRun {
-    results?: SarifResult[];
-}
-
-interface SarifResult {
-    level?: "error" | "warning" | "note" | "none";
-    message?: { text?: string };
-    locations?: SarifLocation[];
-}
-
-interface SarifRegion {
-    startLine?: number;
-    startColumn?: number;
-    endLine?: number;
-    endColumn?: number;
-}
-
-interface SarifLocation {
-    physicalLocation?: {
-        artifactLocation?: { uri?: string };
-        region?: SarifRegion;
-    };
-}
 
 interface ValidationRun {
     readonly child: ChildProcess;
@@ -67,6 +44,8 @@ let outputChannel: vscode.OutputChannel | undefined;
 let diagnostics: vscode.DiagnosticCollection | undefined;
 const runCoordinator = new RunCoordinator<ValidationRun>();
 let languageClient: LanguageClient | undefined;
+let findingsTreeProvider: DataGuardFindingsTreeProvider | undefined;
+let quickFixProvider: DataGuardQuickFixProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -76,13 +55,38 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBarItem.show();
 
     diagnostics = vscode.languages.createDiagnosticCollection("dataguard");
-    context.subscriptions.push(statusBarItem, diagnostics);
+    findingsTreeProvider = new DataGuardFindingsTreeProvider();
+    quickFixProvider = new DataGuardQuickFixProvider();
+
+    const treeView = vscode.window.registerTreeDataProvider("dataguard.findingsView", findingsTreeProvider);
+    const codeActionDisposable = vscode.languages.registerCodeActionsProvider(
+        { scheme: "file", language: "csharp" },
+        quickFixProvider,
+        { providedCodeActionKinds: DataGuardQuickFixProvider.providedCodeActionKinds }
+    );
+
+    context.subscriptions.push(statusBarItem, diagnostics, treeView, codeActionDisposable);
     context.subscriptions.push(
-        vscode.commands.registerCommand(RUN_VALIDATION_COMMAND, () => runValidation()),
+        vscode.commands.registerCommand(RUN_VALIDATION_COMMAND, () => runValidation(context)),
         vscode.commands.registerCommand(CANCEL_VALIDATION_COMMAND, () => cancelValidation()),
-        vscode.commands.registerCommand(ASSESS_COMMAND, () => runAssessment()),
-        vscode.commands.registerCommand(SNAPSHOT_COMMAND, () => runConfirmedOperation("snapshot")),
-        vscode.commands.registerCommand(BASELINE_COMMAND, () => runConfirmedOperation("baseline")),
+        vscode.commands.registerCommand(ASSESS_COMMAND, () => runAssessment(context)),
+        vscode.commands.registerCommand(SNAPSHOT_COMMAND, () => runConfirmedOperation(context, "snapshot")),
+        vscode.commands.registerCommand(BASELINE_COMMAND, () => runConfirmedOperation(context, "baseline")),
+        vscode.commands.registerCommand(CONFIGURE_CONNECTION_COMMAND, () => configureConnection(context)),
+        vscode.commands.registerCommand("dataguard.openDashboard", () => {
+            DataGuardDashboardPanel.createOrShow(context.extensionUri, findingsTreeProvider?.getFindings() ?? []);
+        }),
+        vscode.commands.registerCommand("dataguard.refreshFindings", () => runValidation(context)),
+        vscode.commands.registerCommand("dataguard.clearFindings", () => clearFindingsAndDiagnostics()),
+        vscode.commands.registerCommand("dataguard.groupBySeverity", () => findingsTreeProvider?.setGroupingMode("severity")),
+        vscode.commands.registerCommand("dataguard.groupByRule", () => findingsTreeProvider?.setGroupingMode("rule")),
+        vscode.commands.registerCommand("dataguard.groupByFile", () => findingsTreeProvider?.setGroupingMode("file")),
+        vscode.commands.registerCommand("dataguard.applyQuickFix", async (target?: FindingTreeItem | string) => {
+            await handleApplyQuickFix(target);
+        }),
+        vscode.commands.registerCommand("dataguard.applyQuickFixInternal", async (uri: vscode.Uri, range: vscode.Range, ruleCode: string) => {
+            await DataGuardQuickFixProvider.applyRemediation(uri, range, ruleCode);
+        }),
     );
     void startLanguageServer(context);
 }
@@ -95,12 +99,44 @@ export function deactivate(): void {
         clearTimeout(run.timeout);
         void fs.rm(run.outputDirectory, { recursive: true, force: true });
     }
+    DataGuardDashboardPanel.currentPanel?.dispose();
+    findingsTreeProvider = undefined;
+    quickFixProvider = undefined;
     statusBarItem?.dispose();
     outputChannel?.dispose();
     diagnostics?.dispose();
     statusBarItem = undefined;
     outputChannel = undefined;
     diagnostics = undefined;
+}
+
+async function handleApplyQuickFix(target?: FindingTreeItem | string): Promise<void> {
+    const findingId = typeof target === "string" ? target : target?.finding?.id;
+    if (!findingId || !findingsTreeProvider) {
+        vscode.window.showInformationMessage("DataGuard: Select a finding with a Quick-Fix available.");
+        return;
+    }
+    const finding = findingsTreeProvider.getFindings().find((f) => f.id === findingId);
+    if (!finding || !finding.quickFixAvailable) {
+        vscode.window.showInformationMessage("DataGuard: No automated Quick-Fix is available for this finding.");
+        return;
+    }
+    const uri = vscode.Uri.file(finding.filePath);
+    const range = new vscode.Range(
+        Math.max(0, finding.startLine - 1),
+        Math.max(0, finding.startColumn - 1),
+        Math.max(0, finding.endLine - 1),
+        Math.max(0, finding.endColumn - 1)
+    );
+    await DataGuardQuickFixProvider.applyRemediation(uri, range, finding.ruleId);
+}
+
+function clearFindingsAndDiagnostics(): void {
+    diagnostics?.clear();
+    findingsTreeProvider?.clear();
+    if (DataGuardDashboardPanel.currentPanel) {
+        DataGuardDashboardPanel.currentPanel.clear();
+    }
 }
 
 async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
@@ -129,25 +165,49 @@ async function verifyLanguageServerArtifact(serverPath: string): Promise<void> {
     }
 }
 
-async function runValidation(): Promise<void> {
-    await runCliCommand("validate", "timeoutSeconds");
+async function runValidation(context: vscode.ExtensionContext): Promise<void> {
+    await runCliCommand(context, "validate", "timeoutSeconds");
 }
 
-async function runAssessment(): Promise<void> {
-    await runCliCommand("assess", "assessmentTimeoutSeconds");
+async function runAssessment(context: vscode.ExtensionContext): Promise<void> {
+    await runCliCommand(context, "assess", "assessmentTimeoutSeconds");
 }
 
-async function runConfirmedOperation(command: "snapshot" | "baseline"): Promise<void> {
+async function runConfirmedOperation(context: vscode.ExtensionContext, command: "snapshot" | "baseline"): Promise<void> {
     const action = command === "snapshot" ? "refresh the schema snapshot" : "create a baseline";
     const choice = await vscode.window.showWarningMessage(`DataGuard will ${action} using the configured provider and credentials. Continue?`, { modal: true }, "Continue");
     if (choice !== "Continue") {
         return;
     }
 
-    await runCliCommand(command, "timeoutSeconds");
+    await runCliCommand(context, command, "timeoutSeconds");
 }
 
-async function runCliCommand(command: "validate" | "assess" | "snapshot" | "baseline", timeoutSetting: "timeoutSeconds" | "assessmentTimeoutSeconds"): Promise<void> {
+async function configureConnection(context: vscode.ExtensionContext): Promise<void> {
+    const workspaceFolder = await selectWorkspaceFolder();
+    if (!workspaceFolder) {
+        void vscode.window.showWarningMessage("DataGuard: open a workspace folder first.");
+        return;
+    }
+
+    const connectionString = await vscode.window.showInputBox({
+        password: true,
+        prompt: "Store the connection string in VS Code SecretStorage. Leave empty to remove it.",
+        ignoreFocusOut: true,
+    });
+    if (connectionString === undefined) {
+        return;
+    }
+
+    await storeConnectionSecret(context.secrets, workspaceFolder.uri.toString(), connectionString);
+    void vscode.window.showInformationMessage(
+        connectionString.trim().length === 0
+            ? "DataGuard connection credential removed."
+            : "DataGuard connection credential stored securely.",
+    );
+}
+
+async function runCliCommand(context: vscode.ExtensionContext, command: "validate" | "assess" | "snapshot" | "baseline", timeoutSetting: "timeoutSeconds" | "assessmentTimeoutSeconds"): Promise<void> {
     if (!vscode.workspace.isTrusted) {
         void vscode.window.showWarningMessage("DataGuard does not run CLI commands in an untrusted workspace. Trust this workspace first.");
         return;
@@ -156,6 +216,14 @@ async function runCliCommand(command: "validate" | "assess" | "snapshot" | "base
     const workspaceFolder = await selectWorkspaceFolder();
     if (!workspaceFolder) {
         void vscode.window.showWarningMessage("DataGuard: open a workspace folder first.");
+        return;
+    }
+
+    let connectionString: string | undefined;
+    try {
+        connectionString = await readConnectionSecret(context.secrets, workspaceFolder.uri.toString());
+    } catch {
+        void vscode.window.showErrorMessage("DataGuard could not access VS Code SecretStorage.");
         return;
     }
 
@@ -210,6 +278,9 @@ async function runCliCommand(command: "validate" | "assess" | "snapshot" | "base
     try {
         child = spawn(cliPath, args, {
             cwd: workspaceFolder.uri.fsPath,
+            env: connectionString === undefined
+                ? undefined
+                : { ...process.env, DATAGUARD_CONNECTION_STRING: connectionString },
             detached: process.platform !== "win32",
             shell: false,
             windowsHide: true,
@@ -350,6 +421,13 @@ async function loadDiagnostics(
     }
 
     collection.clear();
+    const findings = parseSarifToFindings(sarif, workspaceFolder.uri.fsPath, resolveWorkspaceSarifPath);
+    findingsTreeProvider?.setFindings(findings);
+    quickFixProvider?.registerFindings(findings);
+    if (DataGuardDashboardPanel.currentPanel) {
+        DataGuardDashboardPanel.currentPanel.update(findings);
+    }
+
     const byDocument = new Map<string, { uri: vscode.Uri; diagnostics: vscode.Diagnostic[] }>();
     const results = sarif.runs?.flatMap((run) => run.results ?? []) ?? [];
     for (const result of results) {
@@ -369,11 +447,14 @@ async function loadDiagnostics(
         const uri = vscode.Uri.file(filePath);
         const key = uri.toString();
         const entry = byDocument.get(key) ?? { uri, diagnostics: [] };
-        entry.diagnostics.push(new vscode.Diagnostic(
+        const diag = new vscode.Diagnostic(
             toRange(location?.region),
-            redactSensitiveText(result.message?.text ?? "DataGuard contract violation"),
+            redactForUi(result.message?.text ?? "DataGuard contract violation"),
             toSeverity(result.level),
-        ));
+        );
+        diag.code = result.ruleId ?? "DG000";
+        diag.source = "DataGuard";
+        entry.diagnostics.push(diag);
         byDocument.set(key, entry);
     }
 

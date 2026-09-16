@@ -340,119 +340,120 @@ public class FileSarifSink : ISarifSink
         var tempPath = Path.Combine(directory, $".{Path.GetFileName(_outputPath)}.{Guid.NewGuid():N}.tmp");
         try
         {
-            await using var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
-            await using var writer = new System.Text.Json.Utf8JsonWriter(fileStream, new JsonWriterOptions { Indented = true });
-
-            writer.WriteStartObject();
-            writer.WriteString("version", log.Version ?? "2.1.0");
-            writer.WriteString("$schema", log.SchemaUri ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
-
-            writer.WritePropertyName("runs");
-            writer.WriteStartArray();
-
-            foreach (var run in log.Runs ?? Enumerable.Empty<Run>())
+            await using (var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+            await using (var writer = new System.Text.Json.Utf8JsonWriter(fileStream, new JsonWriterOptions { Indented = true }))
             {
                 writer.WriteStartObject();
+                writer.WriteString("version", log.Version ?? "2.1.0");
+                writer.WriteString("$schema", log.SchemaUri ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
 
-                // Tool
-                writer.WritePropertyName("tool");
-                writer.WriteStartObject();
-                writer.WritePropertyName("driver");
-                writer.WriteStartObject();
-                writer.WriteString("name", run.Tool?.Driver?.Name ?? "DataGuard");
-                writer.WriteString("version", run.Tool?.Driver?.Version ?? "0.1.0");
-                writer.WriteString("informationUri", run.Tool?.Driver?.InformationUri ?? "https://github.com/DataGuard/DataGuard");
-
-                // Rules
-                writer.WritePropertyName("rules");
+                writer.WritePropertyName("runs");
                 writer.WriteStartArray();
-                foreach (var rule in run.Tool?.Driver?.Rules ?? Enumerable.Empty<ReportingDescriptor>())
+
+                foreach (var run in log.Runs ?? Enumerable.Empty<Run>())
                 {
                     writer.WriteStartObject();
-                    writer.WriteString("id", rule.Id ?? "");
-                    writer.WriteString("name", rule.Name ?? "");
-                    writer.WritePropertyName("shortDescription");
+
+                    // Tool
+                    writer.WritePropertyName("tool");
                     writer.WriteStartObject();
-                    writer.WriteString("text", rule.ShortDescription?.Text ?? "");
-                    writer.WriteEndObject();
-                    writer.WriteEndObject();
-                }
-
-                writer.WriteEndArray();
-                writer.WriteEndObject();
-                writer.WriteEndObject();
-
-                // Results - stream one by one
-                writer.WritePropertyName("results");
-                writer.WriteStartArray();
-                foreach (var result in run.Results ?? Enumerable.Empty<Result>())
-                {
+                    writer.WritePropertyName("driver");
                     writer.WriteStartObject();
-                    writer.WriteString("ruleId", result.RuleId ?? "");
+                    writer.WriteString("name", run.Tool?.Driver?.Name ?? "DataGuard");
+                    writer.WriteString("version", run.Tool?.Driver?.Version ?? "0.1.0");
+                    writer.WriteString("informationUri", run.Tool?.Driver?.InformationUri ?? "https://github.com/DataGuard/DataGuard");
 
-                    writer.WritePropertyName("message");
-                    writer.WriteStartObject();
-                    writer.WriteString("text", result.Message?.Text ?? "");
-                    writer.WriteEndObject();
-
-                    writer.WriteString("level", result.Level ?? "error");
-
-                    // Locations
-                    if (result.Locations?.Any() == true)
+                    // Rules
+                    writer.WritePropertyName("rules");
+                    writer.WriteStartArray();
+                    foreach (var rule in run.Tool?.Driver?.Rules ?? Enumerable.Empty<ReportingDescriptor>())
                     {
-                        writer.WritePropertyName("locations");
-                        writer.WriteStartArray();
-                        foreach (var loc in result.Locations)
-                        {
-                            writer.WriteStartObject();
-                            writer.WritePropertyName("physicalLocation");
-                            writer.WriteStartObject();
-                            writer.WritePropertyName("artifactLocation");
-                            writer.WriteStartObject();
-                            writer.WriteString("uri", loc.PhysicalLocation?.ArtifactLocation?.Uri ?? "");
-                            writer.WriteString("uriBaseId", loc.PhysicalLocation?.ArtifactLocation?.UriBaseId ?? "%SRCROOT%");
-                            writer.WriteEndObject();
-                            writer.WritePropertyName("region");
-                            writer.WriteStartObject();
-                            writer.WriteNumber("startLine", loc.PhysicalLocation?.Region?.StartLine ?? 0);
-                            writer.WriteNumber("startColumn", loc.PhysicalLocation?.Region?.StartColumn ?? 0);
-                            writer.WriteNumber("endLine", loc.PhysicalLocation?.Region?.EndLine ?? 0);
-                            writer.WriteNumber("endColumn", loc.PhysicalLocation?.Region?.EndColumn ?? 0);
-                            writer.WriteEndObject();
-                            writer.WriteEndObject();
-                            writer.WriteEndObject();
-                        }
-
-                        writer.WriteEndArray();
+                        writer.WriteStartObject();
+                        writer.WriteString("id", rule.Id ?? "");
+                        writer.WriteString("name", rule.Name ?? "");
+                        writer.WritePropertyName("shortDescription");
+                        writer.WriteStartObject();
+                        writer.WriteString("text", rule.ShortDescription?.Text ?? "");
+                        writer.WriteEndObject();
+                        writer.WriteEndObject();
                     }
 
-                    // Properties
-                    if (result.Properties?.Count > 0)
+                    writer.WriteEndArray();
+                    writer.WriteEndObject();
+                    writer.WriteEndObject();
+
+                    // Results - stream one by one
+                    writer.WritePropertyName("results");
+                    writer.WriteStartArray();
+                    foreach (var result in run.Results ?? Enumerable.Empty<Result>())
                     {
-                        writer.WritePropertyName("properties");
                         writer.WriteStartObject();
-                        foreach (var prop in result.Properties)
+                        writer.WriteString("ruleId", result.RuleId ?? "");
+
+                        writer.WritePropertyName("message");
+                        writer.WriteStartObject();
+                        writer.WriteString("text", result.Message?.Text ?? "");
+                        writer.WriteEndObject();
+
+                        writer.WriteString("level", result.Level ?? "error");
+
+                        // Locations
+                        if (result.Locations?.Any() == true)
                         {
-                            writer.WriteString(prop.Key, prop.Value?.ToString() ?? "");
+                            writer.WritePropertyName("locations");
+                            writer.WriteStartArray();
+                            foreach (var loc in result.Locations)
+                            {
+                                writer.WriteStartObject();
+                                writer.WritePropertyName("physicalLocation");
+                                writer.WriteStartObject();
+                                writer.WritePropertyName("artifactLocation");
+                                writer.WriteStartObject();
+                                writer.WriteString("uri", loc.PhysicalLocation?.ArtifactLocation?.Uri ?? "");
+                                writer.WriteString("uriBaseId", loc.PhysicalLocation?.ArtifactLocation?.UriBaseId ?? "%SRCROOT%");
+                                writer.WriteEndObject();
+                                writer.WritePropertyName("region");
+                                writer.WriteStartObject();
+                                writer.WriteNumber("startLine", loc.PhysicalLocation?.Region?.StartLine ?? 0);
+                                writer.WriteNumber("startColumn", loc.PhysicalLocation?.Region?.StartColumn ?? 0);
+                                writer.WriteNumber("endLine", loc.PhysicalLocation?.Region?.EndLine ?? 0);
+                                writer.WriteNumber("endColumn", loc.PhysicalLocation?.Region?.EndColumn ?? 0);
+                                writer.WriteEndObject();
+                                writer.WriteEndObject();
+                                writer.WriteEndObject();
+                            }
+
+                            writer.WriteEndArray();
+                        }
+
+                        // Properties
+                        if (result.Properties?.Count > 0)
+                        {
+                            writer.WritePropertyName("properties");
+                            writer.WriteStartObject();
+                            foreach (var prop in result.Properties)
+                            {
+                                writer.WriteString(prop.Key, prop.Value?.ToString() ?? "");
+                            }
+
+                            writer.WriteEndObject();
                         }
 
                         writer.WriteEndObject();
                     }
 
+                    writer.WriteEndArray();
+
                     writer.WriteEndObject();
                 }
 
                 writer.WriteEndArray();
-
                 writer.WriteEndObject();
+                await writer.FlushAsync(cancellationToken);
+                fileStream.Flush(flushToDisk: true);
             }
 
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-            await writer.FlushAsync(cancellationToken);
-            fileStream.Flush(flushToDisk: true);
-            cancellationToken.ThrowIfCancellationRequested();
-            File.Move(tempPath, _outputPath, overwrite: true);
+            await MoveWithRetryAsync(tempPath, _outputPath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -465,6 +466,25 @@ public class FileSarifSink : ISarifSink
                 catch
                 {
                 }
+            }
+        }
+    }
+
+    private static async Task MoveWithRetryAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
+    {
+        const int maximumAttempts = 4;
+        for (var attempt = 0; attempt < maximumAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                File.Move(sourcePath, destinationPath, overwrite: true);
+                return;
+            }
+            catch (Exception exception) when (attempt < maximumAttempts - 1 && (exception is IOException or UnauthorizedAccessException))
+            {
+                var delayMilliseconds = 50 * (1 << attempt);
+                await Task.Delay(delayMilliseconds, cancellationToken).ConfigureAwait(false);
             }
         }
     }

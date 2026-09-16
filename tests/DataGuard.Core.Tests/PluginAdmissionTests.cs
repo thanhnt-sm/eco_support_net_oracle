@@ -265,7 +265,7 @@ public class PluginAdmissionTests : IDisposable
             {
                 Directory.CreateSymbolicLink(linkedDirectory, targetDirectory);
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
             {
                 return;
             }
@@ -315,7 +315,7 @@ public class PluginAdmissionTests : IDisposable
         {
             File.CreateSymbolicLink(link, target);
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
         {
             return;
         }

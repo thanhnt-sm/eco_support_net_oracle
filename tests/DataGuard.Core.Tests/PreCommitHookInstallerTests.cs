@@ -112,7 +112,7 @@ public class PreCommitHookInstallerTests
             {
                 File.CreateSymbolicLink(hookPath, target);
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
             {
                 return;
             }
@@ -152,7 +152,7 @@ public class PreCommitHookInstallerTests
             {
                 Directory.CreateSymbolicLink(Path.Combine(root, ".git", "hooks"), targetDirectory);
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
             {
                 return;
             }
