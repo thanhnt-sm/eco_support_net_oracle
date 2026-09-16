@@ -122,9 +122,9 @@ sequenceDiagram
     participant FS as File System
 
     User->>VS: Tools → Run Validation
-    VS->>VS: Resolve config + connection
+    VS->>VS: Resolve config + connection + disabled rules
     VS->>FS: Write temp SARIF path
-    VS->>CLI: Process.Start(validate --format sarif --output tmp)
+    VS->>CLI: Process.Start(validate --format sarif --output tmp [--skip-rules ids])
     VS->>User: Output pane: "Running validation..."
     CLI-->>FS: Write SARIF output
     CLI-->>VS: Process exit (0 or 1)
@@ -139,7 +139,7 @@ sequenceDiagram
 var psi = new ProcessStartInfo
 {
     FileName = "dataguard",
-    Arguments = $"validate --format sarif --output \"{sarifPath}\" --provider {provider}",
+    Arguments = $"validate --format sarif --output \"{sarifPath}\" --provider {provider}{skipArg}",
     UseShellExecute = false,
     RedirectStandardOutput = true,
     RedirectStandardError = true,
@@ -147,6 +147,8 @@ var psi = new ProcessStartInfo
 };
 var process = Process.Start(psi);
 ```
+
+`skipArg` is `" --skip-rules " + string.Join(",", disabledRuleIds)` when the Validation Rules options page has disabled rules; otherwise it is empty. Disabled rules are therefore excluded by the CLI and never reach the SARIF/Error List stage.
 
 ### Output Capture
 
@@ -235,6 +237,10 @@ The extension reads configuration from:
 | Default Provider | `enum` | `sqlserver` | Default database provider |
 | Auto-validate on Build | `bool` | `false` | Run validation before build |
 | Show Output Pane | `bool` | `true` | Auto-show output pane on validation |
+
+### Validation Rules options
+
+`Tools → Options → DataGuard → Validation Rules` exposes one toggle per rule group. `GetDisabledRuleIds()` maps each disabled toggle to its concrete rule IDs (for example disabling dialect leakage excludes `DG010-DG013,MY001-MY003,PG001-PG002`). `Run Validation` forwards that list as `validate --skip-rules <ids>`.
 
 ## Limitations
 

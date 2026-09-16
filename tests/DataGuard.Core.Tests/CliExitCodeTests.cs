@@ -314,6 +314,34 @@ public class CliExitCodeTests
     }
 
     [Fact]
+    public void Validate_SkipRules_ExcludesSpecifiedRules()
+    {
+        var dir = Directory.CreateTempSubdirectory("dg-cli-skip-rules").FullName;
+        try
+        {
+            var snapshot = Path.Combine(dir, "AppSnapshot.cs");
+            File.WriteAllText(snapshot, """
+                class Snapshot { void Build(ModelBuilder modelBuilder) {
+                    modelBuilder.Entity<Customer>(entity => {
+                        entity.ToTable("CUSTOMERS");
+                        entity.Property(item => item.FirstName).HasColumnName("x_y_z_unmatched");
+                    });
+                }}
+                """);
+
+            var (exitCodeWithRule, outputWithRule) = RunCli("validate", "--ef-snapshot", snapshot, "--format", "text");
+            outputWithRule.Should().Contain("DG006");
+
+            var (exitCodeSkipped, outputSkipped) = RunCli("validate", "--ef-snapshot", snapshot, "--format", "text", "--skip-rules", "DG006");
+            outputSkipped.Should().NotContain("DG006");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Validate_EfProject_SelectsSourceSnapshotWithoutBuildingOrLoadingAssembly()
     {
         var dir = Directory.CreateTempSubdirectory("dg-cli-ef-project").FullName;

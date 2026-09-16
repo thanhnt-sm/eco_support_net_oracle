@@ -122,9 +122,9 @@ sequenceDiagram
     participant FS as File System
 
     User->>VS: Tools → Run Validation
-    VS->>VS: Giải quyết config + connection
+    VS->>VS: Giải quyết config + connection + rule bị tắt
     VS->>FS: Ghi đường dẫn SARIF tạm
-    VS->>CLI: Process.Start(validate --format sarif --output tmp)
+    VS->>CLI: Process.Start(validate --format sarif --output tmp [--skip-rules ids])
     VS->>User: Output pane: "Running validation..."
     CLI-->>FS: Ghi output SARIF
     CLI-->>VS: Tiến trình thoát (0 hoặc 1)
@@ -139,7 +139,7 @@ sequenceDiagram
 var psi = new ProcessStartInfo
 {
     FileName = "dataguard",
-    Arguments = $"validate --format sarif --output \"{sarifPath}\" --provider {provider}",
+    Arguments = $"validate --format sarif --output \"{sarifPath}\" --provider {provider}{skipArg}",
     UseShellExecute = false,
     RedirectStandardOutput = true,
     RedirectStandardError = true,
@@ -147,6 +147,8 @@ var psi = new ProcessStartInfo
 };
 var process = Process.Start(psi);
 ```
+
+`skipArg` là `" --skip-rules " + string.Join(",", disabledRuleIds)` khi trang Validation Rules có rule bị tắt; nếu không thì rỗng. Các rule bị tắt được CLI loại trừ nên không bao giờ tới SARIF/Error List.
 
 ### Capture output
 
@@ -235,6 +237,10 @@ Tiện ích đọc cấu hình từ:
 | Default Provider | `enum` | `sqlserver` | Database provider mặc định |
 | Auto-validate on Build | `bool` | `false` | Chạy xác thực trước build |
 | Show Output Pane | `bool` | `true` | Tự hiện output pane khi xác thực |
+
+### Tùy chọn Validation Rules
+
+`Tools → Options → DataGuard → Validation Rules` cung cấp một toggle cho mỗi nhóm rule. `GetDisabledRuleIds()` ánh xạ mỗi toggle bị tắt sang các rule ID cụ thể (ví dụ tắt dialect leakage loại trừ `DG010-DG013,MY001-MY003,PG001-PG002`). `Run Validation` chuyển tiếp danh sách đó thành `validate --skip-rules <ids>`.
 
 ## Giới hạn
 

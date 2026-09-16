@@ -224,17 +224,17 @@ public sealed class DataGuardPackage : AsyncPackage
 
     private void ExecuteViewRules(object sender, EventArgs e)
     {
-        _ = this.JoinableTaskFactory.RunAsync(async delegate
+        _ = this.JoinableTaskFactory.RunAsync(async () =>
         {
             await this.JoinableTaskFactory.SwitchToMainThreadAsync();
             await this.WriteOutputAsync("========================================================================\r\n");
             await this.WriteOutputAsync("DataGuard Validation Rules & Configuration\r\n");
             await this.WriteOutputAsync("========================================================================\r\n");
-            
+
             var options = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
             var rules = options.GetRuleCatalog();
             var grouped = new Dictionary<string, List<DataGuardRulesOptionsPage.RuleDescriptor>>();
-            
+
             foreach (var rule in rules)
             {
                 if (!grouped.ContainsKey(rule.Category))
@@ -254,21 +254,10 @@ public sealed class DataGuardPackage : AsyncPackage
                     await this.WriteOutputAsync($"           {rule.Description}\r\n");
                 }
             }
-            
+
             await this.WriteOutputAsync("\r\n========================================================================\r\n");
             await this.WriteOutputAsync("To toggle these rules, navigate to Tools -> Options -> DataGuard -> Validation Rules.\r\n");
             await this.WriteOutputAsync("========================================================================\r\n");
-            
-            try
-            {
-                var type = typeof(DataGuardRulesOptionsPage);
-                var command = new CommandID(VSConstants.GUID_VSStandardCommandSet97, VSConstants.cmdidToolsOptions);
-                var menuCommandService = await this.GetServiceAsync(typeof(IMenuCommandService)) as IMenuCommandService;
-                // Optional programmatic opening could go here
-            }
-            catch
-            {
-            }
         });
     }
 
@@ -311,15 +300,15 @@ public sealed class DataGuardPackage : AsyncPackage
         var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
         DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
         var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
-        
+
         if (string.IsNullOrEmpty(cliPath))
         {
             await this.WriteOutputAsync("[DataGuard] CLI executable was not found. Attempting to install it globally...\r\n");
-            var installed = await this.TryAutoInstallCliAsync(solutionDirectory);
-            
+            await this.TryAutoInstallCliAsync(solutionDirectory);
+
             // Always re-check the path, even if installation failed, because it might already exist but wasn't found in initial paths.
             cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
-            
+
             if (string.IsNullOrEmpty(cliPath))
             {
                 await this.WriteOutputAsync("[DataGuard] CLI installation failed or executable was not found. Install it manually with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe.\r\n");
@@ -330,11 +319,14 @@ public sealed class DataGuardPackage : AsyncPackage
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
+        var ruleOptions = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
+        var disabledRules = ruleOptions.GetDisabledRuleIds();
+        var skipArg = disabledRules.Count > 0 ? " --skip-rules " + string.Join(",", disabledRules) : string.Empty;
         var startInfo = new ProcessStartInfo
         {
             FileName = cliPath,
             Arguments = command == "validate"
-                ? "validate --config " + Quote(Path.Combine(solutionDirectory, ".dataguard.yml")) + " --format sarif --output " + Quote(sarifPath)
+                ? "validate --config " + Quote(Path.Combine(solutionDirectory, ".dataguard.yml")) + " --format sarif --output " + Quote(sarifPath) + skipArg
                 : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath),
             WorkingDirectory = solutionDirectory,
             UseShellExecute = false,
@@ -342,7 +334,7 @@ public sealed class DataGuardPackage : AsyncPackage
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        
+
         startInfo.EnvironmentVariables["DOTNET_ROLL_FORWARD"] = "LatestMajor";
 
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
@@ -405,7 +397,7 @@ public sealed class DataGuardPackage : AsyncPackage
         {
             var pkgDir = Path.Combine(solutionDirectory, "src", "DataGuard.Cli", "nupkg");
             var sourceArg = Directory.Exists(pkgDir) ? $"--add-source \"{pkgDir}\" --version \"*-*\" " : "";
-            
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = "dotnet",
@@ -416,14 +408,14 @@ public sealed class DataGuardPackage : AsyncPackage
                 RedirectStandardError = true,
                 CreateNoWindow = true,
             };
-            
+
             var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             process.Start();
-            
+
             var stdoutDrainTask = DrainAsync(process.StandardOutput);
             var stderrDrainTask = DrainAsync(process.StandardError);
             var exitTask = Task.Run(() => process.WaitForExit());
-            
+
             var completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(30)));
             if (completed != exitTask)
             {
@@ -431,9 +423,9 @@ public sealed class DataGuardPackage : AsyncPackage
                 await this.WriteOutputAsync("[DataGuard] Auto-installation timed out.\r\n");
                 return false;
             }
-            
+
             await Task.WhenAll(stdoutDrainTask, stderrDrainTask);
-            
+
             if (process.ExitCode == 0)
             {
                 await this.WriteOutputAsync("[DataGuard] CLI successfully auto-installed.\r\n");
@@ -461,9 +453,7 @@ public sealed class DataGuardPackage : AsyncPackage
         }
 
         var tasks = new List<ErrorTask>();
-        var ruleOptions = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
-        var suppressedDiagnosticsCount = 0;
-        
+
         try
         {
             using (var reader = new StreamReader(sarifPath))
@@ -507,14 +497,6 @@ public sealed class DataGuardPackage : AsyncPackage
                             ? Redact(messageText.GetString() ?? "DataGuard contract violation")
                             : "DataGuard contract violation";
                         var level = result.TryGetProperty("level", out var levelNode) ? levelNode.GetString() : null;
-                        var ruleId = result.TryGetProperty("ruleId", out var ruleIdNode) ? ruleIdNode.GetString() : null;
-                        
-                        if (!ruleOptions.IsRuleEnabled(ruleId))
-                        {
-                            suppressedDiagnosticsCount++;
-                            continue;
-                        }
-
                         tasks.Add(new ErrorTask
                         {
                             Category = TaskCategory.BuildCompile,
@@ -544,11 +526,6 @@ public sealed class DataGuardPackage : AsyncPackage
         foreach (var task in tasks)
         {
             this.errorListProvider.Tasks.Add(task);
-        }
-
-        if (suppressedDiagnosticsCount > 0)
-        {
-            await this.WriteOutputAsync($"[DataGuard] Suppressed {suppressedDiagnosticsCount} diagnostic(s) disabled by Validation Rules options.\r\n");
         }
 
         if (tasks.Count > 0)

@@ -53,6 +53,7 @@ dataguard validate [options]
 | `--ef-snapshot` | — | Explicit `ModelSnapshot.cs` source parsed with Roslyn; no assembly is loaded or executed |
 | `--ef-project` | — | `.csproj` file or directory containing a source `*ModelSnapshot.cs`; never builds or loads an assembly |
 | `--ef-context` | — | Context name used to select one snapshot under `--ef-project` |
+| `--skip-rules` | — | Comma-separated rule IDs to skip (for example `DG002,DG017,MY001`) |
 
 **Behavior:**
 - Without `--connection`: validates against committed snapshot (Snapshot mode)
@@ -62,6 +63,7 @@ dataguard validate [options]
 - `--ef-snapshot`: adds bounded source-only EF descriptors; syntax/unsupported input fails visibly instead of producing empty contracts
 - `--ef-project`: accepts only a directory or `.csproj`, finds source snapshots only, ignores `bin`, `obj`, and `.git`, and fails if selection is ambiguous; use `--ef-context` to select one context
 - `--ef-snapshot` and `--ef-project` are mutually exclusive; `--ef-context` requires `--ef-project`
+- `--skip-rules`: excludes the listed rule IDs before validation; matching is case-insensitive and surrounding whitespace is ignored
 - `--format typescript`: exports TypeScript DTOs from entity descriptors
 
 ## Managed pre-commit hooks
