@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag with 'v' prefix (e.g. v0.2.2 or v1.0.0). Required when running manually."
+        description: "Release tag (e.g. v0.2.2 or v1.0.0). The 'v' prefix is added automatically when missing. Required when running manually."
         required: true
         type: string
 
@@ -38,6 +38,13 @@ jobs:
           set -euo pipefail
           # tag keeps the "v" prefix (matches the git tag); version strips it
           # (NuGet package / SBOM / Docker tag use plain SemVer).
+          # Be forgiving on manual dispatch: a bare SemVer (0.2.3) is normalized
+          # to the canonical v-prefixed tag (v0.2.3) instead of failing the run
+          # (see Release run 35170543501, dispatched with '0.2.3').
+          if [[ "$REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::warning::Release tag '$REF_NAME' is missing the 'v' prefix; normalizing to 'v$REF_NAME'." >&2
+            REF_NAME="v$REF_NAME"
+          fi
           if [[ ! "$REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
             echo "::error::Release tag '$REF_NAME' must be valid SemVer with a v prefix (for example v1.2.3)." >&2
             exit 1
