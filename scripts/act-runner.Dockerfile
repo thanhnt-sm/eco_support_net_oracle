@@ -1,4 +1,6 @@
-FROM catthehacker/ubuntu:act-latest
+# Pinned by digest (Scorecard Pinned-Dependencies): act-latest is a floating
+# tag. Re-resolve with: scripts/get_act_digest.sh (registry API).
+FROM catthehacker/ubuntu:act-latest@sha256:c58e2b364da03b0c804c7d660f2ecbedf2f221a382b9baa0b344b0144780ff43
 
 # setup-dotnet emits ::add-path::/usr/share/dotnet; keep the action runtime
 # available even when act applies that path update to later steps.
