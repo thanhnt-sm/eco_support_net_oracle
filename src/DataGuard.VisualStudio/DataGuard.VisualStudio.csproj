@@ -15,6 +15,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.38461" PrivateAssets="all" />
+    <!-- Direct pin: Microsoft.VisualStudio.SDK transitively pulls MessagePack
+         2.5.192, which is affected by 11 OSV advisories (fixed in 2.5.301).
+         The direct reference wins the version conflict within the 2.x line. -->
+    <PackageReference Include="MessagePack" Version="2.5.301" />
     <PackageReference Include="System.Text.Json" Version="10.0.11" />
   </ItemGroup>
 
