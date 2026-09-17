@@ -36,7 +36,17 @@ $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerI
 Set-Content -LiteralPath "$destination.sha256" -Value "$hash  $(Split-Path -Leaf $destination)" -NoNewline
 ```
 
-Install with **Extensions: Install from VSIX...** in VS Code, then reload the window.
+### Installing the VS Code Package
+
+> [!IMPORTANT]
+> **Do NOT double-click the VS Code `.vsix` file in Windows Explorer.** Windows associates `.vsix` files with Visual Studio's installer (`VSIXInstaller.exe`), which strictly rejects VS Code extensions with `VSIXInstaller.NoApplicableSKUsException`.
+
+Install using either of the following methods:
+1. **Command Line (CLI)**:
+   ```powershell
+   code --install-extension artifacts/vscode/dataguard-vscode-<version>.vsix
+   ```
+2. **VS Code GUI**: Open VS Code -> `Ctrl + Shift + X` (Extensions) -> click the `...` menu (Views and More Actions) -> select **Install from VSIX...**, select the file, and reload the window.
 
 ## Visual Studio VSIX
 
@@ -84,6 +94,9 @@ artifacts/visualstudio/dataguard-visualstudio-<version>.vsix.sha256
 
 | Symptom | Resolution |
 | --- | --- |
+| `VSIXInstaller.NoApplicableSKUsException` when installing VS Code extension | Caused by double-clicking the file in Windows, opening Visual Studio VSIX Installer. Install via CLI (`code --install-extension artifacts/vscode/...`) or via VS Code menu **Install from VSIX...**. |
+| `VSIXInstaller.NoApplicableSKUsException` when installing Visual Studio extension | Verify the manifest `source.extension.vsixmanifest` targets your edition (`Community`, `Professional`, `Enterprise`) and version range (e.g. `[17.0,19.0)` for VS 2022 and VS 2026). |
+| Script invocation path loses backslash (`scriptsbuild-extensions.ps1`) | Shell/bash eats backslashes. Use forward slashes (`scripts/build-extensions.ps1`) or quote the path (`"-File 'scripts\build-extensions.ps1'"`). |
 | `vswhere.exe was not found` | Install Visual Studio or Build Tools with the MSBuild and Visual Studio SDK workloads. |
 | `MSBuild.exe was not found by vswhere` | Add the MSBuild component through Visual Studio Installer, then retry. |
 | VSIX is blocked during installation | Close the target IDE and verify the `.sha256` value before retrying. |

@@ -53,6 +53,7 @@ dataguard validate [options]
 | `--ef-snapshot` | — | Source `ModelSnapshot.cs` tường minh, parse bằng Roslyn; không load hay thực thi assembly |
 | `--ef-project` | — | File `.csproj` hoặc directory chứa source `*ModelSnapshot.cs`; không build hay load assembly |
 | `--ef-context` | — | Tên context dùng để chọn một snapshot dưới `--ef-project` |
+| `--skip-rules` | — | Danh sách ID rule bỏ qua, phân tách bằng dấu phẩy (ví dụ `DG002,DG017,MY001`) |
 
 **Hành vi:**
 - Không có `--connection`: xác thực với snapshot đã commit (chế độ Snapshot)
@@ -62,6 +63,7 @@ dataguard validate [options]
 - `--ef-snapshot`: thêm EF descriptor chỉ từ source có giới hạn; syntax/unsupported input lỗi hiển thị thay vì tạo contract rỗng
 - `--ef-project`: chỉ nhận directory hoặc `.csproj`, chỉ tìm source snapshot, bỏ qua `bin`, `obj` và `.git`, đồng thời lỗi nếu selection mơ hồ; dùng `--ef-context` để chọn context
 - `--ef-snapshot` và `--ef-project` loại trừ nhau; `--ef-context` cần `--ef-project`
+- `--skip-rules`: loại trừ các rule ID đã liệt kê trước khi validate; so khớp không phân biệt hoa/thường và bỏ qua khoảng trắng thừa
 - `--format typescript`: xuất TypeScript DTO từ entity descriptor
 
 ## Managed pre-commit hook

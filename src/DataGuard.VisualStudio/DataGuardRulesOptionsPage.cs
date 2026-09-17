@@ -135,7 +135,7 @@ public class DataGuardRulesOptionsPage : DialogPage
             return true;
         }
 
-        switch (ruleId.Trim().ToUpperInvariant())
+        switch (ruleId!.Trim().ToUpperInvariant())
         {
             case "DG001":
                 return this.EnableUnvalidatedSqlCall;
@@ -151,6 +151,11 @@ public class DataGuardRulesOptionsPage : DialogPage
             case "DG006":
                 return this.EnableNamingConvention;
             case "DG007":
+            case "MY004":
+            case "MY005":
+            case "MY006":
+            case "MY007":
+            case "PG003":
                 return this.EnableLengthExceedsColumn;
             case "DG008":
                 return this.EnableByteLengthOverflow;
@@ -160,8 +165,15 @@ public class DataGuardRulesOptionsPage : DialogPage
             case "DG011":
             case "DG012":
             case "DG013":
+            case "MY001":
+            case "MY002":
+            case "MY003":
+            case "PG001":
+            case "PG002":
                 return this.EnableDialectSyntaxLeak;
             case "DG014":
+            case "PG004":
+            case "PG005":
                 return this.EnableUnmappedTypeUsage;
             case "DG015":
                 return this.EnablePhantomTable;
@@ -172,6 +184,93 @@ public class DataGuardRulesOptionsPage : DialogPage
             default:
                 return true;
         }
+    }
+
+    /// <summary>
+    /// Returns the list of disabled rule identifiers based on the current toggle configuration.
+    /// </summary>
+    /// <returns>A list of disabled rule IDs.</returns>
+    public IReadOnlyList<string> GetDisabledRuleIds()
+    {
+        var ids = new List<string>();
+        if (!this.EnableUnvalidatedSqlCall)
+        {
+            ids.Add("DG001");
+        }
+
+        if (!this.EnableParameterMismatch)
+        {
+            ids.Add("DG002");
+            ids.Add("DG101");
+        }
+
+        if (!this.EnableParameterDirection)
+        {
+            ids.Add("DG003");
+        }
+
+        if (!this.EnableColumnShape)
+        {
+            ids.Add("DG004");
+        }
+
+        if (!this.EnableNullableMismatch)
+        {
+            ids.Add("DG005");
+        }
+
+        if (!this.EnableNamingConvention)
+        {
+            ids.Add("DG006");
+        }
+
+        if (!this.EnableLengthExceedsColumn)
+        {
+            ids.Add("DG007");
+            ids.AddRange(new[] { "MY004", "MY005", "MY006", "MY007", "PG003" });
+        }
+
+        if (!this.EnableByteLengthOverflow)
+        {
+            ids.Add("DG008");
+        }
+
+        if (!this.EnableInferredSizeFallback)
+        {
+            ids.Add("DG009");
+        }
+
+        if (!this.EnableDialectSyntaxLeak)
+        {
+            ids.Add("DG010");
+            ids.Add("DG011");
+            ids.Add("DG012");
+            ids.Add("DG013");
+            ids.AddRange(new[] { "MY001", "MY002", "MY003", "PG001", "PG002" });
+        }
+
+        if (!this.EnableUnmappedTypeUsage)
+        {
+            ids.Add("DG014");
+            ids.AddRange(new[] { "PG004", "PG005" });
+        }
+
+        if (!this.EnablePhantomTable)
+        {
+            ids.Add("DG015");
+        }
+
+        if (!this.EnablePhantomColumn)
+        {
+            ids.Add("DG016");
+        }
+
+        if (!this.EnableSelectStar)
+        {
+            ids.Add("DG017");
+        }
+
+        return ids;
     }
 
     /// <summary>

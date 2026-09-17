@@ -118,6 +118,8 @@ var efProjectOption = new Option<string>("--ef-project");
 efProjectOption.Description = "Project file or directory containing one source ModelSnapshot.cs; never builds or loads an assembly";
 var efContextOption = new Option<string>("--ef-context");
 efContextOption.Description = "Context name used to select one ModelSnapshot.cs under --ef-project";
+var skipRulesOption = new Option<string>("--skip-rules");
+skipRulesOption.Description = "Comma-separated rule IDs to skip (e.g. DG002,DG017,MY001)";
 
 #endregion
 
@@ -125,7 +127,7 @@ efContextOption.Description = "Context name used to select one ModelSnapshot.cs 
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -140,6 +142,14 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var efSnapshotPath = result.GetValue(efSnapshotOption);
     var efProjectPath = result.GetValue(efProjectOption);
     var efContextName = result.GetValue(efContextOption);
+    var skipRulesRaw = result.GetValue(skipRulesOption);
+    HashSet<string>? skipRuleIds = null;
+    if (!string.IsNullOrWhiteSpace(skipRulesRaw))
+    {
+        skipRuleIds = new HashSet<string>(
+            skipRulesRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            StringComparer.OrdinalIgnoreCase);
+    }
     var snapshotResolution = ResolveEfSnapshotSource(efSnapshotPath, efProjectPath, efContextName);
     if (!snapshotResolution.Success)
     {
@@ -243,7 +253,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             return;
         }
 
-        var violations = await ValidateContractsAsync(contracts, config, provider, ct);
+        var violations = await ValidateContractsAsync(contracts, config, provider, ct, skipRuleIds);
         if (normalizedFormat == "text")
         {
             var emitter = new DiagnosticEmitter();
@@ -1608,10 +1618,13 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     IReadOnlyList<ContractDescriptor> contracts,
     DataGuardConfiguration config,
     string provider,
-    CancellationToken cancellationToken = default)
+    CancellationToken cancellationToken = default,
+    HashSet<string>? skipRuleIds = null)
 {
     var allViolations = new List<ContractViolation>();
-    var rules = GetRulesForProvider(provider);
+    var rules = GetRulesForProvider(provider)
+        .Where(r => skipRuleIds is null || !skipRuleIds.Contains(r.RuleId))
+        .ToList();
     if (config.EnableConcurrentValidation)
     {
         var engine = new ConcurrentValidationEngine(config.MaxDegreeOfParallelism, config.MaxViolationQueueSize);

@@ -620,8 +620,8 @@
       },
       "Microsoft.SqlServer.TransactSql.ScriptDom": {
         "type": "Transitive",
-        "resolved": "180.102.0",
-        "contentHash": "hIE9+a4TUrk1KQY+byb2WioGn6pmR2o03XzFm4kxloPdWio8bJJYfIFhGuveOT3426ZfnNxT6e9hfXb9EA0a9g=="
+        "resolved": "180.107.0",
+        "contentHash": "81MHhvTJW/pNzYh5WhM8QgV4YhlwY3Vmm6sQUiE88IaJzrzqJbIb38JPdjqn54I83/goE1A1ArzEw5hAmc6/pQ=="
       },
       "Microsoft.TestPlatform.ObjectModel": {
         "type": "Transitive",
@@ -960,7 +960,7 @@
           "Microsoft.Extensions.Diagnostics.HealthChecks": "[10.0.12, )",
           "Microsoft.Extensions.Logging": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.102.0, )",
+          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.107.0, )",
           "System.Composition.Hosting": "[10.0.12, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )",
           "System.Text.Json": "[10.0.12, )",
@@ -986,7 +986,7 @@
           "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
           "Microsoft.Extensions.Configuration": "[10.0.12, )",
           "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.102.0, )",
+          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.107.0, )",
           "MySqlConnector": "[2.6.2, )",
           "System.Text.Json": "[10.0.12, )"
         }
@@ -1004,7 +1004,7 @@
           "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
           "Microsoft.Extensions.Configuration": "[10.0.12, )",
           "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.102.0, )",
+          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.107.0, )",
           "Oracle.ManagedDataAccess.Core": "[23.26.301, )",
           "System.Text.Json": "[10.0.12, )"
         }
@@ -1022,7 +1022,7 @@
           "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
           "Microsoft.Extensions.Configuration": "[10.0.12, )",
           "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.102.0, )",
+          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.107.0, )",
           "Npgsql": "[10.0.3, )",
           "System.Text.Json": "[10.0.12, )"
         }
@@ -1043,7 +1043,7 @@
           "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
           "Microsoft.Extensions.Configuration": "[10.0.12, )",
           "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.102.0, )",
+          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.107.0, )",
           "System.Text.Json": "[10.0.12, )"
         }
       }
