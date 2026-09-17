@@ -22,9 +22,11 @@ where
   // EF Core). Name-only matching used to flag domain methods that merely
   // share a name, e.g. IRemoteAdvisoryClient.QueryAsync,
   // IBusinessOperationObserver.ExecuteAsync or MSBuild Task.Execute.
-  (
-    m.getDeclaringType().getQualifiedName() = "Dapper.SqlMapper" or
-    m.getDeclaringType().getQualifiedName().matches("Microsoft.EntityFrameworkCore.%")
-  ) and
+  // Declaring types verified against Dapper (SqlMapper) and EF Core 9
+  // (RelationalDatabaseFacadeExtensions, RelationalQueryableExtensions).
+  m.getDeclaringType().hasName(
+    ["SqlMapper",
+     "RelationalDatabaseFacadeExtensions", "RelationalQueryableExtensions",
+     "EntityFrameworkQueryableExtensions", "DatabaseFacade", "DbSet", "DbContext"]) and
   not m.getAnAttribute().getType().hasName("ExpectedSpParameterAttribute")
 select mc, "Data access call '" + m.getName() + "' has no expected-parameter validation."
