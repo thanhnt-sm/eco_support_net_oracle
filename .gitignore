@@ -107,3 +107,11 @@ temp/
 # ==================== DataGuard runtime ====================
 # May contain connection strings
 .dataguard*
+
+# ==================== Python (research prototype) ====================
+# Never commit bytecode cache (Scorecard BinaryArtifacts)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
