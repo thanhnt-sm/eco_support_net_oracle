@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "CLI snapshot and configuration"
-status: in-progress
+status: completed
 priority: P1
 effort: "L"
 dependencies: [2]
@@ -80,7 +80,7 @@ Additional mandatory flow work:
 - Every validate output branch (text, SARIF, evidence, contracts, TypeScript; JSON is an assess format, not a validate format) checks acquisition/execution status before success/export. No pre-validation successful typed export from unknown input. Machine-readable non-success metadata/diagnostic and nonzero exit; suppress invalid normal export artifacts. Test all format branches, missing/corrupt snapshot, provider mismatch, denied/partial source and legitimate empty schema. Both IDEs consume this status in Phase 5.
 
 - [x] No command null-overwrites resolved file/environment configuration.
-- [ ] Every snapshot operation has tested four-provider source selection.
+- [x] Every snapshot operation has tested four-provider source selection.
 - [x] Connected diff reads current schema; no-connection result is UNEVALUATED/non-clean and legacy mode is explicit.
 - [x] Provider default persists and follows precedence.
 - [x] Cancellation reaches readers, rules, baseline and outputs.

@@ -16,6 +16,7 @@
 # NuGet
 *.nupkg
 .nuget/
+src/DataGuard.VisualStudio/NuGet/
 BenchmarkDotNet.Artifacts/
 
 artifacts/

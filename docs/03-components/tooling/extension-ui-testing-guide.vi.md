@@ -214,11 +214,11 @@ namespace TestDemo
 
 ## 4. Xác Thực Phiên Bản Cài Đặt (Version Check)
 
-Các bản cài đặt đã được đóng gói chuẩn phiên bản **0.2.2** tại thư mục `artifacts/`:
+Các bản cài đặt được đóng gói chuẩn phiên bản **0.2.3** tại thư mục `artifacts/`:
 
-- **Visual Studio VSIX**: `artifacts/visualstudio/dataguard-visualstudio-0.2.2.vsix`
-  - Định danh Manifest: `<Identity Id="DataGuard.VisualStudio" Version="0.2.2" Language="en-US" Publisher="thanhnt-sm" />`
-  - Khi cài đặt qua VSIXInstaller hoặc kiểm tra trong `Extensions` $\rightarrow$ `Manage Extensions`, extension sẽ hiển thị chính xác phiên bản **0.2.2**.
-- **VS Code VSIX**: `artifacts/vscode/dataguard-vscode-0.2.2.vsix`
-  - Định danh Manifest: `"name": "dataguard-vscode"`, `"version": "0.2.2"`
-  - Khi cài đặt qua lệnh `Install from VSIX...` hoặc kiểm tra trong tab Extensions của VS Code, extension hiển thị chính xác phiên bản **0.2.2**.
+- **Visual Studio VSIX**: `artifacts/visualstudio/dataguard-visualstudio-0.2.3.vsix`
+  - Định danh Manifest: `<Identity Id="DataGuard.VisualStudio" Version="0.2.3" Language="en-US" Publisher="thanhnt-sm" />`
+  - Khi cài đặt qua VSIXInstaller hoặc kiểm tra trong `Extensions` $\rightarrow$ `Manage Extensions`, extension hiển thị phiên bản **0.2.3**.
+- **VS Code VSIX**: `artifacts/vscode/dataguard-vscode-0.2.3.vsix`
+  - Định danh Manifest: `"name": "dataguard-vscode"`, `"version": "0.2.3"`
+  - Khi cài đặt qua lệnh `Install from VSIX...` hoặc kiểm tra trong tab Extensions của VS Code, extension hiển thị phiên bản **0.2.3**.

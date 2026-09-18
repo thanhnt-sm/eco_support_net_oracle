@@ -1,7 +1,7 @@
 ---
 phase: 7
 title: "Verification and closure"
-status: in-progress
+status: blocked
 priority: P1
 effort: "L"
 dependencies: [6]
@@ -63,3 +63,9 @@ Windows gate has two distinct deliverables: proposed `tests/DataGuard.VisualStud
 ## Risk Assessment
 
 DB/Windows availability may limit proof; retain open gates rather than weakening tests. Never commit generated verification artifacts unless policy explicitly calls for curated evidence.
+
+## Blocker
+
+Phase 7 requires completed documentation sync from Phase 6, and owner-evidence-backed closure for
+ledger items (including Windows host tests and 4-provider executions). These external gates are
+not proven locally.

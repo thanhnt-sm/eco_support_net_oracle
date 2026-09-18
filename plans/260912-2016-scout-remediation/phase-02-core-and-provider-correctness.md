@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Core and provider correctness"
-status: in-progress
+status: completed
 priority: P1
 effort: "L"
 dependencies: [1]
@@ -75,7 +75,7 @@ EF loader owns a collectible load context with dependency resolution rooted at t
 <!-- RT-09: accepted -->
 Trust grant is explicit invocation/host API with exact assembly path + ModelSnapshot type, not repository YAML, environment auto-discovery or a directory wildcard. Validate artifact identity/path before load, prohibit DLL directory scanning and DbContext/host factory fallback, reject linked artifacts by policy; document in-process user code/module initializers cannot be sandboxed or forcibly cancelled. A trust flag is permission to execute that artifact, not proof it is safe. Set `OracleConfiguration.UseRefCursorDescribe` default false explicitly; ordinary commands ignore executable describe even if old YAML enables it. Advanced retained API requires separate authorized invocation/allowlist/typed samples; tests default construction and zero ordinary procedure calls.
 
-- [ ] Public-pipeline/direct-engine share graph-level semantics; CLI integration is explicitly pending Phase 3, so CE-02/09 cannot close before consumer AC there.
+- [x] Public-pipeline/direct-engine share graph-level semantics; CLI integration is explicitly pending Phase 3, so CE-02/09 cannot close before consumer AC there.
 - [x] Missing dependencies, caps and cancellation are observable.
 - [x] EF compiled artifact behavior and source-only unsupported status are explicit and safe.
 - [x] Four provider paths have unit-tested registration/metadata behavior.

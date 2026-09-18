@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # Fix missing DataGuard menu in Visual Studio
 
 ## Context

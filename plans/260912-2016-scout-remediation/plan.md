@@ -65,6 +65,7 @@ Expansion DAG:8 after1;9 after3/4/8/13;10 after4/8;11 after5/8/10/12;12 after2/5
 | 14 | [Performance and claim evidence](./phase-14-performance-and-claim-evidence.md) | In progress |
 | 15 | [Full capability acceptance](./phase-15-full-capability-acceptance.md) | In progress |
 
+
 ## Dependencies
 
 Plan này chặn readiness của [Marketplace plan](../260820-marketplace-extensions/plan.md), không thay thế các release/owner gates của plan đó. Luna scout là input đã hoàn tất, không dependency đang chặn. Historical EcoSupport plan không bị tái kích hoạt.

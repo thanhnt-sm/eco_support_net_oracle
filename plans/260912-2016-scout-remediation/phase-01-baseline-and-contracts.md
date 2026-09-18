@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Baseline and contracts"
-status: in-progress
+status: completed
 priority: P1
 effort: "M"
 dependencies: []
@@ -55,10 +55,19 @@ Keep existing primary constructors/deconstruction unchanged for DataGuardConfigu
 
 ## Success Criteria
 
-- [ ] CP0 fingerprint and baseline commands/limitations are durable and redacted.
-- [ ] CP1 enumerates exact callers/seams/public compatibility checks, not “all callers”.
-- [ ] Every ledger AC has one phase/evidence tier; aliases/no-change/history remain visible.
+- [x] CP0 fingerprint and baseline commands/limitations are durable and redacted.
+- [x] CP1 enumerates exact callers/seams/public compatibility checks, not “all callers”.
+- [x] Every ledger AC has one phase/evidence tier; aliases/no-change/history remain visible.
 - [ ] Only plan/evidence and explicitly identified current-doc updates occur; no production source, test implementation, workflow or cleanup change.
+
+### Sol Acceptance (2026-09-18)
+
+CP1 continuation gate: **GO** — prospective only; the historical pre-Phase-2 ordering breach
+remains preserved and is not retroactively approved. The tracked-diff scoped hash, precise caller
+and ABI seams (including configuration, legacy engines, `SnapshotColumn`, `BaselineFile` and
+`StoredProcedureDescriptor`), explicitly excluded untracked build artifacts, and bound
+compiled-consumer coverage artifacts satisfy the foundation boundaries for future edits.
+
 
 ## Risk Assessment
 

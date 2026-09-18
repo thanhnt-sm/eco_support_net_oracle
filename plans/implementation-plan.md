@@ -1,3 +1,7 @@
+---
+status: superseded
+---
+
 > ⚠️ **SUPERSEDED (2026-08-21)** — Kế hoạch 6 tuần 2025-01 đã hoàn thành/xóa khỏi phạm vi. Thực tế hiện tại vượt plan: thêm MySql/Pg adapters, DataGuard.Contracts, CodeFixes, 2 editor extensions; packages CHƯA publish (blocked NUGET_USER — xem register). Đừng dùng task list dưới đây làm nguồn việc cần làm. Nguồn hiện tại: `plans/2026-08-21-review-handoff.md` + `AI_AGENT_AUDIT.md`.
 
 # DataGuard Implementation Plan
