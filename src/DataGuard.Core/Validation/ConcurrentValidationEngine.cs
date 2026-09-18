@@ -27,12 +27,24 @@ public sealed class ConcurrentValidationEngine
     internal static int NormalizeMaxViolationQueueSize(int value) =>
         value >= 0 ? value : DefaultMaxViolationQueueSize;
 
-    public async Task<IReadOnlyList<ContractViolation>> ValidateAsync(
+    public Task<IReadOnlyList<ContractViolation>> ValidateAsync(
         IReadOnlyList<ContractDescriptor> contracts,
         IReadOnlyList<IContractRule> rules,
         CancellationToken cancellationToken = default)
     {
-        var result = await ValidateDetailedAsync(contracts, rules, cancellationToken);
+        return this.ValidateAsync(contracts, rules, cancellationToken, executionCompleted: null);
+    }
+
+    /// <summary>
+    /// Validates contracts and reports each rule-contract execution after it completes.
+    /// </summary>
+    public async Task<IReadOnlyList<ContractViolation>> ValidateAsync(
+        IReadOnlyList<ContractDescriptor> contracts,
+        IReadOnlyList<IContractRule> rules,
+        CancellationToken cancellationToken,
+        Action<string, int>? executionCompleted)
+    {
+        var result = await this.ValidateDetailedAsync(contracts, rules, cancellationToken, executionCompleted);
         if (result.IsIncomplete)
         {
             throw new ValidationIncompleteException("Validation result exceeded the configured violation cap.", result);
@@ -121,10 +133,22 @@ public sealed class ConcurrentValidationEngine
         }
     }
 
-    public async Task<ValidationExecutionResult> ValidateDetailedAsync(
+    public Task<ValidationExecutionResult> ValidateDetailedAsync(
         IReadOnlyList<ContractDescriptor> contracts,
         IReadOnlyList<IContractRule> rules,
         CancellationToken cancellationToken = default)
+    {
+        return this.ValidateDetailedAsync(contracts, rules, cancellationToken, executionCompleted: null);
+    }
+
+    /// <summary>
+    /// Validates contracts and reports each rule-contract execution after it completes.
+    /// </summary>
+    public async Task<ValidationExecutionResult> ValidateDetailedAsync(
+        IReadOnlyList<ContractDescriptor> contracts,
+        IReadOnlyList<IContractRule> rules,
+        CancellationToken cancellationToken,
+        Action<string, int>? executionCompleted)
     {
         var results = new List<ContractViolation>();
         var ruleViolations = rules.ToDictionary(rule => rule.RuleId, _ => new List<ContractViolation>(), StringComparer.Ordinal);
@@ -142,7 +166,16 @@ public sealed class ConcurrentValidationEngine
                 {
                     try
                     {
-                        completed[index] = (await batch[index].Rule.ValidateAsync(batch[index].Contract, contracts, ct), null);
+                        var violations = await batch[index].Rule.ValidateAsync(batch[index].Contract, contracts, ct);
+                        completed[index] = (violations, null);
+                        try
+                        {
+                            executionCompleted?.Invoke(batch[index].Rule.RuleId, violations.Count);
+                        }
+                        catch
+                        {
+                            // Progress observers must not affect validation outcomes.
+                        }
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested)
                     {
