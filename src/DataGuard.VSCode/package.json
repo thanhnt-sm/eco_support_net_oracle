@@ -2,7 +2,7 @@
   "name": "dataguard-vscode",
   "displayName": "DataGuard",
   "description": "Detect database contract drift between .NET code, stored procedures, and SQL before it reaches production.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "thanhnt-sm",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
