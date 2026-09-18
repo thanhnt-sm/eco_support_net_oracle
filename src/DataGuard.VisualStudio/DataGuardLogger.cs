@@ -18,9 +18,9 @@ using Microsoft.VisualStudio.Shell.Interop;
 /// </summary>
 public static class DataGuardLogger
 {
-    private static readonly object FileGate = new ();
-    private static readonly Guid OutputPaneGuid = new ("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
-    private static readonly Regex SensitiveRegex = new (
+    private static readonly object FileGate = new();
+    private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
+    private static readonly Regex SensitiveRegex = new(
         @"(?i)(password|pwd|secret|token|api[_-]?key|bearer)\s*[:=]\s*[^\s;,]+",
         RegexOptions.Compiled);
 
@@ -298,6 +298,33 @@ public static class DataGuardLogger
                 // Non-fatal
             }
         }
+    }
+
+    /// <summary>
+    /// Records the outcome of a Visual Studio initiated DataGuard operation.
+    /// </summary>
+    public static void LogValidationRun(
+        string command,
+        string solutionDirectory,
+        string configPath,
+        IReadOnlyList<string> disabledRules,
+        int exitCode,
+        long elapsedMs,
+        int diagnosticCount)
+    {
+        var disabledRuleList = disabledRules.Count == 0 ? "(none)" : string.Join(", ", disabledRules);
+        var entry =
+            "================================================================================\r\n" +
+            $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] DATAGUARD RUN\r\n" +
+            $"Command       : {command}\r\n" +
+            $"Solution      : {solutionDirectory}\r\n" +
+            $"Config        : {configPath}\r\n" +
+            $"Disabled Rules: {disabledRuleList}\r\n" +
+            $"Exit Code     : {exitCode}\r\n" +
+            $"Duration      : {elapsedMs} ms\r\n" +
+            $"Diagnostics   : {diagnosticCount} loaded into Error List\r\n" +
+            "================================================================================";
+        LogInfo(entry);
     }
 
     private static void WriteEntry(string level, string message)

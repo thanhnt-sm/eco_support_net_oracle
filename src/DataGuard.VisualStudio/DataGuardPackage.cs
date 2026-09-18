@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Than Nguyen. All rights reserved.
 // </copyright>
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataGuard.VisualStudio.Tests")]
+
 namespace DataGuard.VisualStudio;
 
 using System;
@@ -11,6 +13,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
@@ -21,6 +24,7 @@ using Task = System.Threading.Tasks.Task;
 /// <summary>
 /// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials into devenv.
 /// </summary>
+[ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [InstalledProductRegistration("DataGuard", "Database contract validation for .NET code and stored procedures.", "1.0.0")]
 [ProvideMenuResource("Menus.ctmenu", 1)]
@@ -36,12 +40,22 @@ public sealed class DataGuardPackage : AsyncPackage
     private const int CancelCommandId = 0x0101;
     private const int AssessCommandId = 0x0102;
     private const int ExportLogsCommandId = 0x0103;
+    private const int MaxProgressLineLength = 16 * 1024;
     private const int ViewRulesCommandId = 0x0104;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
-    private static readonly Guid CommandSet = new (CommandSetGuidString);
-    private static readonly Guid OutputPaneGuid = new ("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
-    private readonly object processGate = new ();
+    private static readonly Guid CommandSet = new(CommandSetGuidString);
+    private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
+    private Process? cancelledProcess;
+
+    internal enum ProcessStopOutcome
+    {
+        Terminated,
+        AlreadyExited,
+        Failed,
+    }
+    private readonly object processGate = new();
     private Process? activeProcess;
+    private bool commandReserved;
     private ErrorListProvider? errorListProvider;
     private uint updateSolutionEventsCookie;
     private BuildEventsHandler? buildEventsHandler;
@@ -141,13 +155,13 @@ public sealed class DataGuardPackage : AsyncPackage
         base.Dispose(disposing);
     }
 
-    private static bool StopProcess(Process process)
+    private static ProcessStopOutcome StopProcess(Process process)
     {
         try
         {
             if (process.HasExited)
             {
-                return true;
+                return ProcessStopOutcome.AlreadyExited;
             }
 
             using (var killer = Process.Start(new ProcessStartInfo
@@ -158,16 +172,18 @@ public sealed class DataGuardPackage : AsyncPackage
                 CreateNoWindow = true,
             }))
             {
-                return killer != null && killer.WaitForExit(5000) && killer.ExitCode == 0;
+                return killer != null && killer.WaitForExit(5000) && killer.ExitCode == 0
+                    ? ProcessStopOutcome.Terminated
+                    : ProcessStopOutcome.Failed;
             }
         }
         catch (InvalidOperationException)
         {
-            return true;
+            return ProcessStopOutcome.AlreadyExited;
         }
         catch (System.ComponentModel.Win32Exception)
         {
-            return false;
+            return ProcessStopOutcome.Failed;
         }
     }
 
@@ -188,6 +204,223 @@ public sealed class DataGuardPackage : AsyncPackage
         {
             // Drain without retaining potentially sensitive CLI output.
         }
+    }
+
+    private async Task<ProgressReadResult> ReadProgressAsync(StreamReader reader)
+    {
+        var result = new ProgressReadResult();
+        var buffer = new char[4096];
+        var line = new StringBuilder();
+        var discardedLine = false;
+        int read;
+
+        while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
+        {
+            for (var index = 0; index < read; index++)
+            {
+                var character = buffer[index];
+                if (AppendProgressChar(character, line, ref discardedLine))
+                {
+                    await this.ProcessProgressLineAsync(line, discardedLine, result);
+                    line.Clear();
+                    discardedLine = false;
+                }
+            }
+        }
+
+        if (line.Length > 0 || discardedLine)
+        {
+            await this.ProcessProgressLineAsync(line, discardedLine, result);
+        }
+
+        return result;
+    }
+    internal static bool AppendProgressChar(char character, StringBuilder line, ref bool discardedLine)
+    {
+        if (character == '\n')
+        {
+            return true;
+        }
+
+        if (character != '\r' && !discardedLine)
+        {
+            if (line.Length < MaxProgressLineLength)
+            {
+                line.Append(character);
+            }
+            else
+            {
+                discardedLine = true;
+            }
+        }
+
+        return false;
+    }
+
+    internal readonly struct ParsedProgress
+    {
+        public string? FormattedOutput { get; }
+        public int? ErrorCount { get; }
+        public int? WarningCount { get; }
+
+        public ParsedProgress(string? formattedOutput, int? errorCount, int? warningCount)
+        {
+            this.FormattedOutput = formattedOutput;
+            this.ErrorCount = errorCount;
+            this.WarningCount = warningCount;
+        }
+    }
+
+    internal static ParsedProgress FormatProgressLine(string text, bool discardedLine)
+    {
+        if (discardedLine)
+        {
+            return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null);
+        }
+
+        if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings))
+        {
+            return new ParsedProgress(formatted + "\r\n", eventErrors, eventWarnings);
+        }
+
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            var diagnostic = IsJsonPayload(text)
+                ? "[structured diagnostic redacted]"
+                : Redact(text);
+            return new ParsedProgress("[DataGuard CLI] " + diagnostic + "\r\n", null, null);
+        }
+
+        return new ParsedProgress(null, null, null);
+    }
+
+    private async Task ProcessProgressLineAsync(StringBuilder line, bool discardedLine, ProgressReadResult result)
+    {
+        var parsed = FormatProgressLine(line.ToString(), discardedLine);
+        if (parsed.ErrorCount.HasValue && parsed.WarningCount.HasValue)
+        {
+            result.ErrorCount = parsed.ErrorCount.Value;
+            result.WarningCount = parsed.WarningCount.Value;
+            result.HasSummary = true;
+        }
+
+        if (parsed.FormattedOutput != null)
+        {
+            await this.WriteOutputAsync(parsed.FormattedOutput);
+        }
+    }
+
+    internal static bool IsJsonPayload(string text)
+    {
+        try
+        {
+            using (JsonDocument.Parse(text))
+            {
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool TryFormatProgress(
+        string line,
+        out string formatted,
+        out int? errorCount,
+        out int? warningCount)
+    {
+        formatted = string.Empty;
+        errorCount = null;
+        warningCount = null;
+
+        try
+        {
+            using (var document = JsonDocument.Parse(line))
+            {
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object ||
+                    !root.TryGetProperty("Kind", out var kindNode) ||
+                    !root.TryGetProperty("Phase", out var phaseNode) ||
+                    kindNode.ValueKind != JsonValueKind.String ||
+                    phaseNode.ValueKind != JsonValueKind.String)
+                {
+                    return false;
+                }
+
+                var kind = kindNode.GetString();
+                var phase = Redact(phaseNode.GetString() ?? "DataGuard operation");
+                var detail = root.TryGetProperty("Detail", out var detailNode) && detailNode.ValueKind == JsonValueKind.String
+                    ? Redact(detailNode.GetString() ?? string.Empty)
+                    : string.Empty;
+                var data = root.TryGetProperty("Data", out var dataNode) && dataNode.ValueKind == JsonValueKind.Object
+                    ? dataNode
+                    : default;
+                var contracts = GetProgressCount(data, "ContractCount");
+                var violations = GetProgressCount(data, "ViolationCount");
+
+                switch (kind)
+                {
+                    case "PhaseStarted":
+                        formatted = "[DataGuard] ▶ " + phase + (string.IsNullOrEmpty(detail) ? string.Empty : " — " + detail);
+                        break;
+                    case "PhaseCompleted":
+                        formatted = "[DataGuard] ✔ " + phase + (contracts.HasValue ? ": " + contracts.Value + " contracts" : string.Empty);
+                        break;
+                    case "ContractDiscovered":
+                        formatted = "[DataGuard]   Discovered " + detail;
+                        break;
+                    case "RuleExecuted":
+                        formatted = "[DataGuard]   " + detail +
+                            (contracts.HasValue ? " Checked " + contracts.Value + " contracts" : string.Empty) +
+                            (violations.HasValue ? " → " + violations.Value + " violations" : string.Empty);
+                        break;
+                    case "Summary":
+                        errorCount = GetProgressCount(data, "ErrorCount");
+                        warningCount = GetProgressCount(data, "WarningCount");
+                        var criticalCount = GetProgressCount(data, "CriticalCount");
+                        if (!errorCount.HasValue ||
+                            !warningCount.HasValue ||
+                            (string.Equals(phase, "Assessment complete", StringComparison.Ordinal) && !criticalCount.HasValue))
+                        {
+                            return false;
+                        }
+
+                        errorCount += criticalCount ?? 0;
+                        formatted = "[DataGuard] ✔ " + phase +
+                            $": {errorCount.Value} errors, {warningCount.Value} warnings";
+                        break;
+                    default:
+                        return false;
+                }
+
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static int? GetProgressCount(JsonElement data, string name)
+    {
+        return data.ValueKind == JsonValueKind.Object &&
+            data.TryGetProperty(name, out var value) &&
+            value.ValueKind == JsonValueKind.Number &&
+            value.TryGetInt32(out var count)
+            ? count
+            : null;
+    }
+
+    internal sealed class ProgressReadResult
+    {
+        public int ErrorCount { get; set; }
+
+        public int WarningCount { get; set; }
+
+        public bool HasSummary { get; set; }
     }
 
     private class BuildEventsHandler : IVsUpdateSolutionEvents
@@ -228,7 +461,7 @@ public sealed class DataGuardPackage : AsyncPackage
         {
             await this.JoinableTaskFactory.SwitchToMainThreadAsync();
             await this.WriteOutputAsync("========================================================================\r\n");
-            await this.WriteOutputAsync("DataGuard Validation Rules & Configuration\r\n");
+            await this.WriteOutputAsync("DataGuard Validation Rules — Current Configuration\r\n");
             await this.WriteOutputAsync("========================================================================\r\n");
 
             var options = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
@@ -237,16 +470,19 @@ public sealed class DataGuardPackage : AsyncPackage
 
             foreach (var rule in rules)
             {
-                if (!grouped.ContainsKey(rule.Category))
+                if (!grouped.TryGetValue(rule.Category, out var categoryRules))
                 {
-                    grouped[rule.Category] = new List<DataGuardRulesOptionsPage.RuleDescriptor>();
+                    categoryRules = new List<DataGuardRulesOptionsPage.RuleDescriptor>();
+                    grouped.Add(rule.Category, categoryRules);
                 }
-                grouped[rule.Category].Add(rule);
+
+                categoryRules.Add(rule);
             }
 
             foreach (var kvp in grouped)
             {
-                await this.WriteOutputAsync($"\r\n[{kvp.Key}]\r\n");
+                await this.WriteOutputAsync($"\r\nCategory: {kvp.Key}\r\n");
+                await this.WriteOutputAsync("------------------------------------------------------------------------\r\n");
                 foreach (var rule in kvp.Value)
                 {
                     var status = rule.IsEnabled ? "[ENABLED] " : "[DISABLED]";
@@ -256,7 +492,8 @@ public sealed class DataGuardPackage : AsyncPackage
             }
 
             await this.WriteOutputAsync("\r\n========================================================================\r\n");
-            await this.WriteOutputAsync("To toggle these rules, navigate to Tools -> Options -> DataGuard -> Validation Rules.\r\n");
+            await this.WriteOutputAsync("[ENABLED] = enabled    [DISABLED] = disabled\r\n");
+            await this.WriteOutputAsync("To change rules: Tools -> Options -> DataGuard -> Validation Rules.\r\n");
             await this.WriteOutputAsync("========================================================================\r\n");
         });
     }
@@ -290,104 +527,343 @@ public sealed class DataGuardPackage : AsyncPackage
 
         lock (this.processGate)
         {
-            if (this.activeProcess != null)
+            if (this.activeProcess != null || this.commandReserved)
             {
                 _ = this.WriteOutputAsync("[DataGuard] A DataGuard command is already running for this solution.\r\n");
                 return;
             }
+
+            this.commandReserved = true;
         }
-
-        var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
-        DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
-        var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
-
-        if (string.IsNullOrEmpty(cliPath))
-        {
-            await this.WriteOutputAsync("[DataGuard] CLI executable was not found. Attempting to install it globally...\r\n");
-            await this.TryAutoInstallCliAsync(solutionDirectory);
-
-            // Always re-check the path, even if installation failed, because it might already exist but wasn't found in initial paths.
-            cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
-
-            if (string.IsNullOrEmpty(cliPath))
-            {
-                await this.WriteOutputAsync("[DataGuard] CLI installation failed or executable was not found. Install it manually with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe.\r\n");
-                return;
-            }
-        }
-
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(temporaryDirectory);
-        var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
-        var ruleOptions = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
-        var disabledRules = ruleOptions.GetDisabledRuleIds();
-        var skipArg = disabledRules.Count > 0 ? " --skip-rules " + string.Join(",", disabledRules) : string.Empty;
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = cliPath,
-            Arguments = command == "validate"
-                ? "validate --config " + Quote(Path.Combine(solutionDirectory, ".dataguard.yml")) + " --format sarif --output " + Quote(sarifPath) + skipArg
-                : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath),
-            WorkingDirectory = solutionDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-
-        startInfo.EnvironmentVariables["DOTNET_ROLL_FORWARD"] = "LatestMajor";
-
-        var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-        var stopwatch = Stopwatch.StartNew();
 
         try
         {
-            lock (this.processGate)
+            var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
+            DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
+            var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
+
+            if (string.IsNullOrEmpty(cliPath))
             {
-                this.activeProcess = process;
+                await this.WriteOutputAsync("[DataGuard] CLI executable was not found. Attempting to install it globally...\r\n");
+                await this.TryAutoInstallCliAsync(solutionDirectory);
+
+                // Always re-check the path, even if installation failed, because it might already exist but wasn't found in initial paths.
+                cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
+
+                if (string.IsNullOrEmpty(cliPath))
+                {
+                    lock (this.processGate)
+                    {
+                        this.commandReserved = false;
+                    }
+
+                    await this.WriteOutputAsync("[DataGuard] CLI installation failed or executable was not found. Install it manually with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe.\r\n");
+                    return;
+                }
             }
 
-            process.Start();
-            await this.WriteOutputAsync("[DataGuard] " + command + " started. Detailed CLI output is not displayed to prevent credential disclosure.\r\n");
-
-            var stdoutDrainTask = DrainAsync(process.StandardOutput);
-            var stderrDrainTask = DrainAsync(process.StandardError);
-            var exitTask = Task.Run(() => process.WaitForExit());
-            var completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(60)));
-            if (completed != exitTask)
-            {
-                var terminated = StopProcess(process);
-                await this.WriteOutputAsync(terminated
-                    ? "[DataGuard] " + command + " timed out after 60 seconds and its process tree was terminated.\r\n"
-                    : "[DataGuard] " + command + " timed out, but its process tree could not be terminated. Stop it manually.\r\n");
-                return;
-            }
-
-            await Task.WhenAll(stdoutDrainTask, stderrDrainTask);
-            stopwatch.Stop();
-            await this.PublishSarifAsync(sarifPath);
-            await this.WriteOutputAsync("[DataGuard] " + command + " completed in " + stopwatch.ElapsedMilliseconds + " ms with exit code " + process.ExitCode + ".\r\n");
-        }
-        catch (Exception ex)
-        {
-            await this.WriteOutputAsync("[DataGuard] Failed to start " + command + ": " + Redact(ex.Message) + "\r\n");
-        }
-        finally
-        {
-            lock (this.processGate)
-            {
-                this.activeProcess = null;
-            }
-
-            process.Dispose();
+            var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
             try
             {
-                Directory.Delete(temporaryDirectory, recursive: true);
+                Directory.CreateDirectory(temporaryDirectory);
             }
-            catch (IOException)
+            catch
             {
-                // A virus scanner can briefly hold the temporary SARIF file; it contains no persisted secret.
+                lock (this.processGate)
+                {
+                    this.commandReserved = false;
+                }
+
+                throw;
             }
+            var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
+            var ruleOptions = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
+            var disabledRules = ruleOptions.GetDisabledRuleIds();
+            var skipArg = disabledRules.Count > 0 ? " --skip-rules " + string.Join(",", disabledRules) : string.Empty;
+            var configPath = Path.Combine(solutionDirectory, ".dataguard.yml");
+            var ruleCatalog = ruleOptions.GetRuleCatalog();
+            var enabledRuleCount = ruleCatalog.Count(rule => rule.IsEnabled);
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = cliPath,
+                Arguments = command == "validate"
+                    ? "validate --config " + Quote(configPath) + " --format sarif --output " + Quote(sarifPath) + " --progress" + skipArg
+                    : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath) + " --progress",
+                WorkingDirectory = solutionDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+
+            startInfo.EnvironmentVariables["DOTNET_ROLL_FORWARD"] = "LatestMajor";
+            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            var stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                lock (this.processGate)
+                {
+                    process.Start();
+                    this.activeProcess = process;
+                    this.cancelledProcess = null;
+                }
+                await this.WriteCommandBannerAsync(
+                    command,
+                    solutionDirectory,
+                    configPath,
+                    command == "validate" ? enabledRuleCount : 0,
+                    command == "validate" ? disabledRules.Count : 0);
+                await this.SetStatusTextAsync(command == "validate" ? "DataGuard: Validating..." : "DataGuard: Assessing...");
+
+                var stdoutDrainTask = DrainAsync(process.StandardOutput);
+                var stderrDrainTask = this.ReadProgressAsync(process.StandardError);
+                var exitTask = Task.Run(() => process.WaitForExit());
+                var completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(60)));
+                if (completed != exitTask)
+                {
+                    if (!exitTask.IsCompleted)
+                    {
+                        var termination = StopProcess(process);
+                        var drains = Task.WhenAll(stdoutDrainTask, stderrDrainTask);
+                        await this.SetStatusTextAsync("DataGuard: Timed out");
+                        await this.WriteOutputAsync(termination == ProcessStopOutcome.Terminated
+                            ? "[DataGuard] " + command + " timed out after 60 seconds and its process tree was terminated.\r\n"
+                            : termination == ProcessStopOutcome.AlreadyExited
+                                ? "[DataGuard] " + command + " exceeded 60 seconds but completed before termination was requested.\r\n"
+                                : "[DataGuard] " + command + " timed out, but its process tree could not be terminated. Stop it manually.\r\n");
+                        if (termination == ProcessStopOutcome.Failed)
+                        {
+                            var cleanupTimeout = Task.Delay(TimeSpan.FromSeconds(120));
+                            var exitCompleted = await Task.WhenAny(exitTask, cleanupTimeout) == exitTask;
+                            var drainsCompleted = exitCompleted &&
+                                await Task.WhenAny(drains, cleanupTimeout) == drains;
+                            if (ShouldForceReleaseFailedTerminationReservation(exitCompleted, drainsCompleted))
+                            {
+                                process.StandardOutput.Close();
+                                process.StandardError.Close();
+                                DataGuardLogger.LogWarning("Timed-out command did not exit or drain within 120 seconds after termination failed; releasing the command reservation.");
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    await drains;
+                                }
+                                catch (Exception ex)
+                                {
+                                    DataGuardLogger.LogWarning("Timed-out command stream drain failed: " + Redact(ex.Message));
+                                }
+                            }
+                        }
+                        else if (termination == ProcessStopOutcome.AlreadyExited)
+                        {
+                            try
+                            {
+                                await drains;
+                            }
+                            catch (Exception ex)
+                            {
+                                DataGuardLogger.LogWarning("Timed-out command stream drain failed: " + Redact(ex.Message));
+                            }
+                        }
+                        else if (await Task.WhenAny(drains, Task.Delay(TimeSpan.FromSeconds(5))) == drains)
+                        {
+                            try
+                            {
+                                await drains;
+                            }
+                            catch (Exception ex)
+                            {
+                                DataGuardLogger.LogWarning("Timed-out command stream drain failed: " + Redact(ex.Message));
+                            }
+                        }
+                        else
+                        {
+                            process.StandardOutput.Close();
+                            process.StandardError.Close();
+                        }
+
+                        if (termination != ProcessStopOutcome.AlreadyExited)
+                        {
+                            return;
+                        }
+                    }
+                }
+
+                await stdoutDrainTask;
+                var progressSummary = await stderrDrainTask;
+                bool wasCancelled;
+                lock (this.processGate)
+                {
+                    wasCancelled = ReferenceEquals(this.cancelledProcess, process);
+                }
+
+                if (DecideCancellationSuppression(wasCancelled, stdoutDrainTask.IsCompleted && stderrDrainTask.IsCompleted))
+                {
+                    stopwatch.Stop();
+                    DataGuardLogger.LogValidationRun(
+                        command,
+                        solutionDirectory,
+                        configPath,
+                        disabledRules,
+                        130,
+                        stopwatch.ElapsedMilliseconds,
+                        0);
+                    await this.WriteOutputAsync("[DataGuard] Validation cancelled by user. No diagnostics were produced.\r\n");
+                    await this.SetStatusTextAsync("DataGuard: Cancelled");
+                    return;
+                }
+                stopwatch.Stop();
+                var diagnosticCount = await this.PublishSarifAsync(sarifPath);
+                DataGuardLogger.LogValidationRun(
+                    command,
+                    solutionDirectory,
+                    configPath,
+                    disabledRules,
+                    process.ExitCode,
+                    stopwatch.ElapsedMilliseconds,
+                    diagnosticCount);
+                await this.WriteOutputAsync("[DataGuard] " + command + " completed in " + stopwatch.ElapsedMilliseconds + " ms with exit code " + process.ExitCode + ".\r\n");
+                var exitExplanation = process.ExitCode == 0 && progressSummary.HasSummary && progressSummary.WarningCount > 0
+                    ? "[WARN] Validation completed with warnings. See Error List."
+                    : ExplainExitCode(command, process.ExitCode);
+                if (progressSummary.HasSummary || process.ExitCode != 0)
+                {
+                    await this.WriteOutputAsync("[DataGuard] " + exitExplanation + "\r\n");
+                }
+                var resultText = progressSummary.HasSummary
+                    ? "Result: " + progressSummary.ErrorCount + " errors, " + progressSummary.WarningCount + " warnings\r\n"
+                    : "Result: No final validation summary was produced.\r\n";
+                await this.WriteOutputAsync(
+                    "========================================================================\r\n" +
+                    resultText +
+                    "Action: Open Error List to see details and jump to source locations.\r\n" +
+                    "Docs:   Tools -> Options -> DataGuard -> Validation Rules\r\n" +
+                    "========================================================================\r\n");
+                await this.SetStatusTextAsync(
+                    process.ExitCode == 130
+                        ? "DataGuard: Cancelled"
+                        : progressSummary.HasSummary
+                            ? "DataGuard: " + progressSummary.ErrorCount + " errors, " + progressSummary.WarningCount + " warnings"
+                            : "DataGuard: Result summary unavailable");
+            }
+            catch (Exception ex)
+            {
+                await this.WriteOutputAsync("[DataGuard] Failed to start " + command + ": " + Redact(ex.Message) + "\r\n");
+            }
+            finally
+            {
+                lock (this.processGate)
+                {
+                    if (ReferenceEquals(this.activeProcess, process))
+                    {
+                        this.activeProcess = null;
+                    }
+
+                    if (ReferenceEquals(this.cancelledProcess, process))
+                    {
+                        this.cancelledProcess = null;
+                    }
+                    this.commandReserved = false;
+                }
+
+                process.Dispose();
+                try
+                {
+                    Directory.Delete(temporaryDirectory, recursive: true);
+                }
+                catch (IOException)
+                {
+                    // A virus scanner can briefly hold the temporary SARIF file; it contains no persisted secret.
+                }
+            }
+        }
+        catch
+        {
+            lock (this.processGate)
+            {
+                this.commandReserved = false;
+            }
+
+            throw;
+        }
+    }
+
+    internal static bool DecideCancellationSuppression(bool cancellationRequested, bool streamsDrained)
+    {
+        if (cancellationRequested && !streamsDrained)
+        {
+            throw new InvalidOperationException("Streams must be drained before suppressing publication.");
+        }
+
+        return cancellationRequested;
+    }
+
+    internal static bool ShouldForceReleaseFailedTerminationReservation(bool exitCompleted, bool drainsCompleted) =>
+        !exitCompleted || !drainsCompleted;
+
+    internal static bool ShouldRecordCancellation(ProcessStopOutcome outcome, bool ownsActiveProcess) =>
+        outcome == ProcessStopOutcome.Terminated && ownsActiveProcess;
+
+    private async Task WriteCommandBannerAsync(
+        string command,
+        string solutionDirectory,
+        string configPath,
+        int enabledRuleCount,
+        int disabledRuleCount)
+    {
+        var title = command == "validate" ? "Run Validation" : "Assess Workspace";
+        var description = command == "validate"
+            ? "Validates C# and database contracts (parameters, result shapes, types, naming, and SQL dialect)."
+            : "Assesses workspace configuration, dependencies, and environment readiness.";
+        await this.WriteOutputAsync(
+            "========================================================================\r\n" +
+            "DataGuard — " + title + "\r\n" +
+            "========================================================================\r\n" +
+            "What:   " + description + "\r\n" +
+            "Scope:  " + solutionDirectory + "\r\n" +
+            "Config: " + configPath + "\r\n" +
+            (command == "validate"
+                ? "Rules:  " + enabledRuleCount + " enabled, " + disabledRuleCount + " disabled\r\n"
+                : string.Empty) +
+            "========================================================================\r\n");
+    }
+
+    private async Task SetStatusTextAsync(string text)
+    {
+        try
+        {
+            await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var statusBar = await this.GetServiceAsync(typeof(SVsStatusbar)) as IVsStatusbar;
+            statusBar?.SetText(text);
+        }
+        catch
+        {
+            // Output Window feedback remains available when the status bar is unavailable.
+        }
+    }
+
+    private static string ExplainExitCode(string command, int exitCode)
+    {
+        switch (command, exitCode)
+        {
+            case (_, 0):
+                return "[OK] No issues found.";
+            case ("validate", 1):
+                return "[WARN] Validation found errors. See Error List.";
+            case ("validate", 2):
+                return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml.";
+            case ("validate", 3):
+                return "[WARN] Validation incomplete — contract acquisition failed (no DB connection or snapshot).";
+            case ("assess", 1):
+                return "[WARN] Assessment found findings. See Error List.";
+            case ("assess", 4):
+                return "[WARN] Assessment completed with tool errors (check config or permissions).";
+            case (_, 130):
+                return "[CANCELLED] Cancelled by user.";
+            default:
+                return "Unexpected exit code " + exitCode + ".";
         }
     }
 
@@ -444,12 +920,12 @@ public sealed class DataGuardPackage : AsyncPackage
         }
     }
 
-    private async Task PublishSarifAsync(string sarifPath)
+    private async Task<int> PublishSarifAsync(string sarifPath)
     {
         if (!File.Exists(sarifPath))
         {
             await this.WriteOutputAsync("[DataGuard] Validation produced no SARIF diagnostics.\r\n");
-            return;
+            return 0;
         }
 
         var tasks = new List<ErrorTask>();
@@ -462,7 +938,7 @@ public sealed class DataGuardPackage : AsyncPackage
                 if (!document.RootElement.TryGetProperty("runs", out var runs) || runs.ValueKind != JsonValueKind.Array)
                 {
                     await this.WriteOutputAsync("[DataGuard] SARIF output has no runs array.\r\n");
-                    return;
+                    return 0;
                 }
 
                 foreach (var run in runs.EnumerateArray())
@@ -513,13 +989,13 @@ public sealed class DataGuardPackage : AsyncPackage
         catch (JsonException)
         {
             await this.WriteOutputAsync("[DataGuard] SARIF output was invalid and was not loaded.\r\n");
-            return;
+            return 0;
         }
 
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         if (this.errorListProvider == null)
         {
-            return;
+            return tasks.Count;
         }
 
         this.errorListProvider.Tasks.Clear();
@@ -534,31 +1010,49 @@ public sealed class DataGuardPackage : AsyncPackage
         }
 
         await this.WriteOutputAsync("[DataGuard] Loaded " + tasks.Count + " diagnostics into Error List.\r\n");
+        return tasks.Count;
     }
 
     private async Task CancelValidationAsync()
     {
-        Process? process;
+        ProcessStopOutcome outcome;
         lock (this.processGate)
         {
-            process = this.activeProcess;
+            if (this.activeProcess == null)
+            {
+                outcome = ProcessStopOutcome.AlreadyExited;
+            }
+            else
+            {
+                var process = this.activeProcess;
+                outcome = StopProcess(process);
+                if (ShouldRecordCancellation(outcome, ReferenceEquals(this.activeProcess, process)))
+                {
+                    this.cancelledProcess = process;
+                }
+            }
         }
 
-        if (process == null)
+        switch (outcome)
         {
-            await this.WriteOutputAsync("[DataGuard] No validation is running.\r\n");
-            return;
+            case ProcessStopOutcome.Terminated:
+                await this.WriteOutputAsync("[DataGuard] DataGuard command cancelled by user. No further diagnostics will be produced.\r\n");
+                await this.SetStatusTextAsync("DataGuard: Cancelled");
+                break;
+            case ProcessStopOutcome.AlreadyExited:
+                await this.WriteOutputAsync("[DataGuard] The command already completed; processing diagnostics.\r\n");
+                break;
+            default:
+                await this.WriteOutputAsync("[DataGuard] Cancellation requested, but the process tree could not be terminated. Stop it manually.\r\n");
+                break;
         }
-
-        var terminated = StopProcess(process);
-        await this.WriteOutputAsync(terminated
-            ? "[DataGuard] Cancellation requested; the process tree was terminated.\r\n"
-            : "[DataGuard] Cancellation requested, but the process tree could not be terminated. Stop it manually.\r\n");
     }
 
     private async Task ViewLogsAsync()
     {
         await this.WriteOutputAsync("[DataGuard] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
+        await this.WriteOutputAsync("[DataGuard] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
+        await this.WriteOutputAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         DataGuardLogger.OpenLog(this);
     }

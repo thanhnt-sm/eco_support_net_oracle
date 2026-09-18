@@ -8,6 +8,15 @@
   <Target Name="RequireBaselineCoreAssembly" BeforeTargets="ResolveReferences" Condition="'$(BaselineCoreAssembly)' == ''">
     <Error Text="Set BaselineCoreAssembly to the retained baseline DataGuard.Core.dll when building this fixture." />
   </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="5.9.0" />
+    <PackageReference Include="System.Collections.Immutable" Version="10.0.11" />
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="10.0.11" />
+    <PackageReference Include="System.Reflection.Metadata" Version="10.0.11" />
+    <PackageReference Include="System.Text.Json" Version="10.0.11" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="DataGuard.Core">
       <HintPath>$(BaselineCoreAssembly)</HintPath>

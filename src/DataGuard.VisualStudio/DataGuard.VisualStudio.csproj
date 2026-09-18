@@ -36,4 +36,18 @@
       <ResourceName>Menus.ctmenu</ResourceName>
     </VSCTCompile>
   </ItemGroup>
+  <Target Name="IncludeNuGetDepsInVsix" AfterTargets="GetVsixSourceItems">
+    <ItemGroup>
+      <VSIXSourceItem Include="@(ReferenceCopyLocalPaths)"
+                      Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Text.Json'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Text.Encodings.Web'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'Microsoft.Bcl.AsyncInterfaces'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.IO.Pipelines'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Memory'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Buffers'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Runtime.CompilerServices.Unsafe'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Numerics.Vectors'
+                              OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Threading.Tasks.Extensions'" />
+    </ItemGroup>
+  </Target>
 </Project>
