@@ -390,4 +390,60 @@ public class ConcurrentValidationEngineTests
         var sequentialSet = sequential.Select(v => $"{v.RuleId}|{v.Message}").OrderBy(s => s, StringComparer.Ordinal).ToList();
         concurrentSet.Should().Equal(sequentialSet);
     }
+
+    [Fact]
+    public async Task ValidateAsync_ThrowingProgressObserver_DoesNotChangeValidationResult()
+    {
+        var entity = new EntityDescriptor(
+            "e1", "Customer", "Customer", "CUSTOMERS",
+            new List<PropertyDescriptor>
+            {
+                new PropertyDescriptor("FullName", "string", "FULL_NAME", "VARCHAR2(100)", false, 200, false, false),
+            });
+        var contracts = new List<ContractDescriptor> { entity };
+        var rules = new List<IContractRule> { new AlwaysViolateRule() };
+        var engine = new ConcurrentValidationEngine();
+        var callbackCount = 0;
+
+        var baseline = await engine.ValidateAsync(contracts, rules);
+        var observed = await engine.ValidateAsync(
+            contracts,
+            rules,
+            CancellationToken.None,
+            (_, _) =>
+            {
+                Interlocked.Increment(ref callbackCount);
+                throw new InvalidOperationException("observer failure");
+            });
+
+        baseline.Should().ContainSingle(violation => violation.RuleId == "DGTEST");
+        callbackCount.Should().BeGreaterThan(0);
+        observed.Select(violation => $"{violation.RuleId}|{violation.Message}")
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .Should()
+            .Equal(baseline.Select(violation => $"{violation.RuleId}|{violation.Message}").OrderBy(value => value, StringComparer.Ordinal));
+    }
+
+    private sealed class AlwaysViolateRule : IContractRule
+    {
+        public string RuleId => "DGTEST";
+
+        public string Name => "Always violate";
+
+        public string Description => "Test rule";
+
+        public DiagnosticSeverity Severity => DiagnosticSeverity.Error;
+
+        public Task<IReadOnlyList<ContractViolation>> ValidateAsync(
+            ContractDescriptor contract,
+            IReadOnlyList<ContractDescriptor> allContracts,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<ContractViolation> violations =
+            [
+                new ContractViolation("DGTEST", "always", DiagnosticSeverity.Error, null, null),
+            ];
+            return Task.FromResult(violations);
+        }
+    }
 }

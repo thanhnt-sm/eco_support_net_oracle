@@ -1,6 +1,7 @@
 param(
     [string] $RootSuffix = "DataGuardCliVerify",
-    [int] $TimeoutSeconds = 90
+    [int] $TimeoutSeconds = 90,
+    [switch] $KeepVerificationLogs
 )
 
 Set-StrictMode -Version Latest
@@ -224,7 +225,7 @@ public class RotHelper {
     }
 
     Write-Host "Executing missing-CLI validations (RunValidation)..."
-    $expectedMsg = "[DataGuard] CLI executable was not found. Install it with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe."
+    $expectedMsg = "[DataGuard] CLI installation failed or executable was not found. Install it manually with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe."
 
     Invoke-WithRetry { $dte.ExecuteCommand("Tools.RunValidation") }
     
@@ -289,13 +290,16 @@ public class RotHelper {
     
     & dotnet tool install --global --add-source "$verificationRoot\packages" DataGuard.Cli --version $version | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "dotnet tool install failed with exit code $LASTEXITCODE" }
-    $dteProcess = Start-Process -FilePath $devenv -ArgumentList "/RootSuffix", $RootSuffix, $slnPath -PassThru
-    $dte = [RotHelper]::GetDTE($dteProcess.Id, $TimeoutSeconds)
+    $toolInstalled = $true
     Write-Host "Relaunching DTE to pick up global tool..."
     Invoke-WithRetry { $dte.Quit() }
     $dteProcess.WaitForExit(10000)
-    if (-not $dteProcess.HasExited) { Stop-Process -Id $dteProcess.Id -Force }
+    if (-not $dteProcess.HasExited) {
+        Stop-Process -Id $dteProcess.Id -Force -ErrorAction Stop
+        $dteProcess.WaitForExit(5000)
+    }
     [System.Runtime.InteropServices.Marshal]::ReleaseComObject($dte) | Out-Null
+    $dte = $null
     $dteProcess = Start-Process -FilePath $devenv -ArgumentList "/RootSuffix", $RootSuffix, $slnPath -PassThru
     $dte = [RotHelper]::GetDTE($dteProcess.Id, $TimeoutSeconds)
     if (-not $dte) { throw "Failed to re-attach to DTE" }
@@ -323,20 +327,25 @@ public class RotHelper {
     Invoke-WithRetry { $dte.ExecuteCommand("Tools.RunValidation") }
     $startPoll = [DateTime]::UtcNow
     $startedFound = $false
+    $startedAt = $null
     $missingCliFound = $false
     while (([DateTime]::UtcNow - $startPoll).TotalSeconds -lt 25) {
         if (Test-Path $startedLogDir) {
             $logFiles = Get-ChildItem -Path $startedLogDir -Filter "*.log"
             foreach ($logFile in $logFiles) {
                 $content = Get-Content $logFile.FullName -Raw
-                if ($content -match "\[DataGuard\] validate started\.") { $startedFound = $true }
+                if ($content -match "Failed to start") { throw "Global tool test: Found 'Failed to start' in log." }
+                if (-not $startedFound -and $content -match [regex]::Escape("DataGuard — Run Validation")) {
+                    $startedFound = $true
+                    $startedAt = [DateTime]::UtcNow
+                }
                 if ($content -match [regex]::Escape($expectedMsg)) { $missingCliFound = $true }
             }
         }
-        if ($startedFound) { break }
+        if ($startedFound -and (([DateTime]::UtcNow - $startedAt).TotalSeconds -ge 5)) { break }
         Start-Sleep -Seconds 1
     }
-    if (-not $startedFound) { Write-Error "Global tool test: Did not find 'validate started.' in log." }
+    if (-not $startedFound) { Write-Error "Global tool test: Did not find the validation start banner in log." }
     if ($missingCliFound) { Write-Error "Global tool test: Found missing CLI message, which should be absent." }
     
     $results["Global-tool start"] = "PASS"
@@ -350,7 +359,24 @@ public class RotHelper {
         $properties.Item("CustomCliPath").Value = "$verificationRoot\missing\dataguard.exe"
     }
     Invoke-WithRetry { $dte.ExecuteCommand("Tools.RunValidation") }
-    
+    $firstCustomPathPoll = [DateTime]::UtcNow
+    $firstCustomPathMessageFound = $false
+    while (([DateTime]::UtcNow - $firstCustomPathPoll).TotalSeconds -lt $TimeoutSeconds) {
+        if (Test-Path $customPathLogDir) {
+            foreach ($logFile in Get-ChildItem -Path $customPathLogDir -Filter "*.log") {
+                if ((Get-Content $logFile.FullName -Raw) -match [regex]::Escape($expectedMsg)) {
+                    $firstCustomPathMessageFound = $true
+                    break
+                }
+            }
+        }
+        if ($firstCustomPathMessageFound) { break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $firstCustomPathMessageFound) {
+        Write-Error "Custom path test: First missing CLI message was not logged before the second command."
+    }
+
     $cmdPath = Join-Path $verificationRoot "not-a-launcher.cmd"
     Set-Content -Path $cmdPath -Value "@echo off"
     Invoke-WithRetry { $properties.Item("CustomCliPath").Value = $cmdPath }
@@ -358,7 +384,7 @@ public class RotHelper {
     $startPoll = [DateTime]::UtcNow
     $foundCount = 0
     $failedToStartFound = $false
-    while (([DateTime]::UtcNow - $startPoll).TotalSeconds -lt 25) {
+    while (([DateTime]::UtcNow - $startPoll).TotalSeconds -lt $TimeoutSeconds) {
         $foundCount = 0
         $failedToStartFound = $false
         if (Test-Path $customPathLogDir) {
@@ -394,6 +420,7 @@ public class RotHelper {
         $dteProcess.WaitForExit(5000)
         if (-not $dteProcess.HasExited) {
             Stop-Process -Id $dteProcess.Id -Force -ErrorAction SilentlyContinue
+            $dteProcess.WaitForExit(5000)
         }
     }
     if ($toolInstalled) {
@@ -401,8 +428,12 @@ public class RotHelper {
         Start-Process dotnet -ArgumentList "tool uninstall --global DataGuard.Cli" -Wait -NoNewWindow
     }
     if ($verificationRoot -and (Test-Path $verificationRoot)) {
-        Write-Host "Removing temp files..."
-        Remove-Item -Path $verificationRoot -Recurse -Force -ErrorAction SilentlyContinue
+        if ($KeepVerificationLogs) {
+            Write-Host "Preserving verification logs: $verificationRoot"
+        } else {
+            Write-Host "Removing temp files..."
+            Remove-Item -Path $verificationRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
     if ($vsixDeploymentPath -and (Test-Path $vsixDeploymentPath)) {
         Write-Host "Removing isolated extension deployment: $vsixDeploymentPath"

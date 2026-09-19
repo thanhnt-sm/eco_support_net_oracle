@@ -239,11 +239,14 @@ public class CliExitCodeTests
             Directory.Delete(dir, recursive: true);
         }
     }
-
-    [Fact]
-    public void SnapshotRefresh_WithoutConnection_Exit3()
+    [Theory]
+    [InlineData("sqlserver")]
+    [InlineData("oracle")]
+    [InlineData("mysql")]
+    [InlineData("postgresql")]
+    public void SnapshotRefresh_WithoutConnection_Exit3_ForEveryProvider(string provider)
     {
-        var (exitCode, output) = RunCli("snapshot", "refresh");
+        var (exitCode, output) = RunCli("snapshot", "refresh", "--provider", provider);
 
         exitCode.Should().Be(3);
         output.Should().Contain("UNEVALUATED");

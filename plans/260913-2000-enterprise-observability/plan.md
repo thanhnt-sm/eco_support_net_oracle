@@ -1,7 +1,7 @@
 ---
 title: "Enterprise banking observability platform"
 description: "Hardening plan for a privacy-first, fail-open local observability capability for the DataGuard CLI/library based on discovery evidence."
-status: in-progress
+status: completed
 priority: P1
 effort: 5d
 branch: main
@@ -30,7 +30,7 @@ archive, not Docker, Kubernetes or an HTTP endpoint.
 | 3 | Collector and Kubernetes | Completed (local artifact gate; cluster gate NOT EXECUTED) |
 | 4 | SLO, dashboards and runbooks | Completed (syntax/unit gate; live metric gate NOT EXECUTED) |
 | 5 | Validation, benchmark and canary | Completed (repository gate; runtime canary NOT EXECUTED) |
-| 6 | Local file observability and endpoint lockdown | In progress (local implementation; optional remote gate deferred) |
+| 6 | Local file observability and endpoint lockdown | Completed (local CLI/library gate; retention and remote/Kubernetes gates owner-blocked) |
 
 ## Dependencies
 
@@ -125,6 +125,7 @@ NDJSON archive first, endpoint mapping and remote export opt-in only.
 - Final product gate after the implementation hardening passed locked restore, Release build with
   0 warnings/errors, 739 solution tests, 7 local-sink tests plus one product-pipeline integration
   test, 38 observability package tests, eight format checks, YAML/JSON/template validation,
-  Kustomize local render, docs synchronization and
-  the default host smoke. Phase 6 remains `in-progress` because retention ownership and any
-  remote canary are intentionally unresolved.
+  Kustomize local render, docs synchronization and the default host smoke.
+- **Closure (2026-09-18):** Phase 6 is complete for the product-native local CLI/library
+  acceptance gate. Production retention/rotation policy and all remote, Collector, Kubernetes,
+  backend and canary evidence remain explicitly owner-blocked operational gates.

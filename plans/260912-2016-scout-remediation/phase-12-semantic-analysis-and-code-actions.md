@@ -1,7 +1,7 @@
 ---
 phase: 12
 title: "Semantic analysis and code actions"
-status: in-progress
+status: blocked
 priority: P1
 effort: "9d"
 dependencies: [2, 5, 8]
@@ -78,3 +78,9 @@ EF C# ModelSnapshot -> Roslyn syntax parser -> descriptors + extraction diagnost
 - Compatibility attributes can collide with BCL names and alter serialization semantics; CP8 approval plus compiler fixtures are mandatory.
 - EF snapshots vary by EF version. Bounded syntax support plus explicit diagnostics is safer than execution or heuristic emptiness.
 - Full build validation consumes offline evidence. Project/imported/config properties never authorize live DB access; only the separately operator-launched preflight crosses that boundary.
+
+## Blocker
+
+Phase 12 (specifically XR05's FC09 executable code action taxonomy requirement) relies on owner
+decisions for mapping the 12 vs 5 providers contract and remains currently unchecked. It depends
+on upstream Phase 2, Phase 5, and the blocked Phase 8 CP8 Sol GO.

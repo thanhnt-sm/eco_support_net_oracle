@@ -455,6 +455,7 @@ internal record LegacyBaselineFile(
 /// schema hash kind, provider scope and canonicalization metadata.
 /// </summary>
 [JsonSerializable(typeof(BaselineFile))]
+[method: JsonConstructor]
 public record BaselineFile(
     int Version,
     DateTimeOffset CreatedAt,
@@ -467,7 +468,41 @@ public record BaselineFile(
     string? SchemaHashKind = null,
     string? Provider = null,
     string? SchemaScope = null,
-    string? SchemaCanonicalizationVersion = null);
+    string? SchemaCanonicalizationVersion = null)
+{
+    public BaselineFile(
+        int version,
+        DateTimeOffset createdAt,
+        string schemaVersion,
+        string groundTruthMode,
+        string databaseVersion,
+        string schemaHash,
+        IReadOnlyList<BaselineViolation> violations,
+        IReadOnlyList<SnapshotTable>? schema)
+        : this(version, createdAt, schemaVersion, groundTruthMode, databaseVersion, schemaHash, violations, schema, null, null, null, null)
+    {
+    }
+
+    public void Deconstruct(
+        out int version,
+        out DateTimeOffset createdAt,
+        out string schemaVersion,
+        out string groundTruthMode,
+        out string databaseVersion,
+        out string schemaHash,
+        out IReadOnlyList<BaselineViolation> violations,
+        out IReadOnlyList<SnapshotTable>? schema)
+    {
+        version = Version;
+        createdAt = CreatedAt;
+        schemaVersion = SchemaVersion;
+        groundTruthMode = GroundTruthMode;
+        databaseVersion = DatabaseVersion;
+        schemaHash = SchemaHash;
+        violations = Violations;
+        schema = Schema;
+    }
+}
 
 /// <summary>
 /// Serializable ground-truth table snapshot (used by Snapshot mode offline validation).
@@ -476,6 +511,7 @@ public record SnapshotTable(
     string Name,
     IReadOnlyList<SnapshotColumn> Columns);
 
+[method: JsonConstructor]
 public record SnapshotColumn(
     string Name,
     string DataType,
@@ -486,7 +522,41 @@ public record SnapshotColumn(
     bool IsNullable,
     string? CharUsed,
     string? DataDefault = null,
-    int? ColumnId = null);
+    int? ColumnId = null)
+{
+    public SnapshotColumn(
+        string name,
+        string dataType,
+        int? maxLength,
+        int? charLength,
+        int? precision,
+        int? scale,
+        bool isNullable,
+        string? charUsed)
+        : this(name, dataType, maxLength, charLength, precision, scale, isNullable, charUsed, null, null)
+    {
+    }
+
+    public void Deconstruct(
+        out string name,
+        out string dataType,
+        out int? maxLength,
+        out int? charLength,
+        out int? precision,
+        out int? scale,
+        out bool isNullable,
+        out string? charUsed)
+    {
+        name = Name;
+        dataType = DataType;
+        maxLength = MaxLength;
+        charLength = CharLength;
+        precision = Precision;
+        scale = Scale;
+        isNullable = IsNullable;
+        charUsed = CharUsed;
+    }
+}
 
 /// <summary>
 /// A violation in the baseline file.

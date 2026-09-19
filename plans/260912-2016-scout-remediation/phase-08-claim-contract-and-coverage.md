@@ -50,6 +50,13 @@ A claim occurrence maps doc path/line/text + EN/VI peer → existing source/call
 - [x] Contradictory/absolute claims remain explicit open owner gates until resolved.
 - [ ] Sol CP8 GO before implementation.
 
+## Gate status
+
+**Sol CP8 verdict: NO-GO (2026-09-18).** The 539-entry candidate scan is deliberately
+conservative; FC20 still lacks exhaustive prose classification, and individual occurrences lack
+the required source/caller, test/platform/mode and final-evidence mappings. Complete that census
+and the CP1 gate, then obtain a new CP8 review before any remediation source work proceeds.
+
 ## Risk Assessment
 
 More modules justified by distinct HTTP, editor, build and remote trust boundaries. Reuse Core rather than duplicate engine. Execution follows DAG, not phase numbering. A foundation_verified milestone is not full feature closure.

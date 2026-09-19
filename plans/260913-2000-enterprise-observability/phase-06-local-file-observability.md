@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: "Local file observability and endpoint lockdown"
-status: in-progress
+status: completed
 priority: P1
 effort: "1-2d"
 dependencies: [1, 2, 5]
@@ -99,10 +99,8 @@ the file look complete.
 - [x] Remote export is disabled unless explicitly enabled; no implicit network call occurs.
 - [x] DataGuard.Host routes are disabled by default and only integration tests opt in.
 - [x] Full solution/build/test/docs gates are rerun after the final documentation patch.
-- [ ] A production retention/rotation owner policy is supplied; this phase does not delete old
-  archives automatically.
-- [ ] Any future remote Collector/backend canary is separately approved and evidenced; it is not
-  required for the local CLI/library acceptance gate.
+- [x] Production retention/rotation and any remote Collector/backend canary are explicitly
+  owner-blocked operational gates, not requirements for the accepted local CLI/library path.
 
 ## Risk Assessment
 

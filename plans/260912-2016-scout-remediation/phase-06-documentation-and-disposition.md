@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: "Documentation and disposition"
-status: in-progress
+status: blocked
 priority: P2
 effort: "M"
 dependencies: [4, 5]
@@ -57,3 +57,9 @@ Documentation is a view over source contracts and executed evidence. A canonical
 ## Risk Assessment
 
 Docs create product contracts. Prefer narrow limitation language over roadmaps. Terra owns ledger and docs; Sol reviews read-only. Preserve all pre-existing edits and do not invent another concurrent writer.
+
+## Blocker
+
+Phase 6 is explicitly blocked until its upstream dependent Phase 4 and Phase 5 complete fully,
+and until the remaining claims (health, CVE, IDE, DB-analyzer) are matched against reproducible
+execution evidence and the updated `findings-ledger.md`.

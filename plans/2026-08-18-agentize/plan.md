@@ -1,12 +1,14 @@
 ---
 title: Agentize Operation - Convert to CLI/MCP
-status: in-progress
+status: blocked
 priority: P1
 effort: medium
 branch: main
 tags: [agentize, cli, mcp, automation]
 created: 2026-08-18
 invocation_args: "--both --auto"
+blocked: owner
+blocked_reason: "Owner must decide whether this pre-v4 CLI/MCP plan is executed, archived, or superseded."
 ---
 
 # Agentize Operation Plan

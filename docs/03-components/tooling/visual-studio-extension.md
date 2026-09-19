@@ -52,6 +52,7 @@ The VS extension does **not** load database providers inside `devenv.exe`. Inste
 The entry point is an `AsyncPackage` that registers commands and initializes the extension:
 
 ```csharp
+[ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [ProvideAutoLoad(UIContextGuids80.SolutionExists, PackageAutoLoadFlags.BackgroundLoad)]
 [Guid("dataguard-package-guid")]
@@ -77,6 +78,7 @@ public sealed class DataGuardPackage : AsyncPackage
 | `ProvideAutoLoad` | Auto-loads when a solution exists |
 | `Guid` | Unique package identifier |
 | `ProvideMenuResource` | Links to command menu definitions |
+| `ProvideBindingPath` | Adds the extension installation directory to Visual Studio's assembly probing path for bundled dependencies |
 
 ## VSSDK Tools Commands
 

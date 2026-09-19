@@ -120,6 +120,8 @@ var efContextOption = new Option<string>("--ef-context");
 efContextOption.Description = "Context name used to select one ModelSnapshot.cs under --ef-project";
 var skipRulesOption = new Option<string>("--skip-rules");
 skipRulesOption.Description = "Comma-separated rule IDs to skip (e.g. DG002,DG017,MY001)";
+var progressOption = new Option<bool>("--progress");
+progressOption.Description = "Write safe line-delimited JSON progress events to stderr";
 
 #endregion
 
@@ -127,7 +129,7 @@ skipRulesOption.Description = "Comma-separated rule IDs to skip (e.g. DG002,DG01
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -143,6 +145,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var efProjectPath = result.GetValue(efProjectOption);
     var efContextName = result.GetValue(efContextOption);
     var skipRulesRaw = result.GetValue(skipRulesOption);
+    ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
     HashSet<string>? skipRuleIds = null;
     if (!string.IsNullOrWhiteSpace(skipRulesRaw))
     {
@@ -200,6 +203,11 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         return;
     }
 
+    progress?.Emit(new ProgressEvent(
+        ProgressEventKind.PhaseStarted,
+        "Acquiring contracts",
+        "Acquiring database, snapshot, or manual contracts."));
+
     try
     {
         ct.ThrowIfCancellationRequested();
@@ -208,6 +216,26 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         if (!string.IsNullOrWhiteSpace(efSnapshotPath))
         {
             contracts.AddRange(await EfModelSource.ExtractFromModelSnapshotAsync(efSnapshotPath, config, ct));
+        }
+        progress?.Emit(new ProgressEvent(
+            ProgressEventKind.PhaseCompleted,
+            "Acquiring contracts",
+            "Contract acquisition completed.",
+            new Dictionary<string, object?>
+            {
+                ["ContractCount"] = contracts.Count,
+                ["Status"] = acquisition.Status.ToString(),
+            }));
+
+        if (progress is not null)
+        {
+            foreach (var contract in contracts)
+            {
+                progress.Emit(new ProgressEvent(
+                    ProgressEventKind.ContractDiscovered,
+                    "Acquiring contracts",
+                    contract.GetType().Name));
+            }
         }
 
         var unavailableOutcomes = ProviderRuleCatalog.Get(provider)
@@ -253,7 +281,12 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             return;
         }
 
-        var violations = await ValidateContractsAsync(contracts, config, provider, ct, skipRuleIds);
+        progress?.Emit(new ProgressEvent(
+            ProgressEventKind.PhaseStarted,
+            "Validating rules",
+            "Running enabled validation rules.",
+            new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
+        var violations = await ValidateContractsAsync(contracts, config, provider, ct, skipRuleIds, progress);
         if (normalizedFormat == "text")
         {
             var emitter = new DiagnosticEmitter();
@@ -279,6 +312,17 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         }
 
         Environment.ExitCode = hasErrors ? 1 : 0;
+
+        progress?.Emit(new ProgressEvent(
+            ProgressEventKind.Summary,
+            "Validation complete",
+            "Validation completed.",
+            new Dictionary<string, object?>
+            {
+                ["ErrorCount"] = violations.Count(v => v.Severity == DiagnosticSeverity.Error),
+                ["WarningCount"] = violations.Count(v => v.Severity == DiagnosticSeverity.Warning),
+                ["ViolationCount"] = violations.Count,
+            }));
     }
     catch (OperationCanceledException) when (ct.IsCancellationRequested)
     {
@@ -1072,6 +1116,7 @@ var assessCommand = new Command("assess", "Run read-only environment/dependency/
     outputOption,
     formatOption,
     verboseOption,
+    progressOption,
 };
 
 assessCommand.SetAction(
@@ -1085,6 +1130,7 @@ assessCommand.SetAction(
         var remoteProvider = result.GetValue(remoteAdvisoriesOption);
         var allowNetwork = result.GetValue(allowNetworkOption);
         var approvedPackages = result.GetValue(remotePublicPackageOption) ?? Array.Empty<string>();
+        ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
         var normalizedFormat = format?.ToLowerInvariant() ?? "text";
         if (normalizedFormat is not ("text" or "json" or "sarif"))
         {
@@ -1107,6 +1153,11 @@ assessCommand.SetAction(
             return;
         }
 
+        progress?.Emit(new ProgressEvent(
+            ProgressEventKind.PhaseStarted,
+            "Assessing workspace",
+            "Assessing the workspace configuration and dependencies."));
+
         try
         {
             var request = new AssessmentRequest
@@ -1123,6 +1174,15 @@ assessCommand.SetAction(
                 ApprovedPublicPackageIds = new HashSet<string>(approvedPackages.Where(package => !string.IsNullOrWhiteSpace(package)), StringComparer.OrdinalIgnoreCase),
             };
             var report = await RunAssessmentWithRemoteAdvisories(request, policy, ct);
+            progress?.Emit(new ProgressEvent(
+                ProgressEventKind.PhaseCompleted,
+                "Assessing workspace",
+                "Workspace assessment completed.",
+                new Dictionary<string, object?>
+                {
+                    ["FindingCount"] = report.Findings.Count,
+                    ["ToolErrorCount"] = report.Errors.Count,
+                }));
 
             // Cancellation is causal: do not publish a partial machine-readable artifact.
             if (ct.IsCancellationRequested || report.Errors.Any(error => error.Code == "DG1006"))
@@ -1165,6 +1225,18 @@ assessCommand.SetAction(
 
             // Findings are a failed assessment; operational/tool errors use the frozen code 4.
             Environment.ExitCode = report.Errors.Count > 0 ? 4 : report.Findings.Count > 0 ? 1 : 0;
+
+            progress?.Emit(new ProgressEvent(
+                ProgressEventKind.Summary,
+                "Assessment complete",
+                "Assessment completed.",
+                new Dictionary<string, object?>
+                {
+                    ["CriticalCount"] = report.Summary.Critical,
+                    ["ErrorCount"] = report.Summary.Errors_,
+                    ["WarningCount"] = report.Summary.Warnings,
+                    ["ToolErrorCount"] = report.Summary.ToolErrors,
+                }));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1619,7 +1691,8 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     DataGuardConfiguration config,
     string provider,
     CancellationToken cancellationToken = default,
-    HashSet<string>? skipRuleIds = null)
+    HashSet<string>? skipRuleIds = null,
+    ProgressEmitter? progress = null)
 {
     var allViolations = new List<ContractViolation>();
     var rules = GetRulesForProvider(provider)
@@ -1628,7 +1701,22 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     if (config.EnableConcurrentValidation)
     {
         var engine = new ConcurrentValidationEngine(config.MaxDegreeOfParallelism, config.MaxViolationQueueSize);
-        allViolations.AddRange(await engine.ValidateAsync(contracts, rules, cancellationToken));
+        allViolations.AddRange(await engine.ValidateAsync(
+            contracts,
+            rules,
+            cancellationToken,
+            progress is null
+                ? null
+                : (ruleId, violationCount) => progress.Emit(new ProgressEvent(
+                    ProgressEventKind.RuleExecuted,
+                    "Validating rules",
+                    $"Rule {ruleId} checked one contract.",
+                    new Dictionary<string, object?>
+                    {
+                        ["RuleId"] = ruleId,
+                        ["ContractCount"] = 1,
+                        ["ViolationCount"] = violationCount,
+                    }))));
     }
     else
     {
@@ -1638,6 +1726,16 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
             {
                 var ruleViolations = await rule.ValidateAsync(contract, contracts, cancellationToken);
                 allViolations.AddRange(ruleViolations);
+                progress?.Emit(new ProgressEvent(
+                    ProgressEventKind.RuleExecuted,
+                    "Validating rules",
+                    $"Rule {rule.RuleId} checked one contract.",
+                    new Dictionary<string, object?>
+                    {
+                        ["RuleId"] = rule.RuleId,
+                        ["ContractCount"] = 1,
+                        ["ViolationCount"] = ruleViolations.Count,
+                    }));
             }
         }
     }
@@ -1651,6 +1749,12 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
             allViolations = baselineManager.FilterNewViolations(allViolations, baseline).ToList();
         }
     }
+
+    progress?.Emit(new ProgressEvent(
+        ProgressEventKind.PhaseCompleted,
+        "Validating rules",
+        "Validation rules completed.",
+        new Dictionary<string, object?> { ["ViolationCount"] = allViolations.Count }));
 
     return allViolations;
 }
@@ -1667,7 +1771,7 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
         throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
     }
 
-    return await ValidateContractsAsync(acquisition.Contracts, config, provider, cancellationToken);
+    return await ValidateContractsAsync(acquisition.Contracts, config, provider, cancellationToken, progress: null);
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(

@@ -1914,3 +1914,115 @@ diagnostics retain their rule-specific reason and exit code 3.
 | Working-tree Gitleaks scan | 0 | `gitleaks dir . --no-banner --redact` reports no findings in the current tree. Full-history Gitleaks separately surfaced one historical `curl-auth-header` placeholder in `docs/mcp.md` (`REDACTED`), a documented sample rather than a verified secret; TruffleHog full-history verified-secret scan remains 0/0. |
 | Claim occurrence census regeneration | 0 | `python3 scripts/generate_claim_occurrences.py` reproduces the committed deterministic inventory with 0 unmatched candidates; plan checker remains clean at 36 files, 130 links, 60 scout IDs, 66 ledger rows and 15 phases. |
 | Benchmark pipeline dry profile | 0 | Isolated pipeline benchmark dry run executes sequential/concurrent 100/1,000-contract scenarios and proves capped-output equivalence before timing; observed ratios are 2.99x (100) and 1.54x (1,000) concurrent/ sequential. Claim evaluator correctly rejects this dirty-tree run because metadata lacks the required `worktreeState`, so no performance claim is promoted. |
+
+## CP0 — 2026-09-18 continuation fingerprint
+
+The 2026-09-12 CP0 snapshot remains historical evidence. A new continuation baseline was captured
+before resuming remediation; it does not retroactively alter that snapshot.
+
+| Field | Recorded value |
+|---|---|
+| Captured | 2026-09-18 |
+| Commit | `2ff02e4320c109e42546852699522f5d1bc685d5` |
+| Tracked-diff command and SHA-256 | `git diff --binary -- . ':(exclude)plans/260912-2016-scout-remediation/reports/execution-evidence.md' \| sha256sum` → `9a3e4f610e277caab1c60b20c9e342f9e8348a9e86a8562859080128d1f0828b` |
+| Worktree command | `git status --porcelain` |
+| Test gate | `dotnet test DataGuard.sln -c Release` with `DOTNET_ROLL_FORWARD=LatestMajor`: 783 passed, 0 failed |
+
+The tracked paths are `DataGuard.sln`; both Visual Studio extension documentation pages;
+`plans/2026-08-18-agentize/plan.md`; Phase 1, 8 and the remediation index; both observability
+Phase 6 files; four completed-plan metadata files; `src/DataGuard.Cli/Program.cs`;
+`ConcurrentValidationEngine.cs`; three Visual Studio extension source/project files; two Core test
+files; and `tools/verify-vs-cli-launch.ps1`. The untracked paths are both root VS plan files, the
+VS-red-team journal, `ProgressEmitter.cs`, `ProgressEvent.cs`, `BindingRedirects.cs`, the Visual
+Studio `NuGet/` directory, `ProgressEmitterTests.cs`, and the Visual Studio test directory.
+
+The continuation limits are explicit: the current suite does not prove live SQL Server, Oracle,
+PostgreSQL or MySQL behavior; it does not prove Windows Visual Studio/VSSDK/DPAPI behavior; it
+does not execute release publication, external network services or owner-gated environments.
+
+The original sequence breached the intended pre-Phase-2 CP1 freeze. This continuation baseline is
+prospective only: it preserves that breach and supplies a fresh caller/ABI map for future edits;
+it does not retroactively authorize already-existing implementation.
+
+### CP1 continuation caller and ABI inventory
+
+The continuation census is bound to the commit and scoped tracked-diff hash above. Current command roots
+are `Program.cs:130` (`validate`), `345` (`preflight`), `405` (`baseline`), `465/466/580/626`
+(`snapshot`), `822` (`init`), `880/881/905/908` (`hook`), `927/928/949` (`config`), `981`
+(`oracle-check`), `1045` (`version`), `1065` (`migrate`) and `1109` (`assess`). Configuration and
+YAML seams are `Program.cs:1328/1358/1453/1539` and `CliConfigurationResolver.cs:8`;
+`ProviderRuleCatalog.cs:11` is the provider composition seam.
+
+The protected API seams are `PublicApiSurface.cs:34/44` (`CreatePipeline`), `:99/106`
+(`WithPlugins`), `:293/335` (`CheckDriftAsync`) and `:460-469` (plugin disposal); the direct
+engine seam is `ConcurrentValidationEngine.cs:35/274`. ABI constructors/deconstruction are
+`Configuration.cs:6`, `Contracts.cs:171` (`StoredProcedureDescriptor`),
+`BaselineManager.cs:458/475/479` (baseline/snapshot records), and
+`PublicApiSurface.cs:478` (`ValidationResult`). The retained compiled-consumer fixture at
+`DataGuard.BinaryCompatibilityFixture/Program.cs:7-22` exercises configuration, pipeline,
+validation-result, legacy-engine, `SnapshotColumn`, `SnapshotTable`, `BaselineFile`, and
+`StoredProcedureDescriptor` constructor/deconstruction compatibility.
+
+Procedure construction/routing is at `Program.cs:1644`, `ManualContractSource.cs:124`,
+`SqlServerParsers.cs:71`, the MySQL and PostgreSQL parsers, and `ContractExport.cs:170`, with
+compatibility coverage in `ContractExportTests.cs:28`. EF source/trusted-artifact seams are
+`EfModelSource.cs:216/234/613/638-648/723`; persisted snapshot seams are
+`BaselineManager.cs:80/325/382` and `Program.cs:518/769`; IDE completion handlers are
+`DataGuardPackage.cs:511/724-728` and `extension.ts:310-335`.
+
+### Untracked input identities
+
+The following hashes are from `git ls-files --others --exclude-standard -z | sort -z | xargs -0 sha256sum`:
+
+```text
+37285207f325fbc232550311590d316efe324346f7704c7e0f50338178dcf1b9  DATAGUARD_VS_EXTENSION_PLAN.md
+a16e292e19f2a34f74efd8db22bf98511c7f805e9bf4dd315368371866753c09  docs/journals/260918-0749-vs-redteam-lifecycle-remediation.md
+0b5dc09f3f07f138f829c6bc7cfc5b9ff6106d88fb2a27e8a0a432eaceaadb69  FIX_DATAGUARD_VISUAL_STUDIO_PLAN.md
+e3a7fd8019095728856f1808857f6ce7c1f9f9404fa5fca47844714c5726540e  src/DataGuard.Core/Reporting/ProgressEmitter.cs
+280a34d7b9f07e370ba61c05d1024d73728085e9b33bbd0264ddd8430a732d7e  src/DataGuard.Core/Reporting/ProgressEvent.cs
+e6800880d340dc5d433f5740b3188ffd067746adf6886c5e705ecbf457962657  src/DataGuard.VisualStudio/BindingRedirects.cs
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  src/DataGuard.VisualStudio/NuGet/Migrations/1
+cea4d74624be767e0569c891597c0e6f5329f19f6c9b7fcf8b8c9e9f4933a4bb  src/DataGuard.VisualStudio/NuGet/v3-cache/670c1461c29885f9aa22c281d8b7da90845b38e4$ps_api.nuget.org_v3_index.json/service_index.dat
+e50e838b5b651f067a8756c33e2aca03a145e36fe6161b717bdf06ea03f083dc  src/DataGuard.VisualStudio/NuGet/v3-cache/670c1461c29885f9aa22c281d8b7da90845b38e4$ps_api.nuget.org_v3_index.json/vuln_data_base.dat
+b99fb8f6e723531cd0de4137ab19b75b94684333b5ecf12b229af011252081e6  src/DataGuard.VisualStudio/NuGet/v3-cache/670c1461c29885f9aa22c281d8b7da90845b38e4$ps_api.nuget.org_v3_index.json/vuln_data_update.dat
+c830fa2b221742be5e122ab7ccd3e74deaf8cab768d3d2922f784a9d1a216f23  src/DataGuard.VisualStudio/NuGet/v3-cache/670c1461c29885f9aa22c281d8b7da90845b38e4$ps_api.nuget.org_v3_index.json/vuln_index.dat
+279a6f648f9ff3b063362655970bf8b31152f782ca0ab05492958d8f318d44a9  tests/DataGuard.Core.Tests/ProgressEmitterTests.cs
+d0eb3007c95d9d3149f9a34deef6658ea9689f22efd8b6c500b19ac899824483  tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs
+57d69f21953a10e4a084c7490625c4ff9bda91e2062d34ae708d16cc5cacc138  tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj
+c32435d7053bff52a050cdc4e33441939a4fa2c183e06a34be2df84a0c94167c  tests/DataGuard.VisualStudio.Tests/packages.lock.json
+```
+
+The cache files are recorded only as untrusted build inputs and are not accepted as product provenance.
+
+### Retained binary-consumer compatibility — 2026-09-18
+
+An isolated worktree at baseline commit `93bf7288324dd746669ad09c5e2a592adc772748` built
+`DataGuard.Core` Release with 0 warnings/errors. The binary fixture was then compiled against that
+baseline assembly with its complete declared dependency closure. It was executed against current
+Core through the current CLI Release runtime closure and printed:
+
+```text
+DataGuard.ValidationPipeline:True:0
+```
+
+The baseline-shaped consumer constructs and deconstructs `DataGuardConfiguration`,
+`ValidationResult`, `SnapshotColumn`, `SnapshotTable`, `BaselineFile`, and
+`StoredProcedureDescriptor`. Current Core exposes explicit legacy 8-argument constructors and
+8-argument `Deconstruct` overloads for `SnapshotColumn` and `BaselineFile`, while preserving their
+current v3 members. The original pre-CP1 sequencing breach remains historical and is not
+retroactively authorized.
+
+The retained-consumer artifacts are bound as follows:
+
+```text
+78e2757624e7a79d0129770ab4e4934f51fb902a569e64a92207d4fc94b1b0e9  baseline Core DLL built in detached 93bf728 worktree
+277a26fb0c0697841acd7460ed891e00826aaac5de901090d0d662c28591164d  retained fixture DLL compiled against that baseline Core DLL
+01c6618680ab8a70d135f1ad8aa61ff5619bab0e4af02017d1d52f43f492a896  current Core DLL loaded through the CLI Release runtime closure
+```
+
+CP1 remains a candidate until an independent Sol review accepts this continuation inventory and its
+compatibility constraints.
+
+The post-compatibility Release suite also passed **783/783**: Core 667, Observability 38,
+Analyzers 13, Golden Corpus 28, Visual Studio 16 and Code Fixes 21. The retained baseline
+consumer was rerun against the current CLI runtime closure with the same successful output above.

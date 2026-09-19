@@ -52,6 +52,7 @@ Tiện ích VS **không** tải database provider bên trong `devenv.exe`. Thay 
 Điểm vào là `AsyncPackage` đăng ký lệnh và khởi tạo tiện ích:
 
 ```csharp
+[ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [ProvideAutoLoad(UIContextGuids80.SolutionExists, PackageAutoLoadFlags.BackgroundLoad)]
 [Guid("dataguard-package-guid")]
@@ -77,6 +78,7 @@ public sealed class DataGuardPackage : AsyncPackage
 | `ProvideAutoLoad` | Tự động tải khi solution tồn tại |
 | `Guid` | Định danh package duy nhất |
 | `ProvideMenuResource` | Liên kết với định nghĩa menu lệnh |
+| `ProvideBindingPath` | Thêm thư mục cài đặt tiện ích vào đường dò assembly của Visual Studio cho các dependency đi kèm |
 
 ## Lệnh VSSDK Tools
 

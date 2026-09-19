@@ -1,3 +1,7 @@
+---
+status: completed
+---
+
 # Context
 The request is to perform a comprehensive architectural review and upgrade across the entire `DataGuard` source code ecosystem. The system consists of a core rules/assessment engine, multiple database adapters (MySQL, Oracle, PostgreSQL, SQL Server), Roslyn-based analyzers and code fixes, a .NET 9 CLI, and IDE extensions (VSCode and Visual Studio). The overarching goal is to modernize the execution pipelines for better throughput, harden credential handling across the CLI and IDE extensions, and standardize the adapter contracts to reduce duplicated logic.
 
