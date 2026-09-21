@@ -10,13 +10,21 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
     export PATH="$HOME/.dotnet:$PATH"
 fi
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
 if [[ -d "$HOME/.act/bin" ]]; then
     export PATH="$HOME/.act/bin:$PATH"
 fi
 if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
     export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"
 fi
+
+if [[ -n "${WINDIR:-}" || "${OSTYPE:-}" == "msys"* || "${OSTYPE:-}" == "cygwin"* ]]; then
+    SOLUTION=DataGuard.sln
+else
+    SOLUTION=DataGuard.CrossPlatform.slnf
+fi
 fail() { printf '[verify-local-gates] ERROR: %s\n' "$*" >&2; exit 1; }
+[[ -n "$PYTHON_BIN" ]] || fail 'Python 3 is required.'
 
 command -v dotnet >/dev/null 2>&1 || fail 'dotnet SDK is required.'
 command -v actionlint >/dev/null 2>&1 || fail 'actionlint is required.'
@@ -38,20 +46,20 @@ printf '[verify-local-gates] Validating all workflows.\n'
 actionlint .github/workflows/*.yml
 
 printf '[verify-local-gates] Restoring dependencies.\n'
-dotnet restore DataGuard.sln --locked-mode
+dotnet restore "$SOLUTION" --locked-mode
 
 printf '[verify-local-gates] Building Release.\n'
-dotnet build DataGuard.sln --configuration Release --no-restore
+dotnet build "$SOLUTION" --configuration Release --no-restore
 
 printf '[verify-local-gates] Running analyzers.\n'
-dotnet build DataGuard.sln --configuration Release --no-restore -p:RunAnalyzers=true
+dotnet build "$SOLUTION" --configuration Release --no-restore -p:RunAnalyzers=true
 
 printf '[verify-local-gates] Checking formatting.\n'
-dotnet format DataGuard.sln --verify-no-changes --no-restore
-dotnet format whitespace DataGuard.sln --verify-no-changes
+dotnet format "$SOLUTION" --verify-no-changes --no-restore
+dotnet format whitespace "$SOLUTION" --verify-no-changes
 
 printf '[verify-local-gates] Running tests with coverage.\n'
-dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx" || {
+dotnet test "$SOLUTION" --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx" || {
     if [[ -n "${WINDIR:-}" || "${OSTYPE:-}" == "msys"* || "${OSTYPE:-}" == "cygwin"* ]]; then
         printf '[verify-local-gates] Note: Windows local privilege limitations encountered; verifying coverage threshold.\n'
     else
@@ -59,7 +67,7 @@ dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Co
     fi
 }
 printf '[verify-local-gates] Checking coverage threshold.\n'
-python3 - <<'PY'
+"$PYTHON_BIN" - <<'PY'
 import glob, sys, xml.etree.ElementTree as ET
 hits = {}
 files = glob.glob('**/TestResults/**/coverage.cobertura.xml', recursive=True)
@@ -88,22 +96,10 @@ if rate < 60:
     raise SystemExit('Coverage is below 60%.')
 PY
 
-AUDIT_JSON="$TEMP_DIR/vuln_check.json"
-if ! dotnet list DataGuard.sln package --vulnerable --include-transitive --format json > "$AUDIT_JSON"; then
-    fail 'NuGet vulnerability audit command failed.'
-fi
-python3 - "$AUDIT_JSON" <<'PY'
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-if data.get('problems'):
-    raise SystemExit('NuGet audit reported problems.')
-for project in data.get('projects', []):
-    for framework in project.get('frameworks', []):
-        for package in framework.get('topLevelPackages', []) + framework.get('transitivePackages', []):
-            if package.get('vulnerabilities'):
-                raise SystemExit(f"Vulnerable package: {package.get('id', package.get('name', '?'))}")
-PY
+printf '[verify-local-gates] Auditing full solution NuGet dependencies.\n'
+dotnet restore DataGuard.sln --locked-mode \
+    -p:NuGetAuditMode=all \
+    '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
 
 if [[ "${SKIP_ACT:-0}" == "1" ]]; then
     printf '[verify-local-gates] SKIP_ACT=1: Skipping heavy TruffleHog git scan and act Docker simulation (verified separately; hosted CI will run).\n'

@@ -62,6 +62,7 @@ pass 'toolchain and Docker daemon are available'
 
 required_files=(
   DataGuard.sln
+  DataGuard.CrossPlatform.slnf
   src/DataGuard.Observability/DataGuard.Observability.csproj
   src/DataGuard.Observability/packages.lock.json
   src/DataGuard.Observability.AspNetCore/DataGuard.Observability.AspNetCore.csproj
@@ -187,31 +188,15 @@ run_captured 'Prometheus deterministic rule tests' "$TMP_DIR/prom-test" \
     "$PROM_IMAGE" test rules /rules/rules.test.yaml
 
 run_captured 'locked .NET restore' "$TMP_DIR/restore" \
-  dotnet restore DataGuard.sln --locked-mode
+  dotnet restore DataGuard.CrossPlatform.slnf --locked-mode
 run_captured 'Release build' "$TMP_DIR/build" \
-  dotnet build DataGuard.sln --configuration Release --no-restore
+  dotnet build DataGuard.CrossPlatform.slnf --configuration Release --no-restore
 run_captured 'full solution tests' "$TMP_DIR/test" \
-  dotnet test DataGuard.sln --configuration Release --no-build --no-restore --verbosity minimal
+  dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-build --no-restore --verbosity minimal
 
-run_captured 'NuGet vulnerability report' "$TMP_DIR/vulnerabilities" \
-  dotnet list DataGuard.sln package --vulnerable --include-transitive --format json
-python3 - "$TMP_DIR/vulnerabilities" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as stream:
-    report = json.load(stream)
-if report.get("problems"):
-    raise SystemExit(f"NuGet audit problems: {report['problems']}")
-for project in report.get("projects", []):
-    for framework in project.get("frameworks", []):
-        packages = framework.get("topLevelPackages", []) + framework.get("transitivePackages", [])
-        for package in packages:
-            vulnerabilities = package.get("vulnerabilities") or []
-            if vulnerabilities:
-                raise SystemExit(f"vulnerable package: {package.get('id', '?')}")
-PY
-pass 'NuGet vulnerability report contains no advisories'
+run_captured 'NuGet vulnerability restore audit' "$TMP_DIR/vulnerabilities" \
+  dotnet restore DataGuard.sln --locked-mode -p:NuGetAuditMode=all \
+  '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
 
 # Keep the gate non-mutating even when a kubeconfig exists. The owner must run
 # the server-side dry-run in Phase 6B against the approved context.

@@ -20,6 +20,7 @@ env:
   NUGET_SOURCE: "https://api.nuget.org/v3/index.json"
   VSCODE_DIR: src/DataGuard.VSCode
   VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
+  CROSS_PLATFORM_SOLUTION: DataGuard.CrossPlatform.slnf
 jobs:
   validate-version:
     name: Validate Release Version
@@ -85,14 +86,14 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore DataGuard.sln --locked-mode
+        run: dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
 
       - name: Build solution
-        run: dotnet build DataGuard.sln --configuration Release --no-restore
+        run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
       - name: Run tests (fail-fast)
         run: |
-          dotnet test DataGuard.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
+          dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
 
       - name: Upload test results
         if: always()
@@ -107,7 +108,7 @@ jobs:
       # duplicate versions fail loudly instead of being silently skipped.
       - name: Pack NuGet packages
         run: |
-          dotnet pack DataGuard.sln --configuration Release --no-build --output ./artifacts \
+          dotnet pack ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --output ./artifacts \
             -p:PackageVersion="$RELEASE_VERSION" \
             -p:Version="$RELEASE_VERSION"
           ls -la ./artifacts/
@@ -136,42 +137,11 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Restore dependencies
-        run: dotnet restore DataGuard.sln --locked-mode
-
-      # `dotnet list package --vulnerable` always exits 0 even when vulnerable
-      # packages are found — parse the JSON and fail explicitly. Also fails on
-      # audit/restore errors reported in the 'problems' array.
-      - name: List vulnerable NuGet packages (gate)
-        run: |
-          dotnet list DataGuard.sln package --vulnerable --include-transitive --format json > vuln.json || true
-          python3 - <<'EOF'
-          import json, sys
-          with open('vuln.json') as f:
-              data = json.load(f)
-          if data.get('problems'):
-              for p in data['problems']:
-                  print(f"::error::Audit problem: {p.get('message', p)}")
-              sys.exit(1)
-          bad = []
-          scanned = False
-          for proj in data.get('projects', []):
-              for fw in proj.get('frameworks', []):
-                  scanned = True
-                  for pkg in fw.get('topLevelPackages', []) + fw.get('transitivePackages', []):
-                      if pkg.get('vulnerabilities'):
-                          bad.append((pkg.get('id', pkg.get('name', '?')), proj.get('path', '?')))
-          if not scanned:
-              # SDK only emits 'frameworks' when vulnerabilities exist; an empty
-              # project list without frameworks means a clean dependency set.
-              print('No vulnerable packages found (no framework entries reported).')
-              sys.exit(0)
-          if bad:
-              for name, path in bad:
-                  print(f"::error::Vulnerable package: {name} ({path})")
-              sys.exit(1)
-          print('No vulnerable packages found.')
-          EOF
+      - name: Restore dependencies with NuGet audit
+        run: >-
+          dotnet restore DataGuard.sln --locked-mode
+          -p:NuGetAuditMode=all
+          '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
 
       - name: Check for secrets with TruffleHog (commit range + working tree, fail on verified)
         uses: trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c # v3.97.4
@@ -204,8 +174,16 @@ jobs:
           languages: csharp
           config-file: ./.github/codeql-config.yml
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore cross-platform solution
+        run: dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
+
+      - name: Build cross-platform solution
+        run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0

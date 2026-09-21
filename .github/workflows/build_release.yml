@@ -18,6 +18,7 @@ permissions:
 
 env:
   DOTNET_VERSION: "9.0.x"
+  CROSS_PLATFORM_SOLUTION: DataGuard.CrossPlatform.slnf
   CLI_PROJECT: src/DataGuard.Cli/DataGuard.Cli.csproj
   VSCODE_DIR: src/DataGuard.VSCode
   VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
@@ -287,11 +288,11 @@ jobs:
           VERSION: ${{ needs.validate-input.outputs.version }}
         run: |
           set -euo pipefail
-          dotnet restore DataGuard.sln --locked-mode
-          dotnet build DataGuard.sln --configuration Release --no-restore
+          dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
+          dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
           rm -rf "$RUNNER_TEMP/nuget"
           mkdir -p "$RUNNER_TEMP/nuget"
-          dotnet pack DataGuard.sln --configuration Release --no-build --output "$RUNNER_TEMP/nuget" \
+          dotnet pack ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --output "$RUNNER_TEMP/nuget" \
             -p:MinVerVersionOverride="$VERSION" \
             -p:PackageVersion="$VERSION" \
             -p:Version="$VERSION"

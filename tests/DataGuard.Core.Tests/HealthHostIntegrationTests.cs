@@ -17,13 +17,12 @@ public sealed class HealthHostIntegrationTests
         await File.WriteAllTextAsync(snapshot, "{}");
         await File.WriteAllTextAsync(baseline, "{}");
 
-        var port = ReserveLoopbackPort();
-        using var process = StartHost(port, snapshot, baseline);
+        using var process = StartHost(snapshot, baseline);
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        var baseAddress = $"http://127.0.0.1:{port}";
 
         try
         {
+            var baseAddress = await WaitForListeningAddressAsync(process);
             var live = await GetWhenAvailableAsync(client, $"{baseAddress}/health/live");
             var startup = await GetWhenAvailableAsync(client, $"{baseAddress}/health/startup");
             var ready = await GetWhenAvailableAsync(client, $"{baseAddress}/health/ready");
@@ -83,7 +82,11 @@ public sealed class HealthHostIntegrationTests
         var service = new HealthRefreshService(coordinator, TimeSpan.FromMilliseconds(10));
 
         await service.StartAsync(CancellationToken.None);
-        await Task.Delay(60);
+        var timeoutUtc = DateTime.UtcNow.AddSeconds(5);
+        while (probe.Calls < 2 && DateTime.UtcNow < timeoutUtc)
+        {
+            await Task.Delay(10);
+        }
         var callsBeforeStop = probe.Calls;
         await service.StopAsync(CancellationToken.None);
         var callsAfterStop = probe.Calls;
@@ -105,7 +108,7 @@ public sealed class HealthHostIntegrationTests
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
-    private static Process StartHost(int port, string snapshot, string baseline)
+    private static Process StartHost(string snapshot, string baseline)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -121,7 +124,7 @@ public sealed class HealthHostIntegrationTests
         }
         startInfo.ArgumentList.Add(typeof(HealthHostBinding).Assembly.Location);
         startInfo.ArgumentList.Add("--urls");
-        startInfo.ArgumentList.Add($"http://127.0.0.1:{port}");
+        startInfo.ArgumentList.Add("http://127.0.0.1:0");
         startInfo.ArgumentList.Add("--DataGuardHealth:SnapshotPath");
         startInfo.ArgumentList.Add(snapshot);
         startInfo.ArgumentList.Add("--DataGuardHealth:BaselinePath");
@@ -138,11 +141,29 @@ public sealed class HealthHostIntegrationTests
         return Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start DataGuard.Host.");
     }
 
-    private static int ReserveLoopbackPort()
+    private static async Task<string> WaitForListeningAddressAsync(Process process)
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        try
+        {
+            while (await process.StandardOutput.ReadLineAsync(timeout.Token) is { } line)
+            {
+                const string listeningPrefix = "Now listening on: ";
+                var prefixIndex = line.IndexOf(listeningPrefix, StringComparison.Ordinal);
+                if (prefixIndex >= 0 &&
+                    Uri.TryCreate(line[(prefixIndex + listeningPrefix.Length)..], UriKind.Absolute, out var address) &&
+                    address.IsLoopback)
+                {
+                    return address.GetLeftPart(UriPartial.Authority);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The exception below reports the process state and remains stable across host logging implementations.
+        }
+
+        throw new TimeoutException("DataGuard.Host did not report its loopback listening address.");
     }
 
     private static async Task<HttpResponseMessage> GetWhenAvailableAsync(HttpClient client, string url)
