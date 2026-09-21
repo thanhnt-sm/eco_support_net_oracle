@@ -1,0 +1,28 @@
+{
+  "solution": {
+    "path": "DataGuard.sln",
+    "projects": [
+      "src/DataGuard.Core/DataGuard.Core.csproj",
+      "src/DataGuard.SqlServer.Adapter/DataGuard.SqlServer.Adapter.csproj",
+      "src/DataGuard.Oracle.Adapter/DataGuard.Oracle.Adapter.csproj",
+      "src/DataGuard.Analyzers/DataGuard.Analyzers.csproj",
+      "src/DataGuard.Cli/DataGuard.Cli.csproj",
+      "tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj",
+      "tests/DataGuard.GoldenCorpus.Tests/DataGuard.GoldenCorpus.Tests.csproj",
+      "src/DataGuard.PostgreSql.Adapter/DataGuard.PostgreSql.Adapter.csproj",
+      "src/DataGuard.MySql.Adapter/DataGuard.MySql.Adapter.csproj",
+      "src/DataGuard.Contracts/DataGuard.Contracts.csproj",
+      "tests/DataGuard.Analyzers.Tests/DataGuard.Analyzers.Tests.csproj",
+      "src/DataGuard.CodeFixes/DataGuard.CodeFixes.csproj",
+      "tests/DataGuard.CodeFixes.Tests/DataGuard.CodeFixes.Tests.csproj",
+      "src/DataGuard.Host/DataGuard.Host.csproj",
+      "src/DataGuard.Build/DataGuard.Build.csproj",
+      "src/DataGuard.SqlClassification/DataGuard.SqlClassification.csproj",
+      "src/DataGuard.LanguageServer/DataGuard.LanguageServer.csproj",
+      "src/DataGuard.Observability/DataGuard.Observability.csproj",
+      "src/DataGuard.Observability.AspNetCore/DataGuard.Observability.AspNetCore.csproj",
+      "src/DataGuard.Observability.Messaging/DataGuard.Observability.Messaging.csproj",
+      "tests/DataGuard.Observability.Tests/DataGuard.Observability.Tests.csproj"
+    ]
+  }
+}
