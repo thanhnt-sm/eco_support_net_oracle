@@ -30,6 +30,7 @@ ALLOWED_ROOT_PATTERNS=(
     "^robots\.txt$"
     "^devin_instructions\.md$"
     "^DataGuard\.sln$"
+    "^DataGuard\.CrossPlatform\.slnf$"
     "^Directory\.Build\.props$"
     "^Dockerfile$"
     "^\.dockerignore$"

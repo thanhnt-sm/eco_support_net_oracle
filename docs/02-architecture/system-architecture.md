@@ -293,7 +293,7 @@ flowchart LR
 | **Build** | `dotnet build --configuration Release` | Compile all 11 projects with `TreatWarningsAsErrors` |
 | **Test** | `dotnet test` + XPlat Code Coverage | 291+ tests, 60% coverage gate |
 | **Format Gate** | `dotnet format --verify-no-changes` | Enforce consistent code style |
-| **Vulnerability Scan** | `dotnet list package --vulnerable` | Fail on any vulnerable NuGet package |
+| **Vulnerability Scan** | `dotnet restore -p:NuGetAuditMode=all` | Audits direct and transitive packages; NU1900–NU1905 fail the gate |
 | **Secret Scan** | TruffleHog v3.97.0 | Verified secrets only, exclude build artifacts |
 | **SAST** | CodeQL v4.37.7 | C# security analysis |
 | **Signing** | Sigstore cosign v3.1.3 | Keyless OIDC signing with bundle output |

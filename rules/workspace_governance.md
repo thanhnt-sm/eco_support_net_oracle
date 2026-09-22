@@ -6,7 +6,7 @@
 
 | Nhóm | Paths | Quy tắc |
 |---|---|---|
-| Production | `src/`, `DataGuard.sln`, `Directory.Build.props` | Chỉ đây là source/build surface của product hiện hành. |
+| Production | `src/`, `DataGuard.sln`, `DataGuard.CrossPlatform.slnf`, `Directory.Build.props` | `DataGuard.sln` is the complete developer/Windows solution; the filter is the non-Windows build surface. |
 | Tests | `tests/DataGuard.Core.Tests/`, `tests/DataGuard.GoldenCorpus.Tests/` | Mirror và xác minh contract DataGuard. |
 | Documentation/tri thức | `docs/`, `plans/`, `research/`, `grants/`, `brainstorm/`, root README/contributing/security/license | Không lẫn production source; historical material phải được gắn nhãn rõ. |
 | Discovery evidence | `_observability_discovery/` | Chỉ chứa hồ sơ discovery tĩnh, redacted và bundle bằng chứng do owner yêu cầu; không chứa source, secret, payload, runtime state hoặc generated build output. |

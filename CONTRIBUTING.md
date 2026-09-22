@@ -23,15 +23,15 @@ Thank you for your interest in contributing to **DataGuard**! DataGuard is a con
    ```
 2. **Build, Test, Format** (.NET 9):
    ```bash
-   dotnet build DataGuard.sln                 # must be 0 errors, 0 warnings
-   dotnet test DataGuard.sln                  # all tests must pass
-   dotnet format DataGuard.sln --verify-no-changes
+   dotnet build DataGuard.CrossPlatform.slnf                 # must be 0 errors, 0 warnings
+   dotnet test DataGuard.CrossPlatform.slnf                  # all non-Visual Studio tests must pass
+   dotnet format DataGuard.CrossPlatform.slnf --verify-no-changes
    ```
    Integration tests that need Docker (Testcontainers) are skipped automatically when no Docker daemon is available.
 3. **Submitting a Pull Request**:
    - Ensure new features/rules have accompanying unit tests under `tests/`.
    - Keep the public API surface in mind: `DataGuard.Contracts` (netstandard2.0) is referenced by consumer projects — breaking changes need an ADR in `plans/adr/`.
-   - Run `dotnet list DataGuard.sln package --vulnerable --include-transitive` and make sure no vulnerable packages are introduced.
+   - Run `dotnet restore DataGuard.sln --locked-mode -p:NuGetAuditMode=all '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'`; it audits direct and transitive packages across the full solution.
 
 ---
 
