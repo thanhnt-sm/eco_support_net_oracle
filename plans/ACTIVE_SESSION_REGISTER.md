@@ -36,21 +36,18 @@ eco_support_net_oracle/        ← ROOT (tên repo cũ giữ nguyên)
 
 ---
 
-## 🚦 TRẠNG THÁI HIỆN TẠI (2026-08-22, commit `6502992`)
+## 🚦 TRẠNG THÁI HIỆN TẠI (2026-09-22, commit `c3269c8`)
 
 ```
 dotnet build DataGuard.sln   ✅ 0 errors, 0 warnings (TreatWarningsAsErrors=true)
-dotnet test DataGuard.sln    ✅ 291/291 (Core 261, GoldenCorpus 25, Analyzers 5)
+dotnet test DataGuard.sln    ✅ 786/786 (Core 670, GoldenCorpus 28, CodeFixes 21, VisualStudio 16, Analyzers 13, Observability 38)
 dotnet format                ✅ clean (--verify-no-changes exit 0)
-dotnet list --vulnerable     ✅ 0 vulnerable (all 12 projects)
-coverage                     ✅ 68.7% Core line rate (≥60% gate)
-CI                           ✅ 5 jobs + coverage gate 60% + format gate + TreatWarningsAsErrors
-Test stability               ✅ 5/5 consecutive runs green (flaky tests fixed)
-VSCode extension tests       ✅ 2/2 pass
-Working tree                 ✅ clean, pushed
-NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS_MARKETPLACE_PAT)
+dotnet list --vulnerable     ✅ 0 vulnerable (all 23 projects audited in locked-mode)
+coverage                     ✅ 63.63% line rate (≥60% gate)
+CI (GitHub Actions)          ✅ 11/11 matrix jobs green on PR #22 (Ubuntu Linux + Windows + Docker smoke + CodeQL + VSIX + SBOM)
+Solution filter              ✅ DataGuard.CrossPlatform.slnf (21 cross-platform projects) active for non-Windows CI
+Working tree                 ✅ clean, branch main synced with origin/main (commit c3269c8)
 ```
-
 ---
 
 ## 📌 PHIÊN NÀY — Cleanup di sản hoàn tất + reference sweep bổ sung (2026-08-25)
@@ -334,3 +331,26 @@ NuGet/marketplace publish    ⛔ blocked owner secrets (NUGET_USER, VSCE_PAT, VS
 - [ ] Nếu cần, owner cài thử VSIX trên host tương ứng.
 - [ ] Nếu cần Docker artifact, dispatch lại với `include_docker=true`.
 - [ ] 3 informational còn lại (cần DB thật): OracleReaders col_charsetform; wire RefCursorDescriber; GoldenCorpusTests assert unexpectedErrors.
+
+---
+
+## 📌 PHIÊN NÀY — Solution Filter, Workspace Governance Sync & Automator Push (2026-09-22)
+
+1. ✅ **Đồng bộ giải pháp lọc Cross-Platform & Workspace Governance**:
+   - Tài liệu song ngữ (`CONTRIBUTING.md`, `CONTRIBUTING.vi.md`, `docs/02-architecture/system-architecture.md`, `docs/02-architecture/system-architecture.vi.md`, `docs/SOLUTION.md`, `docs/golden-standard/TEMPLATE_CHECKLIST.md`).
+   - Đồng bộ `rules/workspace_governance.md` với topology canonical 23 project (`DataGuard.sln`) và 21 project cross-platform (`DataGuard.CrossPlatform.slnf`).
+   - Cập nhật scripts preflight: `scripts/anti_garbage_guard.sh` và `scripts/preflight_agent_check.sh`.
+2. ✅ **Xử lý môi trường Git Bash & Chạy thành công `scripts/github_automator.sh`**:
+   - Khắc phục lỗi stdin pipe khi chạy lồng nhau trên Windows: dùng Git Bash với pseudo-terminal (`pty: true`) và `SKIP_ACT=1` để hoàn tất toàn bộ pipeline tự động hóa cục bộ (secret scan, preflight check, build, analyzers, format, 786 tests, 63.63% coverage, NuGet locked audit).
+   - Commit: `2d7c70c` (`docs(cross-platform): document solution filter and sync workspace governance`).
+   - Push thành công lên `origin/feat/vs-extension-ux-lifecycle`.
+3. ✅ **Tạo & Hoàn tất Pull Request #22 trên GitHub**:
+   - PR #22: `docs(cross-platform): document solution filter and sync workspace governance` ([#22](https://github.com/thanhnt-sm/eco_support_net_oracle/pull/22)).
+   - 11/11 jobs kiểm định GitHub Actions pass 100%: Build and Test, Visual Studio Build and Test, Docker Smoke, CodeQL, SBOM, Security Scan, VSIX Packaging.
+   - Merge PR #22 vào nhánh `main` (commit `c3269c8`).
+   - Fast-forward nhánh `main` local đồng bộ hoàn toàn với `origin/main`.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] Giám sát nightly/schedule scan trên GitHub Actions.
+- [ ] Tiếp tục rà soát các hạng mục mở rộng tính năng theo roadmap `plans/HANDOFF.md`.
