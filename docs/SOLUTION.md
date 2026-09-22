@@ -178,15 +178,18 @@ DataGuard.sln
 ### Build & Test (`.github/workflows/ci.yml`)
 ```yaml
 jobs:
-  build-and-test:   # SDK 9.0.x, NuGet cache, fail-fast
-    - dotnet restore DataGuard.sln
-    - dotnet build --configuration Release --no-restore
-    - dotnet test DataGuard.sln --configuration Release --no-build
-    - dotnet list DataGuard.sln package --vulnerable --include-transitive (gate, parse JSON)
+  build-and-test:   # Ubuntu: SDK 9.0.x, NuGet cache, fail-fast
+    - dotnet restore DataGuard.CrossPlatform.slnf --locked-mode
+    - dotnet build DataGuard.CrossPlatform.slnf --configuration Release --no-restore
+    - dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-build
+
+  visual-studio-build-and-test:   # Windows: VSIX project reference + net472 tests
+    - dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release
 
   security-scan:
+    - dotnet restore DataGuard.sln --locked-mode -p:NuGetAuditMode=all -p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905
     - TruffleHog (pin SHA, only_verified) — push + PR
-    - CodeQL Analysis (default csharp + custom queries .github/codeql)
+    - CodeQL Analysis (cross-platform build + custom queries .github/codeql)
 
   generate-sbom:
     - Microsoft.Sbom.Tool 4.1.5 (pin global tool) — sbom-tool generate

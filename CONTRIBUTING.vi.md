@@ -23,15 +23,15 @@ Cảm ơn bạn đã quan tâm đến việc đóng góp cho **DataGuard**! Data
    ```
 2. **Build, Test, Format** (.NET 9):
    ```bash
-   dotnet build DataGuard.sln                 # phải 0 errors, 0 warnings
-   dotnet test DataGuard.sln                  # toàn bộ test phải pass
-   dotnet format DataGuard.sln --verify-no-changes
+   dotnet build DataGuard.CrossPlatform.slnf                 # phải 0 errors, 0 warnings
+   dotnet test DataGuard.CrossPlatform.slnf                  # toàn bộ test không thuộc Visual Studio phải pass
+   dotnet format DataGuard.CrossPlatform.slnf --verify-no-changes
    ```
    Integration test cần Docker (Testcontainers) sẽ tự skip khi không có Docker daemon.
 3. **Gửi Pull Request (PR)**:
    - Đảm bảo feature/rule mới có unit test đi kèm trong `tests/`.
    - Chú ý public API surface: `DataGuard.Contracts` (netstandard2.0) được project người dùng reference — breaking change cần ADR trong `plans/adr/`.
-   - Chạy `dotnet list DataGuard.sln package --vulnerable --include-transitive` và đảm bảo không đưa vào package có lỗ hổng.
+   - Chạy `dotnet restore DataGuard.sln --locked-mode -p:NuGetAuditMode=all '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'`; lệnh audit dependency trực tiếp và transitive cho toàn bộ solution.
 
 ---
 

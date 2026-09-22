@@ -64,7 +64,7 @@
 | Package metadata | RepositoryUrl, License MIT, tags, readme, icon từng csproj | `dotnet pack` + kiểm nuspec |
 | SBOM | CycloneDX cho NuGet package | artifact release |
 | Provenance | `actions/attest@v4` | attestation trên GHCR/nuget |
-| Vulnerability gate | `dotnet list package --vulnerable --include-transitive` = 0 | lệnh trả "no vulnerable" |
+| Vulnerability gate | `dotnet restore -p:NuGetAuditMode=all` với `WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905` | restore toàn solution thành công |
 
 ## 6. Marketplace (VS Code + Visual Studio)
 

@@ -293,7 +293,7 @@ flowchart LR
 | **Build** | `dotnet build --configuration Release` | Biên dịch tất cả 11 dự án với `TreatWarningsAsErrors` |
 | **Test** | `dotnet test` + XPlat Code Coverage | 291+ tests, cổng coverage 60% |
 | **Format Gate** | `dotnet format --verify-no-changes` | Ép buộc kiểu code nhất quán |
-| **Quét Lỗ Hổng** | `dotnet list package --vulnerable` | Thất bại trên bất kỳ gói NuGet có lỗ hổng |
+| **Quét Lỗ Hổng** | `dotnet restore -p:NuGetAuditMode=all` | Audit package trực tiếp và transitive; NU1900–NU1905 làm gate thất bại |
 | **Quét Secret** | TruffleHog v3.97.0 | Chỉ secrets đã xác minh, loại trừ artifacts build |
 | **SAST** | CodeQL v4.37.7 | Phân tích bảo mật C# |
 | **Ký** | Sigstore cosign v3.1.3 | Ký keyless OIDC với output bundle |
