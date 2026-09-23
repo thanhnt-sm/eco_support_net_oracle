@@ -36,17 +36,17 @@ eco_support_net_oracle/        ← ROOT (tên repo cũ giữ nguyên)
 
 ---
 
-## 🚦 TRẠNG THÁI HIỆN TẠI (2026-09-22, commit `c3269c8`)
+## 🚦 TRẠNG THÁI HIỆN TẠI (2026-09-23, commit `406ab48`)
 
 ```
 dotnet build DataGuard.sln   ✅ 0 errors, 0 warnings (TreatWarningsAsErrors=true)
-dotnet test DataGuard.sln    ✅ 786/786 (Core 670, GoldenCorpus 28, CodeFixes 21, VisualStudio 16, Analyzers 13, Observability 38)
+dotnet test DataGuard.sln    ✅ 789/789 (Core 670, GoldenCorpus 28, CodeFixes 24, VisualStudio 16, Analyzers 13, Observability 38)
 dotnet format                ✅ clean (--verify-no-changes exit 0)
 dotnet list --vulnerable     ✅ 0 vulnerable (all 23 projects audited in locked-mode)
-coverage                     ✅ 63.63% line rate (≥60% gate)
-CI (GitHub Actions)          ✅ 11/11 matrix jobs green on PR #22 (Ubuntu Linux + Windows + Docker smoke + CodeQL + VSIX + SBOM)
+coverage                     ✅ 64.18% line rate (≥60% gate)
+CI (GitHub Actions)          ✅ 11/11 matrix jobs green on PR #22 & main branch verification passing
 Solution filter              ✅ DataGuard.CrossPlatform.slnf (21 cross-platform projects) active for non-Windows CI
-Working tree                 ✅ clean, branch main synced with origin/main (commit c3269c8)
+Working tree                 ✅ clean, branch main synced with origin/main (commit 406ab48)
 ```
 ---
 
@@ -350,6 +350,11 @@ Working tree                 ✅ clean, branch main synced with origin/main (com
    - Merge PR #22 vào nhánh `main` (commit `c3269c8`).
    - Fast-forward nhánh `main` local đồng bộ hoàn toàn với `origin/main`.
 
+4. ✅ **Nâng cấp tính năng Quick-Fix DG017 (`SelectStarUsage`) (commit `406ab48`)**:
+   - **Phân tích ngữ nghĩa (`DataGuard.Analyzers`)**: Bổ sung `ExplicitColumns` vào thuộc tính của diagnostic khi phát hiện câu lệnh `SELECT *` đối chiếu với kiểu DTO/Entity đích (EF Core `FromSqlRaw` và Dapper `Query<T>`), tự động trích xuất các cột vô hướng và nhãn `[Column("...")]`.
+   - **Vá mã tự động (`DataGuard.CodeFixes`)**: Bổ sung `ReplaceSelectStarCodeFixProvider` thay thế `SELECT *` bằng danh sách cột tường minh hoặc placeholder hướng dẫn nếu không có kiểu thực thể đích.
+   - **Kiểm thử tự động**: Bổ sung 3 test mới (24/24 CodeFixes tests pass, 789/789 toàn solution pass, coverage tăng lên 64.18%).
+   - **Commit & Push**: Kiểm định và đẩy trực tiếp lên `origin/main` qua `scripts/github_automator.sh`.
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO
 
 - [ ] Giám sát nightly/schedule scan trên GitHub Actions.
