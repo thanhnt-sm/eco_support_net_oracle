@@ -41,7 +41,8 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     public sealed override ImmutableArray<string> FixableDiagnosticIds
         => ImmutableArray.Create(
             DiagnosticIds.ParameterMismatch,
-            DiagnosticIds.UnvalidatedSqlCall);
+            DiagnosticIds.UnvalidatedSqlCall,
+            DiagnosticIds.SelectStarUsage);
 
     /// <summary>Gets the batch fix-all provider.</summary>
     /// <returns>The batch fix-all provider.</returns>
@@ -71,7 +72,84 @@ public class DataGuardCodeFixProvider : CodeFixProvider
             case DiagnosticIds.ParameterMismatch:
                 this.RegisterParameterMismatchFixes(context, diagnostic, root);
                 break;
+            case DiagnosticIds.SelectStarUsage:
+                this.RegisterReplaceSelectStarFix(context, diagnostic, root);
+                break;
         }
+    }
+
+    private void RegisterReplaceSelectStarFix(CodeFixContext context, Diagnostic diagnostic, SyntaxNode root)
+    {
+        var diagnosticSpan = diagnostic.Location.SourceSpan;
+        var literal = FindStringLiteral(root, diagnosticSpan);
+
+        if (literal == null)
+        {
+            return;
+        }
+
+        // The analyzer sets ExplicitColumns property if it successfully extracted columns from the entity shape.
+        diagnostic.Properties.TryGetValue("ExplicitColumns", out var explicitColumns);
+
+        var title = !string.IsNullOrEmpty(explicitColumns)
+            ? "Replace SELECT * with explicit columns"
+            : "Replace SELECT * with column placeholder";
+
+        context.RegisterCodeFix(
+            CodeAction.Create(
+                title: title,
+                createChangedDocument: c => this.ReplaceSelectStarAsync(context.Document, literal, explicitColumns, c),
+                equivalenceKey: nameof(ReplaceSelectStarAsync) + title),
+            diagnostic);
+    }
+
+    private async Task<Document> ReplaceSelectStarAsync(Document document, LiteralExpressionSyntax literal, string? explicitColumns, CancellationToken cancellationToken)
+    {
+        var text = literal.Token.ValueText;
+        var prefix = string.Empty;
+        var suffix = string.Empty;
+        if (literal.Token.Text.StartsWith("@\""))
+        {
+            prefix = "@\"";
+            suffix = "\"";
+        }
+        else if (literal.Token.Text.StartsWith("\"\"\""))
+        {
+            prefix = "\"\"\"";
+            suffix = "\"\"\"";
+        }
+        else if (literal.Token.Text.StartsWith("\""))
+        {
+            prefix = "\"";
+            suffix = "\"";
+        }
+
+        var replacementColumns = !string.IsNullOrEmpty(explicitColumns) ? explicitColumns : "/* TODO: Replace with specific columns */";
+
+        // Try to replace "SELECT * FROM" to be safe.
+        var newText = System.Text.RegularExpressions.Regex.Replace(
+            text,
+            @"\bSELECT\s+\*\s+FROM\b",
+            $"SELECT {replacementColumns} FROM",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        if (newText == text)
+        {
+            // Fallback: replace "SELECT *"
+            newText = System.Text.RegularExpressions.Regex.Replace(
+                text,
+                @"\bSELECT\s+\*",
+                $"SELECT {replacementColumns}",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        }
+
+        var newLiteral = SyntaxFactory.LiteralExpression(
+            SyntaxKind.StringLiteralExpression,
+            SyntaxFactory.Literal(prefix + newText + suffix, newText));
+
+        var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+        var newRoot = root!.ReplaceNode(literal, newLiteral);
+        return document.WithSyntaxRoot(newRoot);
     }
 
     private static AttributeListSyntax CreateSkipContractCheckAttribute(string reason)

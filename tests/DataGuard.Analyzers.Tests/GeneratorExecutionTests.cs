@@ -176,7 +176,9 @@ public class GeneratorExecutionTests
             .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
             .GetAnalyzerDiagnosticsAsync();
 
-        diagnostics.Should().Contain(diagnostic => diagnostic.Id == DiagnosticIds.SelectStarUsage);
+        var selectStarDiag = diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == DiagnosticIds.SelectStarUsage).Subject;
+        selectStarDiag.Properties.Should().ContainKey("ExplicitColumns");
+        selectStarDiag.Properties["ExplicitColumns"].Should().Be("Id, Name, Email");
         diagnostics.Should().NotContain(diagnostic => diagnostic.Id == DiagnosticIds.ColumnShapeMismatch);
     }
 
@@ -263,7 +265,9 @@ public class GeneratorExecutionTests
             .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new ContractValidationAnalyzer()))
             .GetAnalyzerDiagnosticsAsync();
 
-        diagnostics.Should().Contain(diagnostic => diagnostic.Id == DiagnosticIds.SelectStarUsage);
+        var selectStarDiag = diagnostics.Should().ContainSingle(diagnostic => diagnostic.Id == DiagnosticIds.SelectStarUsage).Subject;
+        selectStarDiag.Properties.Should().ContainKey("ExplicitColumns");
+        selectStarDiag.Properties["ExplicitColumns"].Should().Be("Id");
     }
 
     [Fact]

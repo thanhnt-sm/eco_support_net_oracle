@@ -112,7 +112,8 @@ public class CodeFixProviderTests
 
         provider.FixableDiagnosticIds.Should().BeEquivalentTo(
             DiagnosticIds.ParameterMismatch,
-            DiagnosticIds.UnvalidatedSqlCall);
+            DiagnosticIds.UnvalidatedSqlCall,
+            DiagnosticIds.SelectStarUsage);
         provider.FixableDiagnosticIds.Should().NotContain(DiagnosticIds.DirectionMismatch);
         provider.FixableDiagnosticIds.Should().NotContain(DiagnosticIds.ColumnShapeMismatch);
         provider.FixableDiagnosticIds.Should().NotContain(DiagnosticIds.NullableMismatch);
@@ -242,6 +243,43 @@ public class CodeFixProviderTests
             CreateDiagnostic(DiagnosticIds.ParameterMismatch, literal.GetLocation()));
 
         actions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DataGuardCodeFixProvider_FixesSelectStarUsage()
+    {
+        var provider = new DataGuardCodeFixProvider();
+        provider.FixableDiagnosticIds.Should().Contain(DiagnosticIds.SelectStarUsage);
+    }
+
+    [Fact]
+    public async Task SelectStarUsage_WithExplicitColumns_ReplacesSelectStarWithColumnList()
+    {
+        var document = CreateDocument("class C { void M() { Query(\"SELECT * FROM Customers\"); } void Query(string sql) { } }");
+        var literal = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        var properties = ImmutableDictionary<string, string?>.Empty
+            .Add("ExplicitColumns", "Id, Name, Email");
+        var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, literal.GetLocation(), properties);
+
+        var changed = await ApplyOnlyActionAsync(new DataGuardCodeFixProvider(), document, diagnostic);
+
+        (await changed.GetTextAsync()).ToString().Should().Contain("SELECT Id, Name, Email FROM Customers");
+        (await changed.Project.GetCompilationAsync())!.GetDiagnostics()
+            .Should().NotContain(d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public async Task SelectStarUsage_WithoutExplicitColumns_ReplacesWithPlaceholder()
+    {
+        var document = CreateDocument("class C { void M() { Query(\"SELECT * FROM Customers\"); } void Query(string sql) { } }");
+        var literal = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, literal.GetLocation());
+
+        var changed = await ApplyOnlyActionAsync(new DataGuardCodeFixProvider(), document, diagnostic);
+
+        (await changed.GetTextAsync()).ToString().Should().Contain("SELECT /* TODO: Replace with specific columns */ FROM Customers");
+        (await changed.Project.GetCompilationAsync())!.GetDiagnostics()
+            .Should().NotContain(d => d.Severity == DiagnosticSeverity.Error);
     }
 
     [Fact]

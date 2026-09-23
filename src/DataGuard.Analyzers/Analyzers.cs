@@ -631,6 +631,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             var diagnostic = Diagnostic.Create(
                 GetDiagnosticDescriptor(violation.RuleId),
                 violation.Location ?? invocation.Syntax.GetLocation(),
+                violation.Properties,
                 violation.Message);
             context.ReportDiagnostic(diagnostic);
         }
@@ -663,6 +664,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             var diagnostic = Diagnostic.Create(
                 GetDiagnosticDescriptor(violation.RuleId),
                 violation.Location ?? invocation.Syntax.GetLocation(),
+                violation.Properties,
                 violation.Message);
             context.ReportDiagnostic(diagnostic);
         }
@@ -690,6 +692,7 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             var diagnostic = Diagnostic.Create(
                 GetDiagnosticDescriptor(violation.RuleId),
                 violation.Location ?? invocation.Syntax.GetLocation(),
+                violation.Properties,
                 violation.Message);
             context.ReportDiagnostic(diagnostic);
         }
@@ -844,11 +847,32 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
     {
         if (ContainsSelectStar(sqlText))
         {
+            var diagProps = ImmutableDictionary<string, string?>.Empty;
+            if (targetType != null)
+            {
+                var scalarProps = GetEntityScalarProperties(targetType);
+                if (scalarProps.Count > 0)
+                {
+                    var colNames = scalarProps.Select(p =>
+                    {
+                        var colAttr = p.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "ColumnAttribute" or "Column");
+                        if (colAttr != null && colAttr.ConstructorArguments.Length > 0 && colAttr.ConstructorArguments[0].Value is string colName && !string.IsNullOrWhiteSpace(colName))
+                        {
+                            return colName;
+                        }
+
+                        return p.Name;
+                    });
+                    diagProps = diagProps.Add("ExplicitColumns", string.Join(", ", colNames));
+                }
+            }
+
             violations.Add(new AnalyzerViolation(
                 DiagnosticIds.SelectStarUsage,
                 "Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation.",
                 DiagnosticSeverity.Warning,
-                Location.None));
+                Location.None,
+                diagProps));
             return;
         }
 
@@ -1084,16 +1108,23 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 /// </summary>
 internal sealed class AnalyzerViolation
 {
-    public AnalyzerViolation(string ruleId, string message, DiagnosticSeverity severity, Location? location)
+    public AnalyzerViolation(
+        string ruleId,
+        string message,
+        DiagnosticSeverity severity,
+        Location? location,
+        ImmutableDictionary<string, string?>? properties = null)
     {
         RuleId = ruleId;
         Message = message;
         Severity = severity;
         Location = location;
+        Properties = properties ?? ImmutableDictionary<string, string?>.Empty;
     }
 
     public string RuleId { get; }
     public string Message { get; }
     public DiagnosticSeverity Severity { get; }
     public Location? Location { get; }
+    public ImmutableDictionary<string, string?> Properties { get; }
 }
