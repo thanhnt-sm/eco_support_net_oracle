@@ -45,7 +45,7 @@ dataguard validate [options]
 | `--config` | — | Đường dẫn file `.dataguard.yml` |
 | `--output` | — | Đường dẫn file output (bắt buộc cho sarif/evidence) |
 | `--format` | `text` | Định dạng output: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
-| `--offline` | `false` | Chạy ở chế độ offline (không kết nối DB, cần `--assembly`) |
+| `--offline` | `false` | Chạy ở chế độ offline (không kết nối DB, cần `--assembly` hoặc `--project`) |
 | `--verbose` | `false` | Bật output chi tiết |
 | `--provider` | `DefaultProvider` trong config, rồi `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` |
 | `--schema` | — | Tên schema/owner |
@@ -54,18 +54,90 @@ dataguard validate [options]
 | `--ef-project` | — | File `.csproj` hoặc directory chứa source `*ModelSnapshot.cs`; không build hay load assembly |
 | `--ef-context` | — | Tên context dùng để chọn một snapshot dưới `--ef-project` |
 | `--skip-rules` | — | Danh sách ID rule bỏ qua, phân tách bằng dấu phẩy (ví dụ `DG002,DG017,MY001`) |
+| `--project` | — | Đường dẫn project C# (`.csproj`), solution (`.sln`), hoặc thư mục để trích xuất query SQL inline và model C# |
+| `--progress` | `false` | Xuất luồng sự kiện tiến trình JSON an toàn từng dòng qua stderr |
 
 **Hành vi:**
 - Không có `--connection`: xác thực với snapshot đã commit (chế độ Snapshot)
-- Với `--offline`: cần `--assembly` cho chế độ Manual ground-truth dùng attribute `[ExpectedColumn]`/`[ExpectedSpParameter]`
+- Với `--offline`: chạy xác thực mà không cần kết nối database. Yêu cầu `--assembly` (chế độ Manual ground-truth dùng attribute) hoặc `--project` (chế độ trích xuất Roslyn AST cho SQL inline và model). Không cần build sẵn binary/assembly khi dùng `--project`.
+- `--project`: phát hiện contract và câu lệnh SQL inline (Dapper, ADO.NET) trực tiếp từ mã nguồn C# (`.csproj`, `.sln`, hoặc thư mục) qua Roslyn AST mà không cần build assembly trước
+- `--progress`: xuất các sự kiện tiến trình thời gian thực dưới dạng dòng JSON (NDJSON) an toàn sang `stderr` để tích hợp công cụ và IDE (ví dụ VS Code extension)
+- `--verbose`: in báo cáo quét chi tiết bao gồm chuỗi/gợi ý kết nối được phát hiện, các câu lệnh SQL kèm số dòng, loại thao tác AST, các bảng được tham chiếu, mapping DTO đích, và chẩn đoán cột/thuộc tính chưa được map
 - `--format contracts`: xuất contract đã trích xuất dưới dạng JSON
 - `--format yaml`: xuất cùng schema contract dưới dạng YAML xác định
+- `--format sarif`: xuất chẩn đoán định dạng SARIF 2.1.0 ra `--output`. Khi dùng `--format sarif`, một tệp bổ trợ `summary.json` sẽ tự động được ghi cùng thư mục với `--output` chứa các chỉ số quét tổng hợp
 - `--ef-snapshot`: thêm EF descriptor chỉ từ source có giới hạn; syntax/unsupported input lỗi hiển thị thay vì tạo contract rỗng
 - `--ef-project`: chỉ nhận directory hoặc `.csproj`, chỉ tìm source snapshot, bỏ qua `bin`, `obj` và `.git`, đồng thời lỗi nếu selection mơ hồ; dùng `--ef-context` để chọn context
 - `--ef-snapshot` và `--ef-project` loại trừ nhau; `--ef-context` cần `--ef-project`
 - `--skip-rules`: loại trừ các rule ID đã liệt kê trước khi validate; so khớp không phân biệt hoa/thường và bỏ qua khoảng trắng thừa
 - `--format typescript`: xuất TypeScript DTO từ entity descriptor
 
+#### Luồng sự kiện tiến trình (`--progress`)
+
+Khi bật `--progress`, CLI sẽ stream các sự kiện NDJSON mà máy có thể đọc được ra `stderr`. Mỗi dòng đại diện cho một cột mốc hoặc giai đoạn trong vòng đời chạy:
+
+```json
+{"Kind":"PhaseStarted","Phase":"Acquiring contracts","Detail":"Scanning C# project for SQL queries and contracts.","Data":null}
+{"Kind":"ContractDiscovered","Phase":"Acquiring contracts","Detail":"EntityDescriptor","Data":null}
+{"Kind":"PhaseCompleted","Phase":"Acquiring contracts","Detail":"Contract acquisition completed.","Data":{"ContractCount":42,"Status":"Complete"}}
+{"Kind":"PhaseStarted","Phase":"Validating rules","Detail":"Running enabled validation rules.","Data":{"ContractCount":42}}
+{"Kind":"RuleExecuted","Phase":"Validating rules","Detail":"DG001","Data":null}
+{"Kind":"Summary","Phase":"Validation complete","Detail":"Validation completed.","Data":{"ErrorCount":0,"WarningCount":2,"ViolationCount":2}}
+```
+
+Các giá trị `Kind` hỗ trợ: `PhaseStarted`, `PhaseCompleted`, `ContractDiscovered`, `RuleExecuted`, `Summary`. Dữ liệu sự kiện được lọc bỏ tuyệt đối mật khẩu, token hoặc chuỗi kết nối thô.
+
+#### Tệp tổng kết quét bổ trợ (`summary.json`)
+
+Khi xuất output dạng SARIF (`--format sarif --output <path>`), DataGuard sẽ tự động tạo tệp đồng hành `summary.json` trong cùng thư mục:
+
+```json
+{
+  "filesScanned": 12,
+  "queriesFound": 28,
+  "connectionsFound": 2,
+  "violationsCount": 1,
+  "connections": [
+    {
+      "name": "DefaultConnection",
+      "provider": "sqlserver",
+      "hint": "Server=localhost;Database=Sales..."
+    }
+  ],
+  "queries": [
+    {
+      "sql": "SELECT Id, Name, Email FROM Users WHERE TenantId = @TenantId",
+      "operation": "Select",
+      "tables": ["Users"],
+      "targetType": "UserDto",
+      "columns": ["Id", "Name", "Email"],
+      "properties": ["Id", "Name", "Email"],
+      "unmappedColumns": [],
+      "unmappedProperties": []
+    }
+  ]
+}
+```
+
+#### Báo cáo quét chi tiết (`--verbose`)
+
+Chạy lệnh `dataguard validate --verbose` sẽ in báo cáo chẩn đoán dễ đọc trực tiếp ra `stdout`:
+
+```text
+=== DataGuard Scan Report ===
+Scanned C# project/directory: src/OrderService
+
+--- Connections Found ---
+  [1] SQLSERVER "DefaultConnection" (Server=localhost;Database=Sales...)
+
+--- SQL Queries Found ---
+  [Q1] SELECT Id, Amount, CustomerId FROM Orders WHERE Status = @Status
+       Location: OrderRepository.cs:45
+       Operation: Select | Tables: Orders | Target: OrderDto
+       Mapping: 3/3 properties matched. Unmapped columns: 0, unmapped properties: 0
+
+Validation complete: 0 issues (0 errors, 0 warnings)
+```
 ## Managed pre-commit hook
 
 Hook installer ghi script POSIX `sh` và gọi `dataguard validate --format text` để dùng đường Snapshot đã lưu thông thường. Nó không phát `--offline` khi thiếu `--assembly`. Trên Unix, installer đặt executable mode. Install và uninstall chỉ thay thế hoặc xóa file có marker DataGuard-managed; hook người dùng hoặc `lefthook.yml` đang có luôn được giữ lại, kể cả khi yêu cầu force.

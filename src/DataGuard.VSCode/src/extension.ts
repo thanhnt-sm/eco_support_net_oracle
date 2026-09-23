@@ -1,6 +1,7 @@
 import { ChildProcess, spawn } from "child_process";
 import { createHash } from "crypto";
 import { once } from "events";
+import { StringDecoder } from "string_decoder";
 import { promises as fs } from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -272,8 +273,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
     const expectsSarif = command === "validate" || command === "assess";
     const outputPath = expectsSarif ? path.join(outputDirectory, "validation.sarif") : undefined;
     const args = buildCliArguments(command, workspaceFolder.uri.fsPath, provider, configPath, outputPath);
-    channel.appendLine(`[DataGuard] ${command === "validate" ? "Validation" : "Local assessment"} started. Detailed CLI output is not displayed to prevent credential disclosure.`);
-
+    channel.appendLine(`[DataGuard] ${command === "validate" ? "Validation" : "Local assessment"} started for ${path.basename(workspaceFolder.uri.fsPath)}.`);
     let child: ChildProcess;
     try {
         child = spawn(cliPath, args, {
@@ -309,8 +309,15 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
     try {
         const result = await waitForExit(child, channel);
         const exitCode = result.code;
-        if (result.output.length > 0) {
-            channel.appendLine(`[DataGuard] ${redactAndBoundSensitiveText(result.output, MAX_CLI_OUTPUT)}`);
+        if (exitCode !== 0 && result.output.length > 0) {
+            const rawErrors = result.output
+                .split("\n")
+                .map(l => l.trim())
+                .filter(l => !l.startsWith("{") && (l.includes("Error") || l.includes("fail") || l.includes("Exception")))
+                .join("\n");
+            if (rawErrors.length > 0) {
+                channel.appendLine(`[DataGuard] ${redactAndBoundSensitiveText(rawErrors, MAX_CLI_OUTPUT)}`);
+            }
         }
         if (run.timedOut) {
             channel.appendLine(`\n[DataGuard] ${command} timed out after ${timeoutSeconds} seconds.`);
@@ -327,6 +334,19 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
             const diagnosticCount = await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel);
             channel.appendLine(`[DataGuard] SARIF summary: ${diagnosticCount} finding(s) loaded into Problems.`);
         }
+            const summaryPath = path.join(outputDirectory, "summary.json");
+            try {
+                const stat = await fs.stat(summaryPath).catch(() => null);
+                if (stat?.isFile()) {
+                    const summaryRaw = await fs.readFile(summaryPath, "utf8");
+                    const summaryObj = JSON.parse(summaryRaw) as { queriesFound?: number; filesScanned?: number; connectionsFound?: number };
+                    if (summaryObj) {
+                        channel.appendLine(`[DataGuard] Scan summary: ${summaryObj.queriesFound ?? 0} SQL queries analyzed across ${summaryObj.filesScanned ?? 0} files. Connections: ${summaryObj.connectionsFound ?? 0}.`);
+                    }
+                }
+            } catch {
+                // Ignore optional summary.json
+            }
         channel.appendLine(`\n[DataGuard] exited with code ${exitCode ?? "unknown"}`);
         if (exitCode === 0) {
             setStatus("idle");
@@ -383,19 +403,85 @@ async function selectWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefin
     return selected?.folder;
 }
 
+interface ProgressEventPayload {
+    Kind?: string;
+    Phase?: string;
+    Detail?: string;
+    Data?: Record<string, unknown>;
+}
+
+function processProgressText(
+    text: string,
+    state: { buffer: string },
+    channel: vscode.OutputChannel,
+): void {
+    state.buffer += text;
+    const lines = state.buffer.split("\n");
+    state.buffer = lines.pop() ?? "";
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) {
+            continue;
+        }
+        if (line.startsWith("{") && line.endsWith("}")) {
+            try {
+                const payload = JSON.parse(line) as ProgressEventPayload;
+                if (payload.Kind) {
+                    if (payload.Detail) {
+                        channel.appendLine(`[DataGuard] ${redactSensitiveText(payload.Detail)}`);
+                    } else if (payload.Phase) {
+                        channel.appendLine(`[DataGuard] ${redactSensitiveText(payload.Phase)}`);
+                    }
+                    continue;
+                }
+            } catch {
+                // Not JSON progress, fall through
+            }
+        }
+        if (line.startsWith("[INFO]") || line.startsWith("[WARN]") || line.startsWith("[ERROR]")) {
+            channel.appendLine(`[DataGuard] ${redactSensitiveText(line)}`);
+        }
+    }
+}
+
 async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<ChildExit> {
     let output = "";
-    const append = (chunk: Buffer | string): void => {
-        if (output.length >= MAX_CLI_OUTPUT) {
-            return;
+    const stdoutState = { buffer: "", decoder: new StringDecoder("utf8") };
+    const stderrState = { buffer: "", decoder: new StringDecoder("utf8") };
+
+    const handleChunk = (chunk: Buffer | string, state: { buffer: string; decoder: StringDecoder }): void => {
+        const decoded = typeof chunk === "string" ? chunk : state.decoder.write(chunk);
+        if (output.length < MAX_CLI_OUTPUT) {
+            output += decoded.slice(0, MAX_CLI_OUTPUT - output.length);
         }
-        output += chunk.toString().slice(0, MAX_CLI_OUTPUT - output.length);
+        processProgressText(decoded, state, channel);
     };
-    child.stdout?.on("data", append);
-    child.stderr?.on("data", append);
+
+    child.stdout?.on("data", (chunk) => handleChunk(chunk, stdoutState));
+    child.stderr?.on("data", (chunk) => handleChunk(chunk, stderrState));
 
     try {
         const [code] = await once(child, "close");
+        const finalStdout = stdoutState.decoder.end();
+        if (finalStdout) {
+            if (output.length < MAX_CLI_OUTPUT) {
+                output += finalStdout.slice(0, MAX_CLI_OUTPUT - output.length);
+            }
+            processProgressText(finalStdout, stdoutState, channel);
+        }
+        if (stdoutState.buffer.trim()) {
+            processProgressText("\n", stdoutState, channel);
+        }
+        const finalStderr = stderrState.decoder.end();
+        if (finalStderr) {
+            if (output.length < MAX_CLI_OUTPUT) {
+                output += finalStderr.slice(0, MAX_CLI_OUTPUT - output.length);
+            }
+            processProgressText(finalStderr, stderrState, channel);
+        }
+        if (stderrState.buffer.trim()) {
+            processProgressText("\n", stderrState, channel);
+        }
         return { code: code as number | null, output };
     } catch (error) {
         showStartError(error, channel);

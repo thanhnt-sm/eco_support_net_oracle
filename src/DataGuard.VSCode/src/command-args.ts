@@ -20,7 +20,20 @@ export function buildCliArguments(
     const normalizedProvider = normalizeProvider(provider);
     switch (command) {
         case "validate":
-            return ["validate", "--config", configPath!, "--provider", normalizedProvider, "--format", "sarif", "--output", outputPath!];
+            return [
+                "validate",
+                "--config",
+                configPath!,
+                "--provider",
+                normalizedProvider,
+                "--format",
+                "sarif",
+                "--output",
+                outputPath!,
+                "--project",
+                workspacePath,
+                "--progress",
+            ];
         case "assess":
             return ["assess", "--workspace", workspacePath, "--provider", normalizedProvider, "--format", "sarif", "--output", outputPath!];
         case "snapshot":

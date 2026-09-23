@@ -45,11 +45,81 @@ public static class SqlClassifier
                 {
                     continue;
                 }
-                results.Add(new SqlClassification(documentUri, version ?? string.Empty, found, token.Length, token));
+
+                var snippet = GetSnippet(source, found);
+                var (table, detail, isSelectStar) = AnalyzeSnippet(token, snippet);
+
+                results.Add(new SqlClassification(
+                    documentUri,
+                    version ?? string.Empty,
+                    found,
+                    token.Length,
+                    token,
+                    table,
+                    detail,
+                    isSelectStar));
             }
         }
 
         return results.OrderBy(result => result.Start).ThenBy(result => result.Kind, StringComparer.Ordinal).ToArray();
+    }
+
+    private static string GetSnippet(string source, int start)
+    {
+        var length = Math.Min(256, source.Length - start);
+        var sub = source.Substring(start, length);
+        var quoteEnd = sub.IndexOfAny(new[] { '"', ';', '\r', '\n' });
+        return quoteEnd > 0 ? sub.Substring(0, quoteEnd) : sub;
+    }
+
+    private static (string? Table, string? Detail, bool IsSelectStar) AnalyzeSnippet(string token, string snippet)
+    {
+        if (token.Equals("SELECT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (System.Text.RegularExpressions.Regex.IsMatch(snippet, @"SELECT\s+\*\s+FROM\s+([A-Za-z0-9_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(snippet, @"SELECT\s+\*\s+FROM\s+([A-Za-z0-9_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var table = match.Groups[1].Value;
+                return (table, $"SELECT * query on table '{table}' detected. Explicit column lists are recommended (DG017).", true);
+            }
+
+            var selectMatch = System.Text.RegularExpressions.Regex.Match(snippet, @"SELECT\s+(.+?)\s+FROM\s+([A-Za-z0-9_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (selectMatch.Success)
+            {
+                var table = selectMatch.Groups[2].Value;
+                var cols = selectMatch.Groups[1].Value.Split(',').Length;
+                return (table, $"SQL Read query on table '{table}' ({cols} column(s)).", false);
+            }
+        }
+        else if (token.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(snippet, @"INSERT\s+INTO\s+([A-Za-z0-9_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var table = match.Groups[1].Value;
+                return (table, $"SQL Write query on table '{table}'.", false);
+            }
+        }
+        else if (token.Equals("UPDATE", StringComparison.OrdinalIgnoreCase))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(snippet, @"UPDATE\s+([A-Za-z0-9_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var table = match.Groups[1].Value;
+                return (table, $"SQL Write query on table '{table}'.", false);
+            }
+        }
+        else if (token.Equals("DELETE", StringComparison.OrdinalIgnoreCase))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(snippet, @"DELETE\s+FROM\s+([A-Za-z0-9_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var table = match.Groups[1].Value;
+                return (table, $"SQL Delete query on table '{table}'.", false);
+            }
+        }
+
+        return (null, null, false);
     }
 
     private static bool IsWordBoundary(string text, int start, int length) =>
@@ -63,13 +133,24 @@ public static class SqlClassifier
 public sealed class SqlClassification
 {
     /// <summary>Initializes a new instance of the <see cref="SqlClassification"/> class.</summary>
-    public SqlClassification(Uri documentUri, string version, int start, int length, string kind)
+    public SqlClassification(
+        Uri documentUri,
+        string version,
+        int start,
+        int length,
+        string kind,
+        string? table = null,
+        string? detailMessage = null,
+        bool isSelectStar = false)
     {
         DocumentUri = documentUri;
         Version = version;
         Start = start;
         Length = length;
         Kind = kind;
+        Table = table;
+        DetailMessage = detailMessage;
+        IsSelectStar = isSelectStar;
     }
 
     /// <summary>Gets the source document URI.</summary>
@@ -86,4 +167,13 @@ public sealed class SqlClassification
 
     /// <summary>Gets the SQL keyword kind.</summary>
     public string Kind { get; }
+
+    /// <summary>Gets the target table if extractable.</summary>
+    public string? Table { get; }
+
+    /// <summary>Gets the enriched diagnostic message if available.</summary>
+    public string? DetailMessage { get; }
+
+    /// <summary>Gets a value indicating whether this is a SELECT * query.</summary>
+    public bool IsSelectStar { get; }
 }

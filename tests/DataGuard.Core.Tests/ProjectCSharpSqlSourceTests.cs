@@ -164,4 +164,79 @@ public class ProductCatalog
         output.Should().Contain("Found SQL in ProductCatalog.cs:");
         output.Should().Contain("targeting Product");
     }
+
+    [Fact]
+    public async Task ExtractContractsAsync_DetectsCommandTextAndNewCommand_WithProviderHint()
+    {
+        var code = @"
+namespace TestNamespace;
+
+public class OracleCommand
+{
+    public string CommandText { get; set; } = """";
+    public OracleCommand(string cmdText) { CommandText = cmdText; }
+    public OracleCommand() { }
+}
+
+public class Repo
+{
+    public void Run()
+    {
+        var cmd = new OracleCommand();
+        cmd.CommandText = ""SELECT u.Id, u.Name FROM Users u JOIN Orders o ON u.Id = o.UserId"";
+        var cmd2 = new OracleCommand(""INSERT INTO Logs (Message) VALUES (:msg)"");
+    }
+}";
+        var filePath = Path.Combine(_tempDirectory, "Repo.cs");
+        await File.WriteAllTextAsync(filePath, code);
+
+        var source = new ProjectCSharpSqlSource(_tempDirectory);
+        var contracts = await source.ExtractContractsAsync();
+
+        contracts.Should().HaveCount(2);
+        var readSql = contracts.OfType<RawSqlDescriptor>().First(c => c.OperationType == SqlOperationType.Join);
+        readSql.ReferencedTables.Should().Contain("Users");
+        readSql.ReferencedTables.Should().Contain("Orders");
+        readSql.ConnectionProviderHint.Should().Be("oracle");
+
+        var writeSql = contracts.OfType<RawSqlDescriptor>().First(c => c.OperationType == SqlOperationType.Write);
+        writeSql.ReferencedTables.Should().Contain("Logs");
+        writeSql.Parameters.Should().Contain(p => p.Name == ":msg");
+    }
+
+    [Fact]
+    public void ExtractParameters_MultiDialect_WithLiteralMasking()
+    {
+        var sql = "SELECT * FROM T WHERE a = @sqlParam AND b = :oracleParam AND c = $1 AND d = TO_CHAR(sysdate, 'HH24:MI:SS')";
+        var method = typeof(ProjectCSharpSqlSource).GetMethod("ExtractParameters", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var parameters = (IReadOnlyList<ParameterDescriptor>)method.Invoke(null, new object[] { sql })!;
+
+        parameters.Select(p => p.Name).Should().BeEquivalentTo(new[] { "@sqlParam", ":oracleParam", "$1" });
+    }
+
+    [Fact]
+    public void ExtractReferencedTables_HandlesBracketsAndBackticks_AndSchemas()
+    {
+        var sql = @"
+SELECT u.Id, o.Total
+FROM [dbo].[Users] u
+JOIN `analytics`.`user_orders` o ON u.Id = o.UserId
+WHERE u.Status = 'ACTIVE'";
+
+        var tables = ProjectCSharpSqlSource.ExtractReferencedTables(sql);
+
+        tables.Should().Contain("Users");
+        tables.Should().Contain("user_orders");
+    }
+
+    [Fact]
+    public void MaskSqlStringLiterals_MasksCommasAndColonsInsideQuotes()
+    {
+        var sql = "SELECT 'Doe, John' AS Name, TO_CHAR(sysdate, 'HH24:MI:SS') FROM Users";
+        var masked = ProjectCSharpSqlSource.MaskSqlStringLiterals(sql);
+
+        masked.Should().NotContain("Doe, John");
+        masked.Should().NotContain("HH24:MI:SS");
+        masked.Length.Should().Be(sql.Length);
+    }
 }

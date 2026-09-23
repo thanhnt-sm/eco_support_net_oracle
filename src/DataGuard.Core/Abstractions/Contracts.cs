@@ -194,6 +194,19 @@ public record ColumnDescriptor(
     int ColumnId = 0);
 
 /// <summary>
+/// Identifies the high-level operation category of a SQL statement.
+/// </summary>
+public enum SqlOperationType
+{
+    Unknown,
+    Read,
+    Write,
+    Join,
+    Reference,
+    Mixed,
+}
+
+/// <summary>
 /// Represents a raw SQL contract descriptor.
 /// </summary>
 public record RawSqlDescriptor(
@@ -203,10 +216,16 @@ public record RawSqlDescriptor(
     IReadOnlyList<ColumnDescriptor> ResultColumns,
     Location? Location = null,
     IReadOnlyList<PropertyDescriptor>? ExpectedProperties = null,
-    string? TargetTypeName = null) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location)
+    string? TargetTypeName = null,
+    SqlOperationType OperationType = SqlOperationType.Unknown,
+    IReadOnlyList<string>? ReferencedTables = null,
+    string? ConnectionProviderHint = null) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location)
 {
     public IReadOnlyList<PropertyDescriptor> ExpectedProperties { get; init; } = ExpectedProperties ?? Array.Empty<PropertyDescriptor>();
     public string? TargetTypeName { get; init; } = TargetTypeName;
+    public SqlOperationType OperationType { get; init; } = OperationType;
+    public IReadOnlyList<string> ReferencedTables { get; init; } = ReferencedTables ?? Array.Empty<string>();
+    public string? ConnectionProviderHint { get; init; } = ConnectionProviderHint;
     public RawSqlParseStatus ParseStatus { get; init; } = RawSqlParseStatus.Parsed;
     public string? ParseError { get; init; }
 }

@@ -59,7 +59,14 @@ async Task PublishDebouncedAsync(Uri uri, string text, string version, Cancellat
     {
         await Task.Delay(DiagnosticDebounceMilliseconds, pending.Token);
         var diagnostics = SqlClassifier.Classify(text, uri, version)
-            .Select(item => new { range = new { start = Position(text, item.Start), end = Position(text, item.Start + item.Length) }, severity = 3, code = "DGSQL001", source = "DataGuard", message = $"SQL {item.Kind} statement requires offline contract validation." });
+            .Select(item => new
+            {
+                range = new { start = Position(text, item.Start), end = Position(text, item.Start + item.Length) },
+                severity = item.IsSelectStar ? 2 : 3,
+                code = item.IsSelectStar ? "DG017" : "DGSQL001",
+                source = "DataGuard",
+                message = item.DetailMessage ?? $"SQL {item.Kind} statement requires offline contract validation.",
+            });
         await WriteAsync(new { jsonrpc = "2.0", method = "textDocument/publishDiagnostics", @params = new { uri = uri.AbsoluteUri, diagnostics } });
     }
     catch (OperationCanceledException) when (pending.IsCancellationRequested)

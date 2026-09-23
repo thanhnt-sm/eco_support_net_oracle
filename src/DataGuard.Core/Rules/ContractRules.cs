@@ -361,34 +361,42 @@ public class ColumnShapeMatchRule : ContractRuleBase
         }
     }
 
-    private static HashSet<string> ExtractColumnNamesFromSql(string sqlText)
+    private static readonly Regex SelectFromRegex = new(
+        @"\bSELECT\s+(.+?)\s+\bFROM\b",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled,
+        TimeSpan.FromSeconds(1));
+
+    public static HashSet<string> ExtractColumnNamesFromSql(string sqlText)
     {
         var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(sqlText))
+        {
+            return columns;
+        }
 
-        var selectMatch = Regex.Match(
-            sqlText, @"SELECT\s+(.+?)\s+FROM", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (SelectStarUsageRule.ContainsSelectStar(sqlText))
+        {
+            return columns; // SELECT *: column list is unknown, skip shape comparison.
+        }
 
+        var maskedSql = DataGuard.Core.Sources.ProjectCSharpSqlSource.MaskSqlStringLiterals(sqlText);
+        var selectMatch = SelectFromRegex.Match(maskedSql);
         if (!selectMatch.Success)
         {
             return columns;
         }
 
         var selectClause = selectMatch.Groups[1].Value;
-        if (SelectStarUsageRule.ContainsSelectStar(sqlText))
-        {
-            return columns; // SELECT *: column list is unknown, skip shape comparison.
-        }
-
         foreach (var part in selectClause.Split(','))
         {
             var trimmed = part.Trim();
-            if (trimmed.Length == 0 || trimmed == "*")
+            if (trimmed.Length == 0 || trimmed == "*" || trimmed.EndsWith(".*", StringComparison.Ordinal))
             {
                 continue;
             }
 
-            // Skip expressions: function calls, qualified refs, literals, operators.
-            if (trimmed.Contains('(') || trimmed.Contains('.') ||
+            // Skip expressions: function calls, literals, operators.
+            if (trimmed.Contains('(') ||
                 trimmed.Contains('+') || trimmed.Contains('-') || trimmed.Contains('*') || trimmed.Contains('/'))
             {
                 continue;
@@ -402,18 +410,24 @@ public class ColumnShapeMatchRule : ContractRuleBase
 
             // "column AS alias" -> use the alias; otherwise use the last token (handles "column alias").
             var asIndex = Array.FindIndex(tokens, t => t.Equals("AS", StringComparison.OrdinalIgnoreCase));
-            var columnName = asIndex >= 0 && asIndex + 1 < tokens.Length
+            var rawColumn = asIndex >= 0 && asIndex + 1 < tokens.Length
                 ? tokens[asIndex + 1]
                 : tokens[tokens.Length - 1];
 
-            if (string.IsNullOrEmpty(columnName) || IsSqlKeyword(columnName))
+            // Strip table/alias qualifier prefix (e.g., "u.Id" -> "Id")
+            var dotIndex = rawColumn.LastIndexOf('.');
+            var columnName = dotIndex >= 0 ? rawColumn.Substring(dotIndex + 1) : rawColumn;
+
+            // Strip quotes/brackets if any (e.g., [Id], `Id`, "Id")
+            columnName = columnName.Trim('[', ']', '`', '"');
+
+            if (string.IsNullOrEmpty(columnName) || columnName == "*" || IsSqlKeyword(columnName))
             {
                 continue;
             }
 
             columns.Add(columnName);
         }
-
         return columns;
     }
 

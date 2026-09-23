@@ -45,7 +45,7 @@ dataguard validate [options]
 | `--config` | — | Path to `.dataguard.yml` config file |
 | `--output` | — | Output file path (required for sarif/evidence) |
 | `--format` | `text` | Output format: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
-| `--offline` | `false` | Run in offline mode (no DB connection, requires `--assembly`) |
+| `--offline` | `false` | Run in offline mode (no DB connection, requires `--assembly` or `--project`) |
 | `--verbose` | `false` | Enable verbose output |
 | `--provider` | Config `DefaultProvider`, then `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` |
 | `--schema` | — | Database schema/owner name |
@@ -54,18 +54,90 @@ dataguard validate [options]
 | `--ef-project` | — | `.csproj` file or directory containing a source `*ModelSnapshot.cs`; never builds or loads an assembly |
 | `--ef-context` | — | Context name used to select one snapshot under `--ef-project` |
 | `--skip-rules` | — | Comma-separated rule IDs to skip (for example `DG002,DG017,MY001`) |
+| `--project` | — | Path to C# project (`.csproj`), solution (`.sln`), or directory to extract inline SQL queries and C# models |
+| `--progress` | `false` | Stream safe line-delimited JSON progress events to stderr |
 
 **Behavior:**
 - Without `--connection`: validates against committed snapshot (Snapshot mode)
-- With `--offline`: requires `--assembly` for Manual ground-truth mode using `[ExpectedColumn]`/`[ExpectedSpParameter]` attributes
+- With `--offline`: runs validation without database access. Requires either `--assembly` (Manual ground-truth mode with attributes) or `--project` (Roslyn AST extraction mode for inline SQL and models). No compiled binary is required when using `--project`.
+- `--project`: discovers C# source contracts and inline SQL queries (Dapper, ADO.NET) directly from source code (`.csproj`, `.sln`, or directory) via Roslyn AST without requiring a pre-compiled assembly
+- `--progress`: outputs real-time step progress events as newline-delimited JSON (NDJSON) lines to `stderr` for tooling and IDE integration (e.g., VS Code extension)
+- `--verbose`: prints detailed scan report including discovered connection strings/hints, detected SQL queries with line numbers, AST operation types, referenced tables, target DTO mappings, and unmapped column/property diagnostics
 - `--format contracts`: exports extracted contracts as JSON
 - `--format yaml`: exports the same contract schema as deterministic YAML
+- `--format sarif`: emits SARIF 2.1.0 diagnostics to `--output`. When `--format sarif` is used, a supplementary `summary.json` file is automatically written to the same directory as `--output` containing aggregated scan metrics
 - `--ef-snapshot`: adds bounded source-only EF descriptors; syntax/unsupported input fails visibly instead of producing empty contracts
 - `--ef-project`: accepts only a directory or `.csproj`, finds source snapshots only, ignores `bin`, `obj`, and `.git`, and fails if selection is ambiguous; use `--ef-context` to select one context
 - `--ef-snapshot` and `--ef-project` are mutually exclusive; `--ef-context` requires `--ef-project`
 - `--skip-rules`: excludes the listed rule IDs before validation; matching is case-insensitive and surrounding whitespace is ignored
 - `--format typescript`: exports TypeScript DTOs from entity descriptors
 
+#### Progress Event Stream (`--progress`)
+
+When `--progress` is enabled, the CLI streams machine-readable NDJSON events to `stderr`. Each line represents a discrete milestone or lifecycle phase:
+
+```json
+{"Kind":"PhaseStarted","Phase":"Acquiring contracts","Detail":"Scanning C# project for SQL queries and contracts.","Data":null}
+{"Kind":"ContractDiscovered","Phase":"Acquiring contracts","Detail":"EntityDescriptor","Data":null}
+{"Kind":"PhaseCompleted","Phase":"Acquiring contracts","Detail":"Contract acquisition completed.","Data":{"ContractCount":42,"Status":"Complete"}}
+{"Kind":"PhaseStarted","Phase":"Validating rules","Detail":"Running enabled validation rules.","Data":{"ContractCount":42}}
+{"Kind":"RuleExecuted","Phase":"Validating rules","Detail":"DG001","Data":null}
+{"Kind":"Summary","Phase":"Validation complete","Detail":"Validation completed.","Data":{"ErrorCount":0,"WarningCount":2,"ViolationCount":2}}
+```
+
+Available `Kind` values: `PhaseStarted`, `PhaseCompleted`, `ContractDiscovered`, `RuleExecuted`, `Summary`. Event values strictly redact passwords, tokens, or raw connection strings.
+
+#### Supplementary Scan Summary (`summary.json`)
+
+When emitting SARIF output (`--format sarif --output <path>`), DataGuard automatically produces a companion `summary.json` in the same directory:
+
+```json
+{
+  "filesScanned": 12,
+  "queriesFound": 28,
+  "connectionsFound": 2,
+  "violationsCount": 1,
+  "connections": [
+    {
+      "name": "DefaultConnection",
+      "provider": "sqlserver",
+      "hint": "Server=localhost;Database=Sales..."
+    }
+  ],
+  "queries": [
+    {
+      "sql": "SELECT Id, Name, Email FROM Users WHERE TenantId = @TenantId",
+      "operation": "Select",
+      "tables": ["Users"],
+      "targetType": "UserDto",
+      "columns": ["Id", "Name", "Email"],
+      "properties": ["Id", "Name", "Email"],
+      "unmappedColumns": [],
+      "unmappedProperties": []
+    }
+  ]
+}
+```
+
+#### Verbose Scan Report (`--verbose`)
+
+Running `dataguard validate --verbose` outputs a human-readable diagnostic report directly to `stdout`:
+
+```text
+=== DataGuard Scan Report ===
+Scanned C# project/directory: src/OrderService
+
+--- Connections Found ---
+  [1] SQLSERVER "DefaultConnection" (Server=localhost;Database=Sales...)
+
+--- SQL Queries Found ---
+  [Q1] SELECT Id, Amount, CustomerId FROM Orders WHERE Status = @Status
+       Location: OrderRepository.cs:45
+       Operation: Select | Tables: Orders | Target: OrderDto
+       Mapping: 3/3 properties matched. Unmapped columns: 0, unmapped properties: 0
+
+Validation complete: 0 issues (0 errors, 0 warnings)
+```
 ## Managed pre-commit hooks
 
 The hook installer writes POSIX `sh` scripts and invokes `dataguard validate --format text` so it uses the normal persisted Snapshot path. It never emits `--offline` without the required `--assembly`. On Unix it sets executable mode. Install and uninstall only replace or delete files marked as DataGuard-managed; an existing user hook or `lefthook.yml` is preserved, including when force is requested.

@@ -179,6 +179,18 @@ public class RulesEngineTests
     }
 
     [Fact]
+    public async Task ColumnShapeMatchRule_TableQualifiedColumns_ExtractsAndValidates()
+    {
+        var entity = Entity("Customer", Prop("Id"), Prop("Name"), Prop("Email"));
+        var sql = RawSql("SELECT c.Id, c.Name, c.Email FROM Customers c");
+        var violations = await RunAsync(new ColumnShapeMatchRule(), entity, entity, sql);
+        violations.Should().BeEmpty();
+
+        var sqlMissing = RawSql("SELECT c.Id, c.Name FROM Customers c");
+        var violationsMissing = await RunAsync(new ColumnShapeMatchRule(), entity, entity, sqlMissing);
+        violationsMissing.Should().ContainSingle(v => v.RuleId == "DG004" && v.Message.Contains("Email"));
+    }
+    [Fact]
     public async Task NullableMismatchRule_RequiredPropertyAgainstNullableColumn_Flags()
     {
         var entity = Entity("Customer", Prop("Name", "name", new Dictionary<string, object?> { ["Required"] = true }));
@@ -202,5 +214,22 @@ public class RulesEngineTests
         var sql = RawSql("SELECT Id FROM Ghost");
         var violations = await RunAsync(new PhantomIdentifierRule(), sql, sql, schema);
         violations.Should().Contain(v => v.RuleId == "DG015");
+    }
+
+    [Fact]
+    public void ColumnShapeMatchRule_ExtractColumnNamesFromSql_HandlesCommasInLiterals_AndQualifiedAsterisks()
+    {
+        var sql = "SELECT 'Doe, John' AS FullName, u.Id, [o].[TotalAmount] FROM Users u JOIN Orders o ON u.Id = o.UserId";
+        var columns = ColumnShapeMatchRule.ExtractColumnNamesFromSql(sql);
+
+        columns.Should().Contain("FullName");
+        columns.Should().Contain("Id");
+        columns.Should().Contain("TotalAmount");
+        columns.Should().NotContain("Doe");
+        columns.Should().NotContain("John");
+
+        var starSql = "SELECT u.*, u.Id FROM Users u";
+        var starColumns = ColumnShapeMatchRule.ExtractColumnNamesFromSql(starSql);
+        starColumns.Should().BeEmpty();
     }
 }

@@ -26,17 +26,43 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         "QueryMultiple", "QueryMultipleAsync",
         "Execute", "ExecuteAsync", "ExecuteScalar", "ExecuteScalarAsync",
         "ExecuteReader", "ExecuteReaderAsync",
+        "ExecuteNonQuery", "ExecuteNonQueryAsync",
         "FromSqlRaw", "FromSqlInterpolated", "FromSql",
         "ExecuteSqlRaw", "ExecuteSqlRawAsync", "ExecuteSqlInterpolated", "ExecuteSqlInterpolatedAsync",
     };
 
     private static readonly Regex SqlKeywordRegex = new(
-        @"\b(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|EXEC|EXECUTE|MERGE|WITH)\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        @"\b(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|EXEC|EXECUTE|MERGE|WITH|BEGIN)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        TimeSpan.FromSeconds(1));
 
     private static readonly Regex ParameterRegex = new(
-        @"@([A-Za-z_][\w]*)",
-        RegexOptions.Compiled);
+        @"(?:@([A-Za-z_][\w]*)|:([A-Za-z_][\w]*)|\$(\d+))",
+        RegexOptions.Compiled,
+        TimeSpan.FromSeconds(1));
+
+    private static readonly Regex SqlStringLiteralRegex = new(
+        @"'(''|[^'])*'",
+        RegexOptions.Compiled,
+        TimeSpan.FromSeconds(1));
+
+    private static readonly Regex SelectOpRegex = new(@"\bSELECT\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex InsertOpRegex = new(@"\bINSERT\s+INTO\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex UpdateOpRegex = new(@"\bUPDATE\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex DeleteOpRegex = new(@"\bDELETE\s+FROM\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex MergeOpRegex = new(@"\bMERGE\s+INTO\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex JoinOpRegex = new(@"\b(INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+
+    private static readonly Regex[] TablePatterns = new[]
+    {
+        new Regex(@"\bFROM\s+([A-Za-z0-9_.\""\[\]\`]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1)),
+        new Regex(@"\bJOIN\s+([A-Za-z0-9_.\""\[\]\`]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1)),
+        new Regex(@"\bINTO\s+([A-Za-z0-9_.\""\[\]\`]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1)),
+        new Regex(@"\bUPDATE\s+([A-Za-z0-9_.\""\[\]\`]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1)),
+        new Regex(@"\bTABLE\s+([A-Za-z0-9_.\""\[\]\`]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1)),
+    };
+
+    private static readonly string SpacePadding = new(' ', 512);
 
     private readonly string _projectOrPath;
     private readonly ProgressEmitter? _progress;
@@ -92,6 +118,60 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         var syntaxTypes = IndexSyntaxTypes(syntaxTrees, cancellationToken);
 
         var descriptors = new List<ContractDescriptor>();
+        var seenSql = new HashSet<string>(StringComparer.Ordinal);
+
+        void AddDescriptor(
+            string sqlText,
+            Location location,
+            string? targetTypeName,
+            IReadOnlyList<PropertyDescriptor> expectedProperties,
+            string? providerHint)
+        {
+            var lineSpan = location.GetLineSpan();
+            var filePath = lineSpan.Path;
+            var lineNumber = lineSpan.StartLinePosition.Line + 1;
+            var fileName = Path.GetFileName(filePath);
+
+            var key = $"{filePath}:{lineNumber}:{sqlText.Trim()}";
+            if (!seenSql.Add(key))
+            {
+                return;
+            }
+
+            var opType = ClassifySqlOperation(sqlText);
+            var tables = ExtractReferencedTables(sqlText);
+            var targetDisplay = string.IsNullOrEmpty(targetTypeName) ? "untyped" : targetTypeName;
+            var detail = $"Found SQL in {fileName}:{lineNumber} targeting {targetDisplay}";
+
+            _progress?.Emit(new ProgressEvent(
+                ProgressEventKind.ContractDiscovered,
+                "Acquiring contracts",
+                detail,
+                new Dictionary<string, object?>
+                {
+                    ["Operation"] = opType.ToString(),
+                    ["Tables"] = tables,
+                    ["ProviderHint"] = providerHint,
+                }));
+
+            Console.WriteLine($"[INFO] {detail}");
+
+            var parameters = ExtractParameters(sqlText);
+
+            var descriptor = new RawSqlDescriptor(
+                Id: $"project-sql:{fileName}:{lineNumber}",
+                SqlText: sqlText,
+                Parameters: parameters,
+                ResultColumns: Array.Empty<ColumnDescriptor>(),
+                Location: location,
+                ExpectedProperties: expectedProperties,
+                TargetTypeName: targetTypeName,
+                OperationType: opType,
+                ReferencedTables: tables,
+                ConnectionProviderHint: providerHint);
+
+            descriptors.Add(descriptor);
+        }
 
         foreach (var tree in syntaxTrees)
         {
@@ -99,6 +179,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             var semanticModel = compilation.GetSemanticModel(tree);
             var root = tree.GetRoot(cancellationToken);
 
+            // 1. Invocations (Query<T>, Execute, FromSqlRaw, ExecuteReader, ExecuteNonQuery, etc.)
             foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -126,37 +207,94 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     expectedProperties = ExtractPropertiesFromSyntax(typeDecl);
                 }
 
-                var location = invocation.GetLocation();
-                var lineSpan = location.GetLineSpan();
-                var filePath = lineSpan.Path;
-                var lineNumber = lineSpan.StartLinePosition.Line + 1;
-                var fileName = Path.GetFileName(filePath);
+                string? providerHint = null;
+                if (invocation.Expression is MemberAccessExpressionSyntax ma)
+                {
+                    var receiverType = semanticModel.GetTypeInfo(ma.Expression, cancellationToken).Type?.Name
+                        ?? (ma.Expression as IdentifierNameSyntax)?.Identifier.ValueText;
+                    providerHint = InferProviderHint(receiverType);
+                }
 
-                var targetDisplay = string.IsNullOrEmpty(targetTypeName) ? "untyped" : targetTypeName;
-                var detail = $"Found SQL in {fileName}:{lineNumber} targeting {targetDisplay}";
+                AddDescriptor(sqlText, invocation.GetLocation(), targetTypeName, expectedProperties, providerHint);
+            }
 
-                _progress?.Emit(new ProgressEvent(
-                    ProgressEventKind.ContractDiscovered,
-                    "Acquiring contracts",
-                    detail));
+            // 2. CommandText assignments (cmd.CommandText = "SELECT ...")
+            foreach (var assignment in root.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var leftName = assignment.Left switch
+                {
+                    MemberAccessExpressionSyntax ma => ma.Name.Identifier.ValueText,
+                    IdentifierNameSyntax id => id.Identifier.ValueText,
+                    _ => null,
+                };
 
-                Console.WriteLine($"[INFO] {detail}");
+                if (leftName is not "CommandText")
+                {
+                    continue;
+                }
 
-                var parameters = ExtractParameters(sqlText);
+                var sqlText = TryResolveString(assignment.Right, semanticModel, cancellationToken);
+                if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
+                {
+                    continue;
+                }
 
-                var descriptor = new RawSqlDescriptor(
-                    Id: $"project-sql:{fileName}:{lineNumber}",
-                    SqlText: sqlText,
-                    Parameters: parameters,
-                    ResultColumns: Array.Empty<ColumnDescriptor>(),
-                    Location: location,
-                    ExpectedProperties: expectedProperties,
-                    TargetTypeName: targetTypeName);
+                string? providerHint = null;
+                if (assignment.Left is MemberAccessExpressionSyntax maExpr)
+                {
+                    var receiverType = semanticModel.GetTypeInfo(maExpr.Expression, cancellationToken).Type?.Name
+                        ?? (maExpr.Expression as IdentifierNameSyntax)?.Identifier.ValueText;
+                    providerHint = InferProviderHint(receiverType);
+                }
 
-                descriptors.Add(descriptor);
+                AddDescriptor(sqlText, assignment.GetLocation(), null, Array.Empty<PropertyDescriptor>(), providerHint);
+            }
+
+            // 3. Object creations (new SqlCommand("SELECT ...", conn) / new OracleCommand(...) / new NpgsqlCommand(...))
+            foreach (var creation in root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var typeName = creation.Type.ToString();
+                if (!typeName.EndsWith("Command", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (creation.ArgumentList == null || creation.ArgumentList.Arguments.Count == 0)
+                {
+                    continue;
+                }
+
+                var firstArg = creation.ArgumentList.Arguments[0].Expression;
+                var sqlText = TryResolveString(firstArg, semanticModel, cancellationToken);
+                if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
+                {
+                    continue;
+                }
+
+                var providerHint = InferProviderHint(typeName);
+                AddDescriptor(sqlText, creation.GetLocation(), null, Array.Empty<PropertyDescriptor>(), providerHint);
+            }
+
+            // 4. Base repository constructor calls (base("CUSTOMERS", ...))
+            foreach (var init in root.DescendantNodes().OfType<ConstructorInitializerSyntax>())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!init.IsKind(SyntaxKind.BaseConstructorInitializer) || init.ArgumentList == null || init.ArgumentList.Arguments.Count == 0)
+                {
+                    continue;
+                }
+
+                var arg0 = init.ArgumentList.Arguments[0].Expression;
+                var resolved = TryResolveString(arg0, semanticModel, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(resolved) && !resolved.Contains(' ') && resolved.Length > 1 && !resolved.StartsWith("sp_", StringComparison.OrdinalIgnoreCase))
+                {
+                    var sqlText = $"SELECT * FROM {resolved}";
+                    AddDescriptor(sqlText, init.GetLocation(), null, Array.Empty<PropertyDescriptor>(), null);
+                }
             }
         }
-
         return Task.FromResult<IReadOnlyList<ContractDescriptor>>(descriptors);
     }
 
@@ -366,8 +504,19 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         }
 
         // Stored procedure invocation convention
-        return trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
-               trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase);
+        if (trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Package.procedure call pattern (Oracle) e.g. "CUSTOMER_PKG.GET_CUSTOMERS"
+        if (trimmed.Contains('.') && !trimmed.Contains(' ') && Regex.IsMatch(trimmed, @"^[A-Za-z_][\w]*\.[A-Za-z_][\w]*$"))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     private static string ConvertInterpolatedStringToSql(InterpolatedStringExpressionSyntax interpolated)
@@ -452,7 +601,26 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         var properties = new List<PropertyDescriptor>();
         var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        var typesToScan = new List<ITypeSymbol>();
         for (var current = typeSymbol; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
+        {
+            typesToScan.Add(current);
+        }
+        if (typeSymbol.TypeKind == TypeKind.Interface || (!typeSymbol.AllInterfaces.IsDefaultOrEmpty && typeSymbol.AllInterfaces.Length > 0))
+        {
+            if (!typeSymbol.AllInterfaces.IsDefaultOrEmpty)
+            {
+                foreach (var iface in typeSymbol.AllInterfaces)
+                {
+                    if (!typesToScan.Contains(iface))
+                    {
+                        typesToScan.Add(iface);
+                    }
+                }
+            }
+        }
+
+        foreach (var current in typesToScan)
         {
             foreach (var member in current.GetMembers())
             {
@@ -473,7 +641,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
                 string? columnName = null;
                 var colAttr = prop.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "ColumnAttribute" or "Column" or "ExpectedColumnAttribute" or "ExpectedColumn");
-                if (colAttr != null && colAttr.ConstructorArguments.Length > 0 && colAttr.ConstructorArguments[0].Value is string colName && !string.IsNullOrWhiteSpace(colName))
+                if (colAttr != null && !colAttr.ConstructorArguments.IsDefaultOrEmpty && colAttr.ConstructorArguments.Length > 0 && colAttr.ConstructorArguments[0].Value is string colName && !string.IsNullOrWhiteSpace(colName))
                 {
                     columnName = colName;
                 }
@@ -648,16 +816,142 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         return false;
     }
 
+    public static string MaskSqlStringLiterals(string sql)
+    {
+        if (string.IsNullOrEmpty(sql))
+        {
+            return string.Empty;
+        }
+
+        return SqlStringLiteralRegex.Replace(sql, m => m.Length <= SpacePadding.Length
+            ? SpacePadding.Substring(0, m.Length)
+            : new string(' ', m.Length));
+    }
+
+    public static SqlOperationType ClassifySqlOperation(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            return SqlOperationType.Unknown;
+        }
+
+        var masked = MaskSqlStringLiterals(sql);
+        var hasSelect = SelectOpRegex.IsMatch(masked);
+        var hasInsert = InsertOpRegex.IsMatch(masked);
+        var hasUpdate = UpdateOpRegex.IsMatch(masked);
+        var hasDelete = DeleteOpRegex.IsMatch(masked);
+        var hasMerge = MergeOpRegex.IsMatch(masked);
+        var hasJoin = JoinOpRegex.IsMatch(masked);
+
+        var writeCount = (hasInsert ? 1 : 0) + (hasUpdate ? 1 : 0) + (hasDelete ? 1 : 0) + (hasMerge ? 1 : 0);
+        if (hasSelect && writeCount > 0)
+        {
+            return SqlOperationType.Mixed;
+        }
+
+        if (writeCount > 1)
+        {
+            return SqlOperationType.Mixed;
+        }
+
+        if (writeCount == 1)
+        {
+            return SqlOperationType.Write;
+        }
+
+        if (hasSelect && hasJoin)
+        {
+            return SqlOperationType.Join;
+        }
+
+        if (hasSelect)
+        {
+            return SqlOperationType.Read;
+        }
+
+        return SqlOperationType.Reference;
+    }
+
+    public static IReadOnlyList<string> ExtractReferencedTables(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            return Array.Empty<string>();
+        }
+
+        var masked = MaskSqlStringLiterals(sql);
+        var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var regex in TablePatterns)
+        {
+            var matches = regex.Matches(masked);
+            foreach (Match match in matches)
+            {
+                if (match.Groups.Count > 1)
+                {
+                    var raw = match.Groups[1].Value.Trim();
+                    var dot = raw.LastIndexOf('.');
+                    var tableName = dot >= 0 ? raw.Substring(dot + 1) : raw;
+                    tableName = tableName.Trim('[', ']', '`', '"');
+                    if (!string.IsNullOrEmpty(tableName) && !IsSqlKeywordToken(tableName))
+                    {
+                        tables.Add(tableName);
+                    }
+                }
+            }
+        }
+
+        return tables.ToList();
+    }
+
+    private static bool IsSqlKeywordToken(string token)
+    {
+        return token.ToUpperInvariant() is "SELECT" or "FROM" or "WHERE" or "AS" or
+            "JOIN" or "ON" or "INTO" or "SET" or "VALUES" or "AND" or "OR" or "NULL";
+    }
+
+    public static string? InferProviderHint(string? typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+        {
+            return null;
+        }
+
+        if (typeName.IndexOf("Oracle", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "oracle";
+        }
+
+        if (typeName.IndexOf("Npgsql", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            typeName.IndexOf("Postgre", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "postgresql";
+        }
+
+        if (typeName.IndexOf("Sql", StringComparison.OrdinalIgnoreCase) >= 0 &&
+            typeName.IndexOf("Sqlite", StringComparison.OrdinalIgnoreCase) < 0 &&
+            typeName.IndexOf("Postgresql", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return "sqlserver";
+        }
+
+        if (typeName.IndexOf("MySql", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "mysql";
+        }
+        return null;
+    }
     private static IReadOnlyList<ParameterDescriptor> ExtractParameters(string sqlText)
     {
         var parameters = new List<ParameterDescriptor>();
-        var matches = ParameterRegex.Matches(sqlText);
+        var masked = MaskSqlStringLiterals(sqlText);
+        var matches = ParameterRegex.Matches(masked);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ordinal = 1;
 
         foreach (Match match in matches)
         {
-            var name = match.Value; // e.g. @Id
+            var name = match.Value; // e.g. @Id, :id, $1
             if (seen.Add(name))
             {
                 parameters.Add(new ParameterDescriptor(

@@ -104,16 +104,26 @@ All output passes through the security module before display.
 
 ### Spawn
 
-Validation processes are spawned using Node.js `child_process.spawn()`:
+Validation processes are spawned using Node.js `child_process.spawn()` with a fixed argument vector:
 
 ```typescript
-const child = spawn('dataguard', ['validate', '--format', 'sarif', '--output', tempFile, ...args]);
+const args = [
+    'validate',
+    '--config', configPath,
+    '--provider', normalizedProvider,
+    '--format', 'sarif',
+    '--output', tempFile,
+    '--project', workspacePath,
+    '--progress'
+];
+const child = spawn('dataguard', args, { shell: false });
 ```
+
+The extension leverages `--project` to extract C# contracts and inline SQL directly without compiled assemblies, monitors real-time milestones via `--progress` NDJSON on `stderr`, and reads supplementary metrics from `summary.json`.
 
 ### Termination
 
-The `dataguard.cancelValidation` command cancels the global DataGuard process, regardless of its workspace. It sends `SIGTERM`; if the process doesn't exit within 5 seconds, `SIGKILL` is sent.
-
+The `dataguard.cancelValidation` command cancels the active DataGuard process tree. It sends `SIGTERM`; if the process does not exit within 5 seconds, `SIGKILL` is sent.
 ### Concurrency
 
 Only one DataGuard command process runs globally at a time. Starting Validate or Assess cancels and replaces any prior Validate or Assess run, including one from another workspace.

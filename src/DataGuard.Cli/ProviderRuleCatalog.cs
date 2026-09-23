@@ -69,14 +69,22 @@ public static class ProviderRuleCatalog
         Add(rules, new SelectStarUsageRule());
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            Add(rules, new LiveSqlShapeValidationRule(connectionString, provider ?? "sqlserver", progress));
+            var p = provider?.ToLowerInvariant() ?? "sqlserver";
+            ILiveQuerySchemaProvider? schemaProvider = p switch
+            {
+                "oracle" => new OracleLiveQuerySchemaProvider(connectionString),
+                "postgresql" or "postgres" => new PostgreSqlLiveQuerySchemaProvider(connectionString),
+                "sqlserver" => new SqlServerLiveQuerySchemaProvider(connectionString),
+                _ => null,
+            };
+
+            Add(rules, new LiveSqlShapeValidationRule(connectionString, p, progress, schemaProvider));
         }
         else
         {
             Add(rules, new LiveSqlShapeValidationRule());
         }
     }
-
     private static void Add(List<ProviderRuleRegistration> rules, IContractRule rule, RuleAvailability availability = RuleAvailability.Ready, string? reason = null) =>
         rules.Add(new ProviderRuleRegistration(rule, availability, reason));
 }

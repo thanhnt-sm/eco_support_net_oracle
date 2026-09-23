@@ -108,16 +108,26 @@ Tất cả output đi qua module bảo mật trước khi hiển thị.
 
 ### Spawn
 
-Các tiến trình xác thực được khởi chạy bằng Node.js `child_process.spawn()`:
+Các tiến trình xác thực được khởi chạy bằng Node.js `child_process.spawn()` với mảng đối số cố định:
 
 ```typescript
-const child = spawn('dataguard', ['validate', '--format', 'sarif', '--output', tempFile, ...args]);
+const args = [
+    'validate',
+    '--config', configPath,
+    '--provider', normalizedProvider,
+    '--format', 'sarif',
+    '--output', tempFile,
+    '--project', workspacePath,
+    '--progress'
+];
+const child = spawn('dataguard', args, { shell: false });
 ```
+
+Extension tận dụng tùy chọn `--project` để trích xuất contract C# và SQL inline trực tiếp mà không cần assembly đã biên dịch trước, theo dõi tiến trình thời gian thực qua luồng NDJSON từ `--progress` trên `stderr`, và đọc các chỉ số bổ trợ từ `summary.json`.
 
 ### Termination
 
-Lệnh `dataguard.cancelValidation` gửi `SIGTERM` đến tiến trình đang chạy. Nếu tiến trình không thoát trong vòng 5 giây, `SIGKILL` được gửi.
-
+Lệnh `dataguard.cancelValidation` gửi tín hiệu `SIGTERM` đến cây tiến trình đang chạy. Nếu tiến trình không thoát trong vòng 5 giây, `SIGKILL` sẽ được gửi.
 ### Đồng thời
 
 Chỉ một tiến trình xác thực chạy tại một thời điểm. Bắt đầu xác thực mới khi một tiến trình đang chạy sẽ hủy tiến trình trước đó.

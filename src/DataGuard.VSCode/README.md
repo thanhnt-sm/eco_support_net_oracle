@@ -5,12 +5,12 @@ DataGuard detects **database contract drift** between .NET code, stored procedur
 ## What it does
 
 - **Run Validation** from the status bar or Command Palette.
-- Runs the local `dataguard` CLI once per trusted workspace with a bounded timeout.
-- Writes SARIF to a private temporary file, maps violations into **Problems**, then deletes the file.
-- Drains CLI streams without displaying them; the Output channel contains safe lifecycle status only.
+- Runs the local `dataguard` CLI once per trusted workspace with a bounded timeout, extracting C# AST models, inline SQL queries, and contracts directly via `--project`.
+- Tracks live progress via line-delimited NDJSON events streamed to stderr (`--progress`).
+- Writes SARIF to a private temporary file, maps violations into **Problems**, reads optional `summary.json` for high-level scan metrics, then deletes the temporary files.
+- Drains CLI streams safely; the Output channel contains redacted lifecycle status, scan summary metrics, and findings counts.
 - Supports cancellation and terminates the process tree owned by the extension.
 - Never runs in untrusted or virtual workspaces. It does not send telemetry or connect to a database itself.
-
 ## Requirements
 
 Install the DataGuard CLI and ensure it is on `PATH`:

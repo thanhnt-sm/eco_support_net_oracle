@@ -5,7 +5,7 @@ import { buildCliArguments, normalizeProvider } from "./command-args";
 test("CLI argument builder emits positional argv without shell interpolation", () => {
     assert.deepEqual(
         buildCliArguments("validate", "/workspace", " PostgreSQL ", "/workspace/.dataguard.yml", "/tmp/result.sarif"),
-        ["validate", "--config", "/workspace/.dataguard.yml", "--provider", "postgresql", "--format", "sarif", "--output", "/tmp/result.sarif"],
+        ["validate", "--config", "/workspace/.dataguard.yml", "--provider", "postgresql", "--format", "sarif", "--output", "/tmp/result.sarif", "--project", "/workspace", "--progress"],
     );
     assert.deepEqual(
         buildCliArguments("assess", "/workspace with spaces", "mysql", undefined, "/tmp/result.sarif"),

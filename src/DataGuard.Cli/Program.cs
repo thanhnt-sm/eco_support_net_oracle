@@ -174,9 +174,12 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         config = config with { GroundTruthMode = GroundTruthMode.Manual, ManualAssemblyPath = assemblyPath };
         if (string.IsNullOrEmpty(assemblyPath))
         {
-            Console.Error.WriteLine("Manual mode requires --assembly <path-to-user-assembly.dll> to read [ExpectedColumn]/[ExpectedSpParameter] attributes.");
-            Environment.ExitCode = 1;
-            return;
+            if (string.IsNullOrWhiteSpace(projectPath))
+            {
+                Console.Error.WriteLine("Manual mode requires --assembly <path-to-user-assembly.dll> to read [ExpectedColumn]/[ExpectedSpParameter] attributes.");
+                Environment.ExitCode = 1;
+                return;
+            }
         }
     }
     else if (config.GroundTruthMode != GroundTruthMode.Manual && string.IsNullOrEmpty(config.ConnectionString))
@@ -244,6 +247,53 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             }
         }
 
+        var connections = !string.IsNullOrWhiteSpace(projectPath)
+            ? ConnectionDiscovery.DiscoverConnections(projectPath)
+            : Array.Empty<ConnectionInfo>();
+
+        if (verbose)
+        {
+            Console.WriteLine("=== DataGuard Scan Report ===");
+            if (!string.IsNullOrWhiteSpace(projectPath))
+            {
+                Console.WriteLine($"Scanned C# project/directory: {projectPath}");
+            }
+
+            if (connections.Count > 0)
+            {
+                Console.WriteLine("\n--- Connections Found ---");
+                for (var i = 0; i < connections.Count; i++)
+                {
+                    var c = connections[i];
+                    var hint = !string.IsNullOrEmpty(c.ConnectionStringHint) ? $" ({c.ConnectionStringHint})" : string.Empty;
+                    Console.WriteLine($"  [{i + 1}] {c.Provider.ToUpperInvariant()} \"{c.Name}\"{hint}");
+                }
+            }
+
+            var sqlContracts = contracts.OfType<RawSqlDescriptor>().ToList();
+            if (sqlContracts.Count > 0)
+            {
+                Console.WriteLine("\n--- SQL Queries Found ---");
+                for (var i = 0; i < sqlContracts.Count; i++)
+                {
+                    var q = sqlContracts[i];
+                    var loc = q.Location != null ? $"{Path.GetFileName(q.Location.GetLineSpan().Path)}:{q.Location.GetLineSpan().StartLinePosition.Line + 1}" : "unknown";
+                    var tables = q.ReferencedTables.Count > 0 ? string.Join(", ", q.ReferencedTables) : "none";
+                    var target = !string.IsNullOrEmpty(q.TargetTypeName) ? q.TargetTypeName : "untyped";
+                    Console.WriteLine($"  [Q{i + 1}] {q.SqlText.Trim()}");
+                    Console.WriteLine($"       Location: {loc}");
+                    Console.WriteLine($"       Operation: {q.OperationType} | Tables: {tables} | Target: {target}");
+                    var m = MappingTraceEngine.Trace(q);
+                    if (m.SqlColumns.Count > 0 && m.TargetProperties.Count > 0)
+                    {
+                        var matched = m.Mappings.Count(p => p.IsMatched);
+                        Console.WriteLine($"       Mapping: {matched}/{m.TargetProperties.Count} properties matched. Unmapped columns: {m.UnmappedColumns.Count}, unmapped properties: {m.UnmappedProperties.Count}");
+                    }
+                }
+            }
+            Console.WriteLine();
+        }
+
         var unavailableOutcomes = ProviderRuleCatalog.Get(provider)
             .Where(registration => registration.Availability == RuleAvailability.Unavailable)
             .Select(registration => registration.CreateUnavailableOutcome())
@@ -304,6 +354,31 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             var emitter = new DiagnosticEmitter();
             emitter.AddSarifSink(new FileSarifSink(output!));
             await emitter.EmitAsync(violations, ct);
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                try
+                {
+                    var summaryDir = Path.GetDirectoryName(Path.GetFullPath(output));
+                    if (!string.IsNullOrEmpty(summaryDir))
+                    {
+                        var summaryFile = Path.Combine(summaryDir, "summary.json");
+                        var sqlList = contracts.OfType<RawSqlDescriptor>().ToList();
+                        var mappings = sqlList.Select(MappingTraceEngine.Trace).ToList();
+                        var summary = new ScanSummary(
+                            FilesScanned: sqlList.Select(s => s.Location?.GetLineSpan().Path).Where(p => p != null).Distinct().Count(),
+                            QueriesFound: sqlList.Count,
+                            ConnectionsFound: connections.Count,
+                            ViolationsCount: violations.Count,
+                            Connections: connections,
+                            Mappings: mappings);
+                        await File.WriteAllTextAsync(summaryFile, summary.ToJson(), ct);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Non-fatal: summary.json is supplementary to SARIF
+                }
+            }
         }
         else
         {
