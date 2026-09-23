@@ -323,6 +323,42 @@ public class ColumnShapeMatchRule : ContractRuleBase
                 }
             }
         }
+        else if (contract is RawSqlDescriptor rawSql && rawSql.ExpectedProperties != null && rawSql.ExpectedProperties.Count > 0)
+        {
+            var columnNames = ExtractColumnNamesFromSql(rawSql.SqlText);
+            if (columnNames.Count > 0)
+            {
+                var expectedPropertyNames = rawSql.ExpectedProperties
+                    .SelectMany(p => new[] { p.Name, p.ColumnName ?? string.Empty })
+                    .Where(n => n.Length > 0)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var missingColumns = rawSql.ExpectedProperties
+                    .Where(p => !columnNames.Contains(p.Name) &&
+                                (string.IsNullOrEmpty(p.ColumnName) || !columnNames.Contains(p.ColumnName)))
+                    .Select(p => p.Name)
+                    .ToList();
+
+                if (missingColumns.Count > 0)
+                {
+                    violations.Add(CreateViolation(
+                        RuleId,
+                        $"Result set is missing required columns: {string.Join(", ", missingColumns.Take(5))}",
+                        Severity,
+                        rawSql.Location));
+                }
+
+                var extraColumns = columnNames.Where(c => !expectedPropertyNames.Contains(c)).ToList();
+                if (extraColumns.Count > 0 && extraColumns.Count > expectedPropertyNames.Count / 2)
+                {
+                    violations.Add(CreateViolation(
+                        RuleId,
+                        $"Result set has {extraColumns.Count} extra columns not mapped to entity properties",
+                        Severity,
+                        rawSql.Location));
+                }
+            }
+        }
     }
 
     private static HashSet<string> ExtractColumnNamesFromSql(string sqlText)

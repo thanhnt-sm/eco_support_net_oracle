@@ -27,10 +27,10 @@ if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
     export PATH="$HOME/.dotnet:$PATH"
 fi
 if [[ -d "$HOME/.act/bin" ]]; then
-    export PATH="$HOME/.act/bin:$PATH"
+    export PATH="$PATH:$HOME/.act/bin"
 fi
 if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
-    export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"
+    export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
 fi
 # ── Paths ────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,6 +43,7 @@ COMMIT_MSG=""
 DO_PUSH=false
 DRY_RUN=false
 STASH_REF=""
+export SKIP_ACT="${SKIP_ACT:-1}"
 # ── Logging helpers ──────────────────────────────────────────────────────────
 log_info()    { printf "${BLUE}ℹ️  %s${NC}\n" "$*"; }
 log_success() { printf "${GREEN}✅ %s${NC}\n" "$*"; }
@@ -62,6 +63,8 @@ Options:
   -p, --push          Also push commits to the remote after verification
   -n, --dry-run       Simulate without committing or pushing
   -h, --help          Show this help message
+  --skip-act          Skip local act and TruffleHog container runs (default: enabled)
+  --with-act          Force local act and TruffleHog container runs
 
 Examples:
   ./scripts/github_automator.sh
@@ -76,6 +79,8 @@ while [[ $# -gt 0 ]]; do
         -m|--message) COMMIT_MSG="$2"; shift 2 ;;
         -p|--push)    DO_PUSH=true; shift ;;
         -n|--dry-run) DRY_RUN=true; shift ;;
+        --skip-act)   export SKIP_ACT=1; shift ;;
+        --with-act)   export SKIP_ACT=0; shift ;;
         -h|--help)    print_help; exit 0 ;;
         -*)           log_error "Unknown option: $1"; print_help; exit 1 ;;
         *)            COMMIT_MSG="$1"; shift ;;

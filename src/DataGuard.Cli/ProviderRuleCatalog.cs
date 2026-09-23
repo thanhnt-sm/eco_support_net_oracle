@@ -4,17 +4,21 @@ using DataGuard.MySql.Adapter;
 using DataGuard.Oracle.Adapter;
 using DataGuard.PostgreSql.Adapter;
 using DataGuard.Core.Validation;
+using DataGuard.Core.Reporting;
+using DataGuard.Core.Sources;
 
 namespace DataGuard.Cli;
 
 /// <summary>Named provider rule inventory used by CLI composition and outcome reporting.</summary>
 public static class ProviderRuleCatalog
 {
-    public static IReadOnlyList<ProviderRuleRegistration> Get(string provider)
+    public static IReadOnlyList<ProviderRuleRegistration> Get(
+        string provider,
+        string? connectionString = null,
+        ProgressEmitter? progress = null)
     {
         var rules = new List<ProviderRuleRegistration>();
-        AddCoreRules(rules);
-
+        AddCoreRules(rules, connectionString, provider, progress);
         if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
         {
             Add(rules, new OracleSyntaxInNonOracleContextRule());
@@ -48,7 +52,11 @@ public static class ProviderRuleCatalog
         return rules;
     }
 
-    private static void AddCoreRules(List<ProviderRuleRegistration> rules)
+    private static void AddCoreRules(
+        List<ProviderRuleRegistration> rules,
+        string? connectionString = null,
+        string? provider = null,
+        ProgressEmitter? progress = null)
     {
         Add(rules, new ParameterCountRule());
         Add(rules, new ParameterTypeMatchRule());
@@ -59,6 +67,14 @@ public static class ProviderRuleCatalog
         Add(rules, new PhantomIdentifierRule());
         Add(rules, new RawSqlParseStatusRule());
         Add(rules, new SelectStarUsageRule());
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            Add(rules, new LiveSqlShapeValidationRule(connectionString, provider ?? "sqlserver", progress));
+        }
+        else
+        {
+            Add(rules, new LiveSqlShapeValidationRule());
+        }
     }
 
     private static void Add(List<ProviderRuleRegistration> rules, IContractRule rule, RuleAvailability availability = RuleAvailability.Ready, string? reason = null) =>

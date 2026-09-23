@@ -147,6 +147,22 @@ public static class DataGuardLogger
     }
 
     /// <summary>
+    /// Logs query discovery details to the active log file.
+    /// </summary>
+    public static void LogQueryDiscovered(string file, int line, string targetType)
+    {
+        LogInfo($"Found SQL in {file}:{line} targeting {targetType}");
+    }
+
+    /// <summary>
+    /// Logs query shape validation details to the active log file.
+    /// </summary>
+    public static void LogQueryValidation(string detail)
+    {
+        LogInfo(detail);
+    }
+
+    /// <summary>
     /// Logs a warning message.
     /// </summary>
     public static void LogWarning(string message)

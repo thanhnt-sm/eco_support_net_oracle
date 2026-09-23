@@ -201,8 +201,12 @@ public record RawSqlDescriptor(
     string SqlText,
     IReadOnlyList<ParameterDescriptor> Parameters,
     IReadOnlyList<ColumnDescriptor> ResultColumns,
-    Location? Location = null) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location)
+    Location? Location = null,
+    IReadOnlyList<PropertyDescriptor>? ExpectedProperties = null,
+    string? TargetTypeName = null) : ContractDescriptor(Id, "Raw SQL", ContractType.RawSql, Location)
 {
+    public IReadOnlyList<PropertyDescriptor> ExpectedProperties { get; init; } = ExpectedProperties ?? Array.Empty<PropertyDescriptor>();
+    public string? TargetTypeName { get; init; } = TargetTypeName;
     public RawSqlParseStatus ParseStatus { get; init; } = RawSqlParseStatus.Parsed;
     public string? ParseError { get; init; }
 }

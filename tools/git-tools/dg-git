@@ -27,10 +27,10 @@ fi
 # `act` is a portable GitHub Actions runner. Docker Desktop remains the only
 # container runtime; neither tool is installed project-wide.
 if [[ -x "$HOME/.act/bin/act" || -x "$HOME/.act/bin/act.exe" ]]; then
-    export PATH="$HOME/.act/bin:$PATH"
+    export PATH="$PATH:$HOME/.act/bin"
 fi
 if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
-    export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"
+    export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
 fi
 
 

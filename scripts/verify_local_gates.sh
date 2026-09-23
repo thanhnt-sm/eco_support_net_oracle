@@ -10,12 +10,36 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
     export PATH="$HOME/.dotnet:$PATH"
 fi
-PYTHON_BIN="$(command -v python3 || command -v python || true)"
+find_python() {
+    for cmd in python3 python py; do
+        while IFS= read -r candidate; do
+            [[ -n "$candidate" ]] || continue
+            if "$candidate" -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+                printf "%s\n" "$candidate"
+                return 0
+            fi
+        done < <(which -a "$cmd" 2>/dev/null || true)
+    done
+    for candidate in \
+        /c/Users/*/AppData/Local/Programs/Python/Python*/python.exe \
+        "${LOCALAPPDATA:-}/Programs/Python/Python"*/python.exe \
+        "${USERPROFILE:-}/AppData/Local/Programs/Python/Python"*/python.exe \
+        "C:/Users/"*/AppData/Local/Programs/Python/Python*/python.exe \
+        /c/Python*/python.exe \
+        "C:/Python"*/python.exe; do
+        if [[ -f "$candidate" ]] && "$candidate" -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+            printf "%s\n" "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+PYTHON_BIN="$(find_python || true)"
 if [[ -d "$HOME/.act/bin" ]]; then
-    export PATH="$HOME/.act/bin:$PATH"
+    export PATH="$PATH:$HOME/.act/bin"
 fi
 if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
-    export PATH="/c/Program Files/Docker/Docker/resources/bin:$PATH"
+    export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
 fi
 
 if [[ -n "${WINDIR:-}" || "${OSTYPE:-}" == "msys"* || "${OSTYPE:-}" == "cygwin"* ]]; then

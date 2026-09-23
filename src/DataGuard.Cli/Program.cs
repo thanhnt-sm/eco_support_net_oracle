@@ -122,6 +122,8 @@ var skipRulesOption = new Option<string>("--skip-rules");
 skipRulesOption.Description = "Comma-separated rule IDs to skip (e.g. DG002,DG017,MY001)";
 var progressOption = new Option<bool>("--progress");
 progressOption.Description = "Write safe line-delimited JSON progress events to stderr";
+var projectOption = new Option<string>("--project");
+projectOption.Description = "Path to C# project (.csproj), solution (.sln), or directory to extract inline SQL queries and C# models";
 
 #endregion
 
@@ -129,7 +131,7 @@ progressOption.Description = "Write safe line-delimited JSON progress events to 
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -145,6 +147,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var efProjectPath = result.GetValue(efProjectOption);
     var efContextName = result.GetValue(efContextOption);
     var skipRulesRaw = result.GetValue(skipRulesOption);
+    var projectPath = result.GetValue(projectOption);
     ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
     HashSet<string>? skipRuleIds = null;
     if (!string.IsNullOrWhiteSpace(skipRulesRaw))
@@ -211,7 +214,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     try
     {
         ct.ThrowIfCancellationRequested();
-        var acquisition = await AcquireContractsAsync(config, provider, ct);
+        var acquisition = await AcquireContractsAsync(config, provider, ct, projectPath, progress);
         var contracts = acquisition.Contracts.ToList();
         if (!string.IsNullOrWhiteSpace(efSnapshotPath))
         {
@@ -231,10 +234,13 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         {
             foreach (var contract in contracts)
             {
-                progress.Emit(new ProgressEvent(
-                    ProgressEventKind.ContractDiscovered,
-                    "Acquiring contracts",
-                    contract.GetType().Name));
+                if (contract is not RawSqlDescriptor)
+                {
+                    progress.Emit(new ProgressEvent(
+                        ProgressEventKind.ContractDiscovered,
+                        "Acquiring contracts",
+                        contract.GetType().Name));
+                }
             }
         }
 
@@ -1550,7 +1556,9 @@ static string SerializeConfig(DataGuardConfiguration config)
 static async Task<ContractAcquisitionResult> AcquireContractsAsync(
     DataGuardConfiguration config,
     string provider,
-    CancellationToken cancellationToken = default)
+    CancellationToken cancellationToken = default,
+    string? projectPath = null,
+    ProgressEmitter? progress = null)
 {
     cancellationToken.ThrowIfCancellationRequested();
 
@@ -1560,10 +1568,12 @@ static async Task<ContractAcquisitionResult> AcquireContractsAsync(
         File.Exists(config.SnapshotFilePath);
     var hasManualSource = config.GroundTruthMode == GroundTruthMode.Manual &&
         !string.IsNullOrEmpty(config.ManualAssemblyPath);
+    var hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
     var requiresConnection = config.GroundTruthMode != GroundTruthMode.Manual &&
-        config.GroundTruthMode != GroundTruthMode.Snapshot;
+        config.GroundTruthMode != GroundTruthMode.Snapshot &&
+        !hasProjectSource;
 
-    if (!hasSnapshotSource && !hasManualSource &&
+    if (!hasSnapshotSource && !hasManualSource && !hasProjectSource &&
         (requiresConnection || config.GroundTruthMode == GroundTruthMode.Manual || config.GroundTruthMode == GroundTruthMode.Snapshot) &&
         string.IsNullOrWhiteSpace(config.ConnectionString))
     {
@@ -1572,7 +1582,7 @@ static async Task<ContractAcquisitionResult> AcquireContractsAsync(
 
     try
     {
-        var contracts = await BuildContractsAsync(config, provider, cancellationToken);
+        var contracts = await BuildContractsAsync(config, provider, cancellationToken, projectPath, progress);
         if (config.GroundTruthMode == GroundTruthMode.Snapshot && hasSnapshotSource && contracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault() is null)
         {
             return new(ContractAcquisitionStatus.Incomplete, contracts, "snapshot contains no persisted schema");
@@ -1590,10 +1600,21 @@ static async Task<ContractAcquisitionResult> AcquireContractsAsync(
     }
 }
 
-static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(DataGuardConfiguration config, string provider, CancellationToken cancellationToken = default)
+static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
+    DataGuardConfiguration config,
+    string provider,
+    CancellationToken cancellationToken = default,
+    string? projectPath = null,
+    ProgressEmitter? progress = null)
 {
     cancellationToken.ThrowIfCancellationRequested();
     var contracts = new List<ContractDescriptor>();
+
+    if (!string.IsNullOrWhiteSpace(projectPath))
+    {
+        var projectSource = new ProjectCSharpSqlSource(projectPath, progress);
+        contracts.AddRange(await projectSource.ExtractContractsAsync(cancellationToken));
+    }
 
     // Snapshot mode reads the persisted schema only when offline (no connection);
     // snapshot refresh must query the live database first.
@@ -1695,7 +1716,7 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     ProgressEmitter? progress = null)
 {
     var allViolations = new List<ContractViolation>();
-    var rules = GetRulesForProvider(provider)
+    var rules = GetRulesForProvider(provider, config.ConnectionString, progress)
         .Where(r => skipRuleIds is null || !skipRuleIds.Contains(r.RuleId))
         .ToList();
     if (config.EnableConcurrentValidation)
@@ -1823,9 +1844,9 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
     return violations;
 }
 
-static List<IContractRule> GetRulesForProvider(string provider)
+static List<IContractRule> GetRulesForProvider(string provider, string? connectionString = null, ProgressEmitter? progress = null)
 {
-    return ProviderRuleCatalog.Get(provider)
+    return ProviderRuleCatalog.Get(provider, connectionString, progress)
         .Where(registration => registration.Availability == RuleAvailability.Ready)
         .Select(registration => registration.Rule)
         .ToList();

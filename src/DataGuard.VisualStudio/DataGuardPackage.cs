@@ -369,7 +369,9 @@ public sealed class DataGuardPackage : AsyncPackage
                         formatted = "[DataGuard] ✔ " + phase + (contracts.HasValue ? ": " + contracts.Value + " contracts" : string.Empty);
                         break;
                     case "ContractDiscovered":
-                        formatted = "[DataGuard]   Discovered " + detail;
+                        formatted = detail.StartsWith("Found SQL in", StringComparison.OrdinalIgnoreCase)
+                            ? "[DataGuard]   " + detail
+                            : "[DataGuard]   Discovered " + detail;
                         break;
                     case "RuleExecuted":
                         formatted = "[DataGuard]   " + detail +

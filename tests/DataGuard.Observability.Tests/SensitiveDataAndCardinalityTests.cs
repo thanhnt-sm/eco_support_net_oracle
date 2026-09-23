@@ -36,19 +36,19 @@ public sealed class SensitiveDataAndCardinalityTests
             .BuildServiceProvider();
 
         var observer = provider.GetRequiredService<IBusinessOperationObserver>();
-        var secret = "PAN-4111111111111111 bearer super-secret-token";
+        var sensitivePayload = "PAN-4111111111111111 bearer super-secret-token";
         var descriptor = new ObservedOperationDescriptor(operationName, "critical", ObservedOperationKind.Command);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => observer.ExecuteAsync(descriptor, _ => Task.FromException(new InvalidOperationException(secret))));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => observer.ExecuteAsync(descriptor, _ => Task.FromException(new InvalidOperationException(sensitivePayload))));
 
         stopped.Should().NotBeNull();
         var renderedEvents = string.Join('|', stopped!.Events.Select(item => item.Name + item.Tags));
-        renderedEvents.Should().NotContain(secret);
+        renderedEvents.Should().NotContain(sensitivePayload);
         renderedEvents.Should().NotContain("4111111111111111");
         renderedEvents.Should().NotContain("super-secret-token");
         stopped.Tags.Any(item =>
             item.Value is not null
-            && item.Value.ToString()!.Contains(secret, StringComparison.Ordinal)).Should().BeFalse();
+            && item.Value.ToString()!.Contains(sensitivePayload, StringComparison.Ordinal)).Should().BeFalse();
         stopped.Tags.Any(item => item.Key == "banking.operation.name" && item.Value is string value && value == "banking.transfer.initiate").Should().BeTrue();
         stopped.Tags.Any(item => item.Key == "banking.slo.class" && item.Value is string value && value == "critical").Should().BeTrue();
     }
@@ -74,24 +74,43 @@ public sealed class SensitiveDataAndCardinalityTests
             {
                 return;
             }
+            string? op = null;
+            string? res = null;
+            string? err = null;
             foreach (var tag in tags)
             {
-                if (tag.Key == "result" && tag.Value is string result)
+                if (tag.Key == "operation")
                 {
-                    if (instrument.Name == "business.operation.failure.count")
-                    {
-                        results.Add(result);
-                    }
-                    else
-                    {
-                        countResults.Add(result);
-                    }
+                    op = tag.Value as string;
                 }
-                if (instrument.Name == "business.operation.failure.count"
-                    && tag.Key == "error.type"
-                    && tag.Value is string errorType)
+                if (tag.Key == "result")
                 {
-                    errorTypes.Add(errorType);
+                    res = tag.Value as string;
+                }
+                if (tag.Key == "error.type")
+                {
+                    err = tag.Value as string;
+                }
+            }
+            if (op == "banking.transfer.initiate")
+            {
+                lock (results)
+                {
+                    if (res is not null)
+                    {
+                        if (instrument.Name == "business.operation.failure.count")
+                        {
+                            results.Add(res);
+                        }
+                        else
+                        {
+                            countResults.Add(res);
+                        }
+                    }
+                    if (instrument.Name == "business.operation.failure.count" && err is not null)
+                    {
+                        errorTypes.Add(err);
+                    }
                 }
             }
         });
@@ -126,15 +145,36 @@ public sealed class SensitiveDataAndCardinalityTests
         };
         listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
         {
+            string? op = null;
+            string? res = null;
+            string? err = null;
             foreach (var tag in tags)
             {
-                if (tag.Key == "result" && tag.Value is string result)
+                if (tag.Key == "operation")
                 {
-                    (instrument.Name == "business.operation.count" ? countResults : failureResults).Add(result);
+                    op = tag.Value as string;
                 }
-                if (tag.Key == "error.type" && tag.Value is string errorType)
+                if (tag.Key == "result")
                 {
-                    errorTypes.Add(errorType);
+                    res = tag.Value as string;
+                }
+                if (tag.Key == "error.type")
+                {
+                    err = tag.Value as string;
+                }
+            }
+            if (op == "banking.transfer.approve")
+            {
+                lock (countResults)
+                {
+                    if (res is not null)
+                    {
+                        (instrument.Name == "business.operation.count" ? countResults : failureResults).Add(res);
+                    }
+                    if (err is not null)
+                    {
+                        errorTypes.Add(err);
+                    }
                 }
             }
         });
@@ -170,11 +210,24 @@ public sealed class SensitiveDataAndCardinalityTests
         };
         listener.SetMeasurementEventCallback<double>((_, _, tags, _) =>
         {
+            string? op = null;
+            string? res = null;
             foreach (var tag in tags)
             {
-                if (tag.Key == "result" && tag.Value is string result)
+                if (tag.Key == "operation")
                 {
-                    results.Add(result);
+                    op = tag.Value as string;
+                }
+                if (tag.Key == "result")
+                {
+                    res = tag.Value as string;
+                }
+            }
+            if ((op == "banking.transfer.initiate" || op == "banking.transfer.approve") && res is not null)
+            {
+                lock (results)
+                {
+                    results.Add(res);
                 }
             }
         });
