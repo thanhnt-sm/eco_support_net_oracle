@@ -242,12 +242,18 @@ echo -e "${BLUE}${BOLD}[4/6] 📋 Verifying selected staged workspace scope...${
 
 STAGED_CHANGES="$(git diff --cached --name-only 2>/dev/null || true)"
 if [[ -z "$STAGED_CHANGES" ]]; then
-    log_error "No staged changes found; refusing to stage the entire workspace automatically."
-    exit 1
+    log_info "No staged changes found. Automatically staging all workspace changes..."
+    git add -A
+    STAGED_CHANGES="$(git diff --cached --name-only 2>/dev/null || true)"
+    if [[ -z "$STAGED_CHANGES" ]]; then
+        echo -e "${GREEN}✨ Working tree clean; nothing to commit or push.${NC}"
+        exit 0
+    fi
+    echo -e "${GREEN}✅ Staged all workspace changes automatically.${NC}"
+else
+    echo -e "${GREEN}✅ Using the existing selected staged scope.${NC}"
 fi
 FINAL_CHANGES="$STAGED_CHANGES"
-echo -e "${GREEN}✅ Using the existing selected staged scope.${NC}"
-
 # ==============================================================================
 # STEP 5: Local CI/CD pipeline simulation (Zero-Bug Policy)
 # ==============================================================================

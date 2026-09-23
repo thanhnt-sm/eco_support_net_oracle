@@ -684,8 +684,8 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
         var violations = ValidateRawSqlContract(sqlText, isStoredProc, cancellationToken);
 
         // Check SELECT * and column shape matching if generic projection type is available
-        var targetType = GetGenericTypeArgument(method);
-        ValidateSelectStarAndShape(sqlText, targetType, violations);
+        var targetTypes = GetDapperMappedTypes(method);
+        ValidateSelectStarAndShape(sqlText, targetTypes, violations);
         
         foreach (var violation in violations)
         {
@@ -803,6 +803,17 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
         return string.Empty;
     }
+    private static ImmutableArray<ITypeSymbol> GetDapperMappedTypes(IMethodSymbol method)
+    {
+        if (method.IsGenericMethod && method.TypeArguments.Length > 0)
+        {
+            // For multi-mapping like Query<T1, T2, TReturn>, the mapped types are the first N-1 types.
+            // For standard Query<T>, it's just T.
+            var count = method.TypeArguments.Length == 1 ? 1 : method.TypeArguments.Length - 1;
+            return method.TypeArguments.Take(count).ToImmutableArray();
+        }
+        return ImmutableArray<ITypeSymbol>.Empty;
+    }
 
     private static ITypeSymbol? GetGenericTypeArgument(IMethodSymbol method)
     {
@@ -845,25 +856,40 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
     private static void ValidateSelectStarAndShape(string sqlText, ITypeSymbol? targetType, List<AnalyzerViolation> violations)
     {
+        var targetTypes = targetType != null ? ImmutableArray.Create(targetType) : ImmutableArray<ITypeSymbol>.Empty;
+        ValidateSelectStarAndShape(sqlText, targetTypes, violations);
+    }
+
+    private static void ValidateSelectStarAndShape(string sqlText, ImmutableArray<ITypeSymbol> targetTypes, List<AnalyzerViolation> violations)
+    {
         if (ContainsSelectStar(sqlText))
         {
             var diagProps = ImmutableDictionary<string, string?>.Empty;
-            if (targetType != null)
+            if (targetTypes.Length > 0)
             {
-                var scalarProps = GetEntityScalarProperties(targetType);
-                if (scalarProps.Count > 0)
+                var allColNames = new List<string>();
+                foreach (var targetType in targetTypes)
                 {
-                    var colNames = scalarProps.Select(p =>
+                    var scalarProps = GetEntityScalarProperties(targetType);
+                    if (scalarProps.Count > 0)
                     {
-                        var colAttr = p.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "ColumnAttribute" or "Column");
-                        if (colAttr != null && colAttr.ConstructorArguments.Length > 0 && colAttr.ConstructorArguments[0].Value is string colName && !string.IsNullOrWhiteSpace(colName))
+                        var colNames = scalarProps.Select(p =>
                         {
-                            return colName;
-                        }
+                            var colAttr = p.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "ColumnAttribute" or "Column");
+                            if (colAttr != null && colAttr.ConstructorArguments.Length > 0 && colAttr.ConstructorArguments[0].Value is string colName && !string.IsNullOrWhiteSpace(colName))
+                            {
+                                return colName;
+                            }
 
-                        return p.Name;
-                    });
-                    diagProps = diagProps.Add("ExplicitColumns", string.Join(", ", colNames));
+                            return p.Name;
+                        });
+                        allColNames.AddRange(colNames);
+                    }
+                }
+                
+                if (allColNames.Count > 0)
+                {
+                    diagProps = diagProps.Add("ExplicitColumns", string.Join(", ", allColNames));
                 }
             }
 
@@ -876,12 +902,17 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        if (targetType == null)
+        if (targetTypes.Length == 0)
         {
             return;
         }
 
-        var properties = GetEntityScalarProperties(targetType);
+        var properties = new List<IPropertySymbol>();
+        foreach (var targetType in targetTypes)
+        {
+            properties.AddRange(GetEntityScalarProperties(targetType));
+        }
+        
         if (properties.Count == 0)
         {
             return;
