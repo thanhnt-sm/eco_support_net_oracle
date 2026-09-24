@@ -42,7 +42,7 @@ if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
     export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
 fi
 
-if [[ -n "${WINDIR:-}" || "${OSTYPE:-}" == "msys"* || "${OSTYPE:-}" == "cygwin"* ]]; then
+if [[ "${USE_FULL_SLN:-0}" == "1" ]]; then
     SOLUTION=DataGuard.sln
 else
     SOLUTION=DataGuard.CrossPlatform.slnf
@@ -121,10 +121,9 @@ if rate < 60:
 PY
 
 printf '[verify-local-gates] Auditing full solution NuGet dependencies.\n'
-dotnet restore DataGuard.sln --locked-mode \
+dotnet restore "$SOLUTION" --locked-mode \
     -p:NuGetAuditMode=all \
     '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
-
 if [[ "${SKIP_ACT:-0}" == "1" ]]; then
     printf '[verify-local-gates] SKIP_ACT=1: Skipping heavy TruffleHog git scan and act Docker simulation (verified separately; hosted CI will run).\n'
 else
