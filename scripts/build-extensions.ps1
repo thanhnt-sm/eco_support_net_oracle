@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param (
     [string]$Configuration = 'Release',
+    [Alias("skip-vscode")]
     [switch]$SkipVSCode,
+    [Alias("skip-visualstudio")]
     [switch]$SkipVisualStudio
 )
 
@@ -22,7 +24,7 @@ Write-Host "Starting DataGuard Extension Build Process..." -ForegroundColor Cyan
 
 # Resolve package version safely for artifact naming
 $version = "0.2.3"
-$vscodePkgJson = Join-Path $repoRoot "src\DataGuard.VSCode\package.json"
+$vscodePkgJson = Join-Path $repoRoot "src/DataGuard.VSCode/package.json"
 if (Test-Path -LiteralPath $vscodePkgJson) {
     try {
         $parsedJson = Get-Content -LiteralPath $vscodePkgJson -Raw | ConvertFrom-Json
@@ -32,13 +34,31 @@ if (Test-Path -LiteralPath $vscodePkgJson) {
     } catch {}
 }
 
-# 0. Pre-build cache & artifact cleanup
-& "$PSScriptRoot\clean-workspace.ps1" -Mode PreBuild
+if ($SkipVSCode -and $SkipVisualStudio) {
+    throw "Both VS Code and Visual Studio extension builds were skipped. Nothing to build."
+}
+
+$dotnetCmd = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($null -eq $dotnetCmd) {
+    throw "dotnet command not found in PATH. Please install .NET SDK (8.0+) to build DataGuard extensions."
+}
+if (-not $SkipVSCode) {
+    $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+    if ($null -eq $nodeCmd) {
+        throw "node command not found in PATH. Please install Node.js (v18+) to build the VS Code extension, or pass -SkipVSCode."
+    }
+}
 try {
-    # 1. Build VS Code Extension
+    # 0. Pre-build cache & artifact cleanup
+    & "$PSScriptRoot\clean-workspace.ps1" -Mode PreBuild -SkipVSCode:$SkipVSCode -SkipVisualStudio:$SkipVisualStudio
+
     if (-not $SkipVSCode) {
         Write-Host "`n[1/2] Building VS Code Extension..." -ForegroundColor Yellow
-    Set-Location (Join-Path $repoRoot "src\DataGuard.VSCode")
+    Set-Location (Join-Path $repoRoot "src/DataGuard.VSCode")
+    $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if ($null -eq $npmCmd) {
+        throw "npm command not found in PATH. Please install Node.js and npm to build the VS Code extension, or pass -SkipVSCode."
+    }
 
     Write-Host "Running npm ci..."
     npm ci
@@ -53,12 +73,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "npm run package failed with exit code $LASTEXITCODE" }
 
     Set-Location $repoRoot
-$version = (Get-Content src\DataGuard.VSCode\package.json -Raw | ConvertFrom-Json).version
-$vscodeSource = "src\DataGuard.VSCode\dataguard-vscode-$version.vsix"
-$vscodeDestDir = "artifacts\vscode"
-$vscodeDest = "$vscodeDestDir\dataguard-vscode-$version.vsix"
+    $vscodePkgPath = Join-Path $repoRoot "src/DataGuard.VSCode/package.json"
+    $version = (Get-Content -LiteralPath $vscodePkgPath -Raw | ConvertFrom-Json).version
+    $vscodeSource = Join-Path $repoRoot "src/DataGuard.VSCode/dataguard-vscode-$version.vsix"
+    $vscodeDestDir = Join-Path $repoRoot "artifacts/vscode"
+    $vscodeDest = Join-Path $vscodeDestDir "dataguard-vscode-$version.vsix"
 
-if (-not (Test-Path $vscodeSource)) {
+if (-not (Test-Path -LiteralPath $vscodeSource)) {
     throw "Failed to find VS Code vsix at $vscodeSource"
 }
 
@@ -77,12 +98,15 @@ Set-Content -LiteralPath "$vscodeDest.sha256" -Value "$hashVscode  $(Split-Path 
     if (-not $SkipVisualStudio) {
         Write-Host "`n[2/2] Building Visual Studio Extension..." -ForegroundColor Yellow
 $msbuild = $env:MSBUILD
-if ([string]::IsNullOrWhiteSpace($msbuild) -or -not (Test-Path $msbuild)) {
-    $vswherePaths = @(
-        (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"),
-        (Join-Path $env:ProgramFiles "Microsoft Visual Studio\Installer\vswhere.exe")
-    )
-    $vswhere = $vswherePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($msbuild) -or -not (Test-Path -LiteralPath $msbuild)) {
+    $vswherePaths = @()
+    if ($null -ne ${env:ProgramFiles(x86)}) {
+        $vswherePaths += Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
+    }
+    if ($null -ne $env:ProgramFiles) {
+        $vswherePaths += Join-Path $env:ProgramFiles "Microsoft Visual Studio/Installer/vswhere.exe"
+    }
+    $vswhere = $vswherePaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 
     if (-not [string]::IsNullOrWhiteSpace($vswhere)) {
         $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" | Select-Object -First 1
@@ -93,32 +117,39 @@ if ([string]::IsNullOrWhiteSpace($msbuild) -or -not (Test-Path $msbuild)) {
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($msbuild) -or -not (Test-Path $msbuild)) {
+if ([string]::IsNullOrWhiteSpace($msbuild) -or -not (Test-Path -LiteralPath $msbuild)) {
     throw "MSBuild was not found via env:MSBUILD, vswhere, or PATH. Please ensure Visual Studio or Build Tools with MSBuild is installed."
 }
 Write-Host "Using MSBuild: $msbuild"
-& $msbuild src\DataGuard.VisualStudio\DataGuard.VisualStudio.csproj `
+$vsProj = Join-Path $repoRoot "src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj"
+& $msbuild $vsProj `
   /t:Rebuild `
   /p:CreateVsixContainer=true `
+  /p:DeployExtension=false `
   /p:Configuration=$Configuration `
   /restore
-
 if ($LASTEXITCODE -ne 0) { throw "Visual Studio extension build failed with exit code $LASTEXITCODE" }
 
-    $vsSource = "src\DataGuard.VisualStudio\bin\$Configuration\net472\DataGuard.VisualStudio.vsix"
-    $vsDestDir = "artifacts\visualstudio"
+        $vsSource = Join-Path $repoRoot "src/DataGuard.VisualStudio/bin/$Configuration/net472/DataGuard.VisualStudio.vsix"
+        $vsDestDir = Join-Path $repoRoot "artifacts/visualstudio"
 
-    $manifestPath = Join-Path $repoRoot "src\DataGuard.VisualStudio\source.extension.vsixmanifest"
-    [xml]$vsManifest = Get-Content $manifestPath
-    $vsVersion = $vsManifest.PackageManifest.Metadata.Identity.Version
-    if ([string]::IsNullOrWhiteSpace($vsVersion)) {
+        $manifestPath = Join-Path $repoRoot "src/DataGuard.VisualStudio/source.extension.vsixmanifest"
         $vsVersion = $version
-    }
-    $vsDest = "$vsDestDir\dataguard-visualstudio-$vsVersion.vsix"
-if (-not (Test-Path $vsSource)) {
+        if (Test-Path -LiteralPath $manifestPath) {
+            try {
+                [xml]$vsManifest = Get-Content -LiteralPath $manifestPath -ErrorAction Stop
+                $extractedVersion = $vsManifest.PackageManifest.Metadata.Identity.Version
+                if (-not [string]::IsNullOrWhiteSpace($extractedVersion)) {
+                    $vsVersion = $extractedVersion
+                }
+            } catch {
+                Write-Warning "Failed to parse vsixmanifest, falling back to default version ($version): $_"
+            }
+        }
+        $vsDest = Join-Path $vsDestDir "dataguard-visualstudio-$vsVersion.vsix"
+if (-not (Test-Path -LiteralPath $vsSource)) {
     throw "Failed to find Visual Studio vsix at $vsSource"
 }
-
 New-Item -ItemType Directory -Force $vsDestDir | Out-Null
 Copy-Item -LiteralPath $vsSource -Destination $vsDest -Force
 Remove-Item -LiteralPath $vsSource -Force -ErrorAction SilentlyContinue
@@ -133,7 +164,7 @@ Set-Content -LiteralPath "$vsDest.sha256" -Value "$hashVs  $(Split-Path -Leaf $v
 finally {
     # 3. Post-build intermediate staging cleanup (always executed)
     try {
-        & "$PSScriptRoot\clean-workspace.ps1" -Mode PostBuild
+        & "$PSScriptRoot\clean-workspace.ps1" -Mode PostBuild -SkipVSCode:$SkipVSCode -SkipVisualStudio:$SkipVisualStudio
     } catch {
         Write-Warning "PostBuild cleanup encountered a notice: $_"
     }

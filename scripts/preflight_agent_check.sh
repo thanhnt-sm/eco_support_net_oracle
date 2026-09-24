@@ -32,6 +32,7 @@ ALLOWED_ROOT_PATTERNS=(
     "^DataGuard\.sln$"
     "^DataGuard\.CrossPlatform\.slnf$"
     "^Directory\.Build\.props$"
+    "^Directory\.Build\.targets$"
     "^Dockerfile$"
     "^\.dockerignore$"
     "^\.env(\..+)?$"
@@ -80,7 +81,7 @@ for item in * .*; do
     [ "$item" = "." ] || [ "$item" = ".." ] && continue
     MATCHED=false
     for pat in "${ALLOWED_ROOT_PATTERNS[@]}"; do
-        if echo "$item" | grep -qE "$pat"; then
+        if [[ "$item" =~ $pat ]]; then
             MATCHED=true
             break
         fi

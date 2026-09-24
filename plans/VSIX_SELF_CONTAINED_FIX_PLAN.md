@@ -8,7 +8,7 @@ The DataGuard Visual Studio extension (`DataGuard.VisualStudio`) previously fail
 3. Silent filtering of SARIF relative URIs (`%SRCROOT%`).
 4. Absence of a bundled self-contained CLI.
 
-An adversarial red-team audit against the live codebase (2026-09-24, Round 9) verified that **ALL 57 Steps across Phases 1–10 are FULLY IMPLEMENTED and VERIFIED**. The extension builds deterministically with a self-contained CLI, enforces fail-closed MSBuild guards, prevents argument injection and path traversal, strictly confines SARIF navigation to the solution directory, safely handles junctions and reparse points without traversing external folders, bounds process stream drain tasks with timeouts to prevent pipe deadlocks, prevents untrusted package feed execution during auto-installation, protects build errors from being masked in PostBuild clean, handles stream closure exceptions gracefully to eliminate unobserved task exceptions, protects caller working directory state, provides frictionless batch clean wrappers, and implements an exhaustive, deterministic 3-stage cache management lifecycle.
+An adversarial red-team audit against the live codebase (2026-09-24, Round 19) verified that **ALL 136 Steps across Phases 1-20 are FULLY IMPLEMENTED and VERIFIED**. The extension builds deterministically with a self-contained CLI, enforces fail-closed MSBuild guards, automatically self-cleans uncompressed staging via MSBuild targets, prevents argument injection and path traversal, strictly confines SARIF navigation to the solution directory, safely unlinks nested junctions and reparse points without traversing external folders, bounds process stream drain tasks with timeouts to prevent pipe deadlocks, prevents untrusted package feed execution during auto-installation, protects build errors from being masked in PostBuild clean, handles stream closure exceptions gracefully to eliminate unobserved task exceptions, protects caller working directory state, provides frictionless batch clean wrappers and cross-platform bash parity, eliminates synchronous UI blocking on CLI execution, handles selective build targets without false critical lock aborts, and implements an exhaustive, deterministic 3-stage cache management lifecycle across both extensions and test suites.
 
 Furthermore, empirical workspace auditing revealed critical cache and artifact accumulation:
 - **~753 MB** in `bin/` and `obj/` across 46 project folders.
@@ -83,6 +83,85 @@ This replanned document formalizes the deterministic **Pre-Run and Post-Run Cach
 | **Step 55** | Switch aliases (`-Pre`, `-Post`, `-Deep`) in `clean-workspace.ps1` | ✅ **DONE** | `clean-workspace.ps1:16-38` (Supports switches and positional aliases for fast invocation) |
 | **Step 56** | Background build server shutdown & NuGet cache purge in Deep clean | ✅ **DONE** | `clean-workspace.ps1:200-247` (`dotnet build-server shutdown`, local NuGet http/temp purge, `privateregistry.bin`) |
 | **Step 57** | Batch wrapper `scripts/clean-workspace.bat` for CMD/Terminal developers | ✅ **DONE** | `scripts/clean-workspace.bat` (Directly forwards `%*` to `clean-workspace.ps1`) |
+| **Step 58** | MSBuild self-cleaning target `CleanBundledCliAfterVsixPackaging` [FLW-001] | ✅ **DONE** | `DataGuard.VisualStudio.csproj:84-86` (Automatically purges `obj/cli/` immediately after VSIX packaging) |
+| **Step 59** | Child ReparsePoint unlinking & cross-platform path regex [SEC-001, ASM-001] | ✅ **DONE** | `clean-workspace.ps1:87-97, 147, 169, 230` (Unlinks child junctions before recursive delete; uses `[\\/]` separators) |
+| **Step 60** | Safe startup temp sweep & junction defense [SEC-002, FLW-002] | ✅ **DONE** | `DataGuardPackage.cs:88-92, 951-995` (Background startup sweep in `InitializeAsync`; unlinks junctions non-recursively) |
+| **Step 61** | Robust `IOException` handling in `PublishSarifAsync` | ✅ **DONE** | `DataGuardPackage.cs:1187-1191` (Catches `IOException` when virus scanner or indexer holds lock on SARIF file) |
+| **Step 62** | Extension packaging cleanliness in `.vscodeignore` [SEC-003, ASM-004] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:9-17` (Excludes `test/**`, `scripts/**`, `TestResults/**`, `.coverage/**`) |
+| **Step 63** | Deterministic pre-run test cleanup in `scripts/verify_local_gates.sh` [ASM-003] | ✅ **DONE** | `scripts/verify_local_gates.sh:85-87` (Purges `**/TestResults` prior to running test suite and coverage) |
+| **Step 64** | Cross-platform bash workspace clean parity [ASM-005] | ✅ **DONE** | `scripts/clean-workspace.sh:1-70` (Native bash cleanup script with `--pre`, `--post`, `--deep` parity) |
+| **Step 65** | Cross-platform directory separator & prefix check in `clean-workspace.ps1` [SEC-CLN-001, ASM-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:60-75` (Uses `[System.IO.Path]::DirectorySeparatorChar` and guards `$env:LOCALAPPDATA` null check) |
+| **Step 66** | Safe non-recursive junction unlinking in `DataGuardPackage.cs` [SEC-PKG-001, ASM-006] | ✅ **DONE** | `DataGuardPackage.cs:985-1014` (`SafeDeleteDirectory` checks each level for `ReparsePoint` and deletes junctions non-recursively) |
+| **Step 67** | Solution nuget.config feed hijacking prevention in `TryAutoInstallCliAsync` [SEC-PKG-003] | ✅ **DONE** | `DataGuardPackage.cs:1073-1077` (Working directory set to user profile; enforces official NuGet feed `--add-source`) |
+| **Step 68** | Omit synchronous startup temp sweep on UI command execution [SCP-001] | ✅ **DONE** | `DataGuardPackage.cs:671-675` (Removed blocking synchronous sweep from `RunCliAsync`; background sweep runs in `InitializeAsync`) |
+| **Step 69** | Selective build switch handling in `clean-workspace.ps1` (`-SkipVSCode`, `-SkipVisualStudio`) [FLW-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:17-33, 192-198` (Prevents false `-Critical` aborts on skipped extension folders) |
+| **Step 70** | Graceful Node.js (`npm`) prerequisite probe in `build-extensions.ps1` [ASM-004] | ✅ **DONE** | `scripts/build-extensions.ps1:42-45` (Probes `Get-Command npm` with actionable guidance before running `npm ci`) |
+| **Step 71** | Pass `/p:DeployExtension=false` in automated VSIX builds [ASM-005] | ✅ **DONE** | `scripts/build-extensions.ps1:107` (Prevents VSSDK from polluting Experimental Hive during automated script/CI builds) |
+| **Step 72** | Centralize test result purge in `scripts/verify_local_gates.sh` via `clean-workspace.sh` [SCP-002] | ✅ **DONE** | `scripts/verify_local_gates.sh:85-87` (Delegates to `clean-workspace.sh --pre` for DRY cache hygiene) |
+| **Step 73** | Strict repository root child containment in `clean-workspace.ps1` [SEC-R12-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:68-69` (Requires `-not $fullPath.Equals($fullRepoRoot)` preventing whole-repo self-deletion) |
+| **Step 74** | Unchecked root containment & repository sanity guard in `clean-workspace.sh` [SEC-R12-002] | ✅ **DONE** | `scripts/clean-workspace.sh:6-10` (Guards against root `/` and verifies `DataGuard.sln` exists before execution) |
+| **Step 75** | Regex-constrained Visual Studio Experimental Hive containment (`*Exp`) in `clean-workspace.ps1` [SEC-R12-003] | ✅ **DONE** | `scripts/clean-workspace.ps1:70-73` (Restricts deletions strictly to experimental hives `*Exp`, protecting production hives) |
+| **Step 76** | Non-recursive stack-based junction unlinking in PowerShell 5.1 [SEC-R12-004] | ✅ **DONE** | `scripts/clean-workspace.ps1:106-121` (Stack-based directory enumeration unlinks junctions without traversing targets) |
+| **Step 77** | VS Code extension startup temp sweep in `activate()` (`cleanStaleTempDirectories`) [SEC-R12-005] | ✅ **DONE** | `src/DataGuard.VSCode/src/extension.ts:99, 129-152` (Background sweep cleans `os.tmpdir()/dataguard-*` older than 15 minutes) |
+| **Step 78** | Full system temporary directory cache sweeping (`%TEMP%\DataGuard` & `dataguard-*`) [SEC-R12-006] | ✅ **DONE** | `scripts/clean-workspace.ps1:190-198, 243-251, 351-359`, `scripts/clean-workspace.sh:38-39, 59-60, 75-76` |
+| **Step 79** | PreBuild `nupkg` directory purging across Windows and Linux/macOS [ASM-R12-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:178-187`, `scripts/clean-workspace.sh:40-42` (Eliminates stale package accumulation before builds) |
+| **Step 80** | Directory find with `-prune` and transparent error reporting in `clean-workspace.sh` [FLW-R12-002, FLW-R12-003] | ✅ **DONE** | `scripts/clean-workspace.sh:40, 43, 79-80, 85, 95-96` (Prevents directory traversal race errors; reports clean failures) |
+| **Step 81** | Explicit project-level `<DeployExtension Condition="'$(DeployExtension)' == ''">false</DeployExtension>` [FLW-R13-001] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj:14` (Guarantees zero experimental hive pollution in all MSBuild invocations) |
+| **Step 82** | Extended cache purge target on standard `dotnet clean` (`CleanExtendedArtifactsOnClean`) [FLW-R13-002, ASM-R13-001] | ✅ **DONE** | `Directory.Build.targets:19-27` (Automatically purges `TestResults/`, `nupkg/`, and `.testcontainers` on `dotnet clean`) |
+| **Step 83** | Granular per-entry try-catch in stack-based junction unlinker [SEC-R13-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:115-128` (Prevents premature loop abort so all junctions are unlinked before deletion) |
+| **Step 84** | Automatic ReadOnly/Hidden file attribute stripping before deletion [SEC-R13-002] | ✅ **DONE** | `scripts/clean-workspace.ps1:131-138, 149-153` (Clears ReadOnly attribute on descendants to prevent silent deletion aborts) |
+| **Step 85** | ReadOnly attribute stripping in Visual Studio temp file removal (`TryDeleteFile`) [SEC-R13-003] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1016-1027` (Clears ReadOnly attribute before `File.Delete` in temp sweeps) |
+| **Step 86** | Multi-user UID verification and `fs.lstat` protection in VS Code temp sweep [SEC-R13-004] | ✅ **DONE** | `src/DataGuard.VSCode/src/extension.ts:137-160` (Uses `fs.lstat`, unlinks symlinks safely, and verifies POSIX UID ownership) |
+| **Step 87** | Exclusion of sensitive JSON scan summaries in `.vscodeignore` [SEC-R13-005] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:24-26` (Excludes `*summary*.json`, `summary.json`, `*scan*.json` from VSIX packaging) |
+| **Step 88** | Anchored `$repoRoot` artifact paths in `build-extensions.ps1` and argument terminators in `clean-workspace.sh` [FLW-R13-003, SEC-R13-007] | ✅ **DONE** | `scripts/build-extensions.ps1:60-64`, `scripts/clean-workspace.sh:4, 40-42, 63-65` (Immune to PWD divergence and option injection) |
+| **Step 89** | Anchored `$repoRoot` paths & manifest fallback in Visual Studio packaging [SEC-R14-001, FLW-R14-004] | ✅ **DONE** | `scripts/build-extensions.ps1:109-134` (Prevents artifact misplacement and crashes on malformed vsixmanifest) |
+| **Step 90** | Selective report filtering in PreBuild clean (`clean-workspace.ps1` & `.sh`) [SEC-R14-002] | ✅ **DONE** | `scripts/clean-workspace.ps1:270`, `scripts/clean-workspace.sh:67` (Prevents wiping legitimate manifests and SBOMs before build) |
+| **Step 91** | ReadOnly directory attribute handling and decoupled enumeration in `SafeDeleteDirectory` [SEC-R14-003, SEC-R14-004] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:988-1037` (Strips ReadOnly/Hidden before directory deletion; decouples iteration) |
+| **Step 92** | Strip ReadOnly attributes on child reparse points/junctions before unlinking [SEC-R14-005] | ✅ **DONE** | `scripts/clean-workspace.ps1:102-104, 132-134` (Prevents junctions from throwing on unlink and bypassing traversal protection) |
+| **Step 93** | Inclusion of `*.tsbuildinfo` in PreBuild cleanup filters [ASM-R14-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:258`, `scripts/clean-workspace.sh:56` (Prevents stale TypeScript compiler caches from generating empty builds) |
+| **Step 94** | Coverage directory purging in `CleanExtendedArtifactsOnClean` target and `Test;VSTest` hooks [FLW-R14-002] | ✅ **DONE** | `Directory.Build.targets:5, 26-29` (Automatically purges `coverage` and `.coverage` on `dotnet clean` across project & solution) |
+| **Step 95** | Both-flags skipped guard in `build-extensions.ps1` [FLW-R14-003] | ✅ **DONE** | `scripts/build-extensions.ps1:35-37` (Throws immediately if both `-SkipVSCode` and `-SkipVisualStudio` are passed) |
+| **Step 96** | Checksum, PDB, and artifact exclusions in `.vscodeignore` & selective clean flags in `.sh` [SEC-R14-006, SEC-R14-007, SEC-R14-008] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:27-30`, `scripts/clean-workspace.sh:13-37, 59-64`, `src/DataGuard.VisualStudio/DataGuardPackage.cs:966-972` |
+| **Step 97** | Safe `%cmdcmdline%` quoting in `scripts/build-extensions.bat` [SEC-R15-001] | ✅ **DONE** | `scripts/build-extensions.bat:8` (Prevents argument parsing breaks and command injection from interactive console checks) |
+| **Step 98** | Process handle lifecycle and disposal in `TryAutoInstallCliAsync` [FLW-R15-001] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1137` (Guarantees OS process handle disposal on success, timeout, or failure) |
+| **Step 99** | Complete report and SBOM exclusions in `.vscodeignore` [SEC-R15-002] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:27-29` (Excludes `*report*.json`, `report.json`, and `*.spdx.json` from packaging) |
+| **Step 100** | Execution context trap immunity via `Test-ExcludedPath` in `clean-workspace.ps1` [ASM-R15-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:210-223, 237, 276, 288, 381, 418` (Evaluates relative path from root to prevent parent path collisions) |
+| **Step 101** | Canonicalized path length bounds for `$env:LOCALAPPDATA` and `$tempRoot` [ASM-R15-002] | ✅ **DONE** | `scripts/clean-workspace.ps1:87-105` (Prevents 8.3 short-name length discrepancies from bypassing safety boundaries) |
+| **Step 102** | Worktree & submodule `.git` file protection in `Remove-TargetItem` [SEC-R15-003] | ✅ **DONE** | `scripts/clean-workspace.ps1:72-75` (Rejects deletion of `.git` whether directory or file worktree pointer) |
+| **Step 103** | 15-minute age check for `dataguard-*` temp directories in `.ps1` and `.sh` [ASM-R15-003] | ✅ **DONE** | `scripts/clean-workspace.ps1:258-272, 345-359`, `scripts/clean-workspace.sh:60-61, 90-91, 115-116` (Protects concurrent test runs) |
+| **Step 104** | LiteralPath parameter on `$vsExpHives` and hidden+readonly regression tests [FLW-R15-002] | ✅ **DONE** | `scripts/clean-workspace.ps1:400`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:245-260` |
+| **Step 105** | Production dependency inclusion in `.vscodeignore` (`vscode-languageclient`) [ASM-R16-006] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:4` (Allows `vsce` to bundle production `node_modules` while omitting `devDependencies`) |
+| **Step 106** | Safe time-aware `%TEMP%\DataGuard` subfolder pruning in `clean-workspace.ps1` & `.sh` [SEC-R16-005] | ✅ **DONE** | `scripts/clean-workspace.ps1:258-275, 362-379`, `scripts/clean-workspace.sh:60-63, 93-96, 120-123` |
+| **Step 107** | Stream drain grace period & cancellation crash prevention in `RunCliAsync` [FLW-R16-004] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:813-824, 835-852` (Prevents unhandled `InvalidOperationException` on cancellation) |
+| **Step 108** | Fallback direct termination (`process.Kill()`) in `StopProcess` [FLW-R16-002] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:196-206` (Ensures process termination if `taskkill` is missing or fails) |
+| **Step 109** | Symlink traversal guard on chmod and dual mtime/ctime check in `extension.ts` [SEC-R16-003] | ✅ **DONE** | `src/DataGuard.VSCode/src/extension.ts:151-196` (Cleans `%TEMP%\DataGuard` subfolders safely without following symlinks) |
+| **Step 110** | Batch parameter aliases `[Alias("skip-vscode")]` & `[Alias("skip-visualstudio")]` [ASM-R16-002] | ✅ **DONE** | `scripts/clean-workspace.ps1:31-34`, `scripts/build-extensions.ps1:4-7` (Supports double-dashed parameters) |
+| **Step 111** | Multi-instance concurrent logging via `FileShare.ReadWrite` in `DataGuardLogger.cs` [ASM-R16-004] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardLogger.cs:10, 384-388` (Eliminates `IOException` sharing violations across IDEs) |
+| **Step 112** | Solution-relative `CustomCliPath` resolution in `FindCliExecutable` and unit tests [ASM-R16-005] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardLogger.cs:200-218`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:222-238` |
+| **Step 113** | Resilient `Assembly.Location` & `CodeBase` bundled CLI discovery in `DataGuardLogger.cs` [FLW-R17-001] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardLogger.cs:226-258`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:282-291` |
+| **Step 114** | Safe age-aware `%TEMP%\DataGuard` clean in PostBuild & removed duplicate Deep purge [SEC-R17-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:48-50, 327-359, 495-497` (Prevents active scan interruptions) |
+| **Step 115** | Complete test & packaging exclusions in `.vscodeignore` (`.vscode-test/**`, `package-lock.json`) [SEC-R17-002] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:6-11` (Prevents 300MB+ test runtime bloat in VSIX) |
+| **Step 116** | Non-world-writable chmod fallback & UID verification for `/tmp/DataGuard` in `extension.ts` [SEC-R17-003] | ✅ **DONE** | `src/DataGuard.VSCode/src/extension.ts:158, 176, 188` (Uses `0o666`/`0o700` instead of `0o777`) |
+| **Step 117** | Symlink verification (`-L`, `find -P`) & critical failure check in `clean-workspace.sh` [SEC-R17-004] | ✅ **DONE** | `scripts/clean-workspace.sh:60-65, 86, 95-100, 124-129, 152, 158-164` |
+| **Step 118** | Comprehensive exception handling in `StopProcess` fallback (`process.Kill()`, `Win32Exception`) [FLW-R17-002] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:196-221` (Catches `Win32Exception` and `InvalidOperationException`) |
+| **Step 119** | Sensitive diagnostic reports exclusion in `.gitignore` (`*.sarif`, `*summary*.json`) [SEC-R17-005] | ✅ **DONE** | `.gitignore:106-111` (Prevents accidental commits of customer schema details and queries) |
+| **Step 120** | Parallel test safety in `Directory.Build.targets` & tool verification in `build-extensions.ps1` [FLW-R17-003, FLW-R17-004] | ✅ **DONE** | `Directory.Build.targets:5-7`, `scripts/build-extensions.ps1:41-49, 82, 106, 117` |
+| **Step 121** | Parallel-safe MSBuild pack in `Directory.Build.targets` (removed shared root deletions) [FLW-R18-001] | ✅ **DONE** | `Directory.Build.targets:10-20` (Eliminates parallel MSBuild pack collision `MSB5003`) |
+| **Step 122** | Non-blocking `CancelValidationAsync` via `Task.Run` in `DataGuardPackage.cs` [FLW-R18-002] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1368-1395` (Prevents UI thread freezing under `processGate`) |
+| **Step 123** | Working directory sync (`SetCurrentDirectory`) & deep temp staleness check in `clean-workspace.ps1` [SEC-R18-001, ASM-R18-001] | ✅ **DONE** | `scripts/clean-workspace.ps1:48, 57-75, 273-291, 332-334` (Prevents out-of-bounds deletions & active scan crashes) |
+| **Step 124** | Log path quote sanitization in `DataGuardLogger.OpenLog` & quote unit test [SEC-R18-002] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardLogger.cs:370-384`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:293-302` |
+| **Step 125** | Process termination handle release wait (`process.WaitForExit(1000)`) in `StopProcess` [FLW-R18-003] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:202-209` (Eliminates file locking during cleanup) |
+| **Step 126** | Complete exclusions for `.github/**` and `.testcontainers/**` in `.vscodeignore` [SEC-R18-003] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:38-39` (Prevents packaging internal CI/CD logic and test hives) |
+| **Step 127** | Defensive `/p:DeployExtension=false` in `.github/workflows/build_release.yml` [ASM-R18-002] | ✅ **DONE** | `.github/workflows/build_release.yml:245` |
+| **Step 128** | Mode argument parity in `clean-workspace.sh` (`--mode`, `-m`) & unused parameter cleanup [CMP-R18-001, CMP-R18-002] | ✅ **DONE** | `scripts/clean-workspace.sh:16-57`, `src/DataGuard.VisualStudio/DataGuardPackage.cs:692, 1209` |
+| **Step 129** | `ObjectDisposedException` race condition guard in `StopProcess` [FLW-R19-001] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardPackage.cs:224-227` (Prevents cancellation task crashes) |
+| **Step 130** | UNC remote path rejection in `DataGuardLogger.Configure` & unit test [SEC-R19-001] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardLogger.cs:76-80`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:304-310` |
+| **Step 131** | Rooted `explorer.exe` invocation with `UseShellExecute = false` in `OpenLog` [SEC-R19-002] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardLogger.cs:384-393` (Prevents current-directory binary planting) |
+| **Step 132** | Bitwise mask attribute clearing (`-band (-bnot ...)`) on root directory and descendants [SEC-R19-003] | ✅ **DONE** | `scripts/clean-workspace.ps1:174-198` (Eliminates `-bxor` toggle flaw) |
+| **Step 133** | Secret packaging exclusions (`*.pem`, `*.key`, `*.token`, `*.pfx`, etc.) in `.vscodeignore` [SEC-R19-004] | ✅ **DONE** | `src/DataGuard.VSCode/.vscodeignore:40-47` (Full parity with `.gitignore`) |
+| **Step 134** | Relative PATH directory skip in `DataGuardLogger.FindCliExecutable` [SEC-R19-005] | ✅ **DONE** | `src/DataGuard.VisualStudio/DataGuardLogger.cs:310-312` (Prevents directory hijacking via relative PATH) |
+| **Step 135** | Multi-targeting build collision immunity in `Directory.Build.targets` [FLW-R19-002] | ✅ **DONE** | `Directory.Build.targets:5, 10` (`Condition="'$(IsCrossTargetingBuild)' != 'true'"`) |
+| **Step 136** | PreBuild cleanup inside `try` block & DRY `Redact` delegation [FLW-R19-003, CMP-R19-001] | ✅ **DONE** | `scripts/build-extensions.ps1:51-54`, `src/DataGuard.VisualStudio/DataGuardPackage.cs:313-316` |
 ---
 
 ## Workspace & Extension Cache Management Architecture
@@ -287,6 +366,175 @@ flowchart TD
 | 5 | **ASM-001** Missing Batch Wrapper `clean-workspace.bat` & Switch Parameters in `clean-workspace.ps1` | High | Accept | `scripts/clean-workspace.bat`, `clean-workspace.ps1:16-38` (Steps 55, 57) |
 | 6 | **ASM-003 / ASM-004** Locked `bin/`/`obj/` & Incomplete Deep Clean Missing Build Server Shutdown and NuGet Caches | Medium | Accept | `clean-workspace.ps1:200-247` (Step 56) |
 | 7 | **SC-002** Swallowed Error Message in `package-lsp.cjs` spawnSync | Medium | Accept | `src/DataGuard.VSCode/scripts/package-lsp.cjs:11-15` |
+
+### Session - Round 10 (2026-09-24)
+**Findings:** 7 (7 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 3 High, 2 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **FLW-001** MSBuild Staging Leak Leaves 121 MB Uncompressed CLI on Disk After Packaging | Critical | Accept | `DataGuard.VisualStudio.csproj:84-86` (Step 58) |
+| 2 | **SEC-001** Child ReparsePoint / Junction Traversal in Recursive Directory Removal | Critical | Accept | `clean-workspace.ps1:87-97` (Step 59) |
+| 3 | **SEC-002** Arbitrary File Deletion via Directory Junction Traversal in Temp Directory Sweep | High | Accept | `DataGuardPackage.cs:955-985` (Step 60) |
+| 4 | **ASM-001** Windows-Only Path Separator Regex (`\\`) Bypasses Exclusions on Linux/macOS `pwsh` | High | Accept | `clean-workspace.ps1:89, 147, 169, 230` (Step 59) |
+| 5 | **SEC-003 / ASM-004** Packaging Leakage: Test Fixtures and Build Scripts Bundled into VS Code VSIX | High | Accept | `src/DataGuard.VSCode/.vscodeignore:9-17` (Step 62) |
+| 6 | **FLW-002** Stale Temp Directory Sweep Omitted from Extension Startup (`InitializeAsync`) | Medium | Accept | `DataGuardPackage.cs:88-92` (Step 60) |
+| 7 | **ASM-005** Missing `scripts/clean-workspace.sh` Breaks Parity for Linux/macOS Developers | Medium | Accept | `scripts/clean-workspace.sh:1-70` (Step 64) |
+
+### Session - Round 11 (2026-09-24)
+**Findings:** 10 (10 accepted, 0 rejected)
+**Severity breakdown:** 3 Critical, 5 High, 2 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **SEC-CLN-001 / ASM-001** Hardcoded Backslash in `clean-workspace.ps1` Breaks Repository Boundary Check on Linux/macOS | Critical | Accept | `scripts/clean-workspace.ps1:60-75` (Step 65) |
+| 2 | **ASM-002** Terminating Exception on Linux/macOS Due to Null `LOCALAPPDATA` in `Join-Path` | Critical | Accept | `scripts/clean-workspace.ps1:70-75` (Step 65) |
+| 3 | **SEC-PKG-001 / ASM-006** TOCTOU Junction Traversal in Temp Directory Cleanup Causes Arbitrary Folder Wiping | Critical | Accept | `DataGuardPackage.cs:985-1014` (Step 66) |
+| 4 | **FLW-001** Skipped Extension Lock Aborts Visual Studio Build via Unscoped `-Critical` Flag | High | Accept | `scripts/clean-workspace.ps1:17-33, 192-198`, `scripts/build-extensions.ps1:36, 140` (Step 69) |
+| 5 | **SEC-PKG-003** Untrusted Solution Directory `nuget.config` Feed Hijacking in `TryAutoInstallCliAsync` | High | Accept | `DataGuardPackage.cs:1073-1077` (Step 67) |
+| 6 | **ASM-005** Missing `/p:DeployExtension=false` in Script Builds Pollutes Experimental Hive | High | Accept | `scripts/build-extensions.ps1:107` (Step 71) |
+| 7 | **SCP-001** Synchronous File System I/O on Every Command Execution in `RunCliAsync` | High | Accept | `DataGuardPackage.cs:671` (Step 68) |
+| 8 | **SEC-VSC-001** Sensitive Test Fixtures and Environment Files Bundled into VS Code VSIX | Medium | Accept | `src/DataGuard.VSCode/.vscodeignore:18-23` (Step 62) |
+| 9 | **ASM-004** Missing Graceful Validation for Node.js (`npm`) Prerequisite in `build-extensions.ps1` | Medium | Accept | `scripts/build-extensions.ps1:42-45` (Step 70) |
+| 10 | **SCP-002** Redundant Manual Clean Target in `verify_local_gates.sh` Bypassing Standard Scripts | Medium | Accept | `scripts/verify_local_gates.sh:85-87` (Step 72) |
+
+### Session - Round 12 (2026-09-24)
+**Findings:** 10 (10 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 4 High, 4 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **SEC-R12-001** Repository Root Equality in `Remove-TargetItem` Allows Accidental Repository Root Deletion | Critical | Accept | `scripts/clean-workspace.ps1:68-69` (Step 73) |
+| 2 | **SEC-R12-002** Missing Root Sanity Guard in `clean-workspace.sh` Permitting Host `/bin` Deletion in Containers | Critical | Accept | `scripts/clean-workspace.sh:6-10` (Step 74) |
+| 3 | **SEC-R12-003** Overly Broad LocalAppData Containment Authorizing Deletion of Production VS Hives | High | Accept | `scripts/clean-workspace.ps1:70-73` (Step 75) |
+| 4 | **SEC-R12-004** PowerShell 5.1 `Get-ChildItem -Recurse` Traverses Junctions Prior to Reparse Filter | High | Accept | `scripts/clean-workspace.ps1:106-121` (Step 76) |
+| 5 | **SEC-R12-005** VS Code Extension Lacks Stale Temp Directory Sweep on `activate()`, Leaking SARIF Indefinitely | High | Accept | `src/DataGuard.VSCode/src/extension.ts:99, 129-152` (Step 77) |
+| 6 | **SEC-R12-006** Workspace Cleanup Scripts Omit System Temporary Directories (`%TEMP%\DataGuard` and `dataguard-*`) | High | Accept | `scripts/clean-workspace.ps1`, `scripts/clean-workspace.sh` (Step 78) |
+| 7 | **FLW-R12-001** Silent Lock File Deletion Failures Leave Half-Clean State in Workspace | Medium | Accept | `scripts/clean-workspace.ps1:120-126` (Step 76) |
+| 8 | **FLW-R12-002** Masked Stderr and Return Code Suppression in `clean-workspace.sh` | Medium | Accept | `scripts/clean-workspace.sh:79-80` (Step 80) |
+| 9 | **FLW-R12-003** `find` Without `-prune` Traverses Already Deleted Directory Subtrees in `clean-workspace.sh` | Medium | Accept | `scripts/clean-workspace.sh:40, 43, 85, 95-96` (Step 80) |
+| 10 | **ASM-R12-001** `nupkg` Staging Omitted from PreBuild Clean Allowing Stale Package Pollution | Medium | Accept | `scripts/clean-workspace.ps1:178-187`, `scripts/clean-workspace.sh:40-42` (Step 79) |
+
+### Session - Round 13 (2026-09-24)
+**Findings:** 11 (11 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 5 High, 4 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **FLW-R13-001** Default `DeployExtension=true` in VSSDK Pollutes Experimental Hive During MSBuild Builds | Critical | Accept | `src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj:14` (Step 81) |
+| 2 | **SEC-R13-001** Monolithic Try-Catch in Stack-Based Junction Unlinker Aborts Traversal on Single Error | Critical | Accept | `scripts/clean-workspace.ps1:115-128` (Step 83) |
+| 3 | **SEC-R13-002** ReadOnly File Attributes on Windows Cause Silent `Remove-Item` Deletion Aborts | High | Accept | `scripts/clean-workspace.ps1:131-138, 149-153` (Step 84) |
+| 4 | **SEC-R13-003** `TryDeleteFile` in Visual Studio Extension Fails on ReadOnly Files Leaking Temp Trees | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1016-1027` (Step 85) |
+| 5 | **SEC-R13-004** `cleanStaleTempDirectories` in VS Code Uses `fs.stat` Over `fs.lstat` & Lacks UID Check | High | Accept | `src/DataGuard.VSCode/src/extension.ts:137-160` (Step 86) |
+| 6 | **SEC-R13-005** Sensitive Database Scan Summaries (`summary.json`) Not Excluded in `.vscodeignore` | High | Accept | `src/DataGuard.VSCode/.vscodeignore:24-26` (Step 87) |
+| 7 | **FLW-R13-002** Standard `dotnet clean` Bypasses Custom Caches (`TestResults/`, `nupkg/`, `.testcontainers`) | High | Accept | `Directory.Build.targets:19-27` (Step 82) |
+| 8 | **FLW-R13-003** Unanchored Relative Output Path `"artifacts\vscode"` Vulnerable to PWD Drift | Medium | Accept | `scripts/build-extensions.ps1:60-64` (Step 88) |
+| 9 | **SEC-R13-006** Indiscriminate `*.json` Filter in PostBuild/Deep Clean Destroys Manifests and SBOMs | Medium | Accept | `scripts/clean-workspace.ps1:282, 372`, `scripts/clean-workspace.sh:71, 106` |
+| 10 | **SEC-R13-007** Missing Argument Separator `--` and Option Injection Risk in `clean-workspace.sh` | Medium | Accept | `scripts/clean-workspace.sh:4, 40-42, 63-65` (Step 88) |
+| 11 | **ASM-R13-001** Deep Clean Omitted Roslyn `.format` and `.cache` Directories Leaving Stale Linters | Medium | Accept | `scripts/clean-workspace.ps1:326-329`, `scripts/clean-workspace.sh:99` |
+
+### Session - Round 14 (2026-09-24)
+**Findings:** 12 (12 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 6 High, 4 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **SEC-R14-001** Unanchored Relative Paths for Visual Studio Packaging in `build-extensions.ps1` | High | Accept | `scripts/build-extensions.ps1:109-134` (Step 89) |
+| 2 | **SEC-R14-005** ReadOnly Reparse Points Bypass Unlinking in `clean-workspace.ps1` | Critical | Accept | `scripts/clean-workspace.ps1:102-104, 132-134` (Step 92) |
+| 3 | **SEC-R14-002** Overbroad `*.json` Pattern in PreBuild Cleanup Purges Non-Report Artifacts | High | Accept | `scripts/clean-workspace.ps1:270`, `scripts/clean-workspace.sh:67` (Step 90) |
+| 4 | **SEC-R14-003** `SafeDeleteDirectory` Fails Silently on ReadOnly/Hidden Directories | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:995, 1031` (Step 91) |
+| 5 | **SEC-R14-004** Mid-Traversal Exception in `SafeDeleteDirectory` Aborts File Cleanup | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1003-1029` (Step 91) |
+| 6 | **ASM-R14-001** `npm run clean` Breaks Incremental Build by Leaving `*.tsbuildinfo` in PreBuild | High | Accept | `scripts/clean-workspace.ps1:258`, `scripts/clean-workspace.sh:56` (Step 93) |
+| 7 | **FLW-R14-002** `CleanExtendedArtifactsOnClean` Target Misses Coverage Directories | High | Accept | `Directory.Build.targets:5, 26-29` (Step 94) |
+| 8 | **FLW-R14-003** False Success in `build-extensions.ps1` When Both Build Flags Are Skipped | Critical | Accept | `scripts/build-extensions.ps1:35-37` (Step 95) |
+| 9 | **FLW-R14-004** Unhandled Exception on Missing or Malformed `source.extension.vsixmanifest` | Medium | Accept | `scripts/build-extensions.ps1:123-133` (Step 89) |
+| 10 | **SEC-R14-006** Missing Exclusions for Checksums, Debug Symbols, and Artifacts in `.vscodeignore` | Medium | Accept | `src/DataGuard.VSCode/.vscodeignore:27-30` (Step 96) |
+| 11 | **SEC-R14-007** Lack of Selective Target Switching in `clean-workspace.sh` | Medium | Accept | `scripts/clean-workspace.sh:13-37, 59-64` (Step 96) |
+| 12 | **SEC-R14-008** `CleanStaleTempDirectories` Uses `CreationTimeUtc` Instead of Latest Write Time | Medium | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:966-972` (Step 96) |
+
+### Session - Round 15 (2026-09-24)
+**Findings:** 8 (8 accepted, 0 rejected)
+**Severity breakdown:** 1 Critical, 5 High, 2 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **ASM-R15-001** Path Filtering Regex Execution Context Trap in `clean-workspace.ps1` | Critical | Accept | `scripts/clean-workspace.ps1:210-223, 237, 276, 288, 381, 418` (Step 100) |
+| 2 | **SEC-R15-001** Unquoted `%cmdcmdline%` in `build-extensions.bat` Causes Injection / Parse Failure | High | Accept | `scripts/build-extensions.bat:8` (Step 97) |
+| 3 | **FLW-R15-001** Missing `Dispose()` on `Process` in `TryAutoInstallCliAsync` Leaks OS Handles | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1137` (Step 98) |
+| 4 | **ASM-R15-002** 8.3 Short Path Discrepancy in LocalAppData and Temp Substring Length Calculation | High | Accept | `scripts/clean-workspace.ps1:87-105` (Step 101) |
+| 5 | **SEC-R15-003** Worktree `.git` File Lacks Protection in `Remove-TargetItem` | High | Accept | `scripts/clean-workspace.ps1:72-75` (Step 102) |
+| 6 | **ASM-R15-003** Indiscriminate `dataguard-*` Temp Folder Wipe Breaks Concurrent Pipelines | High | Accept | `scripts/clean-workspace.ps1:258-272, 345-359`, `scripts/clean-workspace.sh:60-61, 90-91, 115-116` (Step 103) |
+| 7 | **SEC-R15-002** Missing Exclusions for `*report*.json`, `report.json`, and `*.spdx.json` in `.vscodeignore` | Medium | Accept | `src/DataGuard.VSCode/.vscodeignore:27-29` (Step 99) |
+| 8 | **FLW-R15-002** Non-literal `-Path` on `$vsExpHives` Fails If LocalAppData Contains Wildcard Characters | Medium | Accept | `scripts/clean-workspace.ps1:400`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:245-260` (Step 104) |
+
+### Session - Round 16 (2026-09-24)
+**Findings:** 8 (8 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 3 High, 3 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **ASM-R16-006** VSIX Packaging Strips Critical Runtime Dependencies (`node_modules/**`) | Critical | Accept | `src/DataGuard.VSCode/.vscodeignore:4` (Step 105) |
+| 2 | **SEC-R16-005** Wholesale Deletion of `%TEMP%\DataGuard` Aborts Active Concurrent Scans | Critical | Accept | `scripts/clean-workspace.ps1:258-275, 362-379`, `scripts/clean-workspace.sh:60-63, 93-96, 120-123` (Step 106) |
+| 3 | **FLW-R16-004** Stream Drain Timeout Throws Unhandled `InvalidOperationException` on Cancellation | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:813-824, 835-852` (Step 107) |
+| 4 | **FLW-R16-002** Missing Process Kill Fallback in `StopProcess` Leaks Zombie Processes | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:196-206` (Step 108) |
+| 5 | **SEC-R16-003** EPERM `chmod` Fallback Traverses Junctions & Stale Sweep Misses Active Directories | High | Accept | `src/DataGuard.VSCode/src/extension.ts:151-196` (Step 109) |
+| 6 | **ASM-R16-002** Double-Dash Batch Arguments Trigger PowerShell `ParameterBindingException` | Medium | Accept | `scripts/clean-workspace.ps1:31-34`, `scripts/build-extensions.ps1:4-7` (Step 110) |
+| 7 | **ASM-R16-004** Concurrent Visual Studio Instances Hit Log Sharing Violation in `DataGuardLogger` | Medium | Accept | `src/DataGuard.VisualStudio/DataGuardLogger.cs:10, 384-388` (Step 111) |
+| 8 | **ASM-R16-005** Relative `CustomCliPath` Rejected by Visual Studio Extension | Medium | Accept | `src/DataGuard.VisualStudio/DataGuardLogger.cs:200-218`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:222-238` (Step 112) |
+
+### Session - Round 17 (2026-09-24)
+**Findings:** 11 (11 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 5 High, 4 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **FLW-R17-001** Empty `Assembly.Location` Throws `ArgumentException` & Shadow Copying Breaks CLI Discovery | Critical | Accept | `src/DataGuard.VisualStudio/DataGuardLogger.cs:226-258`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:282-291` (Step 113) |
+| 2 | **SEC-R17-001** Unconditional Deletion of Active `%TEMP%\DataGuard` in 'Deep' and 'PostBuild' Modes | Critical | Accept | `scripts/clean-workspace.ps1:48-50, 327-359, 495-497` (Step 114) |
+| 3 | **SEC-R17-002** Missing `.vscode-test/**`, `package-lock.json`, and Root Test Exclusions in `.vscodeignore` | High | Accept | `src/DataGuard.VSCode/.vscodeignore:6-11` (Step 115) |
+| 4 | **SEC-R17-003** Insecure Permission Assignment (`0o777`) & Missing UID Validation in VS Code Temp Sweeper | High | Accept | `src/DataGuard.VSCode/src/extension.ts:158, 176, 188` (Step 116) |
+| 5 | **SEC-R17-004** Symlink Traversal Vulnerability & Missing Critical Failures Exit Check in `clean-workspace.sh` | High | Accept | `scripts/clean-workspace.sh:60-65, 86, 95-100, 124-129, 152, 158-164` (Step 117) |
+| 6 | **FLW-R17-002** Unhandled `Win32Exception` in `StopProcess` Bubbles Up on Process Termination | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:196-221` (Step 118) |
+| 7 | **FLW-R17-003** Missing `node` and `dotnet` Verification & Wildcard `-Path` in `build-extensions.ps1` | High | Accept | `scripts/build-extensions.ps1:41-49, 82, 106, 117` (Step 120) |
+| 8 | **SEC-R17-005** Missing `.gitignore` Exclusions for Sensitive SARIF Reports & Scan Summaries | Medium | Accept | `.gitignore:106-111` (Step 119) |
+| 9 | **FLW-R17-004** Parallel Test Execution Collides on Solution-Level `TestResults` Target | Medium | Accept | `Directory.Build.targets:5-7` (Step 120) |
+| 10 | **ASM-R17-001** Premature `$script:criticalFailures` Check & Reused Session State Pollution | Medium | Accept | `scripts/clean-workspace.ps1:48-54` (Step 114) |
+| 11 | **ASM-R17-002** PostBuild Cleanup Wipes VS Code Outputs Even When `-SkipVSCode` is Specified | Medium | Accept | `scripts/clean-workspace.ps1:361-369` (Step 114) |
+
+### Session - Round 18 (2026-09-24)
+**Findings:** 11 (11 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 5 High, 4 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **FLW-R18-001** Solution-Level `RemoveDir` in Project Targets Causes Parallel MSBuild Collisions | Critical | Accept | `Directory.Build.targets:10-20` (Step 121) |
+| 2 | **FLW-R18-002** Visual Studio UI Thread Freeze/Deadlock During Command Cancellation | Critical | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1368-1395` (Step 122) |
+| 3 | **SEC-R18-001** `GetFullPath` Resolves Against Host Process Directory Instead of PowerShell Location | High | Accept | `scripts/clean-workspace.ps1:48` (Step 123) |
+| 4 | **SEC-R18-002** Command Argument Injection via Unsanitized Path in `OpenLog` (`explorer.exe`) | High | Accept | `src/DataGuard.VisualStudio/DataGuardLogger.cs:370-384`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:293-302` (Step 124) |
+| 5 | **FLW-R18-003** Asynchronous `process.Kill()` Race Condition Causes File Locks During Cleanup | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:202-209` (Step 125) |
+| 6 | **SEC-R18-003** Omission of `.github/**` and `.testcontainers/**` in `.vscodeignore` | High | Accept | `src/DataGuard.VSCode/.vscodeignore:38-39` (Step 126) |
+| 7 | **FLW-R18-004** Unobserved Task Exception Crash on Stream Drains in `DataGuardPackage.cs` | High | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:850, 1252` (Step 122) |
+| 8 | **ASM-R18-001** Directory Staleness Check Fails on Active Scans Writing to Subfolders | Medium | Accept | `scripts/clean-workspace.ps1:57-75, 273-291` (Step 123) |
+| 9 | **ASM-R18-002** Missing `/p:DeployExtension=false` in CI/CD Packaging Workflow | Medium | Accept | `.github/workflows/build_release.yml:245` (Step 127) |
+| 10 | **CMP-R18-001** `clean-workspace.sh` Lacks Support for `--mode` / `-m` Parameters | Medium | Accept | `scripts/clean-workspace.sh:16-57` (Step 128) |
+| 11 | **CMP-R18-002** Redundant Unused `solutionDirectory` Parameter in `TryAutoInstallCliAsync` | Medium | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:692, 1209` (Step 128) |
+
+### Session - Round 19 (2026-09-24)
+**Findings:** 11 (11 accepted, 0 rejected)
+**Severity breakdown:** 1 Critical, 6 High, 4 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **FLW-R19-001** `ObjectDisposedException` Race Condition During Process Cancellation in `StopProcess` | Critical | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:224-227` (Step 129) |
+| 2 | **SEC-R19-001** Acceptance of Remote UNC Paths in `customDirectory` Leaking NTLMv2 Credentials | High | Accept | `src/DataGuard.VisualStudio/DataGuardLogger.cs:76-80`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:304-310` (Step 130) |
+| 3 | **SEC-R19-002** Unrooted and Unquoted `explorer.exe` Invocation in `OpenLog` Leading to Binary Planting | High | Accept | `src/DataGuard.VisualStudio/DataGuardLogger.cs:384-393` (Step 131) |
+| 4 | **SEC-R19-003** Flawed Attribute Clearing in `clean-workspace.ps1` via `-bxor` and Missing Root Handling | High | Accept | `scripts/clean-workspace.ps1:174-198` (Step 132) |
+| 5 | **SEC-R19-004** Packaging Leak of Signing Keys and Secrets in VS Code Extension (`.vscodeignore`) | High | Accept | `src/DataGuard.VSCode/.vscodeignore:40-47` (Step 133) |
+| 6 | **SEC-R19-005** Path Injection via Relative PATH Environment Directories in `FindCliExecutable` | High | Accept | `src/DataGuard.VisualStudio/DataGuardLogger.cs:310-312` (Step 134) |
+| 7 | **FLW-R19-002** `CleanTestResultsBeforeTest` MSBuild Race Condition in Parallel Multi-Targeting Builds | High | Accept | `Directory.Build.targets:5, 10` (Step 135) |
+| 8 | **FLW-R19-003** Directory Navigation Leak from PreBuild Cleanup Aborting Outside `try` Block | High | Accept | `scripts/build-extensions.ps1:51-54` (Step 136) |
+| 9 | **SEC-R19-006** Unchecked SARIF Property Navigation and `KeyNotFoundException` in `PublishSarifAsync` | Medium | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:1308-1355` (Step 129) |
+| 10 | **ASM-R19-001** Null `env:ProgramFiles(x86)` Passing into `Join-Path` on PowerShell Core | Medium | Accept | `scripts/build-extensions.ps1:103-106` (Step 136) |
+| 11 | **CMP-R19-001** Duplicated Sensitive Data Regex Redaction Logic in `DataGuardPackage.cs` | Medium | Accept | `src/DataGuard.VisualStudio/DataGuardPackage.cs:313-316` (Step 136) |
 ---
 
 ## Phase 5 Implementation Specification: Steps 11–22
@@ -608,6 +856,366 @@ flowchart TD
 - **File**: `scripts/clean-workspace.bat`
 - **Action**: Provide a lightweight CMD batch wrapper forwarding `%*` directly to `clean-workspace.ps1`.
 
+## Phase 11 Implementation Specification: Red-Team Round 10 Hardening (Steps 58–64)
+
+### Step 58: MSBuild Self-Cleaning Target `CleanBundledCliAfterVsixPackaging`
+- **File**: `src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj:84-86`
+- **Action**: Add MSBuild target `CleanBundledCliAfterVsixPackaging` with `AfterTargets="CreateVsixContainer"` and `Condition="'$(CreateVsixContainer)' == 'true'"`. This ensures that when developers build from Visual Studio IDE or invoke MSBuild directly, the 121 MB uncompressed staging directory `obj/cli/` is wiped immediately after packaging.
+```xml
+  <Target Name="CleanBundledCliAfterVsixPackaging" AfterTargets="CreateVsixContainer" Condition="'$(CreateVsixContainer)' == 'true'">
+    <RemoveDir Directories="$(DataGuardCliPublishDir)" Condition="Exists('$(DataGuardCliPublishDir)')" />
+  </Target>
+```
+
+### Step 59: Child ReparsePoint Unlinking & Cross-Platform Path Regex
+- **File**: `scripts/clean-workspace.ps1:87-97, 134-160`
+- **Action**: Before calling `Remove-Item -Recurse -Force`, explicitly find and unlink all nested directory junctions and symlinks non-recursively to prevent traversing external directory trees. Update directory exclusion regexes to use `[\\/]` separators matching Linux/macOS paths under PowerShell Core.
+
+### Step 60: Safe Startup Temp Sweep & Junction Defense in `DataGuardPackage.cs`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:88-92, 951-995`
+- **Action**: Trigger a background startup cleanup sweep in `InitializeAsync` via `JoinableTaskFactory.RunAsync` with `.FileAndForget()`. In `CleanStaleTempDirectories`, verify `(dirInfo.Attributes & FileAttributes.ReparsePoint) != 0` to unlink junctions non-recursively before deleting directory trees.
+
+### Step 61: Robust `IOException` Handling in `PublishSarifAsync`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:1187-1191`
+- **Action**: Catch `Exception ex when (ex is JsonException || ex is IOException)` in `PublishSarifAsync` to gracefully handle transient locks from antivirus or file indexers without crashing diagnostic publishing.
+
+### Step 62: Extension Packaging Cleanliness in `.vscodeignore`
+- **File**: `src/DataGuard.VSCode/.vscodeignore:9-17`
+- **Action**: Add `test/**`, `scripts/**`, `TestResults/**`, `.coverage/**`, `coverage/**`, `.omp/**`, `.omo/**`, `.codex/**`, and `*.tsbuildinfo` to `.vscodeignore` to ensure development artifacts are never packaged into production VSIXes.
+
+### Step 63: Deterministic Pre-Run Test Cleanup in `scripts/verify_local_gates.sh`
+- **File**: `scripts/verify_local_gates.sh:85-87`
+- **Action**: Add an explicit purge of all `TestResults` folders prior to running `dotnet test` with coverage to prevent stale `coverage.cobertura.xml` files from corrupting test validation gates.
+
+### Step 64: Cross-Platform Bash Workspace Clean Parity
+- **File**: `scripts/clean-workspace.sh:1-70`
+- **Action**: Create a native Bash workspace cleaning script supporting `--pre`, `--post`, and `--deep` options matching `clean-workspace.ps1` for Linux/macOS developers and CI environments.
+
+
+## Phase 12 Implementation Specification: Red-Team Round 11 Hardening (Steps 65–72)
+
+### Step 65: Cross-Platform Directory Separator & Null LOCALAPPDATA Guard
+- **File**: `scripts/clean-workspace.ps1:60-75`
+- **Action**: Replace hardcoded `\` with `[System.IO.Path]::DirectorySeparatorChar`. Add a condition checking `(-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA))` before calling `Join-Path`, preventing terminating `ParameterBindingValidationException` on Linux/macOS.
+
+### Step 66: Safe Non-Recursive Junction Unlinking in `DataGuardPackage.cs`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:985-1014`
+- **Action**: Implement `SafeDeleteDirectory(string path)`: traverses directory tree, inspects each level for `FileAttributes.ReparsePoint`, and deletes junctions non-recursively (`recursive: false`). Deletes files individually and finishes with a non-recursive delete of the parent folder, eliminating CWE-59 / TOCTOU traversal attacks.
+
+### Step 67: Solution nuget.config Feed Hijacking Prevention in `TryAutoInstallCliAsync`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:1073-1077`
+- **Action**: Set `WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)` and append `--add-source https://api.nuget.org/v3/index.json --ignore-failed-sources` to ensure tool installation strictly queries official NuGet feeds.
+
+### Step 68: Omit Synchronous Startup Temp Sweep on UI Command Execution
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:671`
+- **Action**: Remove redundant blocking `CleanStaleTempDirectories()` call from `RunCliAsync`. Retain the asynchronous background cleanup sweep scheduled at package startup (`InitializeAsync`).
+
+### Step 69: Selective Build Switch Handling in `clean-workspace.ps1`
+- **File**: `scripts/clean-workspace.ps1:17-33, 192-198` and `scripts/build-extensions.ps1:36, 140`
+- **Action**: Add `-SkipVSCode` and `-SkipVisualStudio` parameters to `clean-workspace.ps1`. In `PreBuild`, only apply `-Critical` to extension output paths when that extension's build is actually requested. Forward switches from `build-extensions.ps1`.
+
+### Step 70: Graceful Node.js (`npm`) Prerequisite Probe in `build-extensions.ps1`
+- **File**: `scripts/build-extensions.ps1:42-45`
+- **Action**: Probe `Get-Command npm -ErrorAction SilentlyContinue` before attempting `npm ci`. Throw an actionable error message advising the developer to install Node.js/npm or pass `-SkipVSCode`.
+
+### Step 71: Pass `/p:DeployExtension=false` in Automated VSIX Builds
+- **File**: `scripts/build-extensions.ps1:107`
+- **Action**: Pass `/p:DeployExtension=false` to MSBuild to prevent VSSDK from attempting deployment to the Visual Studio Experimental Hive during automated script/CI builds.
+
+### Step 72: Centralize Test Result Purge in `scripts/verify_local_gates.sh`
+- **File**: `scripts/verify_local_gates.sh:85-87`
+- **Action**: Replace duplicate `find . -type d -name "TestResults"` logic with an invocation of `scripts/clean-workspace.sh --pre` if available, adhering to DRY principles.
+## Phase 13 Implementation Specification: Red-Team Round 12 Hardening (Steps 73–80)
+
+### Step 73: Strict Repository Root Child Containment in `clean-workspace.ps1`
+- **File**: `scripts/clean-workspace.ps1:68-69`
+- **Action**: Enforce that `$fullPath` must strictly be a child of `$fullRepoRoot` and cannot be equal to `$fullRepoRoot` itself:
+```powershell
+$isRepoSub = (-not $fullPath.Equals($fullRepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) -and
+             $pathWithSlash.StartsWith($repoRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)
+```
+
+### Step 74: Unchecked Root Sanity Guard in `clean-workspace.sh`
+- **File**: `scripts/clean-workspace.sh:6-10`
+- **Action**: Prevent accidental system root deletion if running in containers or chroot:
+```bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -z "$ROOT" || "$ROOT" == "/" || ! -f "$ROOT/DataGuard.sln" ]]; then
+    echo "Refusing to clean from unsafe or unverified repository root: $ROOT" >&2
+    exit 1
+fi
+cd "$ROOT"
+```
+
+### Step 75: Regex-Constrained Visual Studio Experimental Hive Containment
+- **File**: `scripts/clean-workspace.ps1:70-73`
+- **Action**: Restrict LocalAppData deletions strictly to paths matching `*Exp` subdirectories:
+```powershell
+$isVsExpSub = $false
+if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    $isVsExpSub = $pathWithSlash -match '^[A-Za-z]:[\\/].*[\\/]Microsoft[\\/]VisualStudio[\\/][^\\/]+Exp[\\/]'
+}
+```
+
+### Step 76: Stack-Based Non-Recursive Junction Unlinking in PowerShell 5.1
+- **File**: `scripts/clean-workspace.ps1:106-121`
+- **Action**: Replace `Get-ChildItem -Recurse` with an explicit directory enumeration loop using `System.IO.DirectoryInfo.EnumerateDirectories()` to unlink directory junctions safely without traversing external targets.
+
+### Step 77: Startup Temp Sweep in VS Code `extension.ts`
+- **File**: `src/DataGuard.VSCode/src/extension.ts:99, 129-152`
+- **Action**: Invoke `cleanStaleTempDirectories()` on `activate()`. Asynchronously enumerates `os.tmpdir()` for `dataguard-*` non-symlink directories older than 15 minutes and deletes them.
+
+### Step 78: Full System Temp Sweep in Workspace Clean Scripts
+- **File**: `scripts/clean-workspace.ps1:190-198, 243-251, 351-359`, `scripts/clean-workspace.sh:38-39, 59-60, 75-76`
+- **Action**: Purge `%TEMP%\DataGuard` and `os.tmpdir()\dataguard-*` across PreBuild, PostBuild, and Deep clean modes.
+
+### Step 79: PreBuild `nupkg` Directory Purging
+- **File**: `scripts/clean-workspace.ps1:178-187`, `scripts/clean-workspace.sh:40-42`
+- **Action**: Purge all `nupkg` folders across the workspace during PreBuild so pack operations begin with zero stale artifacts.
+
+### Step 80: Directory `-prune` and Transparent Error Reporting in `clean-workspace.sh`
+- **File**: `scripts/clean-workspace.sh:40, 43, 79-80, 85, 95-96`
+- **Action**: Add `-prune` to directory `find` commands to avoid missing-directory errors on deleted descendants, and report non-zero exit codes from `dotnet clean`.
+
+## Phase 14 Implementation Specification: Red-Team Round 13 Hardening (Steps 81–88)
+
+### Step 81: Default `DeployExtension=false` in `DataGuard.VisualStudio.csproj`
+- **File**: `src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj:14`
+- **Action**: Add project-level `<DeployExtension Condition="'$(DeployExtension)' == ''">false</DeployExtension>` to guarantee that all automated and inner-loop MSBuild builds do not deploy into the local Visual Studio Experimental Hive.
+
+### Step 82: Extended Cache Purge Target on Standard `dotnet clean`
+- **File**: `Directory.Build.targets:19-27`
+- **Action**: Add `<Target Name="CleanExtendedArtifactsOnClean" AfterTargets="Clean">` to automatically wipe `TestResults/`, `nupkg/`, and `.testcontainers` whenever a developer executes `dotnet clean`.
+
+### Step 83: Granular Per-Entry Try-Catch in Stack-Based Junction Unlinker
+- **File**: `scripts/clean-workspace.ps1:115-128`
+- **Action**: Enclose sub-item directory enumeration and junction unlinking in granular per-entry try-catch blocks to prevent an isolated error from abandoning unlinking for subsequent junctions.
+
+### Step 84: Automatic ReadOnly/Hidden File Attribute Stripping Before Deletion
+- **File**: `scripts/clean-workspace.ps1:131-138, 149-153`
+- **Action**: Clear `FileAttributes.ReadOnly` from all files and directories prior to invoking `Remove-Item -Force` to prevent silent deletion aborts on Windows.
+
+### Step 85: ReadOnly Attribute Stripping in Visual Studio Temp Sweep
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:1016-1027`
+- **Action**: In `TryDeleteFile`, check and strip `FileAttributes.ReadOnly` before calling `File.Delete` to prevent `UnauthorizedAccessException` and lingering temp directories.
+
+### Step 86: Multi-User UID Verification and `fs.lstat` Protection in VS Code Temp Sweep
+- **File**: `src/DataGuard.VSCode/src/extension.ts:137-160`
+- **Action**: Use `fs.lstat`, unlink symlinks without traversal, verify POSIX UID ownership against `process.getuid()`, and handle Windows `EPERM` fallback permissions.
+
+### Step 87: Exclusion of Sensitive Scan Summaries in `.vscodeignore`
+- **File**: `src/DataGuard.VSCode/.vscodeignore:24-26`
+- **Action**: Add `*summary*.json`, `summary.json`, and `*scan*.json` to `.vscodeignore` to prevent accidental inclusion of database schema inspection data in published VSIXes.
+
+### Step 88: Anchored Artifact Paths and Bash Argument Separators
+- **Files**: `scripts/build-extensions.ps1:60-64`, `scripts/clean-workspace.sh:4, 40-42, 63-65`
+- **Action**: Explicitly anchor `$vscodeDestDir` with `Join-Path $repoRoot "artifactsscode"`, enable `shopt -s nullglob`, and use `--` argument separators across all `rm -rf` and `find` commands.
+
+## Phase 15 Implementation Specification: Red-Team Round 14 Hardening (Steps 89–96)
+
+### Step 89: Anchored Paths and Resilient Manifest Parsing in `build-extensions.ps1`
+- **File**: `scripts/build-extensions.ps1:109-134`
+- **Action**: Anchor `$vsProj`, `$vsSource`, `$vsDestDir`, and `$vsDest` using `Join-Path $repoRoot ...` to ensure correct artifact generation regardless of caller working directory. Wrap `source.extension.vsixmanifest` parsing in a try/catch block with fallback to `$version`.
+
+### Step 90: Selective Report Filtering in PreBuild Cleanup
+- **Files**: `scripts/clean-workspace.ps1:270`, `scripts/clean-workspace.sh:67`
+- **Action**: Replace the indiscriminate `*.json` file filter in PreBuild / pre modes with specific patterns: `@("*.vsix", "*.sha256", "*.sarif", "*summary*.json", "*report*.json", "*scan*.json")` to safeguard release manifests and SBOMs.
+
+### Step 91: ReadOnly Directory Attribute Handling and Decoupled Iteration in `SafeDeleteDirectory`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:988-1037`
+- **Action**: Strip `FileAttributes.ReadOnly` and `FileAttributes.Hidden` from directory objects before invoking `Directory.Delete(path, recursive: false)`. Decouple directory and file traversal into independent try/catch blocks so an enumeration failure on one item does not abort cleanup for others.
+
+### Step 92: Strip ReadOnly Attributes on Child Reparse Points Before Unlinking
+- **File**: `scripts/clean-workspace.ps1:102-104, 132-134`
+- **Action**: Check and strip `ReadOnly` attributes on `$item` and child reparse points `$sub` prior to invoking `[System.IO.Directory]::Delete($sub.FullName, $false)` to prevent junction unlinking aborts.
+
+### Step 93: Inclusion of `*.tsbuildinfo` in PreBuild Cleanup Filters
+- **Files**: `scripts/clean-workspace.ps1:258`, `scripts/clean-workspace.sh:56`
+- **Action**: Add `*.tsbuildinfo` to the PreBuild file filters in both cleanup scripts so that purging `out/` and `dist/` also invalidates TypeScript's incremental build cache, preventing stale builds.
+
+### Step 94: Coverage Directory Purging in `CleanExtendedArtifactsOnClean` Target
+- **File**: `Directory.Build.targets:5, 26-29`
+- **Action**: Add `coverage` and `.coverage` directory removal to `CleanExtendedArtifactsOnClean` and attach `CleanTestResultsBeforeTest` to `BeforeTargets="Test;VSTest"`.
+
+### Step 95: Guard Against Both Flags Skipped in `build-extensions.ps1`
+- **File**: `scripts/build-extensions.ps1:35-37`
+- **Action**: Add `if ($SkipVSCode -and $SkipVisualStudio) { throw "Both VS Code and Visual Studio extension builds were skipped. Nothing to build." }` to prevent false positive zero-exit builds.
+
+### Step 96: Packaging Integrity Exclusions, Selective Clean Flags, and Safe Temp Sweeps
+- **Files**: `src/DataGuard.VSCode/.vscodeignore:27-30`, `scripts/clean-workspace.sh:13-37, 59-64`, `src/DataGuard.VisualStudio/DataGuardPackage.cs:966-972`
+- **Action**: Exclude `*.sha256`, `*.vsix.sha256`, `**/*.pdb`, and `artifacts/**` in `.vscodeignore`. Add `--skip-vscode` and `--skip-visualstudio` flags to `clean-workspace.sh`. Update `CleanStaleTempDirectories` to evaluate the latest of `LastWriteTimeUtc` and `CreationTimeUtc`.
+
+## Phase 16 Implementation Specification: Red-Team Round 15 Hardening (Steps 97–104)
+
+### Step 97: Safe `%cmdcmdline%` Quoting in `build-extensions.bat`
+- **File**: `scripts/build-extensions.bat:8`
+- **Action**: Wrap `%cmdcmdline%` in quotes (`echo "%cmdcmdline%" | findstr ...`) to prevent batch syntax errors and argument injection when invoked in complex shells.
+
+### Step 98: Process Handle Disposal in `TryAutoInstallCliAsync`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:1137`
+- **Action**: Use `using var process = new Process { ... };` to guarantee immediate operating system handle release upon method exit across all completion pathways.
+
+### Step 99: Comprehensive Report and SBOM Exclusions in `.vscodeignore`
+- **File**: `src/DataGuard.VSCode/.vscodeignore:27-29`
+- **Action**: Add `*report*.json`, `report.json`, and `*.spdx.json` to `.vscodeignore` to prevent bundling sensitive scan summaries or SBOM files.
+
+### Step 100: Relative Path Evaluation via `Test-ExcludedPath` in `clean-workspace.ps1`
+- **File**: `scripts/clean-workspace.ps1:210-223, 237, 276, 288, 381, 418`
+- **Action**: Implement `Test-ExcludedPath` to evaluate candidate paths relative to `$Root` / `$repoRoot`, eliminating false positive exclusions when the repository resides inside paths containing folder names like `node_modules` or `.git`.
+
+### Step 101: Canonicalized Path Length Bounds for Safety Boundary Checks
+- **File**: `scripts/clean-workspace.ps1:87-105`
+- **Action**: Use `[System.IO.Path]::GetFullPath(...)` for `$env:LOCALAPPDATA` and `$tempRoot` length calculations, ensuring 8.3 short paths do not corrupt substring slicing.
+
+### Step 102: Worktree and Submodule `.git` File Protection
+- **File**: `scripts/clean-workspace.ps1:72-75`
+- **Action**: Reject deletion of any item named `.git` at the entry point of `Remove-TargetItem`, safeguarding git worktree pointers and submodule files.
+
+### Step 103: 15-Minute Age Threshold for Temporary Directory Purges
+- **Files**: `scripts/clean-workspace.ps1:258-272, 345-359`, `scripts/clean-workspace.sh:60-61, 90-91, 115-116`
+- **Action**: Filter `dataguard-*` temporary folders by comparing the latest of `LastWriteTimeUtc` and `CreationTimeUtc` against a 15-minute threshold before deletion, protecting concurrent pipelines.
+
+### Step 104: Safe Hive Path Resolution and Attribute Handling Regression Tests
+- **Files**: `scripts/clean-workspace.ps1:400`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:245-260`
+- **Action**: Change `-Path` to `-LiteralPath` for Visual Studio Exp Hive directory enumeration. Add unit test `SafeDeleteDirectory_WithHiddenAndReadOnlyAttributes_CleansUpSuccessfully`.
+
+## Phase 17 Implementation Specification: Red-Team Round 16 Hardening (Steps 105–112)
+
+### Step 105: Runtime Packaging Completeness via `.vscodeignore`
+- **File**: `src/DataGuard.VSCode/.vscodeignore:4`
+- **Action**: Remove `node_modules/**` from `.vscodeignore` so `vsce` automatically bundles production runtime dependencies (such as `vscode-languageclient`) while omitting `devDependencies`.
+
+### Step 106: Concurrency Safety for Temporary Directory Sweeps
+- **Files**: `scripts/clean-workspace.ps1:258-275, 362-379`, `scripts/clean-workspace.sh:60-63, 93-96, 120-123`
+- **Action**: Replace indiscriminate deletion of `%TEMP%\DataGuard` with a time-aware filter that purges only subdirectories older than 15 minutes, removing the parent directory only if it becomes completely empty.
+
+### Step 107: Cancellation Stream Drain Grace Period & Exception Guard
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:813-824, 835-852`
+- **Action**: Introduce a 500ms grace period after closing process streams to allow EOF processing, and catch `InvalidOperationException` to report a graceful cancellation message instead of crashing Visual Studio.
+
+### Step 108: Fallback Direct Process Kill in `StopProcess`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:196-206`
+- **Action**: If `taskkill` fails, is blocked, or throws `Win32Exception`, execute `process.Kill()` as a direct fallback before returning `ProcessStopOutcome.Failed`.
+
+### Step 109: Symlink Traversal Protection & Dual Timestamp Evaluation
+- **File**: `src/DataGuard.VSCode/src/extension.ts:151-196`
+- **Action**: Ensure `lstat.isSymbolicLink()` is validated before any `chmod` fallback, evaluate both `mtimeMs` and `ctimeMs`, and safely sweep `%TEMP%\DataGuard` subdirectories.
+
+### Step 110: Batch Parameter Binding Parity
+- **Files**: `scripts/clean-workspace.ps1:31-34`, `scripts/build-extensions.ps1:4-7`
+- **Action**: Add `[Alias("skip-vscode")]` and `[Alias("skip-visualstudio")]` to parameter attributes, allowing `--skip-vscode` and `--skip-visualstudio` forwarded from batch files to bind without errors.
+
+### Step 111: Concurrent Log File Sharing in `DataGuardLogger`
+- **File**: `src/DataGuard.VisualStudio/DataGuardLogger.cs:10, 384-388`
+- **Action**: Use `new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)` to eliminate `IOException` sharing violations when multiple Visual Studio processes log concurrently.
+
+### Step 112: Solution-Relative `CustomCliPath` Resolution
+- **Files**: `src/DataGuard.VisualStudio/DataGuardLogger.cs:200-218`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:222-238`
+- **Action**: Resolve relative `customCliPath` values against `solutionDirectory` before validation. Added unit test `FindCliExecutable_WhenCustomCliPathIsRelative_ResolvesAgainstSolutionDirectory`.
+
+## Phase 18 Implementation Specification: Red-Team Round 17 Hardening (Steps 113–120)
+
+### Step 113: Resilient Assembly Location & CodeBase Bundled CLI Discovery
+- **Files**: `src/DataGuard.VisualStudio/DataGuardLogger.cs:226-258`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:282-291`
+- **Action**: Safely resolve `extDir`: guard against empty `Assembly.Location` to prevent `ArgumentException` on .NET Framework 4.7.2, and fallback to `Assembly.CodeBase` to discover `cli/dataguard.exe` when Visual Studio shadow-copies extension assemblies. Added regression unit test `FindCliExecutable_WhenExtensionDirectoryIsNull_DoesNotThrowAndReturnsString`.
+
+### Step 114: Active Scan Protection in Temp Cleanup & Session State Hygiene
+- **File**: `scripts/clean-workspace.ps1:48-50, 327-359, 495-497`
+- **Action**: Enforce the 15-minute age filter in `PostBuild` mode on `%TEMP%\DataGuard` and `dataguard-*`, remove the duplicate unconditional purge at the tail of `Deep` mode, respect `$SkipVSCode` / `$SkipVisualStudio` flags in `PostBuild`, and initialize failure tracking variables at the top of the script.
+
+### Step 115: Comprehensive Test & Packaging Exclusions in `.vscodeignore`
+- **File**: `src/DataGuard.VSCode/.vscodeignore:6-11`
+- **Action**: Add `.vscode-test/**`, `package-lock.json`, `out/*.test.js`, `out/*.test.*`, and `out/**/*.test.*` to prevent packaging hundreds of megabytes of Electron test binaries and unnecessary test scripts into the VSIX.
+
+### Step 116: Non-World-Writable Permissions & UID Validation in VS Code Sweeper
+- **File**: `src/DataGuard.VSCode/src/extension.ts:158, 176, 188`
+- **Action**: Restrict `chmod` fallback to user permissions (`0o666` on Windows, `0o700` on Unix), and validate `process.getuid()` when sweeping `/tmp/DataGuard` subdirectories on Unix systems.
+
+### Step 117: Symlink Verification & Critical Exit Check in `clean-workspace.sh`
+- **File**: `scripts/clean-workspace.sh:60-65, 86, 95-100, 124-129, 152, 158-164`
+- **Action**: Check `[ -L ... ]` before directory testing, pass `-P` to `find` to prevent following symlinks, clean subdirectories of `artifacts/`, and evaluate `${#CRITICAL_FAILURES[@]}` before exit.
+
+### Step 118: Process Kill Exception Handling in `StopProcess`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:196-221`
+- **Action**: Catch `Win32Exception` and `Exception` in fallback `process.Kill()` and exit state checks, preventing unhandled exceptions from terminating Visual Studio tasks.
+
+### Step 119: Sensitive Diagnostic Reports Exclusion in `.gitignore`
+- **File**: `.gitignore:106-111`
+- **Action**: Add `*.sarif`, `*summary*.json`, `*report*.json`, and `*scan*.json` to `.gitignore` to prevent accidental Git commits of customer schemas and queries.
+
+### Step 120: Parallel Test Safety & Build Tool Verification
+- **Files**: `Directory.Build.targets:5-7`, `scripts/build-extensions.ps1:41-49, 82, 106, 117`
+- **Action**: Avoid deleting shared solution-root `TestResults` in `CleanTestResultsBeforeTest` to eliminate multi-project build collisions (`MSB5003`), verify `node` and `dotnet` presence in PATH, and use `-LiteralPath` for path existence checks.
+
+## Phase 19 Implementation Specification: Red-Team Round 18 Hardening (Steps 121–128)
+
+### Step 121: Parallel-Safe MSBuild Pack Targets
+- **File**: `Directory.Build.targets:10-20`
+- **Action**: Restrict `CleanNupkgBeforePack` and `CleanExtendedArtifactsOnClean` strictly to project-local paths (`$(MSBuildProjectDirectory)
+upkg`, `TestResults`, `coverage`). Eliminates race conditions and `MSB5003` file locks when running `dotnet pack -m` across multi-project solutions.
+
+### Step 122: Non-Blocking Cancellation & Unobserved Task Exception Protection
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:850, 1252, 1368-1395`
+- **Action**: In `CancelValidationAsync`, execute `StopProcess` on `Task.Run` outside of the UI thread context to prevent Visual Studio freezes. In stream drain handlers, safely observe task exceptions using `.ContinueWith(..., TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default)`.
+
+### Step 123: Working Directory Synchronization & Deep Temp Staleness Check
+- **File**: `scripts/clean-workspace.ps1:48, 57-75, 273-291, 332-334`
+- **Action**: Call `[System.IO.Directory]::SetCurrentDirectory($repoRoot)` immediately after `Set-Location` to synchronize .NET static path resolution with PowerShell runspace location. Implement `Test-IsStaleTempDirectory` to recursively inspect child file timestamps before deleting temp folders, and clean `.vscode-test` in `PreBuild`.
+
+### Step 124: Log Path Quote Sanitization & Verification Test
+- **Files**: `src/DataGuard.VisualStudio/DataGuardLogger.cs:370-384`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:293-302`
+- **Action**: In `OpenLog`, strip double quotes and verify file existence before passing the path to `explorer.exe /select,"{cleanPath}"`. Added unit test `Quote_WithEmbeddedQuotesAndSpaces_SanitizesAndEnclosesCorrectly`.
+
+### Step 125: Process Handle Release Wait in `StopProcess`
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:202-209`
+- **Action**: Add `process.WaitForExit(1000)` immediately after fallback `process.Kill()` to guarantee the OS releases process handles before returning `ProcessStopOutcome.Terminated`.
+
+### Step 126: Comprehensive Packaging Exclusions in `.vscodeignore`
+- **File**: `src/DataGuard.VSCode/.vscodeignore:38-39`
+- **Action**: Add `.github/**` and `.testcontainers/**` to ensure internal CI/CD automation and test containers are never packaged into the public VS Code VSIX.
+
+### Step 127: Defensive MSBuild Property in CI/CD Packaging
+- **File**: `.github/workflows/build_release.yml:245`
+- **Action**: Add `/p:DeployExtension=false` to the MSBuild packaging command for parity with `build-extensions.ps1`.
+
+### Step 128: Script Mode Parity & Interface Cleanup
+- **Files**: `scripts/clean-workspace.sh:16-57`, `src/DataGuard.VisualStudio/DataGuardPackage.cs:692, 1209`
+- **Action**: Support `--mode`, `-Mode`, `-m`, and `--mode=*` in `clean-workspace.sh`. Remove unused `solutionDirectory` parameter from `TryAutoInstallCliAsync()`.
+
+## Phase 20 Implementation Specification: Red-Team Round 19 Hardening (Steps 129–136)
+
+### Step 129: `ObjectDisposedException` Race Condition Guard & Robust SARIF Parsing
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:224-227, 1308-1355`
+- **Action**: In `StopProcess`, catch `ObjectDisposedException` and return `ProcessStopOutcome.AlreadyExited` to prevent background task failure if process was disposed concurrently. In `PublishSarifAsync`, verify `physicalLocation` is an object via `TryGetProperty` and catch `KeyNotFoundException` in the filter.
+
+### Step 130: UNC Remote Path Rejection in Custom Log Directory
+- **Files**: `src/DataGuard.VisualStudio/DataGuardLogger.cs:76-80`, `tests/DataGuard.VisualStudio.Tests/DataGuardPackageTests.cs:304-310`
+- **Action**: In `Configure`, enforce `Path.IsPathRooted` and reject UNC paths (`StartsWith(@"\\")`, `StartsWith("//")`, `uri.IsUnc`) to prevent NTLM credential theft via outbound SMB requests. Verified with unit test `Configure_WithUncPath_RejectsRemoteShareAndDoesNotUseAsLogFile`.
+
+### Step 131: Rooted `explorer.exe` Execution in `OpenLog`
+- **File**: `src/DataGuard.VisualStudio/DataGuardLogger.cs:384-393`
+- **Action**: Launch `explorer.exe` with fully rooted path `Path.Combine(Environment.SpecialFolder.Windows, "explorer.exe")` and `UseShellExecute = false` to prevent current working directory binary planting.
+
+### Step 132: Bitwise Mask Attribute Clearing in `clean-workspace.ps1`
+- **File**: `scripts/clean-workspace.ps1:174-198`
+- **Action**: Replace `-bxor` with idempotent bitwise mask clearing: `Attributes = Attributes -band (-bnot FileAttributes::ReadOnly)`. Clear attributes on the root `$item` before recursing into children.
+
+### Step 133: Packaging Secret Exclusions in `.vscodeignore`
+- **File**: `src/DataGuard.VSCode/.vscodeignore:40-47`
+- **Action**: Add `*.pem`, `*.key`, `*.token`, `*.pfx`, `*.cer`, `*.crt`, `*.p12`, `.release.env*` to `.vscodeignore` to establish complete parity with `.gitignore`.
+
+### Step 134: Relative PATH Entry Skipping in `FindCliExecutable`
+- **File**: `src/DataGuard.VisualStudio/DataGuardLogger.cs:310-312`
+- **Action**: Skip relative directory entries from PATH (`!Path.IsPathRooted(trimmed)`) to prevent workspace directory hijacking.
+
+### Step 135: Multi-Targeting Build Collision Immunity
+- **File**: `Directory.Build.targets:5, 10`
+- **Action**: Condition `CleanTestResultsBeforeTest` and `CleanNupkgBeforePack` on `'$(IsCrossTargetingBuild)' != 'true'` to eliminate parallel scheduling collisions in multi-TFM projects.
+
+### Step 136: PreBuild Exception Wrapping & DRY Redaction Delegation
+- **Files**: `scripts/build-extensions.ps1:51-54`, `src/DataGuard.VisualStudio/DataGuardPackage.cs:313-316`
+- **Action**: Move PreBuild cleanup inside the main `try` block so `finally` always restores `$originalLocation`. Delegate `DataGuardPackage.Redact` directly to `DataGuardLogger.Redact`.
+
 ## Verification Matrix
 
 | # | Verification Command / Check | Expected Observable Result |
@@ -632,12 +1240,67 @@ flowchart TD
 | 18 | Deep clean build-server shutdown | `scripts\clean-workspace.bat -deep` -> Shuts down build servers, wipes bin/obj, clears NuGet caches. |
 | 19 | Selective extension build with `-SkipVSCode` | `scripts\build-extensions.bat -SkipVSCode` -> Builds Visual Studio VSIX with valid versioned name (not blank). |
 | 20 | Working directory restoration | Run `build-extensions.ps1` from a subfolder -> Terminal directory restored to original path. |
+| 21 | MSBuild IDE build self-cleaning | Build `DataGuard.VisualStudio.csproj` via MSBuild -> `CleanBundledCliAfterVsixPackaging` purges `obj/cli/` immediately. |
+| 22 | Child reparse point safety | Folder containing nested junction -> Deletes junction link only without deleting junction target contents. |
+| 23 | Startup temp sweep execution | Launch Visual Studio extension -> `InitializeAsync` sweeps orphaned `%TEMP%\DataGuard` folders in background. |
+| 24 | Transient SARIF lock handling | Indexer or scanner holds lock on `validation.sarif` -> Catches `IOException` without bubbling unhandled exception. |
+| 25 | VS Code packaging verification | `npm run package` in `src/DataGuard.VSCode` -> Resulting `.vsix` does NOT contain `test/` or `scripts/`. |
+| 26 | Local verification determinism | `verify_local_gates.sh` purges stale `TestResults` before calculating coverage. |
+| 27 | Bash clean script parity | `scripts/clean-workspace.sh --pre` executes cleanly on Linux/macOS with zero error. |
+| 28 | Linux/macOS pwsh boundary check | Run `clean-workspace.ps1` in PowerShell 7 on Linux/macOS -> Correctly matches repo root without false "Path escapes repository root" aborts. |
+| 29 | Safe junction temp deletion | Insert directory junction in `%TEMP%\DataGuard` -> `SafeDeleteDirectory` unlinks junction without touching target files. |
+| 30 | Untrusted feed rejection in CLI auto-install | Run `TryAutoInstallCliAsync` in solution with rogue `nuget.config` -> CLI installs exclusively from `api.nuget.org`. |
+| 31 | UI responsiveness on CLI execution | Click command in Visual Studio -> `RunCliAsync` executes without synchronous blocking temp folder enumeration. |
+| 32 | Selective extension build lock tolerance | Run `build-extensions.bat -SkipVSCode` with locked VS Code files -> Visual Studio build completes successfully without halting on skipped extension outputs. |
+| 33 | Graceful missing npm error | Run `build-extensions.ps1` without npm in PATH -> Displays clear message advising how to install npm or pass `-SkipVSCode`. |
+| 34 | Automated VSIX build isolation | Run `build-extensions.ps1` -> VSIX packages cleanly without attempting deployment to Visual Studio Experimental Hive. |
+| 35 | DRY local verification gate | Run `verify_local_gates.sh` -> Invokes `clean-workspace.sh --pre` before test suite. |
+| 36 | Whole-repo deletion guard | Execute `Remove-TargetItem -Path $repoRoot` -> Throws path escape warning and refuses deletion. |
+| 37 | Unsafe root rejection in bash | Execute `ROOT="/" clean-workspace.sh` -> Aborts immediately with error code 1. |
+| 38 | VS Code startup temp sweep | Create dummy stale `os.tmpdir()/dataguard-stale` -> Run VS Code extension -> Directory cleaned on startup. |
+| 39 | System temp cleanup in PreBuild | Create `%TEMP%\DataGuard\stale` -> Run `clean-workspace.bat -pre` -> Temp directory purged. |
+| 40 | Directory find without errors | Run `clean-workspace.sh --pre` -> Executes with `-prune` without stderr directory warnings. |
+| 41 | Default DeployExtension isolation | Run MSBuild without `/p:DeployExtension` -> Does not deploy to Visual Studio Experimental Hive. |
+| 42 | Custom cache cleanup on standard `dotnet clean` | Run `dotnet clean` -> Purges `TestResults/`, `nupkg/`, and `.testcontainers`. |
+| 43 | ReadOnly child file deletion in `clean-workspace.ps1` | Create read-only file in dummy directory -> Run cleanup -> Deletes cleanly without false lock errors. |
+| 44 | ReadOnly temp file purge in Visual Studio package | Create read-only temp file in `%TEMP%\DataGuard` -> Startup sweep removes file without leaking folder. |
+| 45 | Exclusion of scan summaries in VS Code package | Run `npm run package` -> Inspect VSIX contents -> Zero `*summary*.json` or `*scan*.json` files packaged. |
+| 46 | SafeDeleteDirectory read-only directory handling | Test suite creates read-only directory and file -> `SafeDeleteDirectory` deletes cleanly without throwing. |
+| 47 | TypeScript incremental build protection | Run `clean-workspace.bat -pre` -> `*.tsbuildinfo` is deleted -> Subsequent `npm run compile` re-emits fresh JS. |
+| 48 | Selective report filtering in PreBuild | Place dummy manifest in `artifacts/release-manifest.json` -> Run PreBuild -> Manifest is preserved. |
+| 49 | Both-flags skipped validation in build-extensions | Run `build-extensions.ps1 -SkipVSCode -SkipVisualStudio` -> Throws terminating error with clear message. |
+| 50 | Coverage cleanup on `dotnet clean` | Run `dotnet clean` -> Removes `coverage` and `.coverage` directories. |
+| 51 | Safe `%cmdcmdline%` batch evaluation | Execute `build-extensions.bat` with arguments containing special characters -> Runs cleanly without syntax error or unexpected execution. |
+| 52 | Process handle lifecycle in `TryAutoInstallCliAsync` | Trigger CLI auto-install failure -> Inspect OS process handles -> `Process` object is disposed immediately. |
+| 53 | Parent path trap immunity via `Test-ExcludedPath` | Run `clean-workspace.ps1` when repository root is inside a path with `node_modules` -> Clean successfully purges workspace caches. |
+| 54 | Worktree `.git` file protection | Create a `.git` file inside test target -> Attempt `Remove-TargetItem` -> Rejects deletion with warning. |
+| 55 | Hidden and ReadOnly directory cleanup | Run unit test `SafeDeleteDirectory_WithHiddenAndReadOnlyAttributes_CleansUpSuccessfully` -> Cleans up completely without throwing. |
+| 56 | VSIX runtime packaging completeness | Execute `vsce ls` -> Confirms `node_modules/vscode-languageclient` and production dependencies are packaged. |
+| 57 | Concurrency safety of `%TEMP%\DataGuard` clean | Run `clean-workspace.bat -pre` while an active scan folder exists in `%TEMP%\DataGuard\<recent-guid>` -> Only stale folders (>15m) are purged; active scan remains intact. |
+| 58 | Fallback process kill on taskkill failure | Mock taskkill unavailability -> `StopProcess` triggers direct `process.Kill()`, terminating zombie process. |
+| 59 | Dash-cased batch parameter binding | Execute `clean-workspace.bat -pre --skip-vscode` -> Parses successfully and skips VS Code cleanup. |
+| 60 | Relative CustomCliPath resolution | Run unit test `FindCliExecutable_WhenCustomCliPathIsRelative_ResolvesAgainstSolutionDirectory` -> Successfully resolves against solution directory. |
+| 61 | Empty Assembly.Location resilience | Run unit test `FindCliExecutable_WhenExtensionDirectoryIsNull_DoesNotThrowAndReturnsString` -> Verifies that no `ArgumentException` is thrown when resolving bundled CLI in .NET Framework 4.7.2. |
+| 62 | Active scan protection in Deep clean | Run `clean-workspace.bat -deep` while an active scan folder exists in `%TEMP%\DataGuard\<recent-guid>` -> Only folders older than 15 minutes are removed; active scans remain intact. |
+| 63 | Test host exclusion in VS Code VSIX | Execute `vsce ls` -> Confirms `.vscode-test`, `package-lock.json`, and `out/*.test.js` are excluded from the VSIX archive. |
+| 64 | Non-world-writable temp directory sweep | Execute temp clean in VS Code on Linux/macOS -> Fallback uses `0o700` and validates `process.getuid()` before deleting `/tmp/DataGuard` subdirectories. |
+| 65 | Safe process termination under taskkill failure | Mock taskkill throwing Win32Exception -> `StopProcess` attempts `process.Kill()` and catches `Win32Exception` without crashing the IDE. |
+| 66 | Parallel MSBuild pack collision immunity | Run `dotnet pack -m` across multiple projects -> Verifies that project-level `CleanNupkgBeforePack` does not delete shared solution root artifacts. |
+| 67 | Non-blocking cancellation in Visual Studio | Cancel validation command while CLI is running -> Visual Studio UI thread remains responsive and does not freeze under `processGate`. |
+| 68 | Working directory synchronization in PowerShell | Run `clean-workspace.ps1` from an arbitrary directory -> All relative paths resolve against `$repoRoot`. |
+| 69 | Deep temp file staleness detection | Create active file in `%TEMP%\DataGuard\<guid>\active.log` -> Directory is preserved because child files were written within 15 minutes. |
+| 70 | Parity in shell cleanup script | Run `clean-workspace.sh --mode pre` and `-m post` -> Executes corresponding cleanup mode correctly. |
+| 71 | Process disposal race immunity | Concurrently dispose process during cancellation -> `StopProcess` catches `ObjectDisposedException` and returns `ProcessStopOutcome.AlreadyExited` without crashing. |
+| 72 | UNC path injection rejection | Pass `\\attacker\share` to `DataGuardLogger.Configure` -> Directory is not created and log path falls back to local directory. |
+| 73 | Rooted explorer invocation | Trigger `OpenLog` when file opening fails -> Invokes `C:\Windows\explorer.exe` with `UseShellExecute = false` without searching solution directory. |
+| 74 | Idempotent attribute clearing | Run `clean-workspace.ps1` multiple times over read-only/hidden hierarchies -> Mask clearing successfully strips attributes without re-enabling them via `-bxor`. |
+| 75 | Multi-target build independence | Run `dotnet test --parallel` on multi-target project -> Outer and inner TFM builds clean their respective targets without lock collisions. |
 
 ---
 
 ## Handoff & Next Steps
 
-This plan has been reviewed adversarially via `/ck:plan --redteam` through 9 rigorous review cycles and incorporates 54 prioritized findings (11 in Round 4, 8 in Round 5, 5 in Round 6, 13 in Round 7, 10 in Round 8, 7 in Round 9).
+This plan has been reviewed adversarially via `/ck:plan --redteam` through 19 rigorous review cycles and incorporates 153 prioritized findings (11 in Round 4, 8 in Round 5, 5 in Round 6, 13 in Round 7, 10 in Round 8, 7 in Round 9, 7 in Round 10, 10 in Round 11, 10 in Round 12, 11 in Round 13, 12 in Round 14, 8 in Round 15, 8 in Round 16, 11 in Round 17, 11 in Round 18, 11 in Round 19).
 
 To execute this plan using the autonomous cooking engine:
 ```bash

@@ -103,6 +103,12 @@ temp/
 *.profiler
 *.gcview
 
+
+# ==================== DataGuard Diagnostic & Scan Artifacts ====================
+*.sarif
+*summary*.json
+*report*.json
+*scan*.json
 # ==================== Harness session artifacts ====================
 .omo/
 .omp/

@@ -82,6 +82,13 @@ printf '[verify-local-gates] Checking formatting.\n'
 dotnet format "$SOLUTION" --verify-no-changes --no-restore
 dotnet format whitespace "$SOLUTION" --verify-no-changes
 
+printf '[verify-local-gates] Purging stale test results and coverage data.\n'
+if [[ -f "./scripts/clean-workspace.sh" ]]; then
+    bash ./scripts/clean-workspace.sh --pre
+else
+    find . -type d -name "TestResults" -not -path "*/.*/*" -exec rm -rf {} + 2>/dev/null || true
+fi
+
 printf '[verify-local-gates] Running tests with coverage.\n'
 dotnet test "$SOLUTION" --configuration Release --no-restore --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx" || {
     if [[ -n "${WINDIR:-}" || "${OSTYPE:-}" == "msys"* || "${OSTYPE:-}" == "cygwin"* ]]; then

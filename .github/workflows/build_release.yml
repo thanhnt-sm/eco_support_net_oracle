@@ -242,7 +242,7 @@ jobs:
           VERSION: ${{ needs.validate-input.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /m
+          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /p:DeployExtension=false /m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
           if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }

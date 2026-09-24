@@ -85,6 +85,11 @@ public sealed class DataGuardPackage : AsyncPackage
 
         DataGuardLogger.EnsureInitialized(vsVersion, "1.0.0");
         DataGuardLogger.LogInfo("DataGuard Visual Studio Package initialized successfully.");
+        this.JoinableTaskFactory.RunAsync(async () =>
+        {
+            await Task.Yield();
+            CleanStaleTempDirectories();
+        }).FileAndForget("DataGuard/StartupTempClean");
 
         this.errorListProvider = new ErrorListProvider(this);
         var commandService = await this.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
@@ -164,18 +169,61 @@ public sealed class DataGuardPackage : AsyncPackage
                 return ProcessStopOutcome.AlreadyExited;
             }
 
-            using (var killer = Process.Start(new ProcessStartInfo
+            bool taskkillSucceeded = false;
+            try
             {
-                FileName = "taskkill",
-                Arguments = "/pid " + process.Id + " /T /F",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            }))
-            {
-                return killer != null && killer.WaitForExit(5000) && killer.ExitCode == 0
-                    ? ProcessStopOutcome.Terminated
-                    : ProcessStopOutcome.Failed;
+                using (var killer = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "taskkill",
+                    Arguments = "/pid " + process.Id + " /T /F",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                }))
+                {
+                    taskkillSucceeded = killer != null && killer.WaitForExit(5000) && killer.ExitCode == 0;
+                }
             }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                taskkillSucceeded = false;
+            }
+
+            if (taskkillSucceeded || process.HasExited)
+            {
+                return ProcessStopOutcome.Terminated;
+            }
+
+            // Fallback: force kill process directly if taskkill failed or was unavailable
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill();
+                    try
+                    {
+                        process.WaitForExit(1000);
+                    }
+                    catch
+                    {
+                    }
+                }
+                return ProcessStopOutcome.Terminated;
+            }
+            catch
+            {
+                try
+                {
+                    return process.HasExited ? ProcessStopOutcome.Terminated : ProcessStopOutcome.Failed;
+                }
+                catch
+                {
+                    return ProcessStopOutcome.Failed;
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            return ProcessStopOutcome.AlreadyExited;
         }
         catch (InvalidOperationException)
         {
@@ -186,7 +234,6 @@ public sealed class DataGuardPackage : AsyncPackage
             return ProcessStopOutcome.Failed;
         }
     }
-
     internal static string Quote(string value)
     {
         if (string.IsNullOrEmpty(value))
@@ -265,12 +312,8 @@ public sealed class DataGuardPackage : AsyncPackage
 
     private static string Redact(string value)
     {
-        return Regex.Replace(
-            value,
-            "(?i)\\b(password|pwd|secret|token|api[_ -]?key|connection\\s*string)\\s*[:=]\\s*(?:bearer\\s+)?[^\\s;,]+|\\bauthorization\\s*:\\s*bearer\\s+[^\\s,;]+",
-            "[REDACTED]");
+        return DataGuardLogger.Redact(value);
     }
-
     private static async Task DrainAsync(StreamReader reader)
     {
         var buffer = new char[4096];
@@ -631,7 +674,7 @@ public sealed class DataGuardPackage : AsyncPackage
         {
             var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
             DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
-            var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
+            var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath, solutionDirectory: solutionDirectory);
 
             if (string.IsNullOrEmpty(cliPath))
             {
@@ -647,10 +690,10 @@ public sealed class DataGuardPackage : AsyncPackage
                 }
 
                 await this.WriteOutputAsync("[DataGuard] CLI executable was not found. Attempting to install it globally...\r\n");
-                await this.TryAutoInstallCliAsync(solutionDirectory);
+                await this.TryAutoInstallCliAsync();
 
                 // Always re-check the path, even if installation failed, because it might already exist but wasn't found in initial paths.
-                cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath);
+                cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath, solutionDirectory: solutionDirectory);
 
                 if (string.IsNullOrEmpty(cliPath))
                 {
@@ -662,35 +705,6 @@ public sealed class DataGuardPackage : AsyncPackage
                     await this.WriteOutputAsync("[DataGuard] CLI installation failed or executable was not found. Install it manually with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe.\r\n");
                     return;
                 }
-            }
-
-            try
-            {
-                var tempRoot = Path.Combine(Path.GetTempPath(), "DataGuard");
-                if (Directory.Exists(tempRoot))
-                {
-                    var now = DateTime.UtcNow;
-                    foreach (var dir in Directory.EnumerateDirectories(tempRoot))
-                    {
-                        try
-                        {
-                            if (now - Directory.GetCreationTimeUtc(dir) > TimeSpan.FromMinutes(15))
-                            {
-                                Directory.Delete(dir, recursive: true);
-                            }
-                        }
-                        catch (IOException)
-                        {
-                        }
-                        catch (UnauthorizedAccessException)
-                        {
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Best-effort sweep; ignore failures so validation is never blocked.
             }
 
             var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
@@ -832,6 +846,8 @@ public sealed class DataGuardPackage : AsyncPackage
                     catch
                     {
                     }
+                    await Task.WhenAny(drainTasks, Task.Delay(500));
+                    _ = drainTasks.ContinueWith(t => { var ex = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
                 }
 
                 var progressSummary = stderrDrainTask.IsCompleted
@@ -843,7 +859,18 @@ public sealed class DataGuardPackage : AsyncPackage
                     wasCancelled = ReferenceEquals(this.cancelledProcess, process);
                 }
 
-                if (DecideCancellationSuppression(wasCancelled, stdoutDrainTask.IsCompleted && stderrDrainTask.IsCompleted))
+                bool shouldSuppress = false;
+                try
+                {
+                    shouldSuppress = DecideCancellationSuppression(wasCancelled, stdoutDrainTask.IsCompleted && stderrDrainTask.IsCompleted);
+                }
+                catch (InvalidOperationException)
+                {
+                    await this.WriteOutputAsync("[DataGuard] Warning: Process output streams could not be completely drained upon cancellation.\r\n");
+                    shouldSuppress = wasCancelled;
+                }
+
+                if (shouldSuppress)
                 {
                     stopwatch.Stop();
                     DataGuardLogger.LogValidationRun(
@@ -925,16 +952,14 @@ public sealed class DataGuardPackage : AsyncPackage
                 {
                     if (Directory.Exists(temporaryDirectory))
                     {
-                        Directory.Delete(temporaryDirectory, recursive: true);
+                        SafeDeleteDirectory(temporaryDirectory);
                     }
                 }
                 catch (IOException)
                 {
-                    // A virus scanner can briefly hold the temporary SARIF file; it contains no persisted secret.
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    // In-use ACL or scanner lock can briefly prevent deletion; cleaned on next startup sweep.
                 }
             }
         }
@@ -964,7 +989,163 @@ public sealed class DataGuardPackage : AsyncPackage
 
     internal static bool ShouldRecordCancellation(ProcessStopOutcome outcome, bool ownsActiveProcess) =>
         outcome == ProcessStopOutcome.Terminated && ownsActiveProcess;
+    internal static void CleanStaleTempDirectories()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var tempBase = Path.GetTempPath();
+            var tempRoot = Path.Combine(tempBase, "DataGuard");
+            if (Directory.Exists(tempRoot))
+            {
+                var rootInfo = new DirectoryInfo(tempRoot);
+                if ((rootInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    Directory.Delete(tempRoot, recursive: false);
+                }
+                else
+                {
+                    foreach (var dir in Directory.EnumerateDirectories(tempRoot))
+                    {
+                        try
+                        {
+                            var dirInfo = new DirectoryInfo(dir);
+                            if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                            {
+                                Directory.Delete(dir, recursive: false);
+                                continue;
+                            }
 
+                            var lastWrite = Directory.GetLastWriteTimeUtc(dir);
+                            var creation = Directory.GetCreationTimeUtc(dir);
+                            var latest = lastWrite > creation ? lastWrite : creation;
+                            if (now - latest > TimeSpan.FromMinutes(15))
+                            {
+                                SafeDeleteDirectory(dir);
+                            }
+                        }
+                        catch (IOException)
+                        {
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                        }
+                    }
+                }
+            }
+
+            // Also sweep dataguard-* directories in tempBase
+            try
+            {
+                foreach (var dir in Directory.EnumerateDirectories(tempBase, "dataguard-*"))
+                {
+                    try
+                    {
+                        var dirInfo = new DirectoryInfo(dir);
+                        if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                        {
+                            Directory.Delete(dir, recursive: false);
+                            continue;
+                        }
+
+                        var lastWrite = Directory.GetLastWriteTimeUtc(dir);
+                        var creation = Directory.GetCreationTimeUtc(dir);
+                        var latest = lastWrite > creation ? lastWrite : creation;
+                        if (now - latest > TimeSpan.FromMinutes(15))
+                        {
+                            SafeDeleteDirectory(dir);
+                        }
+                    }
+                    catch (IOException)
+                    {
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+        catch
+        {
+            // Best-effort sweep; ignore failures so operations are never blocked.
+        }
+    }
+    internal static void SafeDeleteDirectory(string path)
+    {
+        try
+        {
+            var dirInfo = new DirectoryInfo(path);
+            if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                if ((dirInfo.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden)) != 0)
+                {
+                    dirInfo.Attributes &= ~(FileAttributes.ReadOnly | FileAttributes.Hidden);
+                }
+                Directory.Delete(path, recursive: false);
+                return;
+            }
+
+            try
+            {
+                foreach (var subDir in Directory.GetDirectories(path))
+                {
+                    try
+                    {
+                        SafeDeleteDirectory(subDir);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                foreach (var file in Directory.GetFiles(path))
+                {
+                    TryDeleteFile(file);
+                }
+            }
+            catch
+            {
+            }
+
+            if ((dirInfo.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden)) != 0)
+            {
+                dirInfo.Attributes &= ~(FileAttributes.ReadOnly | FileAttributes.Hidden);
+            }
+
+            Directory.Delete(path, recursive: false);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+            {
+                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            }
+            File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
     private async Task WriteCommandBannerAsync(
         string command,
         string solutionDirectory,
@@ -1026,22 +1207,22 @@ public sealed class DataGuardPackage : AsyncPackage
         }
     }
 
-    private async Task<bool> TryAutoInstallCliAsync(string solutionDirectory)
+    private async Task<bool> TryAutoInstallCliAsync()
     {
         try
         {
             var startInfo = new ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = "tool install -g DataGuard.Cli",
-                WorkingDirectory = solutionDirectory,
+                Arguments = "tool install -g DataGuard.Cli --add-source https://api.nuget.org/v3/index.json --ignore-failed-sources",
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
             };
 
-            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+            using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             process.Start();
 
             var stdoutDrainTask = DrainAsync(process.StandardOutput);
@@ -1068,6 +1249,7 @@ public sealed class DataGuardPackage : AsyncPackage
                 catch
                 {
                 }
+                _ = installDrains.ContinueWith(t => { var ex = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
             }
 
             if (process.ExitCode == 0)
@@ -1123,9 +1305,22 @@ public sealed class DataGuardPackage : AsyncPackage
                             continue;
                         }
 
-                        var physical = locations[0].GetProperty("physicalLocation");
-                        var artifactLocation = physical.GetProperty("artifactLocation");
-                        var rawUri = artifactLocation.GetProperty("uri").GetString();
+                        if (!locations[0].TryGetProperty("physicalLocation", out var physical) || physical.ValueKind != JsonValueKind.Object)
+                        {
+                            continue;
+                        }
+
+                        if (!physical.TryGetProperty("artifactLocation", out var artifactLocation) || artifactLocation.ValueKind != JsonValueKind.Object)
+                        {
+                            continue;
+                        }
+
+                        if (!artifactLocation.TryGetProperty("uri", out var uriProperty) || uriProperty.ValueKind != JsonValueKind.String)
+                        {
+                            continue;
+                        }
+
+                        var rawUri = uriProperty.GetString();
                         var uriBaseId = artifactLocation.TryGetProperty("uriBaseId", out var baseIdNode) ? baseIdNode.GetString() : null;
                         var resolvedPath = ResolveSarifArtifactUri(rawUri, uriBaseId, solutionDirectory);
                         if (string.IsNullOrEmpty(resolvedPath))
@@ -1157,9 +1352,9 @@ public sealed class DataGuardPackage : AsyncPackage
                 }
             }
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException || ex is IOException || ex is KeyNotFoundException)
         {
-            await this.WriteOutputAsync("[DataGuard] SARIF output was invalid and was not loaded.\r\n");
+            await this.WriteOutputAsync("[DataGuard] SARIF output could not be read or was invalid: " + ex.Message + "\r\n");
             return 0;
         }
 
@@ -1186,6 +1381,7 @@ public sealed class DataGuardPackage : AsyncPackage
 
     private async Task CancelValidationAsync()
     {
+        Process? processToStop = null;
         ProcessStopOutcome outcome;
         lock (this.processGate)
         {
@@ -1195,11 +1391,19 @@ public sealed class DataGuardPackage : AsyncPackage
             }
             else
             {
-                var process = this.activeProcess;
-                outcome = StopProcess(process);
-                if (ShouldRecordCancellation(outcome, ReferenceEquals(this.activeProcess, process)))
+                processToStop = this.activeProcess;
+                outcome = ProcessStopOutcome.Failed;
+            }
+        }
+
+        if (processToStop != null)
+        {
+            outcome = await Task.Run(() => StopProcess(processToStop));
+            lock (this.processGate)
+            {
+                if (ShouldRecordCancellation(outcome, ReferenceEquals(this.activeProcess, processToStop)))
                 {
-                    this.cancelledProcess = process;
+                    this.cancelledProcess = processToStop;
                 }
             }
         }

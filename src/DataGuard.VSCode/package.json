@@ -242,6 +242,7 @@
     "test": "npm run compile && npm run test:typescript && node --test out/security.test.js out/run-coordinator.test.js out/command-args.test.js out/ui/design-tokens.test.js out/ui/redaction.test.js out/ui/csp-security.test.js out/ui/sql-queries-tree.test.js out/ui/performance-smoke.test.js",
     "test:typescript": "npx --no-install tsc --noEmit --strict --skipLibCheck --target ES2020 test/fixtures/generated-contract.ts",
     "test:extension-host": "npm run compile && node scripts/test-extension-host.cjs",
+    "clean": "node -e \"const cp = require('child_process'); cp.spawnSync(process.platform === 'win32' ? '..\\..\\scripts\\clean-workspace.bat' : 'bash', process.platform === 'win32' ? ['--pre'] : ['../../scripts/clean-workspace.sh', '--pre'], { stdio: 'inherit' })\"",
     "prepare-lsp": "node scripts/package-lsp.cjs",
     "package": "npm run prepare-lsp && npx @vscode/vsce package"
   },

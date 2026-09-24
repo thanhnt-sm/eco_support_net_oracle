@@ -1,0 +1,21 @@
+<Project>
+  <!-- Frictionless Pre-Run Cache Hygiene for Everyday Tasks -->
+  
+  <!-- Automatically clean TestResults before running 'dotnet test' -->
+  <Target Name="CleanTestResultsBeforeTest" BeforeTargets="Test;VSTest" Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <RemoveDir ContinueOnError="WarnAndContinue" Directories="$(MSBuildProjectDirectory)\TestResults" Condition="Exists('$(MSBuildProjectDirectory)\TestResults')" />
+  </Target>
+
+  <!-- Automatically clean nupkg before running 'dotnet pack' -->
+  <Target Name="CleanNupkgBeforePack" BeforeTargets="GenerateNuspec" Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <RemoveDir ContinueOnError="WarnAndContinue" Directories="$(MSBuildProjectDirectory)\nupkg" Condition="Exists('$(MSBuildProjectDirectory)\nupkg')" />
+  </Target>
+
+  <!-- Automatically clean custom test results, nupkg, and test containers when running 'dotnet clean' -->
+  <Target Name="CleanExtendedArtifactsOnClean" AfterTargets="Clean">
+    <RemoveDir ContinueOnError="WarnAndContinue" Directories="$(MSBuildProjectDirectory)\TestResults" Condition="Exists('$(MSBuildProjectDirectory)\TestResults')" />
+    <RemoveDir ContinueOnError="WarnAndContinue" Directories="$(MSBuildProjectDirectory)\nupkg" Condition="Exists('$(MSBuildProjectDirectory)\nupkg')" />
+    <RemoveDir ContinueOnError="WarnAndContinue" Directories="$(MSBuildProjectDirectory)\coverage" Condition="Exists('$(MSBuildProjectDirectory)\coverage')" />
+    <RemoveDir ContinueOnError="WarnAndContinue" Directories="$(MSBuildProjectDirectory)\.coverage" Condition="Exists('$(MSBuildProjectDirectory)\.coverage')" />
+  </Target>
+</Project>

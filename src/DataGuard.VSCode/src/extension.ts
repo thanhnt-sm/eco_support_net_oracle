@@ -96,6 +96,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }),
     );
     void startLanguageServer(context);
+    void cleanStaleTempDirectories();
 }
 
 export async function deactivate(): Promise<void> {
@@ -123,6 +124,87 @@ export async function deactivate(): Promise<void> {
     statusBarItem = undefined;
     outputChannel = undefined;
     diagnostics = undefined;
+}
+
+async function cleanStaleTempDirectories(): Promise<void> {
+    try {
+        const tempRoot = os.tmpdir();
+        const entries = await fs.readdir(tempRoot, { withFileTypes: true });
+        const now = Date.now();
+        const maxAgeMs = 15 * 60 * 1000;
+
+        for (const entry of entries) {
+            if (entry.name.startsWith("dataguard-")) {
+                const fullPath = path.join(tempRoot, entry.name);
+                try {
+                    const lstats = await fs.lstat(fullPath);
+                    if (lstats.isSymbolicLink()) {
+                        await fs.unlink(fullPath).catch(() => {});
+                        continue;
+                    }
+                    if (!lstats.isDirectory()) {
+                        continue;
+                    }
+                    if (typeof process.getuid === "function" && lstats.uid !== process.getuid()) {
+                        continue;
+                    }
+                    const latestMs = Math.max(lstats.mtimeMs ?? 0, lstats.ctimeMs ?? 0);
+                    if (now - latestMs > maxAgeMs) {
+                        await fs.rm(fullPath, { recursive: true, force: true }).catch(async () => {
+                            // Fallback if read-only attributes cause EPERM on Windows (never traverse symlinks)
+                            try {
+                                const postStat = await fs.lstat(fullPath);
+                                if (!postStat.isSymbolicLink()) {
+                                    await fs.chmod(fullPath, process.platform === "win32" ? 0o666 : 0o700);
+                                    await fs.rm(fullPath, { recursive: true, force: true });
+                                }
+                            } catch {}
+                        });
+                    }
+                } catch {
+                    // Ignore locks or concurrent access
+                }
+            } else if (entry.name === "DataGuard") {
+                const dgPath = path.join(tempRoot, entry.name);
+                try {
+                    const dgStat = await fs.lstat(dgPath);
+                    if (dgStat.isSymbolicLink()) {
+                        await fs.unlink(dgPath).catch(() => {});
+                        continue;
+                    }
+                    if (dgStat.isDirectory()) {
+                        if (typeof process.getuid === "function" && dgStat.uid !== process.getuid()) {
+                            continue;
+                        }
+                        const subEntries = await fs.readdir(dgPath, { withFileTypes: true }).catch(() => []);
+                        for (const sub of subEntries) {
+                            const subPath = path.join(dgPath, sub.name);
+                            try {
+                                const subStat = await fs.lstat(subPath);
+                                if (subStat.isSymbolicLink()) {
+                                    await fs.unlink(subPath).catch(() => {});
+                                    continue;
+                                }
+                                if (typeof process.getuid === "function" && subStat.uid !== process.getuid()) {
+                                    continue;
+                                }
+                                const subLatest = Math.max(subStat.mtimeMs ?? 0, subStat.ctimeMs ?? 0);
+                                if (now - subLatest > maxAgeMs) {
+                                    await fs.rm(subPath, { recursive: true, force: true }).catch(() => {});
+                                }
+                            } catch {}
+                        }
+                        const remaining = await fs.readdir(dgPath).catch(() => []);
+                        if (remaining.length === 0) {
+                            await fs.rmdir(dgPath).catch(() => {});
+                        }
+                    }
+                } catch {}
+            }
+        }
+    } catch {
+        // Non-blocking background sweep
+    }
 }
 
 async function handleApplyQuickFix(target?: FindingTreeItem | string): Promise<void> {

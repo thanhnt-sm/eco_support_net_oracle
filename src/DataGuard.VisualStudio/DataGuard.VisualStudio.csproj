@@ -11,6 +11,7 @@
     <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>
     <VSSDKBuildToolsAutoSetup>true</VSSDKBuildToolsAutoSetup>
     <VsixDeployOnDebug>true</VsixDeployOnDebug>
+    <DeployExtension Condition="'$(DeployExtension)' == ''">false</DeployExtension>
   </PropertyGroup>
 
   <ItemGroup>
@@ -78,6 +79,10 @@
   </Target>
 
   <Target Name="CleanBundledCli" AfterTargets="Clean">
+    <RemoveDir Directories="$(DataGuardCliPublishDir)" Condition="Exists('$(DataGuardCliPublishDir)')" />
+  </Target>
+
+  <Target Name="CleanBundledCliAfterVsixPackaging" AfterTargets="CreateVsixContainer" Condition="'$(CreateVsixContainer)' == 'true'">
     <RemoveDir Directories="$(DataGuardCliPublishDir)" Condition="Exists('$(DataGuardCliPublishDir)')" />
   </Target>
 </Project>

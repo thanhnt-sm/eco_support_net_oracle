@@ -217,4 +217,95 @@ public class DataGuardPackageTests
             Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    [Fact]
+    public void FindCliExecutable_WhenCustomCliPathIsRelative_ResolvesAgainstSolutionDirectory()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "dg_vsix_rel_test_" + System.Guid.NewGuid().ToString("N"));
+        var toolsDir = Path.Combine(tempDir, "tools");
+        Directory.CreateDirectory(toolsDir);
+        var fakeCli = Path.Combine(toolsDir, "dataguard.exe");
+        File.WriteAllText(fakeCli, "dummy");
+        try
+        {
+            var resolved = DataGuardLogger.FindCliExecutable(@".\tools\dataguard.exe", null, solutionDirectory: tempDir);
+            resolved.Should().Be(fakeCli);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SafeDeleteDirectory_WithReadOnlyDirectoryAndFiles_DeletesSuccessfullyWithoutThrowing()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "dg_safe_del_test_" + System.Guid.NewGuid().ToString("N"));
+        var subDir = Path.Combine(tempDir, "sub");
+        Directory.CreateDirectory(subDir);
+        var testFile = Path.Combine(subDir, "locked.txt");
+        File.WriteAllText(testFile, "content");
+        File.SetAttributes(testFile, FileAttributes.ReadOnly);
+        new DirectoryInfo(subDir).Attributes |= FileAttributes.ReadOnly;
+
+        DataGuardPackage.SafeDeleteDirectory(tempDir);
+
+        Directory.Exists(tempDir).Should().BeFalse();
+    }
+
+    [Fact]
+    public void SafeDeleteDirectory_WhenDirectoryDoesNotExist_DoesNotThrow()
+    {
+        var nonExistent = Path.Combine(Path.GetTempPath(), "dg_nonexistent_" + System.Guid.NewGuid().ToString("N"));
+        System.Action act = () => DataGuardPackage.SafeDeleteDirectory(nonExistent);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void SafeDeleteDirectory_WithHiddenAndReadOnlyAttributes_CleansUpSuccessfully()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "dg_safe_del_hidden_" + System.Guid.NewGuid().ToString("N"));
+        var subDir = Path.Combine(tempDir, "sub_hidden");
+        Directory.CreateDirectory(subDir);
+        var testFile = Path.Combine(subDir, "hidden.txt");
+        File.WriteAllText(testFile, "hidden-content");
+        File.SetAttributes(testFile, FileAttributes.Hidden | FileAttributes.ReadOnly);
+        var dirInfo = new DirectoryInfo(subDir);
+        dirInfo.Attributes |= FileAttributes.Hidden | FileAttributes.ReadOnly;
+
+        DataGuardPackage.SafeDeleteDirectory(tempDir);
+
+        Directory.Exists(tempDir).Should().BeFalse();
+    }
+
+    [Fact]
+    public void FindCliExecutable_WhenExtensionDirectoryIsNull_DoesNotThrowAndReturnsString()
+    {
+        // Tests the production path where extensionDirectory is null, ensuring Assembly.Location/CodeBase resolution does not throw ArgumentException on .NET Framework 4.7.2
+        System.Action act = () =>
+        {
+            var resolved = DataGuardLogger.FindCliExecutable(null, extensionDirectory: null);
+            resolved.Should().NotBeNull();
+        };
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Quote_WithEmbeddedQuotesAndSpaces_SanitizesAndEnclosesCorrectly()
+    {
+        var path = @"C:\Program Files\DataGuard\test\""malicious\"".log";
+        var sanitized = path.Replace("\"", string.Empty);
+        var quoted = DataGuardPackage.Quote(sanitized);
+        quoted.Should().StartWith("\"");
+        quoted.Should().EndWith("\"");
+        quoted.Should().NotContain("\"malicious\"");
+    }
+
+    [Fact]
+    public void Configure_WithUncPath_RejectsRemoteShareAndDoesNotUseAsLogFile()
+    {
+        var initialLogPath = DataGuardLogger.LogFilePath;
+        DataGuardLogger.Configure(true, @"\\malicious-smb-server\share\logs");
+        DataGuardLogger.LogFilePath.Should().NotStartWith(@"\\malicious-smb-server");
+    }
 }

@@ -270,7 +270,6 @@ jobs:
   codeql:
     name: CodeQL Analysis
     runs-on: ubuntu-latest
-    needs: [build-and-test]
     permissions:
       contents: read
       security-events: write
