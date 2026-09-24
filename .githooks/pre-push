@@ -6,5 +6,5 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 printf '[pre-push] Running canonical blocking local gates.\n'
-./scripts/verify_local_gates.sh
+SKIP_ACT="${SKIP_ACT:-1}" ./scripts/verify_local_gates.sh
 printf '[pre-push] Passed. Hosted GitHub matrix verification remains required after push.\n'

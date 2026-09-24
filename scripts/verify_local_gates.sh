@@ -39,7 +39,7 @@ if [[ -d "$HOME/.act/bin" ]]; then
     export PATH="$PATH:$HOME/.act/bin"
 fi
 if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
-    export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
+    export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin:C:\\Program Files\\Docker\\Docker\\resources\\bin"
 fi
 
 if [[ "${USE_FULL_SLN:-0}" == "1" ]]; then

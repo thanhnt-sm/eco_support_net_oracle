@@ -274,9 +274,16 @@ public sealed class DataGuardPackage : AsyncPackage
     private static async Task DrainAsync(StreamReader reader)
     {
         var buffer = new char[4096];
-        while (await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false) > 0)
+        try
         {
-            // Drain without retaining potentially sensitive CLI output.
+            while (await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false) > 0)
+            {
+                // Drain without retaining potentially sensitive CLI output.
+            }
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException || ex is IOException || ex is OperationCanceledException)
+        {
+            // Stream was closed or process cancelled/terminated; drain completes cleanly.
         }
     }
 
@@ -288,20 +295,26 @@ public sealed class DataGuardPackage : AsyncPackage
         var discardedLine = false;
         int read;
 
-        while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
+        try
         {
-            for (var index = 0; index < read; index++)
+            while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
             {
-                var character = buffer[index];
-                if (AppendProgressChar(character, line, ref discardedLine))
+                for (var index = 0; index < read; index++)
                 {
-                    await this.ProcessProgressLineAsync(line, discardedLine, result);
-                    line.Clear();
-                    discardedLine = false;
+                    var character = buffer[index];
+                    if (AppendProgressChar(character, line, ref discardedLine))
+                    {
+                        await this.ProcessProgressLineAsync(line, discardedLine, result);
+                        line.Clear();
+                        discardedLine = false;
+                    }
                 }
             }
         }
-
+        catch (Exception ex) when (ex is ObjectDisposedException || ex is IOException || ex is OperationCanceledException)
+        {
+            // Stream was closed or process cancelled/terminated; progress reader exits cleanly.
+        }
         if (line.Length > 0 || discardedLine)
         {
             await this.ProcessProgressLineAsync(line, discardedLine, result);

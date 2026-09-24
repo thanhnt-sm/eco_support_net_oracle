@@ -16,9 +16,21 @@ It puts the final .vsix files and their SHA-256 hashes in the artifacts/ directo
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
+$originalLocation = Get-Location
 
 Write-Host "Starting DataGuard Extension Build Process..." -ForegroundColor Cyan
 
+# Resolve package version safely for artifact naming
+$version = "0.2.3"
+$vscodePkgJson = Join-Path $repoRoot "src\DataGuard.VSCode\package.json"
+if (Test-Path -LiteralPath $vscodePkgJson) {
+    try {
+        $parsedJson = Get-Content -LiteralPath $vscodePkgJson -Raw | ConvertFrom-Json
+        if (-not [string]::IsNullOrWhiteSpace($parsedJson.version)) {
+            $version = [string]$parsedJson.version
+        }
+    } catch {}
+}
 
 # 0. Pre-build cache & artifact cleanup
 & "$PSScriptRoot\clean-workspace.ps1" -Mode PreBuild
@@ -125,6 +137,7 @@ finally {
     } catch {
         Write-Warning "PostBuild cleanup encountered a notice: $_"
     }
+    Set-Location $originalLocation
 }
 
 Write-Host "`nAll builds completed successfully! Artifacts are located in the '$repoRoot\artifacts\' directory." -ForegroundColor Cyan

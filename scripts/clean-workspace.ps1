@@ -15,15 +15,21 @@ The cleanup mode to execute:
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('PreBuild', 'PostBuild', 'Deep')]
-    [string]$Mode
+    [Parameter(Mandatory = $false, Position = 0)]
+    [ValidateSet('PreBuild', 'PostBuild', 'Deep', '-pre', '-post', '-deep', 'pre', 'post', 'deep')]
+    [string]$Mode = 'PreBuild'
 )
+
+switch -Regex ($Mode) {
+    '^(PreBuild|-pre|pre)$'   { $Mode = 'PreBuild' }
+    '^(PostBuild|-post|post)$' { $Mode = 'PostBuild' }
+    '^(Deep|-deep|deep)$'      { $Mode = 'Deep' }
+}
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
+$originalLocation = Get-Location
 Set-Location $repoRoot
-
 Write-Host "================================================================================" -ForegroundColor Cyan
 Write-Host " DataGuard Workspace Cache Cleanup - Mode: $Mode" -ForegroundColor Cyan
 Write-Host "================================================================================" -ForegroundColor Cyan
@@ -191,7 +197,10 @@ switch ($Mode) {
     }
 
     'Deep' {
-        Write-Host "`nExecuting dotnet clean..." -ForegroundColor Yellow
+        Write-Host "`nShutting down build servers and executing dotnet clean..." -ForegroundColor Yellow
+        try {
+            & dotnet build-server shutdown | Out-Null
+        } catch {}
         try {
             & dotnet clean DataGuard.sln -c Release -v quiet | Out-Null
             if ($LASTEXITCODE -ne 0) { Write-Warning "dotnet clean (Release) returned non-zero exit code: $LASTEXITCODE" }
@@ -200,7 +209,10 @@ switch ($Mode) {
         } catch {
             Write-Warning "dotnet clean completed with notices: $_"
         }
-
+        try {
+            & dotnet nuget locals http-cache --clear | Out-Null
+            & dotnet nuget locals temp --clear | Out-Null
+        } catch {}
         Write-Host "Wiping all bin and obj folders..." -ForegroundColor Yellow
         $binDirs = Get-ChildItem -LiteralPath $repoRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
             Where-Object {
@@ -228,6 +240,10 @@ switch ($Mode) {
                 if (Test-Path -LiteralPath $mefCache) {
                     Remove-TargetItem -Path $mefCache
                 }
+                $privReg = Join-Path $hive.FullName "privateregistry.bin"
+                if (Test-Path -LiteralPath $privReg) {
+                    Remove-TargetItem -Path $privReg
+                }
             }
         }
 
@@ -236,7 +252,7 @@ switch ($Mode) {
         $testResultDirs = Get-ChildItem -LiteralPath $repoRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.Name -eq "TestResults" -and
-                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex)\\'
+                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex|node_modules)\\'
             }
         foreach ($dir in $testResultDirs) {
             Remove-TargetItem -Path $dir.FullName
@@ -245,7 +261,7 @@ switch ($Mode) {
         $nupkgDirs = Get-ChildItem -LiteralPath $repoRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.Name -eq "nupkg" -and
-                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex)\\'
+                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex|node_modules)\\'
             }
         foreach ($dir in $nupkgDirs) {
             Remove-TargetItem -Path $dir.FullName
@@ -282,3 +298,4 @@ Write-Host "   Mode         : $Mode" -ForegroundColor White
 Write-Host "   Items Purged : $script:totalDeletedItems" -ForegroundColor White
 Write-Host "   Disk Freed   : $freedDisplay" -ForegroundColor Green
 Write-Host "--------------------------------------------------------------------------------`n" -ForegroundColor Cyan
+Set-Location $originalLocation
