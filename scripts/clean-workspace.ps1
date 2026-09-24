@@ -133,7 +133,7 @@ switch ($Mode) {
         $binDirs = Get-ChildItem -LiteralPath $repoRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
             Where-Object {
                 ($_.Name -eq "bin" -or $_.Name -eq "obj") -and
-                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex)\\'
+                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex|node_modules)\\'
             }
         foreach ($dir in $binDirs) {
             Remove-TargetItem -Path $dir.FullName
