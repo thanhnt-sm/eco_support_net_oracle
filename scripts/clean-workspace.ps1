@@ -32,22 +32,61 @@ $script:totalBytesFreed = 0
 $script:totalDeletedItems = 0
 
 function Remove-TargetItem {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [switch]$Critical
+    )
 
     if (Test-Path -LiteralPath $Path) {
         $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
         if ($null -eq $item) { return }
 
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+        $fullRepoRoot = [System.IO.Path]::GetFullPath($repoRoot)
+        $repoRootWithSlash = $fullRepoRoot.TrimEnd('\', '/') + '\'
+        $pathWithSlash = $fullPath.TrimEnd('\', '/') + '\'
+        $vsExpMefRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\VisualStudio'
+        $vsExpMefRootWithSlash = [System.IO.Path]::GetFullPath($vsExpMefRoot).TrimEnd('\', '/') + '\'
+
+        $isRepoSub = $fullPath.Equals($fullRepoRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                     $pathWithSlash.StartsWith($repoRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)
+        $isVsExpSub = (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) -and
+                      $pathWithSlash.StartsWith($vsExpMefRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)
+
+        if (-not $isRepoSub -and -not $isVsExpSub) {
+            Write-Warning "  [!] Path escapes repository root, skipping for safety: $Path"
+            return
+        }
+
         $bytes = 0
-        if ($item.PSIsContainer) {
-            $files = Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue
-            foreach ($f in $files) {
-                $bytes += $f.Length
+        $isReparsePoint = [bool]($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
+
+        if ($isReparsePoint) {
+            # Directory junction or symlink: delete only the link, NEVER traverse target
+            if ($item.PSIsContainer) {
+                [System.IO.Directory]::Delete($Path, $false)
+            } else {
+                [System.IO.File]::Delete($Path)
+            }
+        } elseif ($item.PSIsContainer) {
+            if ($item.Name -ne "node_modules" -and $item.Name -ne ".git" -and $item.FullName -notmatch '\\obj\\cli$') {
+                $files = Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue
+                foreach ($f in $files) {
+                    $bytes += $f.Length
+                }
             }
             Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
         } else {
             $bytes = $item.Length
             Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        }
+
+        if (Test-Path -LiteralPath $Path) {
+            if ($Critical) {
+                throw "Critical locked path could not be deleted: $Path. Please terminate locking processes and retry."
+            }
+            Write-Warning "  [!] Locked or in-use path could not be deleted: $Path"
+            return
         }
 
         $script:totalBytesFreed += $bytes
@@ -78,7 +117,7 @@ function Remove-PatternMatchingItems {
 
     $items = Get-ChildItem -LiteralPath $RootDirectory -Filter $Filter -Recurse -Force -ErrorAction SilentlyContinue |
         Where-Object {
-            $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex)\\'
+            $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex|node_modules)\\'
         }
 
     if ($DirectoriesOnly) {
@@ -96,6 +135,15 @@ switch ($Mode) {
     'PreBuild' {
         Write-Host "`nPurging test results, coverage caches, and stale logs..." -ForegroundColor Yellow
         Remove-TargetItem -Path (Join-Path $repoRoot "TestResults")
+        $testResultDirs = Get-ChildItem -LiteralPath $repoRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -eq "TestResults" -and
+                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex|node_modules)\\'
+            }
+        foreach ($dir in $testResultDirs) {
+            Remove-TargetItem -Path $dir.FullName
+        }
+
         Remove-TargetItem -Path (Join-Path $repoRoot "coverage")
         Remove-TargetItem -Path (Join-Path $repoRoot ".coverage")
         Remove-TargetItem -Path (Join-Path $repoRoot ".testcontainers")
@@ -104,27 +152,51 @@ switch ($Mode) {
         Remove-PatternMatchingItems -RootDirectory $repoRoot -Filter "*.cobertura.xml" -FilesOnly
         Remove-PatternMatchingItems -RootDirectory $repoRoot -Filter "*.log" -FilesOnly
 
-        Write-Host "Cleaning intermediate bundled CLI staging..." -ForegroundColor Yellow
-        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VisualStudio\obj\cli")
+        Write-Host "Cleaning intermediate bundled CLI staging and compiler outputs..." -ForegroundColor Yellow
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VisualStudio\obj\cli") -Critical
         Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VisualStudio\cli")
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\out") -Critical
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\dist") -Critical
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\server") -Critical
 
-        Write-Host "Cleaning previous artifacts before rebuild..." -ForegroundColor Yellow
+        Write-Host "Cleaning previous artifacts, source VSIXes, and sensitive reports..." -ForegroundColor Yellow
         Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.vsix" -FilesOnly
         Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.sha256" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.sarif" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.json" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VSCode") -Filter "*.vsix" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VSCode") -Filter "*.vsix.sha256" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VisualStudio") -Filter "*.vsix" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VisualStudio") -Filter "*.vsix.sha256" -FilesOnly
     }
 
     'PostBuild' {
         Write-Host "`nPurging intermediate uncompressed CLI staging while retaining final artifacts..." -ForegroundColor Yellow
-        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VisualStudio\obj\cli")
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VisualStudio\obj\cli") -Critical
         Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VisualStudio\cli")
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\out")
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\dist")
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\server")
         Remove-TargetItem -Path (Join-Path $repoRoot ".testcontainers")
+
+        Write-Host "Purging sensitive scan reports from artifacts folder..." -ForegroundColor Yellow
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.sarif" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.json" -FilesOnly
+
+        Write-Host "Purging source VSIX copies in source folders..." -ForegroundColor Yellow
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VSCode") -Filter "*.vsix" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VSCode") -Filter "*.vsix.sha256" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VisualStudio") -Filter "*.vsix" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "src\DataGuard.VisualStudio") -Filter "*.vsix.sha256" -FilesOnly
     }
 
     'Deep' {
         Write-Host "`nExecuting dotnet clean..." -ForegroundColor Yellow
         try {
             & dotnet clean DataGuard.sln -c Release -v quiet | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warning "dotnet clean (Release) returned non-zero exit code: $LASTEXITCODE" }
             & dotnet clean DataGuard.sln -c Debug -v quiet | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warning "dotnet clean (Debug) returned non-zero exit code: $LASTEXITCODE" }
         } catch {
             Write-Warning "dotnet clean completed with notices: $_"
         }
@@ -143,15 +215,54 @@ switch ($Mode) {
         Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\node_modules")
         Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\dist")
         Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\out")
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\server")
+        Remove-TargetItem -Path (Join-Path $repoRoot "src\DataGuard.VSCode\.vscode-test")
+
+        Write-Host "Wiping IDE and benchmark caches..." -ForegroundColor Yellow
+        Remove-TargetItem -Path (Join-Path $repoRoot ".vs")
+        Remove-TargetItem -Path (Join-Path $repoRoot "BenchmarkDotNet.Artifacts")
+        if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            $vsExpHives = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA "Microsoft\VisualStudio") -Directory -Filter "*Exp" -ErrorAction SilentlyContinue
+            foreach ($hive in $vsExpHives) {
+                $mefCache = Join-Path $hive.FullName "ComponentModelCache"
+                if (Test-Path -LiteralPath $mefCache) {
+                    Remove-TargetItem -Path $mefCache
+                }
+            }
+        }
 
         Write-Host "Wiping test results, nupkg, and test hives..." -ForegroundColor Yellow
         Remove-TargetItem -Path (Join-Path $repoRoot "TestResults")
+        $testResultDirs = Get-ChildItem -LiteralPath $repoRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -eq "TestResults" -and
+                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex)\\'
+            }
+        foreach ($dir in $testResultDirs) {
+            Remove-TargetItem -Path $dir.FullName
+        }
+
+        $nupkgDirs = Get-ChildItem -LiteralPath $repoRoot -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -eq "nupkg" -and
+                $_.FullName -notmatch '\\(\.git|\.omo|\.omp|\.codex)\\'
+            }
+        foreach ($dir in $nupkgDirs) {
+            Remove-TargetItem -Path $dir.FullName
+        }
+
         Remove-TargetItem -Path (Join-Path $repoRoot "coverage")
         Remove-TargetItem -Path (Join-Path $repoRoot ".coverage")
-        Remove-TargetItem -Path (Join-Path $repoRoot "nupkg")
         Remove-TargetItem -Path (Join-Path $repoRoot "sbom")
         Remove-TargetItem -Path (Join-Path $repoRoot ".testcontainers")
-
+        Remove-TargetItem -Path (Join-Path $repoRoot "artifacts\nuget")
+        Remove-TargetItem -Path (Join-Path $repoRoot "artifacts\nupkg")
+        Remove-TargetItem -Path (Join-Path $repoRoot "artifacts\vscode")
+        Remove-TargetItem -Path (Join-Path $repoRoot "artifacts\visualstudio")
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.vsix" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.sha256" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.sarif" -FilesOnly
+        Remove-PatternMatchingItems -RootDirectory (Join-Path $repoRoot "artifacts") -Filter "*.json" -FilesOnly
         Remove-PatternMatchingItems -RootDirectory $repoRoot -Filter "*.trx" -FilesOnly
         Remove-PatternMatchingItems -RootDirectory $repoRoot -Filter "*.cobertura.xml" -FilesOnly
         Remove-PatternMatchingItems -RootDirectory $repoRoot -Filter "*.log" -FilesOnly

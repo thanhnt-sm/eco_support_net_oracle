@@ -127,6 +127,20 @@ public class DataGuardPackageTests
     }
 
     [Fact]
+    public void Quote_WithNullOrEmpty_ReturnsEmptyQuotes()
+    {
+        DataGuardPackage.Quote(null!).Should().Be("\"\"");
+        DataGuardPackage.Quote(string.Empty).Should().Be("\"\"");
+    }
+
+    [Fact]
+    public void Quote_WithBackslashPrecedingDoubleQuote_EscapesProperly()
+    {
+        var input = @"dir\""test";
+        var quoted = DataGuardPackage.Quote(input);
+        quoted.Should().Be("\"dir\\\\\\\"test\"");
+    }
+    [Fact]
     public void ResolveSarifArtifactUri_RelativeUriWithSrcRoot_ReturnsAbsolutePath()
     {
         var solutionDir = @"D:\repo";
@@ -143,13 +157,29 @@ public class DataGuardPackageTests
     }
 
     [Fact]
-    public void ResolveSarifArtifactUri_RootedUri_ReturnsOriginal()
+    public void ResolveSarifArtifactUri_RootedUriOutsideSolution_ReturnsNull()
     {
-        var rooted = @"C:\abs\file.cs";
-        var resolved = DataGuardPackage.ResolveSarifArtifactUri(rooted, null, @"D:\repo");
-        resolved.Should().Be(rooted);
+        var rootedOutside = @"C:\Windows\System32\cmd.exe";
+        var resolved = DataGuardPackage.ResolveSarifArtifactUri(rootedOutside, null, @"D:\repo");
+        resolved.Should().BeNull();
     }
 
+    [Fact]
+    public void ResolveSarifArtifactUri_RootedUriInsideSolution_ReturnsCanonicalPath()
+    {
+        var solutionDir = @"D:\repo";
+        var rootedInside = @"D:\repo\src\File.cs";
+        var resolved = DataGuardPackage.ResolveSarifArtifactUri(rootedInside, null, solutionDir);
+        resolved.Should().Be(Path.GetFullPath(rootedInside));
+    }
+
+    [Fact]
+    public void ResolveSarifArtifactUri_PathTraversalWithSrcRoot_ReturnsNull()
+    {
+        var solutionDir = @"D:\repo";
+        var resolved = DataGuardPackage.ResolveSarifArtifactUri(@"../../etc/passwd", "%SRCROOT%", solutionDir);
+        resolved.Should().BeNull();
+    }
     [Fact]
     public void FindCliExecutable_WhenBundledCliExists_PrioritizesBundledOverPath()
     {

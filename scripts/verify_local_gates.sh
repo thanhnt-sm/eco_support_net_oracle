@@ -83,7 +83,7 @@ dotnet format "$SOLUTION" --verify-no-changes --no-restore
 dotnet format whitespace "$SOLUTION" --verify-no-changes
 
 printf '[verify-local-gates] Running tests with coverage.\n'
-dotnet test "$SOLUTION" --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx" || {
+dotnet test "$SOLUTION" --configuration Release --no-restore --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx" || {
     if [[ -n "${WINDIR:-}" || "${OSTYPE:-}" == "msys"* || "${OSTYPE:-}" == "cygwin"* ]]; then
         printf '[verify-local-gates] Note: Windows local privilege limitations encountered; verifying coverage threshold.\n'
     else

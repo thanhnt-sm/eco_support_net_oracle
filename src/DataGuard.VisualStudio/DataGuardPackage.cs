@@ -189,28 +189,77 @@ public sealed class DataGuardPackage : AsyncPackage
 
     internal static string Quote(string value)
     {
-        var escaped = value.Replace("\"", "\\\"");
-        if (escaped.EndsWith("\\"))
+        if (string.IsNullOrEmpty(value))
         {
-            escaped += "\\";
+            return "\"\"";
         }
-        return "\"" + escaped + "\"";
+
+        var sb = new StringBuilder();
+        sb.Append('"');
+        var backslashCount = 0;
+        foreach (var c in value)
+        {
+            if (c == '\\')
+            {
+                backslashCount++;
+            }
+            else if (c == '"')
+            {
+                sb.Append('\\', (backslashCount * 2) + 1);
+                sb.Append('"');
+                backslashCount = 0;
+            }
+            else
+            {
+                if (backslashCount > 0)
+                {
+                    sb.Append('\\', backslashCount);
+                    backslashCount = 0;
+                }
+                sb.Append(c);
+            }
+        }
+        if (backslashCount > 0)
+        {
+            sb.Append('\\', backslashCount * 2);
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
     internal static string? ResolveSarifArtifactUri(string? uri, string? uriBaseId, string solutionDirectory)
     {
-        if (string.IsNullOrWhiteSpace(uri))
+        if (string.IsNullOrWhiteSpace(uri) || string.IsNullOrWhiteSpace(solutionDirectory))
         {
             return null;
         }
+
+        var canonicalSolutionDir = Path.GetFullPath(solutionDirectory);
+        if (!canonicalSolutionDir.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+        {
+            canonicalSolutionDir += Path.DirectorySeparatorChar;
+        }
+
+        string? resolved = null;
         if (Path.IsPathRooted(uri))
         {
-            return uri;
+            resolved = Path.GetFullPath(uri);
         }
-        if (!string.IsNullOrEmpty(uriBaseId) && uriBaseId == "%SRCROOT%")
+        else if (!string.IsNullOrEmpty(uriBaseId) && uriBaseId == "%SRCROOT%")
         {
-            return Path.GetFullPath(Path.Combine(solutionDirectory, uri!.Replace('/', '\\')));
+            resolved = Path.GetFullPath(Path.Combine(canonicalSolutionDir, uri!.Replace('/', '\\')));
         }
+
+        if (resolved != null)
+        {
+            // Enforce solution directory containment to prevent arbitrary file navigation / path traversal
+            if (resolved.StartsWith(canonicalSolutionDir, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(resolved, canonicalSolutionDir.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            {
+                return resolved;
+            }
+        }
+
         return null;
     }
 
@@ -573,6 +622,17 @@ public sealed class DataGuardPackage : AsyncPackage
 
             if (string.IsNullOrEmpty(cliPath))
             {
+                if (!string.IsNullOrWhiteSpace(options.CustomCliPath))
+                {
+                    await this.WriteOutputAsync("[DataGuard] Custom CLI path '" + options.CustomCliPath!.Trim()
+                        + "' was not found or is not a valid executable. Check Tools > Options > DataGuard > General > Custom CLI Executable Path.\r\n");
+                    lock (this.processGate)
+                    {
+                        this.commandReserved = false;
+                    }
+                    return;
+                }
+
                 await this.WriteOutputAsync("[DataGuard] CLI executable was not found. Attempting to install it globally...\r\n");
                 await this.TryAutoInstallCliAsync(solutionDirectory);
 
@@ -591,47 +651,73 @@ public sealed class DataGuardPackage : AsyncPackage
                 }
             }
 
-            var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
             try
             {
-                Directory.CreateDirectory(temporaryDirectory);
+                var tempRoot = Path.Combine(Path.GetTempPath(), "DataGuard");
+                if (Directory.Exists(tempRoot))
+                {
+                    var now = DateTime.UtcNow;
+                    foreach (var dir in Directory.EnumerateDirectories(tempRoot))
+                    {
+                        try
+                        {
+                            if (now - Directory.GetCreationTimeUtc(dir) > TimeSpan.FromMinutes(15))
+                            {
+                                Directory.Delete(dir, recursive: true);
+                            }
+                        }
+                        catch (IOException)
+                        {
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                        }
+                    }
+                }
             }
             catch
             {
-                lock (this.processGate)
-                {
-                    this.commandReserved = false;
-                }
-
-                throw;
+                // Best-effort sweep; ignore failures so validation is never blocked.
             }
-            var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
-            var ruleOptions = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
-            var disabledRules = ruleOptions.GetDisabledRuleIds();
-            var skipArg = disabledRules.Count > 0 ? " --skip-rules " + string.Join(",", disabledRules) : string.Empty;
-            var configPath = Path.Combine(solutionDirectory, ".dataguard.yml");
-            var ruleCatalog = ruleOptions.GetRuleCatalog();
-            var enabledRuleCount = ruleCatalog.Count(rule => rule.IsEnabled);
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = cliPath,
-                Arguments = command == "validate"
-                    ? "validate --config " + Quote(configPath) + " --format sarif --output " + Quote(sarifPath)
-                        + " --project " + Quote(solutionDirectory) + " --progress" + skipArg
-                    : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath) + " --progress",
-                WorkingDirectory = solutionDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            };
 
-            startInfo.EnvironmentVariables["DOTNET_ROLL_FORWARD"] = "LatestMajor";
-            var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            var stopwatch = Stopwatch.StartNew();
-
+            var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
+            Process? process = null;
             try
             {
+                Directory.CreateDirectory(temporaryDirectory);
+                var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
+                var ruleOptions = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
+                var disabledRules = ruleOptions.GetDisabledRuleIds();
+                var validRules = new List<string>();
+                foreach (var ruleId in disabledRules)
+                {
+                    if (!string.IsNullOrWhiteSpace(ruleId) && Regex.IsMatch(ruleId, "^[A-Za-z0-9_-]+$"))
+                    {
+                        validRules.Add(ruleId);
+                    }
+                }
+                var skipArg = validRules.Count > 0 ? " --skip-rules " + Quote(string.Join(",", validRules)) : string.Empty;
+                var configPath = Path.Combine(solutionDirectory, ".dataguard.yml");
+                var ruleCatalog = ruleOptions.GetRuleCatalog();
+                var enabledRuleCount = ruleCatalog.Count(rule => rule.IsEnabled);
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = cliPath,
+                    Arguments = command == "validate"
+                        ? "validate --config " + Quote(configPath) + " --format sarif --output " + Quote(sarifPath)
+                            + " --project " + Quote(solutionDirectory) + " --progress" + skipArg
+                        : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath) + " --progress",
+                    WorkingDirectory = solutionDirectory,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                };
+
+                startInfo.EnvironmentVariables["DOTNET_ROLL_FORWARD"] = "LatestMajor";
+                process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+                var stopwatch = Stopwatch.StartNew();
+
                 lock (this.processGate)
                 {
                     process.Start();
@@ -721,8 +807,23 @@ public sealed class DataGuardPackage : AsyncPackage
                     }
                 }
 
-                await stdoutDrainTask;
-                var progressSummary = await stderrDrainTask;
+                var drainTasks = Task.WhenAll(stdoutDrainTask, stderrDrainTask);
+                var drainCompleted = await Task.WhenAny(drainTasks, Task.Delay(TimeSpan.FromSeconds(3)));
+                if (drainCompleted != drainTasks)
+                {
+                    try
+                    {
+                        process.StandardOutput.Close();
+                        process.StandardError.Close();
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                var progressSummary = stderrDrainTask.IsCompleted
+                    ? await stderrDrainTask
+                    : new ProgressReadResult();
                 bool wasCancelled;
                 lock (this.processGate)
                 {
@@ -786,26 +887,41 @@ public sealed class DataGuardPackage : AsyncPackage
             {
                 lock (this.processGate)
                 {
-                    if (ReferenceEquals(this.activeProcess, process))
+                    if (process != null)
                     {
-                        this.activeProcess = null;
+                        if (ReferenceEquals(this.activeProcess, process))
+                        {
+                            this.activeProcess = null;
+                        }
+
+                        if (ReferenceEquals(this.cancelledProcess, process))
+                        {
+                            this.cancelledProcess = null;
+                        }
                     }
 
-                    if (ReferenceEquals(this.cancelledProcess, process))
-                    {
-                        this.cancelledProcess = null;
-                    }
                     this.commandReserved = false;
                 }
 
-                process.Dispose();
+                if (process != null)
+                {
+                    process.Dispose();
+                }
+
                 try
                 {
-                    Directory.Delete(temporaryDirectory, recursive: true);
+                    if (Directory.Exists(temporaryDirectory))
+                    {
+                        Directory.Delete(temporaryDirectory, recursive: true);
+                    }
                 }
                 catch (IOException)
                 {
                     // A virus scanner can briefly hold the temporary SARIF file; it contains no persisted secret.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // In-use ACL or scanner lock can briefly prevent deletion; cleaned on next startup sweep.
                 }
             }
         }
@@ -901,13 +1017,10 @@ public sealed class DataGuardPackage : AsyncPackage
     {
         try
         {
-            var pkgDir = Path.Combine(solutionDirectory, "src", "DataGuard.Cli", "nupkg");
-            var sourceArg = Directory.Exists(pkgDir) ? $"--add-source \"{pkgDir}\" --version \"*-*\" " : "";
-
             var startInfo = new ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"tool install -g DataGuard.Cli {sourceArg}",
+                Arguments = "tool install -g DataGuard.Cli",
                 WorkingDirectory = solutionDirectory,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -930,7 +1043,19 @@ public sealed class DataGuardPackage : AsyncPackage
                 return false;
             }
 
-            await Task.WhenAll(stdoutDrainTask, stderrDrainTask);
+            var installDrains = Task.WhenAll(stdoutDrainTask, stderrDrainTask);
+            var drainDone = await Task.WhenAny(installDrains, Task.Delay(TimeSpan.FromSeconds(3)));
+            if (drainDone != installDrains)
+            {
+                try
+                {
+                    process.StandardOutput.Close();
+                    process.StandardError.Close();
+                }
+                catch
+                {
+                }
+            }
 
             if (process.ExitCode == 0)
             {

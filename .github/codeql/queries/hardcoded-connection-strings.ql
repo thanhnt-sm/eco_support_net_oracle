@@ -10,5 +10,6 @@ import csharp
 from StringLiteral sl
 where
   sl.getValue().regexpMatch("(?i)(server|data source|initial catalog|password|pwd|user id)=[^;]+") and
-  not sl.getValue().regexpMatch("(?i)localhost|(localdb)")
+  not sl.getValue().regexpMatch("(?i)localhost|(localdb)") and
+  not sl.getValue().regexpMatch("(?i)(password|pwd|user id)=\\*\\*\\*")
 select sl, "Hardcoded connection string with credentials detected."

@@ -3,10 +3,14 @@
     <TargetFramework>net472</TargetFramework>
     <IsPackable>false</IsPackable>
     <LangVersion>12</LangVersion>
+    <CreateVsixContainer>false</CreateVsixContainer>
+    <DeployExtension>false</DeployExtension>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\DataGuard.VisualStudio\DataGuard.VisualStudio.csproj" />
+    <ProjectReference Include="..\..\src\DataGuard.VisualStudio\DataGuard.VisualStudio.csproj">
+      <Properties>BuildingForTesting=true;CreateVsixContainer=false;DeployExtension=false;GeneratePkgDefFile=false</Properties>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>
