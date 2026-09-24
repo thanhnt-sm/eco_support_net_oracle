@@ -8,7 +8,7 @@ The DataGuard Visual Studio extension (`DataGuard.VisualStudio`) previously fail
 3. Silent filtering of SARIF relative URIs (`%SRCROOT%`).
 4. Absence of a bundled self-contained CLI.
 
-An adversarial red-team audit against the live codebase (2026-09-24, Round 8) verified that **ALL 50 Steps across Phases 1–9 are FULLY IMPLEMENTED and VERIFIED**. The extension builds deterministically with a self-contained CLI, enforces fail-closed MSBuild guards, prevents argument injection and path traversal, strictly confines SARIF navigation to the solution directory, safely handles junctions and reparse points without traversing external folders, bounds process stream drain tasks with timeouts to prevent pipe deadlocks, prevents untrusted package feed execution during auto-installation, protects build errors from being masked in PostBuild clean, isolates unit tests from packaging overhead, completely prevents temporary directory leaks, forwards batch arguments, and implements an exhaustive, deterministic 3-stage cache management lifecycle.
+An adversarial red-team audit against the live codebase (2026-09-24, Round 9) verified that **ALL 57 Steps across Phases 1–10 are FULLY IMPLEMENTED and VERIFIED**. The extension builds deterministically with a self-contained CLI, enforces fail-closed MSBuild guards, prevents argument injection and path traversal, strictly confines SARIF navigation to the solution directory, safely handles junctions and reparse points without traversing external folders, bounds process stream drain tasks with timeouts to prevent pipe deadlocks, prevents untrusted package feed execution during auto-installation, protects build errors from being masked in PostBuild clean, handles stream closure exceptions gracefully to eliminate unobserved task exceptions, protects caller working directory state, provides frictionless batch clean wrappers, and implements an exhaustive, deterministic 3-stage cache management lifecycle.
 
 Furthermore, empirical workspace auditing revealed critical cache and artifact accumulation:
 - **~753 MB** in `bin/` and `obj/` across 46 project folders.
@@ -76,6 +76,13 @@ This replanned document formalizes the deterministic **Pre-Run and Post-Run Cach
 | **Step 48** | Parameter block & selective extension build support in `build-extensions.ps1` [ASM-010] | ✅ **DONE** | `build-extensions.ps1:1-6, 27-66, 88-120` (Supports `-Configuration`, `-SkipVSCode`, `-SkipVisualStudio`) |
 | **Step 49** | Safe non-masking exception handling in PostBuild finally [FLW-014] | ✅ **DONE** | `build-extensions.ps1:121-127` (Catches cleanup notices in finally block so primary build exceptions are preserved) |
 | **Step 50** | Cross-platform compatible directory trimming & prefix confusion guard [SEC-008, ASM-013] | ✅ **DONE** | `scripts/clean-workspace.ps1:44-55` (Uses `.TrimEnd('\', '/') + '\'` compatible with PowerShell 5.1 & 7+, confines LOCALAPPDATA to VS MEF cache) |
+| **Step 51** | Handle `ObjectDisposedException` and stream closure in `DrainAsync` | ✅ **DONE** | `DataGuardPackage.cs:274-320` (Catches `ObjectDisposedException`/`IOException` preventing unobserved task exceptions) |
+| **Step 52** | Protect & restore caller working directory in `build-extensions.ps1` | ✅ **DONE** | `build-extensions.ps1:19, 140` (Stores `$originalLocation` and restores in `finally`) |
+| **Step 53** | Unconditional version initialization & safe fallback in `build-extensions.ps1` | ✅ **DONE** | `build-extensions.ps1:24-33` (Reads `package.json` at startup with fallback, preventing malformed VSIX names) |
+| **Step 54** | Remove conflicting lock-file restore flags in `PublishDataGuardCli` | ✅ **DONE** | `DataGuard.VisualStudio.csproj:64` (Removed invalid `/p:RestorePackagesWithLockFile=false` causing NU1005) |
+| **Step 55** | Switch aliases (`-Pre`, `-Post`, `-Deep`) in `clean-workspace.ps1` | ✅ **DONE** | `clean-workspace.ps1:16-38` (Supports switches and positional aliases for fast invocation) |
+| **Step 56** | Background build server shutdown & NuGet cache purge in Deep clean | ✅ **DONE** | `clean-workspace.ps1:200-247` (`dotnet build-server shutdown`, local NuGet http/temp purge, `privateregistry.bin`) |
+| **Step 57** | Batch wrapper `scripts/clean-workspace.bat` for CMD/Terminal developers | ✅ **DONE** | `scripts/clean-workspace.bat` (Directly forwards `%*` to `clean-workspace.ps1`) |
 ---
 
 ## Workspace & Extension Cache Management Architecture
@@ -266,6 +273,20 @@ flowchart TD
 | 8 | **SEC-009** Inconsistent Quoting on `--skip-rules` Argument | Medium | Accept | `DataGuardPackage.cs:699` |
 | 9 | **ASM-012** ReparsePoint Traversal in `Remove-PatternMatchingItems` Scanning External Drives | Medium | Accept | `clean-workspace.ps1:118-121` |
 | 10 | **ASM-013** Non-portable `TrimEndingDirectorySeparator` on PowerShell 5.1 / .NET Framework 4.8 | Medium | Accept | `clean-workspace.ps1:46-49` (Step 50) |
+
+### Session - Round 9 (2026-09-24)
+**Findings:** 7 (7 accepted, 0 rejected)
+**Severity breakdown:** 2 Critical, 3 High, 2 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | **FLW-003 / FLW-004** Unobserved Task Exception on Forced Stream Closure | Critical | Accept | `DataGuardPackage.cs:274-320` (Step 51) |
+| 2 | **FLW-016** Conflicting `RestorePackagesWithLockFile=false` Triggers NU1005 in `PublishDataGuardCli` | Critical | Accept | `DataGuard.VisualStudio.csproj:64` (Step 54) |
+| 3 | **FLW-001** Caller Working Directory Corruption via `Set-Location` in `build-extensions.ps1` | High | Accept | `build-extensions.ps1:19, 140` (Step 52) |
+| 4 | **FLW-002 / SC-001** Malformed VSIX Name on `-SkipVSCode` due to Uninitialized `$version` Fallback | High | Accept | `build-extensions.ps1:24-33` (Step 53) |
+| 5 | **ASM-001** Missing Batch Wrapper `clean-workspace.bat` & Switch Parameters in `clean-workspace.ps1` | High | Accept | `scripts/clean-workspace.bat`, `clean-workspace.ps1:16-38` (Steps 55, 57) |
+| 6 | **ASM-003 / ASM-004** Locked `bin/`/`obj/` & Incomplete Deep Clean Missing Build Server Shutdown and NuGet Caches | Medium | Accept | `clean-workspace.ps1:200-247` (Step 56) |
+| 7 | **SC-002** Swallowed Error Message in `package-lsp.cjs` spawnSync | Medium | Accept | `src/DataGuard.VSCode/scripts/package-lsp.cjs:11-15` |
 ---
 
 ## Phase 5 Implementation Specification: Steps 11–22
@@ -555,6 +576,38 @@ flowchart TD
 - **File**: `scripts/clean-workspace.ps1:44-55`
 - **Action**: Use `.TrimEnd('\', '/') + '\'` for directory normalization across Windows PowerShell 5.1 and PowerShell Core. Strictly confine external deletions to `$env:LOCALAPPDATA\Microsoft\VisualStudio`.
 
+---
+
+## Phase 10 Implementation Specification: Red-Team Round 9 Hardening (Steps 51–57)
+
+### Step 51: Handle Stream Disposed Exceptions During Timeout & Cancellation
+- **File**: `src/DataGuard.VisualStudio/DataGuardPackage.cs:274-320`
+- **Action**: Wrap stream read loops in `DrainAsync` and `ReadProgressAsync` with `catch (Exception ex) when (ex is ObjectDisposedException || ex is IOException || ex is OperationCanceledException)`. This eliminates unobserved task exceptions when streams are forcefully closed during timeout or cancellation.
+
+### Step 52: Caller Working Directory State Protection
+- **File**: `scripts/build-extensions.ps1:19, 140`
+- **Action**: Store `$originalLocation = Get-Location` at script entry and restore via `Set-Location $originalLocation` inside the `finally` block, ensuring caller terminal runspaces remain uncorrupted regardless of build outcome.
+
+### Step 53: Unconditional Package Version Fallback
+- **File**: `scripts/build-extensions.ps1:24-33`
+- **Action**: Read `$version` from `src/DataGuard.VSCode/package.json` unconditionally at script initialization with fallback `"0.2.3"`. This guarantees `$version` is always a valid string even when `-SkipVSCode` is specified.
+
+### Step 54: Remove Conflicting Lock File Properties in CLI Publish
+- **File**: `src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj:64`
+- **Action**: Remove `/p:RestorePackagesWithLockFile=false` and `/p:NuGetLockFilePath="..."` from `PublishDataGuardCli` `dotnet publish` command. This permits `dotnet publish` to perform its standard implicit RID restore honoring `packages.lock.json` without triggering NU1005.
+
+### Step 55: Switch Parameters & Fast Aliases in Workspace Cleaner
+- **File**: `scripts/clean-workspace.ps1:16-38`
+- **Action**: Add `[Parameter(ParameterSetName = 'PreSwitch')] [switch]$Pre`, `[switch]$Post`, `[switch]$Deep` alongside `-Mode` to allow developers to run `clean-workspace.ps1 -Pre`, `-Post`, or `-Deep` directly.
+
+### Step 56: Background Build Server Shutdown & NuGet Cache Purge
+- **File**: `scripts/clean-workspace.ps1:200-247`
+- **Action**: Invoke `dotnet build-server shutdown` at the start of `Deep` mode to release MSBuild and Roslyn compiler locks on `bin/` and `obj/`. Clear local NuGet http-cache and temp cache, and purge `privateregistry.bin` in Experimental Visual Studio hives.
+
+### Step 57: Frictionless Batch Wrapper for CMD & Terminal
+- **File**: `scripts/clean-workspace.bat`
+- **Action**: Provide a lightweight CMD batch wrapper forwarding `%*` directly to `clean-workspace.ps1`.
+
 ## Verification Matrix
 
 | # | Verification Command / Check | Expected Observable Result |
@@ -574,12 +627,17 @@ flowchart TD
 | 13 | Secure auto-install check | Inspect `TryAutoInstallCliAsync`: uses `dotnet tool install -g DataGuard.Cli` without local unvetted `--add-source`. |
 | 14 | PowerShell 5.1 compatibility | `scripts/clean-workspace.ps1` runs on Windows PowerShell 5.1 without `TrimEndingDirectorySeparator` method missing error. |
 | 15 | Prefix confusion safety | `Remove-TargetItem` rejects `C:\repo_other` when `$repoRoot` is `C:\repo`. |
+| 16 | Stream cancellation exception safety | Cancel scan mid-run -> No `ObjectDisposedException` or `UnobservedTaskException` logged. |
+| 17 | Batch clean wrapper | `cmd.exe /c "scripts\clean-workspace.bat -pre"` -> Cleans test results, staging, and sensitive reports. |
+| 18 | Deep clean build-server shutdown | `scripts\clean-workspace.bat -deep` -> Shuts down build servers, wipes bin/obj, clears NuGet caches. |
+| 19 | Selective extension build with `-SkipVSCode` | `scripts\build-extensions.bat -SkipVSCode` -> Builds Visual Studio VSIX with valid versioned name (not blank). |
+| 20 | Working directory restoration | Run `build-extensions.ps1` from a subfolder -> Terminal directory restored to original path. |
 
 ---
 
 ## Handoff & Next Steps
 
-This plan has been reviewed adversarially via `/ck:plan --redteam` through 8 rigorous review cycles and incorporates 47 prioritized findings (11 in Round 4, 8 in Round 5, 5 in Round 6, 13 in Round 7, 10 in Round 8).
+This plan has been reviewed adversarially via `/ck:plan --redteam` through 9 rigorous review cycles and incorporates 54 prioritized findings (11 in Round 4, 8 in Round 5, 5 in Round 6, 13 in Round 7, 10 in Round 8, 7 in Round 9).
 
 To execute this plan using the autonomous cooking engine:
 ```bash

@@ -70,7 +70,7 @@ printf '[verify-local-gates] Validating all workflows.\n'
 actionlint .github/workflows/*.yml
 
 printf '[verify-local-gates] Restoring dependencies.\n'
-dotnet restore "$SOLUTION" --locked-mode
+dotnet restore "$SOLUTION" --locked-mode --force-evaluate
 
 printf '[verify-local-gates] Building Release.\n'
 dotnet build "$SOLUTION" --configuration Release --no-restore

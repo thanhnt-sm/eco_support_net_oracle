@@ -61,7 +61,7 @@
           Condition="'$(CreateVsixContainer)' == 'true'"
           BeforeTargets="IncludeBundledCliInVsix">
     <RemoveDir Directories="$(DataGuardCliPublishDir)" Condition="Exists('$(DataGuardCliPublishDir)')" />
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true /p:RestorePackagesWithLockFile=false /p:NuGetLockFilePath=&quot;$(DataGuardCliPublishDir)cli.lock.json&quot; -o &quot;$(DataGuardCliPublishDir)&quot;" />
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true -o &quot;$(DataGuardCliPublishDir)&quot;" />
   </Target>
 
   <Target Name="IncludeBundledCliInVsix"

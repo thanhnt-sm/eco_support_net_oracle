@@ -13,17 +13,28 @@ The cleanup mode to execute:
   - Deep:      Full clean including all bin/obj, node_modules, nupkg, test results, and runs dotnet clean.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'ModeParam')]
 param(
-    [Parameter(Mandatory = $false, Position = 0)]
-    [ValidateSet('PreBuild', 'PostBuild', 'Deep', '-pre', '-post', '-deep', 'pre', 'post', 'deep')]
-    [string]$Mode = 'PreBuild'
+    [Parameter(ParameterSetName = 'ModeParam', Position = 0)]
+    [ValidateSet('PreBuild', 'PostBuild', 'Deep')]
+    [string]$Mode = 'PreBuild',
+
+    [Parameter(ParameterSetName = 'PreSwitch')]
+    [switch]$Pre,
+
+    [Parameter(ParameterSetName = 'PostSwitch')]
+    [switch]$Post,
+
+    [Parameter(ParameterSetName = 'DeepSwitch')]
+    [switch]$Deep
 )
 
-switch -Regex ($Mode) {
-    '^(PreBuild|-pre|pre)$'   { $Mode = 'PreBuild' }
-    '^(PostBuild|-post|post)$' { $Mode = 'PostBuild' }
-    '^(Deep|-deep|deep)$'      { $Mode = 'Deep' }
+if ($Pre) {
+    $Mode = 'PreBuild'
+} elseif ($Post) {
+    $Mode = 'PostBuild'
+} elseif ($Deep) {
+    $Mode = 'Deep'
 }
 
 $ErrorActionPreference = 'Stop'
