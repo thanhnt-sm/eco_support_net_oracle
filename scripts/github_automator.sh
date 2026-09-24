@@ -251,10 +251,16 @@ if [[ -z "$STAGED_CHANGES" ]]; then
     git add -A
     STAGED_CHANGES="$(git diff --cached --name-only 2>/dev/null || true)"
     if [[ -z "$STAGED_CHANGES" ]]; then
-        echo -e "${GREEN}✨ Working tree clean; nothing to commit or push.${NC}"
-        exit 0
+        AHEAD_COUNT="$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
+        if [[ "$DO_PUSH" == "true" && "$AHEAD_COUNT" -gt 0 ]]; then
+            echo -e "${CYAN}ℹ️  Working tree clean, but local branch is ahead by ${AHEAD_COUNT} commit(s). Proceeding to push...${NC}"
+        else
+            echo -e "${GREEN}✨ Working tree clean; nothing to commit or push.${NC}"
+            exit 0
+        fi
+    else
+        echo -e "${GREEN}✅ Staged all workspace changes automatically.${NC}"
     fi
-    echo -e "${GREEN}✅ Staged all workspace changes automatically.${NC}"
 else
     echo -e "${GREEN}✅ Using the existing selected staged scope.${NC}"
 fi
