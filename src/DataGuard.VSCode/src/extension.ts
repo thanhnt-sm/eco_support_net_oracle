@@ -9,9 +9,10 @@ import * as vscode from "vscode";
 import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
 import { readConnectionSecret, redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath, storeConnectionSecret } from "./security";
 import { RunCoordinator } from "./run-coordinator";
-import { buildCliArguments, normalizeProvider } from "./command-args";
+import { buildCliArguments, CliCommand, normalizeProvider } from "./command-args";
 import { DataGuardDashboardPanel } from "./ui/dashboard-panel";
 import { DataGuardFindingsTreeProvider, FindingTreeItem } from "./ui/findings-tree-provider";
+import { DataGuardSqlQueriesTreeProvider, QueryScanItem, ScanConnectionItem, ScanReport } from "./ui/sql-queries-tree-provider";
 import { DataGuardQuickFixProvider } from "./ui/quick-fix-provider";
 import { parseSarifToFindings, redactForUi, SarifLocation, SarifLog, SarifRegion, SarifResult, SarifRun } from "./ui/redaction";
 
@@ -38,7 +39,7 @@ interface ChildExit {
     readonly output: string;
 }
 
-const MAX_CLI_OUTPUT = 16 * 1024;
+const MAX_CLI_OUTPUT = 1024 * 1024;
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -46,8 +47,9 @@ let diagnostics: vscode.DiagnosticCollection | undefined;
 const runCoordinator = new RunCoordinator<ValidationRun>();
 let languageClient: LanguageClient | undefined;
 let findingsTreeProvider: DataGuardFindingsTreeProvider | undefined;
+let sqlQueriesTreeProvider: DataGuardSqlQueriesTreeProvider | undefined;
 let quickFixProvider: DataGuardQuickFixProvider | undefined;
-
+let latestScanReport: ScanReport | null = null;
 export function activate(context: vscode.ExtensionContext): void {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.name = "DataGuard";
@@ -58,15 +60,16 @@ export function activate(context: vscode.ExtensionContext): void {
     diagnostics = vscode.languages.createDiagnosticCollection("dataguard");
     findingsTreeProvider = new DataGuardFindingsTreeProvider();
     quickFixProvider = new DataGuardQuickFixProvider();
+    sqlQueriesTreeProvider = new DataGuardSqlQueriesTreeProvider();
 
     const treeView = vscode.window.registerTreeDataProvider("dataguard.findingsView", findingsTreeProvider);
+    const sqlQueriesView = vscode.window.registerTreeDataProvider("dataguard.sqlQueriesView", sqlQueriesTreeProvider);
     const codeActionDisposable = vscode.languages.registerCodeActionsProvider(
         { scheme: "file", language: "csharp" },
         quickFixProvider,
         { providedCodeActionKinds: DataGuardQuickFixProvider.providedCodeActionKinds }
     );
-
-    context.subscriptions.push(statusBarItem, diagnostics, treeView, codeActionDisposable);
+    context.subscriptions.push(statusBarItem, diagnostics, treeView, sqlQueriesView, codeActionDisposable);
     context.subscriptions.push(
         vscode.commands.registerCommand(RUN_VALIDATION_COMMAND, () => runValidation(context)),
         vscode.commands.registerCommand(CANCEL_VALIDATION_COMMAND, () => cancelValidation()),
@@ -75,8 +78,11 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand(BASELINE_COMMAND, () => runConfirmedOperation(context, "baseline")),
         vscode.commands.registerCommand(CONFIGURE_CONNECTION_COMMAND, () => configureConnection(context)),
         vscode.commands.registerCommand("dataguard.openDashboard", () => {
-            DataGuardDashboardPanel.createOrShow(context.extensionUri, findingsTreeProvider?.getFindings() ?? []);
+            DataGuardDashboardPanel.createOrShow(context.extensionUri, findingsTreeProvider?.getFindings() ?? [], latestScanReport);
         }),
+        vscode.commands.registerCommand("dataguard.scanProject", () => runCliCommand(context, "scan", "timeoutSeconds")),
+        vscode.commands.registerCommand("dataguard.refreshQueries", () => runCliCommand(context, "scan", "timeoutSeconds")),
+        vscode.commands.registerCommand("dataguard.verifyShape", () => runCliCommand(context, "verify-shape", "timeoutSeconds")),
         vscode.commands.registerCommand("dataguard.refreshFindings", () => runValidation(context)),
         vscode.commands.registerCommand("dataguard.clearFindings", () => clearFindingsAndDiagnostics()),
         vscode.commands.registerCommand("dataguard.groupBySeverity", () => findingsTreeProvider?.setGroupingMode("severity")),
@@ -92,13 +98,21 @@ export function activate(context: vscode.ExtensionContext): void {
     void startLanguageServer(context);
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
     void languageClient?.stop();
     languageClient = undefined;
     const run = runCoordinator.cancel();
     if (run) {
         clearTimeout(run.timeout);
-        void fs.rm(run.outputDirectory, { recursive: true, force: true });
+        const exitPromise = (run.child.exitCode !== null || run.child.signalCode !== null) ? Promise.resolve() : once(run.child, "exit").catch(() => {});
+        terminateProcessTree(run.child);
+        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 1000));
+        await Promise.race([exitPromise, timeoutPromise]);
+        try {
+            await fs.rm(run.outputDirectory, { recursive: true, force: true });
+        } catch {
+            // Suppress cleanup error on deactivation
+        }
     }
     DataGuardDashboardPanel.currentPanel?.dispose();
     findingsTreeProvider = undefined;
@@ -135,8 +149,11 @@ async function handleApplyQuickFix(target?: FindingTreeItem | string): Promise<v
 function clearFindingsAndDiagnostics(): void {
     diagnostics?.clear();
     findingsTreeProvider?.clear();
+    sqlQueriesTreeProvider?.clear();
+    latestScanReport = null;
     if (DataGuardDashboardPanel.currentPanel) {
         DataGuardDashboardPanel.currentPanel.clear();
+        DataGuardDashboardPanel.currentPanel.updateScanReport(null);
     }
 }
 
@@ -152,10 +169,13 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     const serverOptions: ServerOptions = { run: { command: "dotnet", args: [serverPath] }, debug: { command: "dotnet", args: [serverPath] } };
     const clientOptions: LanguageClientOptions = { documentSelector: [{ scheme: "file", language: "csharp" }] };
     languageClient = new LanguageClient("dataguardLanguageServer", "DataGuard Language Server", serverOptions, clientOptions);
-    await languageClient.start();
-    context.subscriptions.push({ dispose: () => { void languageClient?.stop(); } });
+    try {
+        await languageClient.start();
+        context.subscriptions.push({ dispose: () => { void languageClient?.stop(); } });
+    } catch (err) {
+        getOutputChannel().appendLine(`[DataGuard] Failed to start language server (${String(err)}). LSP features will be disabled.`);
+    }
 }
-
 async function verifyLanguageServerArtifact(serverPath: string): Promise<void> {
     const manifestPath = path.join(path.dirname(serverPath), "manifest.json");
     const [artifact, manifestText] = await Promise.all([fs.readFile(serverPath), fs.readFile(manifestPath, "utf8")]);
@@ -208,7 +228,7 @@ async function configureConnection(context: vscode.ExtensionContext): Promise<vo
     );
 }
 
-async function runCliCommand(context: vscode.ExtensionContext, command: "validate" | "assess" | "snapshot" | "baseline", timeoutSetting: "timeoutSeconds" | "assessmentTimeoutSeconds"): Promise<void> {
+async function runCliCommand(context: vscode.ExtensionContext, command: CliCommand, timeoutSetting: "timeoutSeconds" | "assessmentTimeoutSeconds"): Promise<void> {
     if (!vscode.workspace.isTrusted) {
         void vscode.window.showWarningMessage("DataGuard does not run CLI commands in an untrusted workspace. Trust this workspace first.");
         return;
@@ -228,14 +248,11 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
         return;
     }
 
-    if (runCoordinator.current) {
-        const active = runCoordinator.cancel();
-        if (active) {
-            clearTimeout(active.timeout);
-        }
+    const hadActiveRun = runCoordinator.current !== undefined;
+    const reservationToken = runCoordinator.nextReservation();
+    if (hadActiveRun) {
         void vscode.window.showInformationMessage("DataGuard replaced the previous run with this command.");
     }
-
     const configuration = vscode.workspace.getConfiguration("dataguard", workspaceFolder.uri);
     if (!configuration.get<boolean>("enabled", true)) {
         void vscode.window.showWarningMessage("DataGuard validation is disabled (dataguard.enabled).");
@@ -270,10 +287,21 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
     diagnostics?.clear();
 
     const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "dataguard-"));
+    if (!runCoordinator.isReservationCurrent(reservationToken)) {
+        await fs.rm(outputDirectory, { recursive: true, force: true });
+        return;
+    }
     const expectsSarif = command === "validate" || command === "assess";
-    const outputPath = expectsSarif ? path.join(outputDirectory, "validation.sarif") : undefined;
+    const expectsSummary = command === "scan" || command === "verify-shape";
+    const outputPath = expectsSarif
+        ? path.join(outputDirectory, "validation.sarif")
+        : (expectsSummary ? path.join(outputDirectory, "summary.json") : undefined);
     const args = buildCliArguments(command, workspaceFolder.uri.fsPath, provider, configPath, outputPath);
     channel.appendLine(`[DataGuard] ${command === "validate" ? "Validation" : "Local assessment"} started for ${path.basename(workspaceFolder.uri.fsPath)}.`);
+    if (!runCoordinator.isReservationCurrent(reservationToken)) {
+        await fs.rm(outputDirectory, { recursive: true, force: true });
+        return;
+    }
     let child: ChildProcess;
     try {
         child = spawn(cliPath, args, {
@@ -285,9 +313,17 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
             shell: false,
             windowsHide: true,
         });
+        child.on("error", () => { /* prevent unhandled process error before waitForExit */ });
+        child.stdout?.on("error", () => { /* prevent unhandled stream error before waitForExit */ });
+        child.stderr?.on("error", () => { /* prevent unhandled stream error before waitForExit */ });
     } catch (error) {
         await fs.rm(outputDirectory, { recursive: true, force: true });
         showStartError(error, channel);
+        return;
+    }
+    if (!runCoordinator.isReservationCurrent(reservationToken)) {
+        terminateProcessTree(child);
+        await fs.rm(outputDirectory, { recursive: true, force: true });
         return;
     }
 
@@ -337,11 +373,55 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
             const summaryPath = path.join(outputDirectory, "summary.json");
             try {
                 const stat = await fs.stat(summaryPath).catch(() => null);
-                if (stat?.isFile()) {
+                if (stat?.isFile() && stat.size <= 20 * 1024 * 1024) {
                     const summaryRaw = await fs.readFile(summaryPath, "utf8");
-                    const summaryObj = JSON.parse(summaryRaw) as { queriesFound?: number; filesScanned?: number; connectionsFound?: number };
-                    if (summaryObj) {
-                        channel.appendLine(`[DataGuard] Scan summary: ${summaryObj.queriesFound ?? 0} SQL queries analyzed across ${summaryObj.filesScanned ?? 0} files. Connections: ${summaryObj.connectionsFound ?? 0}.`);
+                    const parsed: unknown = JSON.parse(summaryRaw);
+                    if (parsed && typeof parsed === "object") {
+                        const parsedRecord = parsed as Record<string, unknown>;
+                        const queries: QueryScanItem[] = Array.isArray(parsedRecord.queries)
+                            ? (parsedRecord.queries as QueryScanItem[])
+                            : (Array.isArray(parsedRecord.results)
+                                ? parsedRecord.results.map((r: unknown) => {
+                                    const item = r && typeof r === "object" ? (r as Record<string, unknown>) : {};
+                                    const locObj = item.location && typeof item.location === "object" ? (item.location as Record<string, unknown>) : undefined;
+                                    const targetLocObj = item.targetTypeLocation && typeof item.targetTypeLocation === "object" ? (item.targetTypeLocation as Record<string, unknown>) : undefined;
+                                    return {
+                                        sql: typeof item.sql === "string" ? item.sql : "",
+                                        operation: typeof item.operation === "string" ? item.operation : "Read",
+                                        tables: Array.isArray(item.tables) ? (item.tables as string[]) : [],
+                                        targetType: typeof item.targetType === "string" ? item.targetType : "untyped",
+                                        mappingStatus: (item.status === "verified" || item.mappingStatus === "matched" ? "matched" : "partial") as QueryScanItem["mappingStatus"],
+                                        action: (typeof item.action === "string" ? item.action : (item.status === "verified" ? "shape-check" : "untyped-query")),
+                                        columns: Array.isArray(item.columns) ? (item.columns as string[]) : [],
+                                        properties: Array.isArray(item.properties) ? (item.properties as string[]) : [],
+                                        unmappedColumns: Array.isArray(item.unmappedColumns) ? (item.unmappedColumns as string[]) : [],
+                                        unmappedProperties: Array.isArray(item.unmappedProperties) ? (item.unmappedProperties as string[]) : [],
+                                        location: locObj && typeof locObj.file === "string" ? { file: locObj.file, line: typeof locObj.line === "number" ? locObj.line : 1 } : undefined,
+                                        targetTypeLocation: targetLocObj && typeof targetLocObj.file === "string" ? { file: targetLocObj.file, line: typeof targetLocObj.line === "number" ? targetLocObj.line : 1 } : undefined,
+                                    };
+                                })
+                                : []);
+                        const summaryObj: ScanReport = {
+                            filesScanned: typeof parsedRecord.filesScanned === "number" ? parsedRecord.filesScanned : 0,
+                            queriesFound: typeof parsedRecord.queriesFound === "number"
+                                ? parsedRecord.queriesFound
+                                : (typeof parsedRecord.queriesVerified === "number" ? parsedRecord.queriesVerified : queries.length),
+                            connectionsFound: typeof parsedRecord.connectionsFound === "number" ? parsedRecord.connectionsFound : 0,
+                            violationsCount: typeof parsedRecord.violationsCount === "number" ? parsedRecord.violationsCount : 0,
+                            connections: Array.isArray(parsedRecord.connections) ? (parsedRecord.connections as ScanConnectionItem[]) : [],
+                            queries,
+                        };
+                        latestScanReport = summaryObj;
+                        sqlQueriesTreeProvider?.setScanReport(summaryObj);
+                        DataGuardDashboardPanel.currentPanel?.updateScanReport(summaryObj);
+                        channel.appendLine(`[DataGuard] ${command === "verify-shape" ? "Verify-shape" : "Scan"} summary: ${summaryObj.queriesFound ?? 0} SQL queries analyzed across ${summaryObj.filesScanned ?? 0} files. Connections: ${summaryObj.connectionsFound ?? 0}.`);
+                        if (summaryObj.queries && summaryObj.queries.length > 0) {
+                            for (const q of summaryObj.queries) {
+                                const snippet = q.sql.replace(/\s+/g, " ").trim();
+                                const display = snippet.length > 40 ? snippet.slice(0, 37) + "..." : snippet;
+                                channel.appendLine(`  • ${q.operation} "${display}" -> ${q.targetType ?? "untyped"} [${q.mappingStatus}]`);
+                            }
+                        }
                     }
                 }
             } catch {
@@ -360,8 +440,12 @@ async function runCliCommand(context: vscode.ExtensionContext, command: "validat
     } finally {
         clearTimeout(run.timeout);
         runCoordinator.clear(run);
-        await fs.rm(outputDirectory, { recursive: true, force: true });
-        if (!runCoordinator.current && !run.timedOut && !run.cancelled) {
+        try {
+            await fs.rm(outputDirectory, { recursive: true, force: true });
+        } catch {
+            // Best-effort cleanup on temporary directory; avoid crashing state machine on Windows EBUSY
+        }
+        if (runCoordinator.isReservationCurrent(reservationToken) && !runCoordinator.current && !run.timedOut && !run.cancelled) {
             setStatus("idle");
         }
     }
@@ -410,6 +494,8 @@ interface ProgressEventPayload {
     Data?: Record<string, unknown>;
 }
 
+const MAX_PROGRESS_BUFFER = 1024 * 1024;
+
 function processProgressText(
     text: string,
     state: { buffer: string },
@@ -418,6 +504,10 @@ function processProgressText(
     state.buffer += text;
     const lines = state.buffer.split("\n");
     state.buffer = lines.pop() ?? "";
+    if (state.buffer.length > MAX_PROGRESS_BUFFER) {
+        channel.appendLine("[DataGuard] Warning: progress buffer exceeded safe limits and was reset.");
+        state.buffer = "";
+    }
     for (const rawLine of lines) {
         const line = rawLine.trim();
         if (!line) {
@@ -457,11 +547,19 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
         processProgressText(decoded, state, channel);
     };
 
-    child.stdout?.on("data", (chunk) => handleChunk(chunk, stdoutState));
-    child.stderr?.on("data", (chunk) => handleChunk(chunk, stderrState));
-
+    const onStdoutData = (chunk: Buffer | string): void => handleChunk(chunk, stdoutState);
+    const onStderrData = (chunk: Buffer | string): void => handleChunk(chunk, stderrState);
+    child.stdout?.on("data", onStdoutData);
+    child.stderr?.on("data", onStderrData);
+    child.stdout?.on("error", () => { /* prevent unhandled stream error */ });
+    child.stderr?.on("error", () => { /* prevent unhandled stream error */ });
+    child.on("error", () => { /* prevent unhandled process error post-close */ });
     try {
-        const [code] = await once(child, "close");
+        const exitPromise = new Promise<number | null>((resolve, reject) => {
+            child.once("close", (code) => resolve(code));
+            child.once("error", (err) => reject(err));
+        });
+        const code = await exitPromise;
         const finalStdout = stdoutState.decoder.end();
         if (finalStdout) {
             if (output.length < MAX_CLI_OUTPUT) {
@@ -486,6 +584,9 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
     } catch (error) {
         showStartError(error, channel);
         return { code: null, output };
+    } finally {
+        child.stdout?.removeListener("data", onStdoutData);
+        child.stderr?.removeListener("data", onStderrData);
     }
 }
 
@@ -500,6 +601,11 @@ async function loadDiagnostics(
     }
     let sarif: SarifLog;
     try {
+        const stat = await fs.stat(outputPath).catch(() => null);
+        if (!stat?.isFile() || stat.size > 50 * 1024 * 1024) {
+            channel.appendLine(`\n[DataGuard] SARIF output was unavailable or exceeded size limit (50MB).`);
+            return 0;
+        }
         sarif = JSON.parse(await fs.readFile(outputPath, "utf8")) as SarifLog;
     } catch (error) {
         channel.appendLine(`\n[DataGuard] SARIF output was unavailable or invalid: ${redactSensitiveText(String(error))}`);
@@ -570,13 +676,36 @@ function toSeverity(level: SarifResult["level"]): vscode.DiagnosticSeverity {
 }
 
 function terminateProcessTree(child: ChildProcess): void {
-    if (!child.pid) {
+    if (!child.pid || child.exitCode !== null || child.signalCode !== null || child.killed) {
         return;
     }
-
     if (process.platform === "win32") {
-        const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { shell: false, windowsHide: true });
-        killer.unref();
+        try {
+            const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { shell: false, windowsHide: true });
+            killer.on("error", () => {
+                try {
+                    child.kill();
+                } catch {
+                    // Ignore fallback kill error
+                }
+            });
+            killer.on("close", (code) => {
+                if (code !== 0) {
+                    try {
+                        child.kill();
+                    } catch {
+                        // Ignore fallback kill error
+                    }
+                }
+            });
+            killer.unref();
+        } catch {
+            try {
+                child.kill();
+            } catch {
+                // Ignore fallback kill error
+            }
+        }
         return;
     }
 
@@ -586,10 +715,17 @@ function terminateProcessTree(child: ChildProcess): void {
         child.kill("SIGTERM");
     }
     setTimeout(() => {
+        if (child.exitCode !== null || child.signalCode !== null || child.killed) {
+            return;
+        }
         try {
             process.kill(-child.pid!, "SIGKILL");
         } catch {
-            // The process group already exited.
+            try {
+                child.kill("SIGKILL");
+            } catch {
+                // The process already exited.
+            }
         }
     }, 3000).unref();
 }

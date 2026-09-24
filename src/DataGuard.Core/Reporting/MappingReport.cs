@@ -7,6 +7,7 @@ using DataGuard.Core.Abstractions;
 using DataGuard.Core.Sources;
 using Microsoft.CodeAnalysis;
 
+using DataGuard.Core.Rules;
 namespace DataGuard.Core.Reporting;
 
 /// <summary>
@@ -63,16 +64,70 @@ public sealed record ScanSummary(
                 queries = this.Mappings.Select(m => new
                 {
                     sql = m.SqlText,
+                    location = m.SqlLocation != null && m.SqlLocation.IsInSource
+                        ? new
+                        {
+                            file = m.SqlLocation.GetLineSpan().Path,
+                            line = m.SqlLocation.GetLineSpan().StartLinePosition.Line + 1,
+                        }
+                        : null,
+                    targetTypeLocation = m.TargetTypeLocation != null && m.TargetTypeLocation.IsInSource
+                        ? new
+                        {
+                            file = m.TargetTypeLocation.GetLineSpan().Path,
+                            line = m.TargetTypeLocation.GetLineSpan().StartLinePosition.Line + 1,
+                        }
+                        : null,
                     operation = m.OperationType.ToString(),
-                    tables = m.ReferencedTables,
+                    tables = m.ReferencedTables ?? Array.Empty<string>(),
                     targetType = m.TargetTypeName,
+                    mappingStatus = ComputeMappingStatus(m),
+                    action = ComputeQueryAction(m),
                     columns = m.SqlColumns,
                     properties = m.TargetProperties,
                     unmappedColumns = m.UnmappedColumns,
-                    unmappedProperties = m.UnmappedProperties,
+                    unmappedProperties = m.Mappings.Where(x => !x.IsMatched && !string.IsNullOrEmpty(x.PropertyName)).Select(x => x.PropertyName).ToList(),
                 }),
             },
-            new JsonSerializerOptions { WriteIndented = true });
+            new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private static string ComputeMappingStatus(MappingEvidence m)
+    {
+        var unmappedColsCount = m.UnmappedColumns?.Count ?? 0;
+        var mappings = m.Mappings;
+
+        if (m.TargetTypeName != null && unmappedColsCount == 0 && mappings?.Count > 0 && mappings.All(x => x.IsMatched))
+        {
+            return "matched";
+        }
+
+        if (mappings != null && mappings.Any(x => x.IsMatched))
+        {
+            return "partial";
+        }
+
+        if (m.TargetTypeName != null)
+        {
+            return "unmapped";
+        }
+
+        return "untyped";
+    }
+
+    private static string ComputeQueryAction(MappingEvidence m)
+    {
+        if (SelectStarUsageRule.ContainsSelectStar(m.SqlText))
+        {
+            return "select-star-warning";
+        }
+
+        if (m.TargetTypeName != null)
+        {
+            return "shape-check";
+        }
+
+        return "untyped-query";
     }
 }
 
@@ -87,29 +142,30 @@ public static class MappingTraceEngine
     public static MappingEvidence Trace(RawSqlDescriptor rawSql)
     {
         var sqlColumns = ExtractColumnNames(rawSql.SqlText);
-        var targetProps = rawSql.ExpectedProperties?.Select(p => p.Name).ToList() ?? new List<string>();
+        var expectedProps = rawSql.ExpectedProperties ?? Array.Empty<PropertyDescriptor>();
+        var targetProps = expectedProps.Select(p => p.Name).ToList();
 
         var mappings = new List<ColumnMapping>();
-        var matchedCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var matchedColIndices = new HashSet<int>();
         var matchedProps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Try to match each column to expected properties
-        foreach (var col in sqlColumns)
+        // Try to match each column to expected properties (checking explicit ColumnName first, then Property Name)
+        for (var i = 0; i < sqlColumns.Count; i++)
         {
-            var matchedProp = targetProps.FirstOrDefault(p =>
-                !matchedProps.Contains(p) && IsNameMatch(col, p));
-
-            if (matchedProp != null)
+            var col = sqlColumns[i];
+            var matchedDesc = expectedProps.FirstOrDefault(p =>
+                !matchedProps.Contains(p.Name) &&
+                ((!string.IsNullOrEmpty(p.ColumnName) && IsNameMatch(col, p.ColumnName)) || IsNameMatch(col, p.Name)));
+            if (matchedDesc != null)
             {
-                mappings.Add(new ColumnMapping(col, matchedProp, true));
-                matchedCols.Add(col);
-                matchedProps.Add(matchedProp);
+                mappings.Add(new ColumnMapping(col, matchedDesc.Name, true));
+                matchedColIndices.Add(i);
+                matchedProps.Add(matchedDesc.Name);
             }
         }
 
-        var unmappedCols = sqlColumns.Where(c => !matchedCols.Contains(c)).ToList();
+        var unmappedCols = sqlColumns.Where((c, idx) => !matchedColIndices.Contains(idx)).ToList();
         var unmappedProps = targetProps.Where(p => !matchedProps.Contains(p)).ToList();
-
         foreach (var unmapped in unmappedCols)
         {
             mappings.Add(new ColumnMapping(unmapped, string.Empty, false, "Column not mapped to any C# property"));
@@ -117,6 +173,11 @@ public static class MappingTraceEngine
 
         foreach (var unmapped in unmappedProps)
         {
+            var unmappedDesc = expectedProps.FirstOrDefault(p => string.Equals(p.Name, unmapped, StringComparison.OrdinalIgnoreCase));
+            if (unmappedDesc != null && unmappedDesc.IsNullable)
+            {
+                continue;
+            }
             mappings.Add(new ColumnMapping(string.Empty, unmapped, false, "C# property has no matching column in SQL result"));
         }
 
@@ -151,6 +212,11 @@ public static class MappingTraceEngine
 
     private static string NormalizeName(string name)
     {
+        if (string.IsNullOrEmpty(name))
+        {
+            return string.Empty;
+        }
+
         return name.Replace("_", string.Empty).Replace("-", string.Empty);
     }
 

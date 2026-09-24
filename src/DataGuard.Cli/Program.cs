@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DataGuard.Core;
@@ -30,9 +31,22 @@ static bool IsSafeWritablePath(string path)
     {
         var fullPath = Path.GetFullPath(path);
         var parent = Path.GetDirectoryName(fullPath);
-        return !string.IsNullOrWhiteSpace(parent)
-            && !IsLink(parent)
-            && !IsLink(fullPath);
+        if (string.IsNullOrWhiteSpace(parent) || IsLink(parent) || IsLink(fullPath))
+        {
+            return false;
+        }
+
+        var current = new DirectoryInfo(parent);
+        while (current != null)
+        {
+            if (IsLink(current.FullName))
+            {
+                return false;
+            }
+            current = current.Parent;
+        }
+
+        return true;
     }
     catch (Exception)
     {
@@ -43,13 +57,30 @@ static bool IsSafeWritablePath(string path)
     {
         try
         {
-            return File.ResolveLinkTarget(candidate, returnFinalTarget: false) is not null;
-        }
-        catch (FileNotFoundException)
-        {
+            var fileInfo = new FileInfo(candidate);
+            if (fileInfo.LinkTarget != null)
+            {
+                return true;
+            }
+
+            var dirInfo = new DirectoryInfo(candidate);
+            if (dirInfo.LinkTarget != null)
+            {
+                return true;
+            }
+
+            if (File.Exists(candidate) || Directory.Exists(candidate))
+            {
+                var attrs = File.GetAttributes(candidate);
+                if (attrs != (FileAttributes)(-1) && attrs.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    return true;
+                }
+            }
+
             return false;
         }
-        catch (DirectoryNotFoundException)
+        catch
         {
             return false;
         }
@@ -58,6 +89,11 @@ static bool IsSafeWritablePath(string path)
 
 static async Task WriteTextAtomicallyAsync(string outputPath, string content, CancellationToken cancellationToken)
 {
+    if (!IsSafeWritablePath(outputPath))
+    {
+        throw new InvalidOperationException($"Refusing to write to unsafe path: {outputPath}");
+    }
+
     var directory = Path.GetDirectoryName(Path.GetFullPath(outputPath))!;
     Directory.CreateDirectory(directory);
     var tempPath = Path.Combine(directory, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp");
@@ -65,7 +101,20 @@ static async Task WriteTextAtomicallyAsync(string outputPath, string content, Ca
     {
         await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        File.Move(tempPath, outputPath, overwrite: true);
+
+        for (var attempt = 1; attempt <= 8; attempt++)
+        {
+            try
+            {
+                File.Move(tempPath, outputPath, overwrite: true);
+                break;
+            }
+            catch (Exception ex) when (attempt < 8 && (ex is IOException || ex is UnauthorizedAccessException || ex is DirectoryNotFoundException))
+            {
+                Directory.CreateDirectory(directory);
+                await Task.Delay(25 * (1 << Math.Min(attempt - 1, 6)), cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
     finally
     {
@@ -371,7 +420,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
                             ViolationsCount: violations.Count,
                             Connections: connections,
                             Mappings: mappings);
-                        await File.WriteAllTextAsync(summaryFile, summary.ToJson(), ct);
+                        await WriteTextAtomicallyAsync(summaryFile, summary.ToJson(), ct);
                     }
                 }
                 catch (Exception)
@@ -421,6 +470,387 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         Environment.ExitCode = 1;
     }
 });
+
+#region Scan Command
+
+var scanCommand = new Command("scan", "Extract and report inline SQL queries and C# model mappings")
+{
+    projectOption, providerOption, outputOption, formatOption, verboseOption, progressOption,
+};
+
+scanCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
+{
+    var project = result.GetValue(projectOption);
+    var output = result.GetValue(outputOption);
+    var format = (result.GetValue(formatOption) ?? "text").ToLowerInvariant();
+    var verbose = result.GetValue(verboseOption);
+    var progressEnabled = result.GetValue(progressOption);
+    var provider = result.GetValue(providerOption) ?? "sqlserver";
+
+    if (string.IsNullOrWhiteSpace(project))
+    {
+        Console.Error.WriteLine("scan requires --project.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    try
+    {
+        ProgressEmitter? progress = progressEnabled ? new ProgressEmitter(Console.Error, enabled: true) : null;
+        var config = new DataGuardConfiguration { GroundTruthMode = GroundTruthMode.Full };
+        var acquisition = await AcquireContractsAsync(config, provider, ct, project, progress);
+        var contracts = acquisition.Contracts.ToList();
+
+        var connections = ConnectionDiscovery.DiscoverConnections(project);
+        var sqlContracts = contracts.OfType<RawSqlDescriptor>().ToList();
+        var mappings = sqlContracts.Select(MappingTraceEngine.Trace).ToList();
+        var discoveredFiles = ProjectCSharpSqlSource.DiscoverSourceFiles(project);
+
+        var summary = new ScanSummary(
+            FilesScanned: discoveredFiles.Count > 0 ? discoveredFiles.Count : sqlContracts.Select(s => s.Location?.GetLineSpan().Path).Where(p => p != null).Distinct().Count(),
+            QueriesFound: sqlContracts.Count,
+            ConnectionsFound: connections.Count,
+            ViolationsCount: 0,
+            Connections: connections,
+            Mappings: mappings);
+
+        if (format == "json")
+        {
+            var json = summary.ToJson();
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                await WriteTextAtomicallyAsync(output, json, ct);
+            }
+            else
+            {
+                Console.WriteLine(json);
+            }
+        }
+        else
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== DataGuard Scan Report ===");
+            sb.AppendLine($"Scanned C# project/directory: {project}");
+            sb.AppendLine($"Files scanned: {summary.FilesScanned}");
+            sb.AppendLine($"Connections found: {summary.ConnectionsFound}");
+            sb.AppendLine($"SQL queries found: {summary.QueriesFound}");
+
+            if (connections.Count > 0)
+            {
+                sb.AppendLine("\n--- Connections Found ---");
+                for (var i = 0; i < connections.Count; i++)
+                {
+                    var c = connections[i];
+                    var hint = !string.IsNullOrEmpty(c.ConnectionStringHint) ? $" ({c.ConnectionStringHint})" : string.Empty;
+                    sb.AppendLine($"  [{i + 1}] {c.Provider.ToUpperInvariant()} \"{c.Name}\"{hint}");
+                }
+            }
+
+            if (sqlContracts.Count > 0)
+            {
+                sb.AppendLine("\n--- SQL Queries Found ---");
+                for (var i = 0; i < sqlContracts.Count; i++)
+                {
+                    var q = sqlContracts[i];
+                    var loc = q.Location != null && q.Location.IsInSource
+                        ? $"{Path.GetFileName(q.Location.GetLineSpan().Path)}:{q.Location.GetLineSpan().StartLinePosition.Line + 1}"
+                        : "unknown";
+                    var tables = q.ReferencedTables.Count > 0 ? string.Join(", ", q.ReferencedTables) : "none";
+                    var target = !string.IsNullOrEmpty(q.TargetTypeName) ? q.TargetTypeName : "untyped";
+                    sb.AppendLine($"  [Q{i + 1}] {q.SqlText.Trim()}");
+                    sb.AppendLine($"       Location: {loc}");
+                    sb.AppendLine($"       Operation: {q.OperationType} | Tables: {tables} | Target: {target}");
+                    var m = mappings[i];
+                    if (m.SqlColumns.Count > 0 && m.TargetProperties.Count > 0)
+                    {
+                        var matched = m.Mappings.Count(p => p.IsMatched);
+                        sb.AppendLine($"       Mapping: {matched}/{m.TargetProperties.Count} properties matched. Unmapped columns: {m.UnmappedColumns.Count}, unmapped properties: {m.UnmappedProperties.Count}");
+                    }
+                }
+            }
+            sb.AppendLine();
+
+            var text = sb.ToString();
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                await WriteTextAtomicallyAsync(output, text, ct);
+            }
+            else
+            {
+                Console.Write(text);
+            }
+        }
+
+        Environment.ExitCode = 0;
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        Console.Error.WriteLine("Scan cancelled.");
+        Environment.ExitCode = 130;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Scan failed: {ex.Message}");
+        if (verbose)
+        {
+            Console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+        }
+        Environment.ExitCode = 1;
+    }
+});
+
+#endregion
+
+#region Verify-Shape Command
+
+var verifyShapeCommand = new Command("verify-shape", "Verify SQL query result shapes against a live database schema")
+{
+    connectionOption, providerOption, projectOption, outputOption, formatOption, configOption, verboseOption,
+};
+
+verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
+{
+    var connectionString = result.GetValue(connectionOption);
+    var configPath = result.GetValue(configOption);
+    var providerInput = result.GetValue(providerOption);
+    var resolved = ResolveCommandConfiguration(configPath, connectionString, providerInput);
+    var provider = resolved.Provider.Trim().ToLowerInvariant();
+    var connStr = resolved.Configuration.ConnectionString;
+
+    var project = result.GetValue(projectOption);
+    var output = result.GetValue(outputOption);
+    var format = (result.GetValue(formatOption) ?? "text").ToLowerInvariant();
+    var verbose = result.GetValue(verboseOption);
+
+    if (string.IsNullOrWhiteSpace(connStr))
+    {
+        Console.Error.WriteLine("verify-shape requires --connection or a configured connection string.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    if (string.IsNullOrWhiteSpace(project))
+    {
+        Console.Error.WriteLine("verify-shape requires --project.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    try
+    {
+        ILiveQuerySchemaProvider? schemaProvider = provider switch
+        {
+            "oracle" => new OracleLiveQuerySchemaProvider(connStr),
+            "postgresql" or "postgres" => new PostgreSqlLiveQuerySchemaProvider(connStr),
+            "sqlserver" => new SqlServerLiveQuerySchemaProvider(connStr),
+            _ => null,
+        };
+
+        if (schemaProvider is null)
+        {
+            Console.Error.WriteLine($"verify-shape: provider '{provider}' does not support live query schema verification.");
+            Environment.ExitCode = 2;
+            return;
+        }
+
+        var acquisition = await AcquireContractsAsync(resolved.Configuration, provider, ct, project);
+        var readQueries = acquisition.Contracts
+            .OfType<RawSqlDescriptor>()
+            .Where(r => r.OperationType == SqlOperationType.Read)
+            .ToList();
+
+        var results = new List<object>();
+        var hasMismatch = false;
+
+        foreach (var query in readQueries)
+        {
+            IReadOnlyList<ColumnDescriptor>? dbColumns = null;
+            try
+            {
+                dbColumns = await schemaProvider.DescribeResultSetAsync(query.SqlText, ct);
+            }
+            catch (Exception ex)
+            {
+                if (verbose)
+                {
+                    Console.Error.WriteLine($"verify-shape: warning: could not describe result set for query: {ex.Message}");
+                }
+            }
+
+            if (dbColumns is null)
+            {
+                results.Add(new
+                {
+                    sql = query.SqlText,
+                    targetType = query.TargetTypeName,
+                    status = "undetermined",
+                    dbColumnCount = 0,
+                    matchedProperties = Array.Empty<string>(),
+                    missingInDatabase = Array.Empty<string>(),
+                    extraInDatabase = Array.Empty<string>(),
+                });
+                continue;
+            }
+            var expectedProps = query.ExpectedProperties ?? Array.Empty<PropertyDescriptor>();
+            var matched = new List<string>();
+            var missingInDb = new List<string>();
+            var extraInDb = new List<string>();
+
+            foreach (var prop in expectedProps)
+            {
+                if (dbColumns.Any(col => MappingTraceEngine.IsNameMatch(col.Name, prop.Name) || (!string.IsNullOrEmpty(prop.ColumnName) && string.Equals(col.Name, prop.ColumnName, StringComparison.OrdinalIgnoreCase))))
+                {
+                    matched.Add(prop.Name);
+                }
+                else if (!prop.IsNullable)
+                {
+                    missingInDb.Add(prop.Name);
+                }
+            }
+
+            foreach (var col in dbColumns)
+            {
+                if (!expectedProps.Any(prop => MappingTraceEngine.IsNameMatch(col.Name, prop.Name) || (!string.IsNullOrEmpty(prop.ColumnName) && string.Equals(col.Name, prop.ColumnName, StringComparison.OrdinalIgnoreCase))))
+                {
+                    extraInDb.Add(col.Name);
+                }
+            }
+
+            var status = query.TargetTypeName == null
+                ? "untyped"
+                : (missingInDb.Count == 0 && (expectedProps.Count == 0 || matched.Count > 0)) ? "verified" : "mismatch";
+            if (status == "mismatch")
+            {
+                hasMismatch = true;
+            }
+
+            results.Add(new
+            {
+                sql = query.SqlText,
+                targetType = query.TargetTypeName,
+                status,
+                dbColumnCount = dbColumns.Count,
+                matchedProperties = matched,
+                missingInDatabase = missingInDb,
+                extraInDatabase = extraInDb,
+            });
+        }
+
+        if (format == "json")
+        {
+            var discoveredFiles = ProjectCSharpSqlSource.DiscoverSourceFiles(project);
+            var connections = ConnectionDiscovery.DiscoverConnections(project);
+            var filesScanned = discoveredFiles.Count > 0 ? discoveredFiles.Count : readQueries.Select(s => s.Location?.GetLineSpan().Path).Where(p => p != null).Distinct().Count();
+            var json = JsonSerializer.Serialize(
+                new
+                {
+                    provider,
+                    project,
+                    filesScanned,
+                    queriesFound = results.Count,
+                    connectionsFound = connections.Count,
+                    violationsCount = 0,
+                    connections = connections.Select(c => new
+                    {
+                        name = c.Name,
+                        provider = c.Provider,
+                        hint = c.ConnectionStringHint
+                    }),
+                    queriesVerified = results.Count,
+                    results,
+                    queries = results.Zip(readQueries, (r, query) =>
+                    {
+                        var elem = JsonSerializer.SerializeToElement(r);
+                        return new
+                        {
+                            sql = query.SqlText,
+                            location = query.Location != null && query.Location.IsInSource
+                                ? new
+                                {
+                                    file = query.Location.GetLineSpan().Path,
+                                    line = query.Location.GetLineSpan().StartLinePosition.Line + 1
+                                }
+                                : null,
+                            targetType = query.TargetTypeName,
+                            operation = "Read",
+                            targetTypeLocation = (object?)null,
+                            mappingStatus = query.TargetTypeName == null
+                                ? "untyped"
+                                : elem.GetProperty("status").GetString() == "verified"
+                                    ? "matched"
+                                    : (elem.GetProperty("matchedProperties").Deserialize<List<string>>()?.Count > 0 ? "partial" : "unmapped"),
+                            action = query.TargetTypeName == null
+                                ? "untyped-query"
+                                : "shape-check",
+                            tables = query.ReferencedTables ?? Array.Empty<string>(),
+                            columns = query.ExpectedProperties?.Select(p => p.ColumnName ?? p.Name).ToList() ?? new List<string>(),
+                            properties = query.ExpectedProperties?.Select(p => p.Name).ToList() ?? new List<string>(),
+                            unmappedColumns = query.TargetTypeName == null
+                                ? new List<string>()
+                                : (elem.GetProperty("extraInDatabase").Deserialize<List<string>>() ?? new List<string>()),
+                            unmappedProperties = query.TargetTypeName == null
+                                ? new List<string>()
+                                : (elem.GetProperty("missingInDatabase").Deserialize<List<string>>() ?? new List<string>()),
+                        };
+                    }),
+                },
+                new JsonSerializerOptions { WriteIndented = true });
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                await WriteTextAtomicallyAsync(output, json, ct);
+            }
+            else
+            {
+                Console.WriteLine(json);
+            }
+        }
+        else
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"=== DataGuard Verify-Shape Report ({provider}) ===");
+            sb.AppendLine($"Queries evaluated: {results.Count}");
+            foreach (var item in results)
+            {
+                var jsonElem = JsonSerializer.SerializeToElement(item);
+                var sqlText = jsonElem.GetProperty("sql").GetString() ?? "";
+                var status = jsonElem.GetProperty("status").GetString() ?? "";
+                var targetType = jsonElem.TryGetProperty("targetType", out var tt) && tt.ValueKind == JsonValueKind.String ? tt.GetString() : "untyped";
+                var dbCount = jsonElem.GetProperty("dbColumnCount").GetInt32();
+                sb.AppendLine($"\nQuery: {sqlText.Trim()}");
+                sb.AppendLine($"  Status: {status} (Target: {targetType})");
+                sb.AppendLine($"  DB Columns: {dbCount}");
+            }
+
+            var text = sb.ToString();
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                await WriteTextAtomicallyAsync(output, text, ct);
+            }
+            else
+            {
+                Console.Write(text);
+            }
+        }
+
+        Environment.ExitCode = hasMismatch ? 1 : 0;
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        Console.Error.WriteLine("verify-shape cancelled.");
+        Environment.ExitCode = 130;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"verify-shape failed: {ex.Message}");
+        if (verbose)
+        {
+            Console.Error.WriteLine(ex.StackTrace ?? "(no stack trace)");
+        }
+        Environment.ExitCode = 1;
+    }
+});
+
+#endregion
 
 var preflightTargetOption = new Option<string>("--target") { Description = "Bounded operator-owned target identifier for the offline manifest" };
 var preflightCommand = new Command("preflight", "Acquire approved metadata and write a bounded offline manifest")
@@ -1393,6 +1823,8 @@ rootCommand.Add(oracleCheckCommand);
 rootCommand.Add(migrateCommand);
 rootCommand.Add(assessCommand);
 rootCommand.Add(versionCommand);
+rootCommand.Add(scanCommand);
+rootCommand.Add(verifyShapeCommand);
 #endregion
 
 var parseResult = rootCommand.Parse(args, new ParserConfiguration());
@@ -1400,9 +1832,23 @@ using var invocationCancellation = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
 {
     eventArgs.Cancel = true;
-    invocationCancellation.Cancel();
+    try
+    {
+        invocationCancellation.Cancel();
+    }
+    catch (ObjectDisposedException)
+    {
+    }
 };
-await parseResult.InvokeAsync(new InvocationConfiguration(), invocationCancellation.Token);
+try
+{
+    var exitCode = await parseResult.InvokeAsync(new InvocationConfiguration(), invocationCancellation.Token);
+    return Environment.ExitCode != 0 ? Environment.ExitCode : exitCode;
+}
+catch (OperationCanceledException)
+{
+    return 130;
+}
 
 #region Helper Methods
 

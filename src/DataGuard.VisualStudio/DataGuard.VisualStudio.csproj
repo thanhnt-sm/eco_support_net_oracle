@@ -51,4 +51,29 @@
                               OR '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'System.Threading.Tasks.Extensions'" />
     </ItemGroup>
   </Target>
+
+  <PropertyGroup>
+    <DataGuardCliPublishDir>$(MSBuildProjectDirectory)\obj\cli\</DataGuardCliPublishDir>
+  </PropertyGroup>
+
+  <Target Name="PublishDataGuardCli"
+          BeforeTargets="IncludeBundledCliInVsix"
+          Inputs="$(MSBuildThisFileDirectory)..\DataGuard.Cli\**\*.cs;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj"
+          Outputs="$(DataGuardCliPublishDir)dataguard.exe">
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true -o &quot;$(DataGuardCliPublishDir)&quot;" />
+  </Target>
+
+  <Target Name="IncludeBundledCliInVsix"
+          BeforeTargets="GetVsixSourceItems"
+          DependsOnTargets="PublishDataGuardCli">
+    <ItemGroup Condition="Exists('$(DataGuardCliPublishDir)dataguard.exe')">
+      <VSIXSourceItem Include="$(DataGuardCliPublishDir)dataguard.exe">
+        <VSIXSubPath>cli</VSIXSubPath>
+      </VSIXSourceItem>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CleanBundledCli" AfterTargets="Clean">
+    <RemoveDir Directories="$(DataGuardCliPublishDir)" Condition="Exists('$(DataGuardCliPublishDir)')" />
+  </Target>
 </Project>

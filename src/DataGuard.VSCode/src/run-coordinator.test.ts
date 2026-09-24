@@ -29,3 +29,19 @@ test("clear is identity-safe for completed stale runs", () => {
     coordinator.clear(first);
     assert.equal(coordinator.current, second);
 });
+
+test("nextReservation cancels any active run and invalidates earlier reservations", () => {
+    const coordinator = new RunCoordinator<{ cancelled: boolean; cancel: () => void }>();
+    const cancelled: string[] = [];
+    const first = { cancelled: false, cancel: () => cancelled.push("first") };
+    coordinator.replace(first);
+
+    const res1 = coordinator.nextReservation();
+    assert.equal(first.cancelled, true);
+    assert.deepEqual(cancelled, ["first"]);
+    assert.equal(coordinator.isReservationCurrent(res1), true);
+
+    const res2 = coordinator.nextReservation();
+    assert.equal(coordinator.isReservationCurrent(res1), false);
+    assert.equal(coordinator.isReservationCurrent(res2), true);
+});

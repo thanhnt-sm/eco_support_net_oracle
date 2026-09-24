@@ -195,14 +195,26 @@ public static class DataGuardLogger
     }
 
     /// <summary>
-    /// Locates the dataguard CLI binary checking custom path, environment, and standard install locations.
+    /// Locates the dataguard CLI binary checking custom path, bundled extension CLI, environment, and standard install locations.
     /// </summary>
-    public static string FindCliExecutable(string? customCliPath)
+    public static string FindCliExecutable(string? customCliPath, string? extensionDirectory = null)
     {
         var normalizedCustom = customCliPath?.Trim(' ', '"');
-        if (IsValidExecutablePath(normalizedCustom, requireRooted: true))
+        if (!string.IsNullOrEmpty(normalizedCustom))
         {
-            return normalizedCustom!;
+            return IsValidExecutablePath(normalizedCustom, requireRooted: true)
+                ? normalizedCustom!
+                : string.Empty;
+        }
+
+        var extDir = extensionDirectory ?? Path.GetDirectoryName(typeof(DataGuardLogger).Assembly.Location);
+        if (!string.IsNullOrEmpty(extDir))
+        {
+            var bundledCli = Path.Combine(extDir, "cli", "dataguard.exe");
+            if (File.Exists(bundledCli))
+            {
+                return bundledCli;
+            }
         }
 
         var envPath = Environment.GetEnvironmentVariable("DATAGUARD_CLI_PATH")?.Trim(' ', '"');

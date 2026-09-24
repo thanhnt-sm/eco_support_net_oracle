@@ -41,9 +41,9 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
         using var command = connection.CreateCommand();
+        command.CommandTimeout = 5;
         command.CommandText = "SELECT name, system_type_name, is_nullable, max_length, precision, scale, column_ordinal FROM sys.sp_describe_first_result_set(@tsql, NULL, 0) ORDER BY column_ordinal";
         command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@tsql", sqlText));
-
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -170,7 +170,7 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
             // If sp_describe fails (temp tables, dynamic SQL), emit DG020 warning instead of crashing
             violations.Add(CreateViolation(
                 UndeterminedShapeRuleId,
-                $"Cannot determine result set shape for query: {ex.Message}",
+                $"Cannot determine result set shape for query: {SanitizeErrorMessage(ex.Message)}",
                 DiagnosticSeverity.Warning,
                 rawSql.Location));
             return;
@@ -182,11 +182,12 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
         }
 
         // 1. Index DB columns
-        var dbColMap = dbColumns.ToDictionary(c => c.Name, c => c, StringComparer.OrdinalIgnoreCase);
+        var dbColMap = new Dictionary<string, ColumnDescriptor>(StringComparer.OrdinalIgnoreCase);
         var dbColNormalizedMap = new Dictionary<string, ColumnDescriptor>(StringComparer.OrdinalIgnoreCase);
         foreach (var col in dbColumns)
         {
-            dbColNormalizedMap[NormalizeName(col.Name)] = col;
+            dbColMap.TryAdd(col.Name, col);
+            dbColNormalizedMap.TryAdd(NormalizeName(col.Name), col);
         }
 
         // 2. Check for missing columns and type mismatches
@@ -228,7 +229,7 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
                 {
                     var normalizedClr = NormalizeClrType(prop.ClrTypeName);
                     if (!string.IsNullOrEmpty(normalizedClr) &&
-                        !ParameterTypeMatchRule.IsTypeCompatible(normalizedClr, matchedCol.DataType, isOracle: false))
+                        !ParameterTypeMatchRule.IsTypeCompatible(normalizedClr, matchedCol.DataType, isOracle: _provider.Equals("oracle", StringComparison.OrdinalIgnoreCase)))
                     {
                         violations.Add(CreateViolation(
                             MismatchRuleId,
@@ -257,7 +258,7 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
 
     private static string NormalizeName(string name)
     {
-        return name.Replace("_", string.Empty).Trim().ToLowerInvariant();
+        return name.Replace("_", string.Empty).Replace("-", string.Empty).Trim().ToLowerInvariant();
     }
 
     private static string NormalizeClrType(string clrType)
@@ -291,5 +292,25 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
             "System.TimeSpan" or "TimeSpan" => "TimeSpan",
             _ => cleaned,
         };
+    }
+
+    public static string SanitizeErrorMessage(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return "Unknown database error.";
+        }
+
+        var firstLine = message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? message;
+        firstLine = System.Text.RegularExpressions.Regex.Replace(
+            firstLine,
+            @"(?i)\b(password|pwd|user\s*id|uid|secret|token|client_secret|api[_\s-]*key|access[_\s-]*token|authorization)\s*=\s*(?:""[^""]*""|'[^']*'|\{[^}]*\}|[^;\r\n]+)",
+            "$1=[REDACTED]");
+        firstLine = System.Text.RegularExpressions.Regex.Replace(
+            firstLine,
+            @"([a-zA-Z0-9+.-]+://[^/\s:]+:)([^@/\s]+)(@)",
+            "$1[REDACTED]$3");
+
+        return firstLine.Trim();
     }
 }

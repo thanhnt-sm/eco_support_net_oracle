@@ -14,4 +14,20 @@ public class DapperService
         // Deliberate DG017 violation: SELECT * in production query
         conn.Query<Order>("SELECT * FROM ORDERS");
     }
+
+    public void GetRecentOrdersInterpolated(IDbConnection conn)
+    {
+        var sql = $"SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS WHERE TOTAL_AMOUNT > 100";
+        conn.Query<Order>(sql);
+    }
+
+    public void GetOrdersRawMultiline(IDbConnection conn)
+    {
+        var sql = """
+            SELECT ORDER_ID, TOTAL_AMOUNT
+            FROM ORDERS
+            WHERE STATUS = 'COMPLETED'
+            """;
+        conn.Query<Order>(sql);
+    }
 }

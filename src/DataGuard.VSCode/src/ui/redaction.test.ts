@@ -39,6 +39,44 @@ test("redactForUi masks bearer tokens and URI credentials", () => {
     assert.equal(redactForUi(urlQuery), "https://api.internal/v1/sync?token=***&mode=full");
 });
 
+test("redactForUi masks URI passwords containing @ correctly", () => {
+    const uriWithAtPassword = "Connecting to postgres://dbuser:my@p@ssword!@db.internal:5432/metrics";
+    const redacted = redactForUi(uriWithAtPassword);
+    assert.equal(redacted, "Connecting to postgres://dbuser:***@db.internal:5432/metrics");
+});
+
+test("redactForUi masks OAuth tokens, braced passwords, and quoted passwords", () => {
+    const oauth = "client_secret='super-secret-123'; access_token=\"jwt.token.here\"; refresh_token=refresh-xyz";
+    const redactedOAuth = redactForUi(oauth);
+    assert.doesNotMatch(redactedOAuth, /super-secret-123|jwt\.token\.here|refresh-xyz/);
+    assert.match(redactedOAuth, /client_secret=\*\*\*/);
+    assert.match(redactedOAuth, /access_token=\*\*\*/);
+    assert.match(redactedOAuth, /refresh_token=\*\*\*/);
+
+    const braced = "Server=tcp:sql;User Id=sa;Password={my;complex;p@ssword};";
+    const redactedBraced = redactForUi(braced);
+    assert.doesNotMatch(redactedBraced, /my;complex;p@ssword/);
+    assert.match(redactedBraced, /Password=\*\*\*/);
+});
+
+test("redactForUi masks connection string passwords containing ampersands", () => {
+    const connStr = "Server=localhost;User Id=sa;Password=foo&bar_123!;Database=app;";
+    const redacted = redactForUi(connStr);
+    assert.doesNotMatch(redacted, /foo&bar_123!/);
+    assert.match(redacted, /Password=\*\*\*/);
+    assert.match(redacted, /Database=app/);
+});
+
+test("redactForUi resists catastrophic backtracking on large non-delimited payloads", () => {
+    const largePayload = "password = " + "a ".repeat(10000);
+    const startTime = Date.now();
+    const redacted = redactForUi(largePayload);
+    const duration = Date.now() - startTime;
+
+    assert.ok(duration < 100, `Redaction took ${duration}ms, expected < 100ms`);
+    assert.match(redacted, /password\s*=\s*\*\*\*/i);
+});
+
 test("escapeHtml prevents XSS injection", () => {
     const malicious = '<script>alert("XSS")</script><img src=x onerror="alert(1)">';
     const escaped = escapeHtml(malicious);

@@ -269,7 +269,6 @@ public class GoldenCorpusTests
         // Add provider-specific rules
         if (provider?.Equals("Oracle", StringComparison.OrdinalIgnoreCase) == true)
         {
-            rules.Add(new OracleSyntaxInNonOracleContextRule());
             rules.Add(new NonOracleFunctionInOracleContextRule());
             rules.Add(new ProviderOptionMismatchRule());
             rules.Add(new SqlServerSyntaxLeakRule());
@@ -277,6 +276,10 @@ public class GoldenCorpusTests
             rules.Add(new LengthExceedsColumnRule());
             rules.Add(new ByteLengthOverflowRiskRule());
             rules.Add(new InferredSizeFallbackRule());
+        }
+        else if (provider?.Equals("SqlServer", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            rules.Add(new OracleSyntaxInNonOracleContextRule());
         }
 
         return rules;

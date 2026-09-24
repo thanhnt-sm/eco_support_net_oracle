@@ -12,6 +12,9 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 
 Write-Host "Starting DataGuard Extension Build Process..." -ForegroundColor Cyan
 
+
+# 0. Pre-build cache & artifact cleanup
+& "$PSScriptRoot\clean-workspace.ps1" -Mode PreBuild
 # 1. Build VS Code Extension
 Write-Host "`n[1/2] Building VS Code Extension..." -ForegroundColor Yellow
 Set-Location (Join-Path $repoRoot "src\DataGuard.VSCode")
@@ -82,5 +85,8 @@ $hashVs = (Get-FileHash -LiteralPath $vsDest -Algorithm SHA256).Hash.ToLowerInva
 Set-Content -LiteralPath "$vsDest.sha256" -Value "$hashVs  $(Split-Path -Leaf $vsDest)" -NoNewline
 
 Write-Host "Visual Studio build completed: $vsDest" -ForegroundColor Green
+
+# 3. Post-build intermediate staging cleanup
+& "$PSScriptRoot\clean-workspace.ps1" -Mode PostBuild
 
 Write-Host "`nAll builds completed successfully! Artifacts are located in the '$repoRoot\artifacts\' directory." -ForegroundColor Cyan

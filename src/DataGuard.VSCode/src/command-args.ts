@@ -1,4 +1,4 @@
-export type CliCommand = "validate" | "assess" | "snapshot" | "baseline";
+export type CliCommand = "validate" | "assess" | "snapshot" | "baseline" | "scan" | "verify-shape";
 
 const PROVIDERS = new Set(["sqlserver", "postgresql", "mysql", "oracle"]);
 
@@ -40,5 +40,28 @@ export function buildCliArguments(
             return ["snapshot", "refresh", "--config", configPath!, "--provider", normalizedProvider];
         case "baseline":
             return ["baseline", "--config", configPath!, "--provider", normalizedProvider];
+        case "scan":
+            return [
+                "scan",
+                "--project",
+                workspacePath,
+                "--format",
+                "json",
+                "--output",
+                outputPath!,
+                "--progress",
+            ];
+        case "verify-shape":
+            return [
+                "verify-shape",
+                "--project",
+                workspacePath,
+                "--provider",
+                normalizedProvider,
+                "--format",
+                "json",
+                "--output",
+                outputPath!,
+            ];
     }
 }

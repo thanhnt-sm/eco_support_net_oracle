@@ -9,6 +9,8 @@ public static class DapperShim
 
 public class CustomerRepository
 {
+    public const string SqlSelectAll = "SELECT CUSTOMER_ID, FULL_NAME FROM CUSTOMERS";
+
     public void GetCustomers(IDbConnection conn)
     {
         conn.Query<Customer>("SELECT CUSTOMER_ID, FULL_NAME, EMAIL, PHONE FROM CUSTOMERS");

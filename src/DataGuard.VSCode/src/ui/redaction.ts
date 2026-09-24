@@ -5,13 +5,13 @@
  */
 
 // Matches connection string credentials and secret key-value assignments
-const SENSITIVE_KV_REGEX = /\b(password|pwd|secret|token|api[_ -]?key|credentials?)\s*([:=])\s*(?:["']?)(?:bearer\s+)?[^\s;,"'&]+(?:["']?)/gi;
+const SENSITIVE_KV_REGEX = /(?:"|'|(?<![?&])\b)(password|pwd|secret|token|api[_ -]?key|client[_ -]?secret|access[_ -]?token|refresh[_ -]?token|credentials?|connection\s*string)(?:"|'|\b)\s*([:=])\s*(?:bearer\s+)?(?:"[^"]*"|'[^']*'|\{[^}]*\}|[^;\r\n,\s]+(?:\s+[^;\r\n,\s]+)*(?=\s*(?:[;,]|\r?\n))|[^;\r\n,\s]+)/gi;
 
 // Matches Bearer tokens in Authorization headers
 const AUTHORIZATION_BEARER_REGEX = /\b(authorization\s*:\s*bearer\s+)[^\s,;]+/gi;
 
-// Matches URI user:password@ credentials
-const URI_CREDENTIAL_REGEX = /([a-z]+:\/\/[^/:]+:)[^@]+(@)/gi;
+// Matches URI user:password@ credentials (greedy match up to @ before host/path)
+const URI_CREDENTIAL_REGEX = /([a-z0-9+.-]+:\/\/[^\/\s:]+:)([^/\s]+)(@)/gi;
 
 // Matches query parameters containing secrets
 const QUERY_PARAM_SECRET_REGEX = /([?&](?:password|pwd|secret|token|api[_ -]?key)=)[^&#\s]+/gi;
@@ -28,7 +28,7 @@ export function redactForUi(value: string): string {
     return value
         .replace(SENSITIVE_KV_REGEX, "$1$2***")
         .replace(AUTHORIZATION_BEARER_REGEX, "$1***")
-        .replace(URI_CREDENTIAL_REGEX, "$1***$2")
+        .replace(URI_CREDENTIAL_REGEX, "$1***$3")
         .replace(QUERY_PARAM_SECRET_REGEX, "$1***");
 }
 

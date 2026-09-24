@@ -221,7 +221,7 @@ public class RotHelper {
     Invoke-WithRetry {
         $properties.Item("EnableDetailedLogging").Value = $true
         $properties.Item("CustomLogDirectory").Value = $missingLogDir
-        $properties.Item("CustomCliPath").Value = ""
+        $properties.Item("CustomCliPath").Value = "$verificationRoot\missing\dataguard.exe"
     }
 
     Write-Host "Executing missing-CLI validations (RunValidation)..."
@@ -264,6 +264,8 @@ public class RotHelper {
     }
     if (-not $found) { Write-Error "Did not find expected missing CLI message for AssessWorkspace." }
 
+
+    Invoke-WithRetry { $properties.Item("CustomCliPath").Value = "" }
 
     $results["Missing-CLI commands"] = "PASS"
 

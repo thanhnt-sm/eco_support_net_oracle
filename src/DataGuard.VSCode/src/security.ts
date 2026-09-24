@@ -1,12 +1,17 @@
+import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-const SENSITIVE_ASSIGNMENT = /\b(password|pwd|secret|token|api[_ -]?key|connection\s*string)\s*[:=]\s*(?:bearer\s+)?[^\s;,]+/gi;
+const SENSITIVE_ASSIGNMENT = /(?:"|'|(?<![?&])\b)(password|pwd|secret|token|api[_ -]?key|client[_ -]?secret|access[_ -]?token|refresh[_ -]?token|connection\s*string)(?:"|'|\b)\s*[:=]\s*(?:bearer\s+)?(?:"[^"]*"|'[^']*'|\{[^}]*\}|[^;\r\n,\s]+(?:\s+[^;\r\n,\s]+)*(?=\s*(?:[;,]|\r?\n))|[^;\r\n,\s]+)/gi;
 const AUTHORIZATION_BEARER = /\bauthorization\s*:\s*bearer\s+[^\s,;]+/gi;
+const URI_CREDENTIALS = /([a-z0-9+.-]+:\/\/[^\/\s:]+:)([^/\s]+)(@)/gi;
+const QUERY_PARAM_SECRET = /([?&](?:password|pwd|secret|token|api[_ -]?key)=)[^&#\s]+/gi;
 
 export function redactSensitiveText(value: string): string {
     return value
         .replace(SENSITIVE_ASSIGNMENT, "$1=[REDACTED]")
-        .replace(AUTHORIZATION_BEARER, "Authorization: Bearer [REDACTED]");
+        .replace(AUTHORIZATION_BEARER, "Authorization: Bearer [REDACTED]")
+        .replace(URI_CREDENTIALS, "$1[REDACTED]$3")
+        .replace(QUERY_PARAM_SECRET, "$1[REDACTED]");
 }
 
 /** Redacts CLI text and caps its size before it reaches an IDE surface. */
@@ -103,6 +108,56 @@ export function resolveWorkspaceSarifPath(workspacePath: string, artifactUri: st
     if (relative !== "" && (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative))) {
         throw new Error("SARIF artifact location must remain inside the trusted workspace folder.");
     }
-
     return resolved;
+}
+
+/** Validates that a target file path resides strictly inside at least one of the workspace folders. */
+export function isPathInWorkspaceFolder(targetPath: string, folderPaths: readonly string[]): boolean {
+    if (!folderPaths || folderPaths.length === 0) {
+        return false;
+    }
+    const resolvedPath = path.resolve(targetPath);
+    const isCaseInsensitiveFs = process.platform === "win32" || process.platform === "darwin";
+    return folderPaths.some((folderPath) => {
+        const resolvedFolder = path.resolve(folderPath);
+        const base = isCaseInsensitiveFs ? resolvedFolder.toLowerCase() : resolvedFolder;
+        const target = isCaseInsensitiveFs ? resolvedPath.toLowerCase() : resolvedPath;
+        const rel = path.relative(base, target);
+        const isOutside = rel === ".." || rel.startsWith(".." + path.sep) || rel.startsWith("../") || rel.startsWith("..\\");
+        if (isOutside || path.isAbsolute(rel)) {
+            return false;
+        }
+
+        try {
+            if (fs.existsSync(resolvedFolder)) {
+                const realFolder = fs.realpathSync(resolvedFolder);
+                const realBase = isCaseInsensitiveFs ? realFolder.toLowerCase() : realFolder;
+
+                let current = resolvedPath;
+                let remainder = "";
+                while (!fs.existsSync(current)) {
+                    const parent = path.dirname(current);
+                    if (parent === current) {
+                        break;
+                    }
+                    remainder = remainder ? path.join(path.basename(current), remainder) : path.basename(current);
+                    current = parent;
+                }
+
+                if (fs.existsSync(current)) {
+                    const realAncestor = fs.realpathSync(current);
+                    const realTarget = remainder ? path.join(realAncestor, remainder) : realAncestor;
+                    const realTgt = isCaseInsensitiveFs ? realTarget.toLowerCase() : realTarget;
+                    const realRel = path.relative(realBase, realTgt);
+                    const realOutside = realRel === ".." || realRel.startsWith(".." + path.sep) || realRel.startsWith("../") || realRel.startsWith("..\\");
+                    if (realOutside || path.isAbsolute(realRel)) {
+                        return false;
+                    }
+                }
+            }
+        } catch {
+            return false;
+        }
+        return true;
+    });
 }

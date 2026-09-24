@@ -25,7 +25,7 @@ public sealed record ConnectionInfo(
 public static class ConnectionDiscovery
 {
     private static readonly Regex KeyValueCredentialMaskRegex = new(
-        @"(?i)(password|pwd|secret|token|api[-_]?key)\s*=\s*(?:'(?:''|\\'|[^'])*'|""(?:""""|\\""|[^""])*""|[^;]+)",
+        @"(?i)(password|pwd|secret(?:[-_]?key)?|token|api[-_]?key|client[-_]?secret|access[-_]?token|private[-_]?key|auth[-_]?token)\s*=\s*(?:'(?:''|\\'|[^'])*'|""(?:""""|\\""|[^""])*""|[^;]+)",
         RegexOptions.Compiled);
 
     private static readonly Regex UriCredentialMaskRegex = new(

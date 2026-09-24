@@ -187,7 +187,32 @@ public sealed class DataGuardPackage : AsyncPackage
         }
     }
 
-    private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
+    internal static string Quote(string value)
+    {
+        var escaped = value.Replace("\"", "\\\"");
+        if (escaped.EndsWith("\\"))
+        {
+            escaped += "\\";
+        }
+        return "\"" + escaped + "\"";
+    }
+
+    internal static string? ResolveSarifArtifactUri(string? uri, string? uriBaseId, string solutionDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(uri))
+        {
+            return null;
+        }
+        if (Path.IsPathRooted(uri))
+        {
+            return uri;
+        }
+        if (!string.IsNullOrEmpty(uriBaseId) && uriBaseId == "%SRCROOT%")
+        {
+            return Path.GetFullPath(Path.Combine(solutionDirectory, uri!.Replace('/', '\\')));
+        }
+        return null;
+    }
 
     private static string Redact(string value)
     {
@@ -527,6 +552,8 @@ public sealed class DataGuardPackage : AsyncPackage
             return;
         }
 
+        solutionDirectory = solutionDirectory!.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
         lock (this.processGate)
         {
             if (this.activeProcess != null || this.commandReserved)
@@ -589,7 +616,8 @@ public sealed class DataGuardPackage : AsyncPackage
             {
                 FileName = cliPath,
                 Arguments = command == "validate"
-                    ? "validate --config " + Quote(configPath) + " --format sarif --output " + Quote(sarifPath) + " --progress" + skipArg
+                    ? "validate --config " + Quote(configPath) + " --format sarif --output " + Quote(sarifPath)
+                        + " --project " + Quote(solutionDirectory) + " --progress" + skipArg
                     : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath) + " --progress",
                 WorkingDirectory = solutionDirectory,
                 UseShellExecute = false,
@@ -717,7 +745,7 @@ public sealed class DataGuardPackage : AsyncPackage
                     return;
                 }
                 stopwatch.Stop();
-                var diagnosticCount = await this.PublishSarifAsync(sarifPath);
+                var diagnosticCount = await this.PublishSarifAsync(sarifPath, solutionDirectory);
                 DataGuardLogger.LogValidationRun(
                     command,
                     solutionDirectory,
@@ -922,7 +950,7 @@ public sealed class DataGuardPackage : AsyncPackage
         }
     }
 
-    private async Task<int> PublishSarifAsync(string sarifPath)
+    private async Task<int> PublishSarifAsync(string sarifPath, string solutionDirectory)
     {
         if (!File.Exists(sarifPath))
         {
@@ -958,8 +986,11 @@ public sealed class DataGuardPackage : AsyncPackage
                         }
 
                         var physical = locations[0].GetProperty("physicalLocation");
-                        var uri = physical.GetProperty("artifactLocation").GetProperty("uri").GetString();
-                        if (string.IsNullOrWhiteSpace(uri) || !Path.IsPathRooted(uri))
+                        var artifactLocation = physical.GetProperty("artifactLocation");
+                        var rawUri = artifactLocation.GetProperty("uri").GetString();
+                        var uriBaseId = artifactLocation.TryGetProperty("uriBaseId", out var baseIdNode) ? baseIdNode.GetString() : null;
+                        var resolvedPath = ResolveSarifArtifactUri(rawUri, uriBaseId, solutionDirectory);
+                        if (string.IsNullOrEmpty(resolvedPath))
                         {
                             continue;
                         }
@@ -979,7 +1010,7 @@ public sealed class DataGuardPackage : AsyncPackage
                         {
                             Category = TaskCategory.BuildCompile,
                             Column = column,
-                            Document = uri,
+                            Document = resolvedPath,
                             ErrorCategory = level == "error" ? TaskErrorCategory.Error : level == "warning" ? TaskErrorCategory.Warning : TaskErrorCategory.Message,
                             Line = line,
                             Text = message,

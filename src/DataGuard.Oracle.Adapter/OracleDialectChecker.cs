@@ -32,7 +32,7 @@ public class OracleDialectChecker : IDialectAnalyzer
 
     private static readonly HashSet<string> OracleOperators = new(StringComparer.OrdinalIgnoreCase)
     {
-        "(+)", "||", "**", "CONCAT",
+        "(+)", "**",
     };
 
     private static readonly HashSet<string> SqlServerKeywords = new(StringComparer.OrdinalIgnoreCase)
@@ -51,17 +51,19 @@ public class OracleDialectChecker : IDialectAnalyzer
         bool isOracleContext,
         Location? location = null)
     {
+        ArgumentNullException.ThrowIfNull(sqlText);
         if (isOracleContext)
         {
             return Array.Empty<ContractViolation>();
         }
 
         var violations = new List<ContractViolation>();
+        var sanitized = MaskCommentsAndLiterals(sqlText);
 
         // Check for Oracle-specific keywords
         foreach (var keyword in OracleKeywords)
         {
-            if (ContainsKeyword(sqlText, keyword))
+            if (ContainsKeyword(sanitized, keyword))
             {
                 violations.Add(new ContractViolation(
                     "DG010",
@@ -75,7 +77,7 @@ public class OracleDialectChecker : IDialectAnalyzer
         // Check for Oracle-specific operators
         foreach (var op in OracleOperators)
         {
-            if (sqlText.Contains(op, StringComparison.OrdinalIgnoreCase))
+            if (sanitized.Contains(op, StringComparison.OrdinalIgnoreCase))
             {
                 violations.Add(new ContractViolation(
                     "DG010",
@@ -85,7 +87,6 @@ public class OracleDialectChecker : IDialectAnalyzer
                     new Dictionary<string, object?> { { "operator", op } }));
             }
         }
-
         return violations;
     }
 
@@ -98,16 +99,18 @@ public class OracleDialectChecker : IDialectAnalyzer
         bool isOracleContext,
         Location? location = null)
     {
+        ArgumentNullException.ThrowIfNull(sqlText);
         if (!isOracleContext)
         {
             return Array.Empty<ContractViolation>();
         }
 
         var violations = new List<ContractViolation>();
+        var sanitized = MaskCommentsAndLiterals(sqlText);
 
         foreach (var keyword in SqlServerKeywords)
         {
-            if (ContainsKeyword(sqlText, keyword))
+            if (ContainsKeyword(sanitized, keyword))
             {
                 violations.Add(new ContractViolation(
                     "DG011",
@@ -119,7 +122,7 @@ public class OracleDialectChecker : IDialectAnalyzer
         }
 
         // Check for SQL Server operators (word-boundary: TOP n / LIMIT n, not TOPIC/LIMITED)
-        if (System.Text.RegularExpressions.Regex.IsMatch(sqlText, @"\bTOP\s+\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        if (System.Text.RegularExpressions.Regex.IsMatch(sanitized, @"\bTOP\s+\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             violations.Add(new ContractViolation(
                 "DG011",
@@ -128,7 +131,7 @@ public class OracleDialectChecker : IDialectAnalyzer
                 location));
         }
 
-        if (System.Text.RegularExpressions.Regex.IsMatch(sqlText, @"\bLIMIT\s+\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        if (System.Text.RegularExpressions.Regex.IsMatch(sanitized, @"\bLIMIT\s+\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             violations.Add(new ContractViolation(
                 "DG011",
@@ -137,7 +140,7 @@ public class OracleDialectChecker : IDialectAnalyzer
                 location));
         }
 
-        if (sqlText.Contains("GROUP_CONCAT", StringComparison.OrdinalIgnoreCase))
+        if (sanitized.Contains("GROUP_CONCAT", StringComparison.OrdinalIgnoreCase))
         {
             violations.Add(new ContractViolation(
                 "DG011",
@@ -189,9 +192,10 @@ public class OracleDialectChecker : IDialectAnalyzer
         }
 
         var violations = new List<ContractViolation>();
+        var sanitized = MaskCommentsAndLiterals(sqlText);
 
         // Check for EXEC dbo. pattern
-        if (System.Text.RegularExpressions.Regex.IsMatch(sqlText, @"\bEXEC\s+\w+\.", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        if (System.Text.RegularExpressions.Regex.IsMatch(sanitized, @"\bEXEC\s+(?:\[\w+\]|\w+)\.", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             violations.Add(new ContractViolation(
                 "DG013",
@@ -199,7 +203,6 @@ public class OracleDialectChecker : IDialectAnalyzer
                 DiagnosticSeverity.Warning,
                 location));
         }
-
         return violations;
     }
 
@@ -221,9 +224,10 @@ public class OracleDialectChecker : IDialectAnalyzer
 
         // SQL Server types that Oracle EF Core does not map
         string[] sqlServerTypes = { "UNIQUEIDENTIFIER", "MONEY", "SMALLMONEY", "DATETIME2", "DATETIMEOFFSET", "GEOGRAPHY", "GEOMETRY", "HIERARCHYID", "SQL_VARIANT" };
+        var sanitized = MaskCommentsAndLiterals(sqlText);
         foreach (var type in sqlServerTypes)
         {
-            if (ContainsKeyword(sqlText, type))
+            if (ContainsKeyword(sanitized, type))
             {
                 violations.Add(new ContractViolation(
                     "DG014",
@@ -242,6 +246,17 @@ public class OracleDialectChecker : IDialectAnalyzer
         // Use word boundaries to avoid partial matches
         var pattern = $@"\b{System.Text.RegularExpressions.Regex.Escape(keyword)}\b";
         return System.Text.RegularExpressions.Regex.IsMatch(text, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private static string MaskCommentsAndLiterals(string sql)
+    {
+        ArgumentNullException.ThrowIfNull(sql);
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            return string.Empty;
+        }
+
+        return DataGuard.Core.Rules.ColumnShapeMatchRule.StripCommentsAndLiterals(sql);
     }
 }
 

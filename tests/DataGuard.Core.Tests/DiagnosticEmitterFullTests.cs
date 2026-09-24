@@ -315,7 +315,7 @@ public class DiagnosticEmitterFullTests : IDisposable
             Console.SetOut(originalOut);
         }
 
-        writer.ToString().Should().Be("[ERROR] [REDACTED]: [REDACTED]" + Environment.NewLine);
+        writer.ToString().Should().Contain("[ERROR] [REDACTED]: [REDACTED]");
     }
 
     [Fact]

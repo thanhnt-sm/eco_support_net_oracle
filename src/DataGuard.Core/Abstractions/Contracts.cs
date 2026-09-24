@@ -126,12 +126,12 @@ public record EntityDescriptor(
 public record PropertyDescriptor(
     string Name,
     string ClrTypeName,
-    string? ColumnName,
-    string? ColumnType,
-    bool IsNullable,
-    int? MaxLength,
-    bool IsPrimaryKey,
-    bool IsForeignKey,
+    string? ColumnName = null,
+    string? ColumnType = null,
+    bool IsNullable = false,
+    int? MaxLength = null,
+    bool IsPrimaryKey = false,
+    bool IsForeignKey = false,
     IReadOnlyDictionary<string, object?>? Annotations = null);
 
 /// <summary>

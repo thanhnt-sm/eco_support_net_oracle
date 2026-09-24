@@ -11,6 +11,10 @@
     <PackageOutputPath>./nupkg</PackageOutputPath>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(PublishBundledCli)' == 'true'">
+    <AssemblyName>dataguard</AssemblyName>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
     <ProjectReference Include="..\DataGuard.SqlServer.Adapter\DataGuard.SqlServer.Adapter.csproj" />

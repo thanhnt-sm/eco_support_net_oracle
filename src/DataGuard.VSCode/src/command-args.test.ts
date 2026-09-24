@@ -11,6 +11,14 @@ test("CLI argument builder emits positional argv without shell interpolation", (
         buildCliArguments("assess", "/workspace with spaces", "mysql", undefined, "/tmp/result.sarif"),
         ["assess", "--workspace", "/workspace with spaces", "--provider", "mysql", "--format", "sarif", "--output", "/tmp/result.sarif"],
     );
+    assert.deepEqual(
+        buildCliArguments("scan", "/workspace", "sqlserver", undefined, "/tmp/summary.json"),
+        ["scan", "--project", "/workspace", "--format", "json", "--output", "/tmp/summary.json", "--progress"],
+    );
+    assert.deepEqual(
+        buildCliArguments("verify-shape", "/workspace", "oracle", undefined, "/tmp/verify.json"),
+        ["verify-shape", "--project", "/workspace", "--provider", "oracle", "--format", "json", "--output", "/tmp/verify.json"],
+    );
 });
 
 test("provider validation rejects injection-like or unknown values", () => {

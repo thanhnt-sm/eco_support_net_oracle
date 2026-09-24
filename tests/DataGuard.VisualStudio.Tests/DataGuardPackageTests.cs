@@ -1,3 +1,4 @@
+using System.IO;
 using DataGuard.VisualStudio;
 using FluentAssertions;
 using Xunit;
@@ -112,5 +113,78 @@ public class DataGuardPackageTests
 
         DataGuardPackage.AppendProgressChar('b', sb, ref discarded);
         discarded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Quote_WithTrailingBackslash_DoublesBackslash()
+    {
+        var input = @"D:\path\to\solution\";
+        var quoted = DataGuardPackage.Quote(input);
+        quoted.Should().Be("\"D:\\path\\to\\solution\\\\\"");
+
+        var inputWithoutTrailing = @"D:\path\to\solution";
+        DataGuardPackage.Quote(inputWithoutTrailing).Should().Be("\"D:\\path\\to\\solution\"");
+    }
+
+    [Fact]
+    public void ResolveSarifArtifactUri_RelativeUriWithSrcRoot_ReturnsAbsolutePath()
+    {
+        var solutionDir = @"D:\repo";
+        var resolved = DataGuardPackage.ResolveSarifArtifactUri("src/Model.cs", "%SRCROOT%", solutionDir);
+        resolved.Should().Be(Path.GetFullPath(Path.Combine(solutionDir, "src", "Model.cs")));
+    }
+
+    [Fact]
+    public void ResolveSarifArtifactUri_WithoutSrcRoot_ReturnsNull()
+    {
+        var solutionDir = @"D:\repo";
+        var resolved = DataGuardPackage.ResolveSarifArtifactUri("src/Model.cs", null, solutionDir);
+        resolved.Should().BeNull();
+    }
+
+    [Fact]
+    public void ResolveSarifArtifactUri_RootedUri_ReturnsOriginal()
+    {
+        var rooted = @"C:\abs\file.cs";
+        var resolved = DataGuardPackage.ResolveSarifArtifactUri(rooted, null, @"D:\repo");
+        resolved.Should().Be(rooted);
+    }
+
+    [Fact]
+    public void FindCliExecutable_WhenBundledCliExists_PrioritizesBundledOverPath()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "dg_vsix_test_" + System.Guid.NewGuid().ToString("N"));
+        var cliDir = Path.Combine(tempDir, "cli");
+        Directory.CreateDirectory(cliDir);
+        var fakeCli = Path.Combine(cliDir, "dataguard.exe");
+        File.WriteAllText(fakeCli, "dummy");
+        try
+        {
+            var resolved = DataGuardLogger.FindCliExecutable(null, tempDir);
+            resolved.Should().Be(fakeCli);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FindCliExecutable_WhenCustomCliPathIsInvalid_ReturnsEmptyString()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "dg_vsix_test_" + System.Guid.NewGuid().ToString("N"));
+        var cliDir = Path.Combine(tempDir, "cli");
+        Directory.CreateDirectory(cliDir);
+        var fakeCli = Path.Combine(cliDir, "dataguard.exe");
+        File.WriteAllText(fakeCli, "dummy");
+        try
+        {
+            var resolved = DataGuardLogger.FindCliExecutable(@"C:\nonexistent\path\dataguard.exe", tempDir);
+            resolved.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 }

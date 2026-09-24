@@ -88,3 +88,32 @@ test("renderDashboardHtml strictly masks connection strings and passwords as ***
     assert.match(html, /Password=\*\*\*/);
     assert.match(html, /api_key=\*\*\*/);
 });
+test("renderDashboardHtml redacts credentials in scanReport queries and never exposes rawSql", () => {
+    const nonce = "safeNonce789";
+    const report = {
+        filesScanned: 1,
+        queriesFound: 1,
+        connectionsFound: 0,
+        violationsCount: 0,
+        connections: [],
+        queries: [
+            {
+                sql: "SELECT * FROM users WHERE token = 'super_secret_token_123' AND password = 'secretPassword!'",
+                operation: "Read" as const,
+                tables: ["users"],
+                targetType: "UserDto",
+                mappingStatus: "matched" as const,
+                action: "verify",
+                columns: ["id", "token"],
+                properties: ["Id", "Token"],
+                location: { file: "src/Data/User.cs", line: 15 }
+            }
+        ]
+    };
+
+    const html = renderDashboardHtml([], nonce, report);
+    assert.doesNotMatch(html, /secretPassword!/);
+    assert.doesNotMatch(html, /"rawSql"/);
+    assert.doesNotMatch(html, /"rawFile"/);
+    assert.match(html, /password=\*\*\*/i);
+});

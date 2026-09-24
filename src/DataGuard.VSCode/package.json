@@ -111,6 +111,21 @@
       {
         "command": "dataguard.applyQuickFix",
         "title": "DataGuard: Apply Quick-Fix"
+      },
+      {
+        "command": "dataguard.scanProject",
+        "title": "DataGuard: Scan Project SQL & Mappings",
+        "icon": "$(search)"
+      },
+      {
+        "command": "dataguard.refreshQueries",
+        "title": "DataGuard: Refresh SQL Queries",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dataguard.verifyShape",
+        "title": "DataGuard: Verify SQL Shapes Against Database",
+        "icon": "$(check)"
       }
     ],
     "viewsContainers": {
@@ -127,6 +142,10 @@
         {
           "id": "dataguard.findingsView",
           "name": "Contract Drift Findings"
+        },
+        {
+          "id": "dataguard.sqlQueriesView",
+          "name": "Discovered SQL Queries"
         }
       ]
     },
@@ -145,6 +164,21 @@
         {
           "command": "dataguard.clearFindings",
           "when": "view == dataguard.findingsView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "dataguard.refreshQueries",
+          "when": "view == dataguard.sqlQueriesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dataguard.scanProject",
+          "when": "view == dataguard.sqlQueriesView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "dataguard.verifyShape",
+          "when": "view == dataguard.sqlQueriesView",
           "group": "navigation@3"
         }
       ],
@@ -205,7 +239,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "test": "npm run compile && npm run test:typescript && node --test out/security.test.js out/run-coordinator.test.js out/command-args.test.js out/ui/design-tokens.test.js out/ui/redaction.test.js out/ui/csp-security.test.js out/ui/performance-smoke.test.js",
+    "test": "npm run compile && npm run test:typescript && node --test out/security.test.js out/run-coordinator.test.js out/command-args.test.js out/ui/design-tokens.test.js out/ui/redaction.test.js out/ui/csp-security.test.js out/ui/sql-queries-tree.test.js out/ui/performance-smoke.test.js",
     "test:typescript": "npx --no-install tsc --noEmit --strict --skipLibCheck --target ES2020 test/fixtures/generated-contract.ts",
     "test:extension-host": "npm run compile && node scripts/test-extension-host.cjs",
     "prepare-lsp": "node scripts/package-lsp.cjs",

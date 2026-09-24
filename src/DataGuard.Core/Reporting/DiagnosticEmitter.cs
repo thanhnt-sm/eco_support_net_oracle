@@ -344,14 +344,15 @@ public class FileSarifSink : ISarifSink
             await using (var writer = new System.Text.Json.Utf8JsonWriter(fileStream, new JsonWriterOptions { Indented = true }))
             {
                 writer.WriteStartObject();
-                writer.WriteString("version", log.Version ?? "2.1.0");
-                writer.WriteString("$schema", log.SchemaUri ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
+                writer.WriteString("version", log?.Version ?? "2.1.0");
+                writer.WriteString("$schema", log?.SchemaUri ?? "https://schemastore.org/schemas/json/sarif-2.1.0.json");
 
                 writer.WritePropertyName("runs");
                 writer.WriteStartArray();
 
-                foreach (var run in log.Runs ?? Enumerable.Empty<Run>())
+                foreach (var run in log?.Runs ?? Enumerable.Empty<Run>())
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     writer.WriteStartObject();
 
                     // Tool
@@ -387,6 +388,7 @@ public class FileSarifSink : ISarifSink
                     writer.WriteStartArray();
                     foreach (var result in run.Results ?? Enumerable.Empty<Result>())
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         writer.WriteStartObject();
                         writer.WriteString("ruleId", result.RuleId ?? "");
 
@@ -515,7 +517,26 @@ public class StreamingSarifSink : ISarifSink
         {
             await WriteToPathAsync(tempPath, violations, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            File.Move(tempPath, _outputPath, overwrite: true);
+            for (var attempt = 1; attempt <= 5; attempt++)
+            {
+                try
+                {
+                    File.Move(tempPath, _outputPath, overwrite: true);
+                    break;
+                }
+                catch (Exception ex) when (attempt < 5 && (ex is IOException || ex is UnauthorizedAccessException))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+                    catch
+                    {
+                    }
+
+                    await Task.Delay(50 * attempt, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
         finally
         {

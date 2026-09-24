@@ -468,4 +468,39 @@ public class CliExitCodeTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Fact]
+    public void ScanCommand_WithJsonFormat_ReturnsZeroAndValidJson()
+    {
+        var dir = Directory.CreateTempSubdirectory("dg-cli-scan").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT 1 FROM Dual\"; } }");
+            var (exitCode, output) = RunCliInDirectory(dir, null, "scan", "--project", dir, "--format", "json");
+            exitCode.Should().Be(0);
+            output.Should().Contain("\"filesScanned\":");
+            output.Should().Contain("\"queries\":");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VerifyShapeCommand_WithoutDatabase_ReturnsHandledOutput()
+    {
+        var dir = Directory.CreateTempSubdirectory("dg-cli-shape").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT Id, Name FROM Users\"; } }");
+            var (exitCode, output) = RunCliInDirectory(dir, null, "verify-shape", "--project", dir, "--format", "json");
+            exitCode.Should().Be(2);
+            output.Should().Contain("verify-shape requires --connection");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

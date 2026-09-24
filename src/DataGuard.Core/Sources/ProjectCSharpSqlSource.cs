@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,7 +11,6 @@ using DataGuard.Core.Reporting;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-
 namespace DataGuard.Core.Sources;
 
 /// <summary>
@@ -45,11 +45,13 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         @"'(''|[^'])*'",
         RegexOptions.Compiled,
         TimeSpan.FromSeconds(1));
+    private static readonly Regex SqlSingleLineCommentRegex = new(@"--[^\r\n]*", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex SqlBlockCommentRegex = new(@"/\*[\s\S]*?\*/", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     private static readonly Regex SelectOpRegex = new(@"\bSELECT\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex InsertOpRegex = new(@"\bINSERT\s+INTO\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex UpdateOpRegex = new(@"\bUPDATE\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
-    private static readonly Regex DeleteOpRegex = new(@"\bDELETE\s+FROM\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex DeleteOpRegex = new(@"\bDELETE(?:\s+FROM)?\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex MergeOpRegex = new(@"\bMERGE\s+INTO\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex JoinOpRegex = new(@"\b(INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
@@ -93,8 +95,14 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var text = File.ReadAllText(file);
-                syntaxTrees.Add(CSharpSyntaxTree.ParseText(text, path: file, cancellationToken: cancellationToken));
+                using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                var text = reader.ReadToEnd();
+                syntaxTrees.Add(CSharpSyntaxTree.ParseText(text, new CSharpParseOptions(LanguageVersion.Latest), path: file, cancellationToken: cancellationToken));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception)
             {
@@ -119,6 +127,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
         var descriptors = new List<ContractDescriptor>();
         var seenSql = new HashSet<string>(StringComparer.Ordinal);
+        var seenSqlTexts = new HashSet<string>(StringComparer.Ordinal);
 
         void AddDescriptor(
             string sqlText,
@@ -170,6 +179,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 ReferencedTables: tables,
                 ConnectionProviderHint: providerHint);
 
+            seenSqlTexts.Add(sqlText.Trim());
             descriptors.Add(descriptor);
         }
 
@@ -202,9 +212,9 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     expectedProperties = ExtractPropertiesFromSymbol(typeSymbol);
                 }
 
-                if (expectedProperties.Count == 0 && !string.IsNullOrEmpty(targetTypeName) && syntaxTypes.TryGetValue(targetTypeName, out var typeDecl))
+                if (expectedProperties.Count == 0 && !string.IsNullOrEmpty(targetTypeName) && syntaxTypes.TryGetValue(targetTypeName, out var typeDecls))
                 {
-                    expectedProperties = ExtractPropertiesFromSyntax(typeDecl);
+                    expectedProperties = ExtractPropertiesFromSyntax(typeDecls);
                 }
 
                 string? providerHint = null;
@@ -295,10 +305,48 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 }
             }
         }
+
+        // 5. Unreferenced SQL constants/static readonly fields (global second pass after all references resolved)
+        foreach (var tree in syntaxTrees)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var semanticModel = compilation.GetSemanticModel(tree);
+            var root = tree.GetRoot(cancellationToken);
+
+            foreach (var field in root.DescendantNodes().OfType<FieldDeclarationSyntax>())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!field.Modifiers.Any(m => m.IsKind(SyntaxKind.ConstKeyword) || m.IsKind(SyntaxKind.ReadOnlyKeyword)))
+                {
+                    continue;
+                }
+
+                foreach (var variable in field.Declaration.Variables)
+                {
+                    if (variable.Initializer == null)
+                    {
+                        continue;
+                    }
+
+                    var sqlText = TryResolveString(variable.Initializer.Value, semanticModel, cancellationToken);
+                    if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
+                    {
+                        continue;
+                    }
+
+                    if (seenSqlTexts.Contains(sqlText.Trim()))
+                    {
+                        continue;
+                    }
+
+                    AddDescriptor(sqlText, variable.GetLocation(), null, Array.Empty<PropertyDescriptor>(), null);
+                }
+            }
+        }
         return Task.FromResult<IReadOnlyList<ContractDescriptor>>(descriptors);
     }
 
-    private static List<string> DiscoverSourceFiles(string path)
+    public static List<string> DiscoverSourceFiles(string path)
     {
         var files = new List<string>();
 
@@ -332,46 +380,154 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
     private static void ScanDirectory(string rootDir, List<string> files)
     {
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(rootDir, "*.cs", SearchOption.AllDirectories))
-            {
-                var normalized = file.Replace('\\', '/');
-                if (normalized.Contains("/bin/") ||
-                    normalized.Contains("/obj/") ||
-                    normalized.Contains("/.git/") ||
-                    normalized.Contains("/.vs/"))
-                {
-                    continue;
-                }
+        var stack = new Stack<string>();
+        var pathComparer = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        var visited = new HashSet<string>(pathComparer);
+        stack.Push(rootDir);
+        visited.Add(Path.GetFullPath(rootDir));
 
-                files.Add(file);
-            }
-        }
-        catch (Exception)
+        while (stack.Count > 0)
         {
-            // Ignore restricted access
+            var currentDir = stack.Pop();
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(currentDir, "*.cs"))
+                {
+                    var rel = Path.GetRelativePath(rootDir, file).Replace('\\', '/');
+                    if (rel.StartsWith("bin/", StringComparison.OrdinalIgnoreCase) ||
+                        rel.Contains("/bin/") ||
+                        rel.StartsWith("obj/", StringComparison.OrdinalIgnoreCase) ||
+                        rel.Contains("/obj/") ||
+                        rel.StartsWith(".git/", StringComparison.OrdinalIgnoreCase) ||
+                        rel.Contains("/.git/") ||
+                        rel.StartsWith(".vs/", StringComparison.OrdinalIgnoreCase) ||
+                        rel.Contains("/.vs/"))
+                    {
+                        continue;
+                    }
+
+                    files.Add(file);
+                }
+            }
+            catch (Exception)
+            {
+                // Non-fatal if files in a specific directory cannot be enumerated
+            }
+
+            try
+            {
+                foreach (var subDir in Directory.EnumerateDirectories(currentDir))
+                {
+                    var dirInfo = new DirectoryInfo(subDir);
+                    if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    var fullPath = Path.GetFullPath(subDir);
+                    if (!visited.Add(fullPath))
+                    {
+                        continue;
+                    }
+
+                    var dirName = Path.GetFileName(subDir);
+                    if (dirName.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                        dirName.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
+                        dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
+                        dirName.Equals(".vs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    stack.Push(subDir);
+                }
+            }
+            catch (Exception)
+            {
+                // Non-fatal if subdirectories cannot be enumerated
+            }
         }
     }
 
-    private static Dictionary<string, TypeDeclarationSyntax> IndexSyntaxTypes(
+    private static Dictionary<string, List<TypeDeclarationSyntax>> IndexSyntaxTypes(
         IEnumerable<SyntaxTree> trees,
         CancellationToken cancellationToken)
     {
-        var result = new Dictionary<string, TypeDeclarationSyntax>(StringComparer.Ordinal);
+        var result = new Dictionary<string, List<TypeDeclarationSyntax>>(StringComparer.Ordinal);
+        var disambiguatedByName = new Dictionary<string, string>(StringComparer.Ordinal);
+
         foreach (var tree in trees)
         {
             var root = tree.GetRoot(cancellationToken);
             foreach (var typeDecl in root.DescendantNodes().OfType<TypeDeclarationSyntax>())
             {
                 var name = typeDecl.Identifier.ValueText;
-                result[name] = typeDecl;
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+
+                var outerTypes = typeDecl.Ancestors().OfType<TypeDeclarationSyntax>().Reverse().ToList();
+                var typeHierarchy = outerTypes.Count > 0
+                    ? string.Join(".", outerTypes.Select(t => t.Identifier.ValueText)) + "." + name
+                    : name;
+                var ns = typeDecl.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().FirstOrDefault()?.Name.ToString() ?? string.Empty;
+                var qualifiedName = string.IsNullOrEmpty(ns) ? typeHierarchy : $"{ns}.{typeHierarchy}";
+
+                // 1. Index under qualified name
+                if (!result.TryGetValue(qualifiedName, out var qList))
+                {
+                    qList = new List<TypeDeclarationSyntax>();
+                    result[qualifiedName] = qList;
+                }
+
+                qList.Add(typeDecl);
+
+                // 2. Index under type hierarchy if nested (e.g. Parent.Child)
+                if (!string.Equals(typeHierarchy, qualifiedName, StringComparison.Ordinal))
+                {
+                    if (!result.TryGetValue(typeHierarchy, out var hList))
+                    {
+                        hList = new List<TypeDeclarationSyntax>();
+                        result[typeHierarchy] = hList;
+                    }
+
+                    hList.Add(typeDecl);
+                }
+
+                // 3. Index under simple name if unqualified
+                if (!string.Equals(name, qualifiedName, StringComparison.Ordinal) && !string.Equals(name, typeHierarchy, StringComparison.Ordinal))
+                {
+                    if (!disambiguatedByName.TryGetValue(name, out var existingNs))
+                    {
+                        disambiguatedByName[name] = ns;
+                        if (!result.TryGetValue(name, out var sList))
+                        {
+                            sList = new List<TypeDeclarationSyntax>();
+                            result[name] = sList;
+                        }
+
+                        sList.Add(typeDecl);
+                    }
+                    else if (string.Equals(existingNs, ns, StringComparison.Ordinal))
+                    {
+                        // Same namespace partial class part
+                        result[name].Add(typeDecl);
+                    }
+                    else
+                    {
+                        // Ambiguous simple name across different namespaces
+                        result.Remove(name);
+                        disambiguatedByName[name] = "<ambiguous>";
+                    }
+                }
             }
         }
 
         return result;
     }
-
     private static bool IsCandidateInvocation(InvocationExpressionSyntax invocation, out string methodName)
     {
         methodName = string.Empty;
@@ -420,79 +576,163 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         return string.Empty;
     }
 
-    private static string? TryResolveString(
+    public static string? TryResolveString(
         ExpressionSyntax expression,
         SemanticModel semanticModel,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        // 1. Semantic constant evaluation (handles const string, string concatenation)
-        var constant = semanticModel.GetConstantValue(expression, cancellationToken);
-        if (constant.HasValue && constant.Value is string constString && !string.IsNullOrWhiteSpace(constString))
+        return TryResolveStringCore(expression, semanticModel, cancellationToken, 0, null);
+    }
+
+    private static string? TryResolveStringCore(
+        ExpressionSyntax expression,
+        SemanticModel semanticModel,
+        CancellationToken cancellationToken,
+        int depth,
+        HashSet<SyntaxNode>? visited)
+    {
+        if (depth > 10)
         {
-            return constString;
+            return null;
         }
 
-        // 2. String literal syntax
-        if (expression is LiteralExpressionSyntax literal && literal.IsKind(SyntaxKind.StringLiteralExpression))
+        visited ??= new HashSet<SyntaxNode>();
+        if (!visited.Add(expression))
         {
-            return literal.Token.ValueText;
+            return null;
         }
 
-        // 3. Interpolated string syntax
-        if (expression is InterpolatedStringExpressionSyntax interpolated)
+        try
         {
-            return ConvertInterpolatedStringToSql(interpolated);
-        }
-
-        // 4. Identifier reference (e.g. var sql = "..."; Query<T>(sql);)
-        if (expression is IdentifierNameSyntax identifier)
-        {
-            var symbol = semanticModel.GetSymbolInfo(identifier, cancellationToken).Symbol;
-            if (symbol is ILocalSymbol or IFieldSymbol)
+            // 1. Semantic constant evaluation (handles const string, string concatenation)
+            var constant = semanticModel.GetConstantValue(expression, cancellationToken);
+            if (constant.HasValue && constant.Value is string constString && !string.IsNullOrWhiteSpace(constString))
             {
-                foreach (var syntaxRef in symbol.DeclaringSyntaxReferences)
+                return constString;
+            }
+
+            // 2. String literal syntax
+            if (expression is LiteralExpressionSyntax literal && (literal.Token.Value is string || literal.IsKind(SyntaxKind.StringLiteralExpression)))
+            {
+                return literal.Token.ValueText;
+            }
+
+            // 3. Interpolated string syntax
+            if (expression is InterpolatedStringExpressionSyntax interpolated)
+            {
+                return ConvertInterpolatedStringToSql(interpolated, semanticModel, cancellationToken, depth, visited);
+            }
+
+            // 4. Identifier reference (e.g. var sql = "..."; Query<T>(sql);)
+            if (expression is IdentifierNameSyntax identifier)
+            {
+                var symbol = semanticModel.GetSymbolInfo(identifier, cancellationToken).Symbol;
+                if (symbol is ILocalSymbol or IFieldSymbol or IPropertySymbol)
                 {
-                    if (syntaxRef.GetSyntax(cancellationToken) is VariableDeclaratorSyntax decl && decl.Initializer != null)
+                    foreach (var syntaxRef in symbol.DeclaringSyntaxReferences)
                     {
-                        var resolved = TryResolveString(decl.Initializer.Value, semanticModel, cancellationToken);
-                        if (!string.IsNullOrEmpty(resolved))
+                        var syntax = syntaxRef.GetSyntax(cancellationToken);
+                        ExpressionSyntax? initExpr = null;
+                        if (syntax is VariableDeclaratorSyntax decl)
                         {
-                            return resolved;
+                            initExpr = decl.Initializer?.Value;
+                        }
+                        else if (syntax is PropertyDeclarationSyntax prop)
+                        {
+                            initExpr = prop.Initializer?.Value ?? prop.ExpressionBody?.Expression;
+                        }
+
+                        if (initExpr != null)
+                        {
+                            SemanticModel? targetModel = null;
+                            if (semanticModel.SyntaxTree == syntax.SyntaxTree)
+                            {
+                                targetModel = semanticModel;
+                            }
+                            else if (semanticModel.Compilation.ContainsSyntaxTree(syntax.SyntaxTree))
+                            {
+                                targetModel = semanticModel.Compilation.GetSemanticModel(syntax.SyntaxTree);
+                            }
+
+                            if (targetModel != null)
+                            {
+                                var resolved = TryResolveStringCore(initExpr, targetModel, cancellationToken, depth + 1, visited);
+                                if (!string.IsNullOrEmpty(resolved))
+                                {
+                                    return resolved;
+                                }
+                            }
+                            else if (initExpr is LiteralExpressionSyntax lit && (lit.Token.Value is string || lit.IsKind(SyntaxKind.StringLiteralExpression)))
+                            {
+                                return lit.Token.ValueText;
+                            }
+                        }
+                    }
+                }
+
+                // Syntactic fallback: look up enclosing method or type
+                var enclosing = identifier.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or TypeDeclarationSyntax);
+                if (enclosing != null)
+                {
+                    foreach (var decl in enclosing.DescendantNodes().OfType<VariableDeclaratorSyntax>())
+                    {
+                        if (decl.Identifier.ValueText == identifier.Identifier.ValueText && decl.Initializer != null)
+                        {
+                            var resolved = TryResolveStringCore(decl.Initializer.Value, semanticModel, cancellationToken, depth + 1, visited);
+                            if (!string.IsNullOrEmpty(resolved))
+                            {
+                                return resolved;
+                            }
                         }
                     }
                 }
             }
 
-            // Syntactic fallback: look up enclosing method or type
-            var enclosing = identifier.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or TypeDeclarationSyntax);
-            if (enclosing != null)
+            // Unwrap parenthesized expressions first (e.g. "A" + ("B" + "C"))
+            if (expression is ParenthesizedExpressionSyntax parenthesized)
             {
-                foreach (var decl in enclosing.DescendantNodes().OfType<VariableDeclaratorSyntax>())
+                return TryResolveStringCore(parenthesized.Expression, semanticModel, cancellationToken, depth + 1, visited);
+            }
+
+            // 5. Binary add expression ("SELECT ... " + "FROM ...") - iteratively flatten to prevent StackOverflowException
+            if (expression is BinaryExpressionSyntax binary && binary.IsKind(SyntaxKind.AddExpression))
+            {
+                var parts = new List<ExpressionSyntax>();
+                var stack = new Stack<ExpressionSyntax>();
+                stack.Push(binary);
+                while (stack.Count > 0)
                 {
-                    if (decl.Identifier.ValueText == identifier.Identifier.ValueText && decl.Initializer != null)
+                    var current = stack.Pop();
+                    if (current is BinaryExpressionSyntax b && b.IsKind(SyntaxKind.AddExpression))
                     {
-                        var resolved = TryResolveString(decl.Initializer.Value, semanticModel, cancellationToken);
-                        if (!string.IsNullOrEmpty(resolved))
-                        {
-                            return resolved;
-                        }
+                        stack.Push(b.Right);
+                        stack.Push(b.Left);
+                    }
+                    else
+                    {
+                        parts.Add(current);
                     }
                 }
-            }
-        }
 
-        // 5. Binary add expression ("SELECT ... " + "FROM ...")
-        if (expression is BinaryExpressionSyntax binary && binary.IsKind(SyntaxKind.AddExpression))
+                var sb = new System.Text.StringBuilder();
+                foreach (var part in parts)
+                {
+                    var resolvedPart = TryResolveStringCore(part, semanticModel, cancellationToken, depth + 1, visited);
+                    if (resolvedPart == null)
+                    {
+                        return null;
+                    }
+                    sb.Append(resolvedPart);
+                }
+                return sb.ToString();
+            }
+
+            return null;
+        }
+        finally
         {
-            var left = TryResolveString(binary.Left, semanticModel, cancellationToken);
-            var right = TryResolveString(binary.Right, semanticModel, cancellationToken);
-            if (left != null && right != null)
-            {
-                return left + right;
-            }
+            visited.Remove(expression);
         }
-
-        return null;
     }
 
     private static bool IsSqlString(string text)
@@ -519,7 +759,12 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         return false;
     }
 
-    private static string ConvertInterpolatedStringToSql(InterpolatedStringExpressionSyntax interpolated)
+    private static string ConvertInterpolatedStringToSql(
+        InterpolatedStringExpressionSyntax interpolated,
+        SemanticModel semanticModel,
+        CancellationToken cancellationToken,
+        int depth,
+        HashSet<SyntaxNode> visited)
     {
         var parts = new List<string>();
         var paramIndex = 0;
@@ -532,7 +777,12 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             }
             else if (content is InterpolationSyntax interpolation)
             {
-                if (interpolation.Expression is IdentifierNameSyntax id)
+                var resolvedConstant = TryResolveStringCore(interpolation.Expression, semanticModel, cancellationToken, depth + 1, visited);
+                if (resolvedConstant != null)
+                {
+                    parts.Add(resolvedConstant);
+                }
+                else if (interpolation.Expression is IdentifierNameSyntax id)
                 {
                     parts.Add("@" + id.Identifier.ValueText);
                 }
@@ -582,14 +832,33 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         {
             if (invocationOp.TargetMethod.IsGenericMethod && invocationOp.TargetMethod.TypeArguments.Length > 0)
             {
-                var target = invocationOp.TargetMethod.TypeArguments[0];
+                var target = invocationOp.TargetMethod.TypeArguments.FirstOrDefault(t => t.TypeKind == TypeKind.Class || (t.TypeKind == TypeKind.Struct && t.SpecialType == SpecialType.None))
+                    ?? invocationOp.TargetMethod.TypeArguments[0];
                 return (target.Name, target);
             }
 
             if (invocationOp.Instance?.Type is INamedTypeSymbol instanceNamed && instanceNamed.TypeArguments.Length > 0)
             {
-                var target = instanceNamed.TypeArguments[0];
+                var target = instanceNamed.TypeArguments.FirstOrDefault(t => t.TypeKind == TypeKind.Class || (t.TypeKind == TypeKind.Struct && t.SpecialType == SpecialType.None))
+                    ?? instanceNamed.TypeArguments[0];
                 return (target.Name, target);
+            }
+        }
+
+        // 4. Fallback to typeof(T) arguments in invocation: conn.Query(typeof(Customer), sql)
+        if (invocation.ArgumentList != null)
+        {
+            foreach (var arg in invocation.ArgumentList.Arguments)
+            {
+                if (arg.Expression is TypeOfExpressionSyntax typeOfExpr)
+                {
+                    var typeSymbol = semanticModel.GetTypeInfo(typeOfExpr.Type, cancellationToken).Type;
+                    if (typeSymbol != null)
+                    {
+                        return (typeSymbol.Name, typeSymbol);
+                    }
+                    return (typeOfExpr.Type.ToString(), null);
+                }
             }
         }
 
@@ -624,7 +893,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         {
             foreach (var member in current.GetMembers())
             {
-                if (member is not IPropertySymbol prop || prop.IsStatic || prop.IsIndexer)
+                if (member is not IPropertySymbol prop || prop.IsStatic || prop.IsIndexer || string.Equals(prop.Name, "EqualityContract", StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -649,10 +918,11 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 {
                     foreach (var syntaxRef in prop.DeclaringSyntaxReferences)
                     {
-                        if (syntaxRef.GetSyntax() is PropertyDeclarationSyntax propSyntax)
+                        var attrs = GetSyntaxAttributeLists(syntaxRef);
+                        if (attrs.Count > 0)
                         {
-                            columnName = ExtractAttributeStringArgument(propSyntax.AttributeLists, "Column") ??
-                                         ExtractAttributeStringArgument(propSyntax.AttributeLists, "ExpectedColumn");
+                            columnName = ExtractAttributeStringArgument(attrs, "Column") ??
+                                         ExtractAttributeStringArgument(attrs, "ExpectedColumn");
                             if (!string.IsNullOrEmpty(columnName))
                             {
                                 break;
@@ -662,7 +932,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 }
 
                 var isPrimaryKey = prop.GetAttributes().Any(a => a.AttributeClass?.Name is "KeyAttribute" or "Key") ||
-                                   prop.DeclaringSyntaxReferences.Any(s => s.GetSyntax() is PropertyDeclarationSyntax ps && HasAttribute(ps.AttributeLists, "Key")) ||
+                                   prop.DeclaringSyntaxReferences.Any(s => HasAttribute(GetSyntaxAttributeLists(s), "Key")) ||
                                    string.Equals(prop.Name, "Id", StringComparison.OrdinalIgnoreCase) ||
                                    string.Equals(prop.Name, $"{typeSymbol.Name}Id", StringComparison.OrdinalIgnoreCase);
 
@@ -679,10 +949,11 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 {
                     foreach (var syntaxRef in prop.DeclaringSyntaxReferences)
                     {
-                        if (syntaxRef.GetSyntax() is PropertyDeclarationSyntax propSyntax)
+                        var attrs = GetSyntaxAttributeLists(syntaxRef);
+                        if (attrs.Count > 0)
                         {
-                            if (ExtractAttributeIntArgument(propSyntax.AttributeLists, "MaxLength", out var ml) ||
-                                ExtractAttributeIntArgument(propSyntax.AttributeLists, "StringLength", out ml))
+                            if (ExtractAttributeIntArgument(attrs, "MaxLength", out var ml) ||
+                                ExtractAttributeIntArgument(attrs, "StringLength", out ml))
                             {
                                 maxLength = ml;
                                 break;
@@ -708,52 +979,128 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
     private static IReadOnlyList<PropertyDescriptor> ExtractPropertiesFromSyntax(TypeDeclarationSyntax typeDecl)
     {
+        return ExtractPropertiesFromSyntax(new[] { typeDecl });
+    }
+
+    private static IReadOnlyList<PropertyDescriptor> ExtractPropertiesFromSyntax(IEnumerable<TypeDeclarationSyntax> typeDecls)
+    {
         var properties = new List<PropertyDescriptor>();
 
-        foreach (var prop in typeDecl.Members.OfType<PropertyDeclarationSyntax>())
+        foreach (var typeDecl in typeDecls)
         {
-            // Skip non-public or static properties
-            if (prop.Modifiers.Any(SyntaxKind.StaticKeyword) || !prop.Modifiers.Any(SyntaxKind.PublicKeyword))
+            if (typeDecl is RecordDeclarationSyntax && typeDecl.ParameterList != null)
             {
-                continue;
+                foreach (var param in typeDecl.ParameterList.Parameters)
+                {
+                    var propName = param.Identifier.ValueText;
+                    if (string.IsNullOrEmpty(propName) || string.Equals(propName, "EqualityContract", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    if (properties.Any(p => string.Equals(p.Name, propName, StringComparison.Ordinal)))
+                    {
+                        continue;
+                    }
+                    if (HasAttribute(param.AttributeLists, "NotMapped"))
+                    {
+                        continue;
+                    }
+
+                    var clrType = param.Type?.ToString() ?? "object";
+                    var columnName = ExtractAttributeStringArgument(param.AttributeLists, "Column") ??
+                                     ExtractAttributeStringArgument(param.AttributeLists, "ExpectedColumn");
+                    var isPrimaryKey = HasAttribute(param.AttributeLists, "Key") ||
+                                       string.Equals(propName, "Id", StringComparison.OrdinalIgnoreCase) ||
+                                       string.Equals(propName, $"{typeDecl.Identifier.ValueText}Id", StringComparison.OrdinalIgnoreCase);
+
+                    var isNullable = clrType.EndsWith("?", StringComparison.Ordinal) ||
+                                     clrType.StartsWith("Nullable<", StringComparison.Ordinal);
+
+                    int? maxLength = null;
+                    if (ExtractAttributeIntArgument(param.AttributeLists, "MaxLength", out var ml) ||
+                        ExtractAttributeIntArgument(param.AttributeLists, "StringLength", out ml))
+                    {
+                        maxLength = ml;
+                    }
+
+                    properties.Add(new PropertyDescriptor(
+                        Name: propName,
+                        ClrTypeName: clrType,
+                        ColumnName: columnName,
+                        ColumnType: null,
+                        IsNullable: isNullable,
+                        MaxLength: maxLength,
+                        IsPrimaryKey: isPrimaryKey,
+                        IsForeignKey: false));
+                }
             }
 
-            var propName = prop.Identifier.ValueText;
-            var clrType = prop.Type.ToString();
-
-            if (HasAttribute(prop.AttributeLists, "NotMapped"))
+            foreach (var prop in typeDecl.Members.OfType<PropertyDeclarationSyntax>())
             {
-                continue;
+                if (properties.Any(p => string.Equals(p.Name, prop.Identifier.ValueText, StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                // Skip non-public or static properties
+                var isPublic = prop.Modifiers.Any(SyntaxKind.PublicKeyword) ||
+                               (typeDecl is InterfaceDeclarationSyntax && !prop.Modifiers.Any(SyntaxKind.PrivateKeyword) && !prop.Modifiers.Any(SyntaxKind.InternalKeyword));
+                if (prop.Modifiers.Any(SyntaxKind.StaticKeyword) || !isPublic)
+                {
+                    continue;
+                }
+
+                var propName = prop.Identifier.ValueText;
+                var clrType = prop.Type.ToString();
+
+                if (HasAttribute(prop.AttributeLists, "NotMapped"))
+                {
+                    continue;
+                }
+
+                var columnName = ExtractAttributeStringArgument(prop.AttributeLists, "Column") ??
+                                 ExtractAttributeStringArgument(prop.AttributeLists, "ExpectedColumn");
+                var isPrimaryKey = HasAttribute(prop.AttributeLists, "Key") ||
+                                   string.Equals(propName, "Id", StringComparison.OrdinalIgnoreCase) ||
+                                   string.Equals(propName, $"{typeDecl.Identifier.ValueText}Id", StringComparison.OrdinalIgnoreCase);
+
+                var isNullable = clrType.EndsWith("?", StringComparison.Ordinal) ||
+                                 clrType.StartsWith("Nullable<", StringComparison.Ordinal);
+
+                int? maxLength = null;
+                if (ExtractAttributeIntArgument(prop.AttributeLists, "MaxLength", out var ml) ||
+                    ExtractAttributeIntArgument(prop.AttributeLists, "StringLength", out ml))
+                {
+                    maxLength = ml;
+                }
+
+                properties.Add(new PropertyDescriptor(
+                    Name: propName,
+                    ClrTypeName: clrType,
+                    ColumnName: columnName,
+                    ColumnType: null,
+                    IsNullable: isNullable,
+                    MaxLength: maxLength,
+                        IsPrimaryKey: isPrimaryKey,
+                        IsForeignKey: false));
             }
-
-            var columnName = ExtractAttributeStringArgument(prop.AttributeLists, "Column") ??
-                             ExtractAttributeStringArgument(prop.AttributeLists, "ExpectedColumn");
-            var isPrimaryKey = HasAttribute(prop.AttributeLists, "Key") ||
-                               string.Equals(propName, "Id", StringComparison.OrdinalIgnoreCase) ||
-                               string.Equals(propName, $"{typeDecl.Identifier.ValueText}Id", StringComparison.OrdinalIgnoreCase);
-
-            var isNullable = clrType.EndsWith("?", StringComparison.Ordinal) ||
-                             clrType.StartsWith("Nullable<", StringComparison.Ordinal);
-
-            int? maxLength = null;
-            if (ExtractAttributeIntArgument(prop.AttributeLists, "MaxLength", out var ml) ||
-                ExtractAttributeIntArgument(prop.AttributeLists, "StringLength", out ml))
-            {
-                maxLength = ml;
-            }
-
-            properties.Add(new PropertyDescriptor(
-                Name: propName,
-                ClrTypeName: clrType,
-                ColumnName: columnName,
-                ColumnType: null,
-                IsNullable: isNullable,
-                MaxLength: maxLength,
-                IsPrimaryKey: isPrimaryKey,
-                IsForeignKey: false));
         }
 
         return properties;
+    }
+
+    private static SyntaxList<AttributeListSyntax> GetSyntaxAttributeLists(SyntaxReference syntaxRef)
+    {
+        var node = syntaxRef.GetSyntax();
+        if (node is PropertyDeclarationSyntax p)
+        {
+            return p.AttributeLists;
+        }
+        if (node is ParameterSyntax param)
+        {
+            return param.AttributeLists;
+        }
+        return default;
     }
 
     private static bool HasAttribute(SyntaxList<AttributeListSyntax> attributeLists, string attributeName)
@@ -782,7 +1129,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         if (attr?.ArgumentList?.Arguments.Count > 0)
         {
             var firstArg = attr.ArgumentList.Arguments[0];
-            if (firstArg.Expression is LiteralExpressionSyntax lit && lit.IsKind(SyntaxKind.StringLiteralExpression))
+            if (firstArg.Expression is LiteralExpressionSyntax lit && (lit.Token.Value is string || lit.IsKind(SyntaxKind.StringLiteralExpression)))
             {
                 return lit.Token.ValueText;
             }
@@ -827,6 +1174,26 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             ? SpacePadding.Substring(0, m.Length)
             : new string(' ', m.Length));
     }
+    public static string MaskSqlComments(string sql)
+    {
+        if (string.IsNullOrEmpty(sql))
+        {
+            return string.Empty;
+        }
+
+        var maskedStrings = MaskSqlStringLiterals(sql);
+        var noSingle = SqlSingleLineCommentRegex.Replace(maskedStrings, m => m.Length <= SpacePadding.Length
+            ? SpacePadding.Substring(0, m.Length)
+            : new string(' ', m.Length));
+        return SqlBlockCommentRegex.Replace(noSingle, m => m.Length <= SpacePadding.Length
+            ? SpacePadding.Substring(0, m.Length)
+            : new string(' ', m.Length));
+    }
+
+    public static string MaskSqlCommentsAndStrings(string sql)
+    {
+        return DataGuard.Core.Rules.ColumnShapeMatchRule.StripCommentsAndLiterals(sql);
+    }
 
     public static SqlOperationType ClassifySqlOperation(string sql)
     {
@@ -835,7 +1202,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             return SqlOperationType.Unknown;
         }
 
-        var masked = MaskSqlStringLiterals(sql);
+        var masked = MaskSqlCommentsAndStrings(sql);
         var hasSelect = SelectOpRegex.IsMatch(masked);
         var hasInsert = InsertOpRegex.IsMatch(masked);
         var hasUpdate = UpdateOpRegex.IsMatch(masked);
@@ -879,7 +1246,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             return Array.Empty<string>();
         }
 
-        var masked = MaskSqlStringLiterals(sql);
+        var masked = MaskSqlCommentsAndStrings(sql);
         var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var regex in TablePatterns)
@@ -928,16 +1295,16 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             return "postgresql";
         }
 
+        if (typeName.IndexOf("MySql", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "mysql";
+        }
+
         if (typeName.IndexOf("Sql", StringComparison.OrdinalIgnoreCase) >= 0 &&
             typeName.IndexOf("Sqlite", StringComparison.OrdinalIgnoreCase) < 0 &&
             typeName.IndexOf("Postgresql", StringComparison.OrdinalIgnoreCase) < 0)
         {
             return "sqlserver";
-        }
-
-        if (typeName.IndexOf("MySql", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            return "mysql";
         }
         return null;
     }

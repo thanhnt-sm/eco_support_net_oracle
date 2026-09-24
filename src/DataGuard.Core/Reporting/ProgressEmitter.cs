@@ -15,6 +15,7 @@ public sealed class ProgressEmitter
 
     private readonly TextWriter writer;
     private readonly object gate = new();
+    private volatile bool enabled;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ProgressEmitter"/> class.
@@ -30,7 +31,11 @@ public sealed class ProgressEmitter
     /// <summary>
     /// Gets a value indicating whether progress events are emitted.
     /// </summary>
-    public bool Enabled { get; }
+    public bool Enabled
+    {
+        get => this.enabled;
+        private set => this.enabled = value;
+    }
 
     /// <summary>
     /// Writes one progress event without allocating serialization state when disabled.
@@ -45,8 +50,31 @@ public sealed class ProgressEmitter
 
         lock (this.gate)
         {
-            this.writer.WriteLine(JsonSerializer.Serialize(progressEvent, SerializerOptions));
-            this.writer.Flush();
+            if (!this.enabled)
+            {
+                return;
+            }
+
+            try
+            {
+                this.writer.WriteLine(JsonSerializer.Serialize(progressEvent, SerializerOptions));
+                this.writer.Flush();
+            }
+            catch (IOException)
+            {
+                // Suppress write faults if the downstream reader closes the pipe prematurely
+                this.Enabled = false;
+            }
+            catch (ObjectDisposedException)
+            {
+                // Stream was disposed
+                this.Enabled = false;
+            }
+            catch (Exception)
+            {
+                // Suppress unexpected stream or serialization write faults
+                this.Enabled = false;
+            }
         }
     }
 }

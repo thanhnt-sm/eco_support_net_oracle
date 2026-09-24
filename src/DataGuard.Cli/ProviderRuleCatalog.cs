@@ -21,7 +21,6 @@ public static class ProviderRuleCatalog
         AddCoreRules(rules, connectionString, provider, progress);
         if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
         {
-            Add(rules, new OracleSyntaxInNonOracleContextRule());
             Add(rules, new NonOracleFunctionInOracleContextRule());
             Add(rules, new ProviderOptionMismatchRule(), RuleAvailability.Unavailable, "Requires analyzer DbContext provider-registration metadata.");
             Add(rules, new SqlServerSyntaxLeakRule());
@@ -39,6 +38,7 @@ public static class ProviderRuleCatalog
             Add(rules, new MySqlUtf8mb4ByteOverflowRule());
             Add(rules, new MySqlTextOverflowRule());
             Add(rules, new MySqlInferredSizeFallbackRule());
+            Add(rules, new OracleSyntaxInNonOracleContextRule());
         }
         else if (provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase) || provider.Equals("postgres", StringComparison.OrdinalIgnoreCase))
         {
@@ -47,8 +47,12 @@ public static class ProviderRuleCatalog
             Add(rules, new PostgreSqlLengthExceedsColumnRule());
             Add(rules, new PostgreSqlProviderOptionMismatchRule(), RuleAvailability.Unavailable, "Requires analyzer DbContext provider-registration metadata.");
             Add(rules, new PostgreSqlRawSqlUnmappedTypeUsageRule());
+            Add(rules, new OracleSyntaxInNonOracleContextRule());
         }
-
+        else if (provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
+        {
+            Add(rules, new OracleSyntaxInNonOracleContextRule());
+        }
         return rules;
     }
 

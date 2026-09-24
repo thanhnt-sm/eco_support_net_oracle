@@ -6,7 +6,16 @@ export interface CancellableRun {
 /** Owns the single process allowed to run across all VS Code workspaces. */
 export class RunCoordinator<T extends CancellableRun> {
     private activeRun: T | undefined;
+    private currentToken = 0;
 
+    nextReservation(): number {
+        this.cancel();
+        return this.currentToken;
+    }
+
+    isReservationCurrent(token: number): boolean {
+        return token === this.currentToken;
+    }
     get current(): T | undefined {
         return this.activeRun;
     }
@@ -15,7 +24,11 @@ export class RunCoordinator<T extends CancellableRun> {
         const previous = this.activeRun;
         if (previous) {
             previous.cancelled = true;
-            previous.cancel();
+            try {
+                previous.cancel();
+            } catch {
+                // Ignore cancel errors to maintain coordinator invariants
+            }
         }
         this.activeRun = run;
         return previous;
@@ -29,10 +42,18 @@ export class RunCoordinator<T extends CancellableRun> {
 
     cancel(): T | undefined {
         const run = this.activeRun;
-        if (run) {
-            run.cancelled = true;
-            run.cancel();
-            this.activeRun = undefined;
+        try {
+            if (run) {
+                run.cancelled = true;
+                try {
+                    run.cancel();
+                } catch {
+                    // Ignore cancel errors to preserve state invariants
+                }
+                this.activeRun = undefined;
+            }
+        } finally {
+            this.currentToken++;
         }
         return run;
     }
