@@ -231,15 +231,16 @@ The extension reads configuration from:
 2. **VS Options page** (Tools → Options → DataGuard)
 3. **Environment variables** (`DATAGUARD_CONNECTION_STRING`)
 
-### Options Page
+### Options Page (Tools → Options → DataGuard → General)
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| CLI Path | `string` | `dataguard` | Path to the CLI executable |
-| Default Provider | `enum` | `sqlserver` | Default database provider |
-| Auto-validate on Build | `bool` | `false` | Run validation before build |
-| Show Output Pane | `bool` | `true` | Auto-show output pane on validation |
-
+| Setting | Type | Category | Default | Description |
+|---------|------|----------|---------|-------------|
+| Enable Detailed Logging | `bool` | Diagnostics & Logging | `true` | Automatically records lifecycle events, command runs, CLI outputs, and errors |
+| Log Directory | `string` | Diagnostics & Logging | `""` (empty) | Custom directory for log files (defaults to `%APPDATA%\DataGuard\logs`) |
+| Custom CLI Executable Path | `string` | CLI Configuration | `""` (empty) | Absolute path to `dataguard.exe` (falls back to `DATAGUARD_CLI_PATH`, `~/.dotnet/tools`, or PATH) |
+| Run Validation on Build | `bool` | Automation | `false` | Automatically trigger validation when a solution build/rebuild finishes successfully |
+| Validation Timeout (seconds) | `int` | Automation | `300` | Timeout before CLI `validate` process is terminated (clamped between 5 and 900 seconds) |
+| Assessment Timeout (seconds) | `int` | Automation | `60` | Timeout before CLI `assess` process is terminated (clamped between 5 and 900 seconds) |
 ### Validation Rules options
 
 `Tools → Options → DataGuard → Validation Rules` exposes one toggle per rule group. `GetDisabledRuleIds()` maps each disabled toggle to its concrete rule IDs (for example disabling dialect leakage excludes `DG010-DG013,MY001-MY003,PG001-PG002`). `Run Validation` forwards that list as `validate --skip-rules <ids>`.

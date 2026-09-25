@@ -15,6 +15,13 @@
 ## 3. Options & Configuration
 
 You can access the configuration settings at: **Tools** -> **Options** -> **DataGuard**.
+* **General**:
+  * **Diagnostics & Logging**: Toggle `Enable Detailed Logging` and specify a custom `Log Directory`.
+  * **CLI Configuration**: Specify a `Custom CLI Executable Path` to override auto-discovery.
+  * **Automation**:
+    * `Run Validation on Build`: Automatically run validation on build success (default: false).
+    * `Validation Timeout (seconds)`: Timeout for CLI `validate` executions, clamped between 5 and 900 seconds (default: 300).
+    * `Assessment Timeout (seconds)`: Timeout for CLI `assess` executions, clamped between 5 and 900 seconds (default: 60).
 * **Validation Rules**: Displays descriptions for all rules (e.g. `DG002`, `DG003`, `DG016`, etc.) and allows you to toggle each rule on or off. All rules are **enabled by default**.
 
 ## 4. Validating Projects

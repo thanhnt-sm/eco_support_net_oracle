@@ -410,6 +410,11 @@ public sealed class DataGuardPackage : AsyncPackage
 
         if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings))
         {
+            if (string.IsNullOrEmpty(formatted))
+            {
+                return new ParsedProgress(null, eventErrors, eventWarnings);
+            }
+
             return new ParsedProgress(formatted + "\r\n", eventErrors, eventWarnings);
         }
 
@@ -457,7 +462,7 @@ public sealed class DataGuardPackage : AsyncPackage
 
     internal static bool TryFormatProgress(
         string line,
-        out string formatted,
+        out string? formatted,
         out int? errorCount,
         out int? warningCount)
     {
@@ -499,14 +504,18 @@ public sealed class DataGuardPackage : AsyncPackage
                         formatted = "[DataGuard] ✔ " + phase + (contracts.HasValue ? ": " + contracts.Value + " contracts" : string.Empty);
                         break;
                     case "ContractDiscovered":
-                        formatted = detail.StartsWith("Found SQL in", StringComparison.OrdinalIgnoreCase)
-                            ? "[DataGuard]   " + detail
-                            : "[DataGuard]   Discovered " + detail;
+                        formatted = null;
                         break;
                     case "RuleExecuted":
+                        if (!violations.HasValue || violations.Value <= 0)
+                        {
+                            formatted = null;
+                            break;
+                        }
+
                         formatted = "[DataGuard]   " + detail +
                             (contracts.HasValue ? " Checked " + contracts.Value + " contracts" : string.Empty) +
-                            (violations.HasValue ? " → " + violations.Value + " violations" : string.Empty);
+                            " → " + violations.Value + " violations";
                         break;
                     case "Summary":
                         errorCount = GetProgressCount(data, "ErrorCount");
@@ -567,14 +576,15 @@ public sealed class DataGuardPackage : AsyncPackage
         {
             if (fSucceeded != 0 && fCancelCommand == 0)
             {
-                var options = (DataGuardOptionsPage)this.package.GetDialogPage(typeof(DataGuardOptionsPage));
-                if (options != null && options.RunValidationOnBuild)
+                this.package.JoinableTaskFactory.RunAsync(async () =>
                 {
-                    this.package.JoinableTaskFactory.RunAsync(async () =>
+                    await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    var options = (DataGuardOptionsPage)this.package.GetDialogPage(typeof(DataGuardOptionsPage));
+                    if (options != null && options.RunValidationOnBuild)
                     {
                         await this.package.RunValidationAsync();
-                    }).FileAndForget("DataGuard/RunValidationOnBuild");
-                }
+                    }
+                }).FileAndForget("DataGuard/RunValidationOnBuild");
             }
 
             return VSConstants.S_OK;
@@ -592,6 +602,7 @@ public sealed class DataGuardPackage : AsyncPackage
         _ = this.JoinableTaskFactory.RunAsync(async () =>
         {
             await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+            await this.ActivateOutputPaneAsync();
             await this.WriteOutputAsync("========================================================================\r\n");
             await this.WriteOutputAsync("DataGuard Validation Rules — Current Configuration\r\n");
             await this.WriteOutputAsync("========================================================================\r\n");
@@ -672,15 +683,18 @@ public sealed class DataGuardPackage : AsyncPackage
 
         try
         {
-            var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
-            DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
-            var cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath, solutionDirectory: solutionDirectory);
+            var options = (DataGuardOptionsPage?)this.GetDialogPage(typeof(DataGuardOptionsPage));
+            var timeoutSeconds = command == "validate"
+                ? (options?.ValidationTimeoutSeconds ?? 300)
+                : (options?.AssessmentTimeoutSeconds ?? 60);
+            DataGuardLogger.Configure(options?.EnableDetailedLogging ?? true, options?.CustomLogDirectory);
+            var cliPath = DataGuardLogger.FindCliExecutable(options?.CustomCliPath, solutionDirectory: solutionDirectory);
 
             if (string.IsNullOrEmpty(cliPath))
             {
-                if (!string.IsNullOrWhiteSpace(options.CustomCliPath))
+                if (!string.IsNullOrWhiteSpace(options?.CustomCliPath))
                 {
-                    await this.WriteOutputAsync("[DataGuard] Custom CLI path '" + options.CustomCliPath!.Trim()
+                    await this.WriteOutputAsync("[DataGuard] Custom CLI path '" + options!.CustomCliPath!.Trim()
                         + "' was not found or is not a valid executable. Check Tools > Options > DataGuard > General > Custom CLI Executable Path.\r\n");
                     lock (this.processGate)
                     {
@@ -693,7 +707,7 @@ public sealed class DataGuardPackage : AsyncPackage
                 await this.TryAutoInstallCliAsync();
 
                 // Always re-check the path, even if installation failed, because it might already exist but wasn't found in initial paths.
-                cliPath = DataGuardLogger.FindCliExecutable(options.CustomCliPath, solutionDirectory: solutionDirectory);
+                cliPath = DataGuardLogger.FindCliExecutable(options?.CustomCliPath, solutionDirectory: solutionDirectory);
 
                 if (string.IsNullOrEmpty(cliPath))
                 {
@@ -762,7 +776,14 @@ public sealed class DataGuardPackage : AsyncPackage
                 var stdoutDrainTask = DrainAsync(process.StandardOutput);
                 var stderrDrainTask = this.ReadProgressAsync(process.StandardError);
                 var exitTask = Task.Run(() => process.WaitForExit());
-                var completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(60)));
+                Task completed;
+                using (var timeoutCts = new CancellationTokenSource())
+                {
+                    var delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), timeoutCts.Token);
+                    completed = await Task.WhenAny(exitTask, delayTask);
+                    timeoutCts.Cancel();
+                }
+
                 if (completed != exitTask)
                 {
                     if (!exitTask.IsCompleted)
@@ -771,16 +792,22 @@ public sealed class DataGuardPackage : AsyncPackage
                         var drains = Task.WhenAll(stdoutDrainTask, stderrDrainTask);
                         await this.SetStatusTextAsync("DataGuard: Timed out");
                         await this.WriteOutputAsync(termination == ProcessStopOutcome.Terminated
-                            ? "[DataGuard] " + command + " timed out after 60 seconds and its process tree was terminated.\r\n"
+                            ? "[DataGuard] " + command + " timed out after " + timeoutSeconds + " seconds and its process tree was terminated.\r\n"
                             : termination == ProcessStopOutcome.AlreadyExited
-                                ? "[DataGuard] " + command + " exceeded 60 seconds but completed before termination was requested.\r\n"
+                                ? "[DataGuard] " + command + " exceeded " + timeoutSeconds + " seconds but completed before termination was requested.\r\n"
                                 : "[DataGuard] " + command + " timed out, but its process tree could not be terminated. Stop it manually.\r\n");
                         if (termination == ProcessStopOutcome.Failed)
                         {
-                            var cleanupTimeout = Task.Delay(TimeSpan.FromSeconds(120));
-                            var exitCompleted = await Task.WhenAny(exitTask, cleanupTimeout) == exitTask;
-                            var drainsCompleted = exitCompleted &&
-                                await Task.WhenAny(drains, cleanupTimeout) == drains;
+                            bool exitCompleted;
+                            bool drainsCompleted;
+                            using (var cleanupCts = new CancellationTokenSource())
+                            {
+                                var cleanupTimeout = Task.Delay(TimeSpan.FromSeconds(120), cleanupCts.Token);
+                                exitCompleted = await Task.WhenAny(exitTask, cleanupTimeout) == exitTask;
+                                drainsCompleted = exitCompleted &&
+                                    await Task.WhenAny(drains, cleanupTimeout) == drains;
+                                cleanupCts.Cancel();
+                            }
                             if (ShouldForceReleaseFailedTerminationReservation(exitCompleted, drainsCompleted))
                             {
                                 process.StandardOutput.Close();
@@ -1153,6 +1180,7 @@ public sealed class DataGuardPackage : AsyncPackage
         int enabledRuleCount,
         int disabledRuleCount)
     {
+        await this.ActivateOutputPaneAsync();
         var title = command == "validate" ? "Run Validation" : "Assess Workspace";
         var description = command == "validate"
             ? "Validates C# and database contracts (parameters, result shapes, types, naming, and SQL dialect)."
@@ -1425,11 +1453,29 @@ public sealed class DataGuardPackage : AsyncPackage
 
     private async Task ViewLogsAsync()
     {
+        await this.ActivateOutputPaneAsync();
         await this.WriteOutputAsync("[DataGuard] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
         await this.WriteOutputAsync("[DataGuard] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
         await this.WriteOutputAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         DataGuardLogger.OpenLog(this);
+    }
+
+    private async Task ActivateOutputPaneAsync()
+    {
+        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var outputWindow = await this.GetServiceAsync(typeof(SVsOutputWindow)) as IVsOutputWindow;
+        if (outputWindow == null)
+        {
+            return;
+        }
+
+        var paneGuid = OutputPaneGuid;
+        outputWindow.CreatePane(ref paneGuid, "DataGuard", 1, 1);
+        if (ErrorHandler.Succeeded(outputWindow.GetPane(ref paneGuid, out var pane)) && pane != null)
+        {
+            pane.Activate();
+        }
     }
 
     private async Task WriteOutputAsync(string text)
@@ -1448,7 +1494,6 @@ public sealed class DataGuardPackage : AsyncPackage
         if (ErrorHandler.Succeeded(outputWindow.GetPane(ref paneGuid, out var pane)) && pane != null)
         {
             pane.OutputStringThreadSafe(text);
-            pane.Activate();
         }
     }
 }

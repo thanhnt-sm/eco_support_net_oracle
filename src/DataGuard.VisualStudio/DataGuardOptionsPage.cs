@@ -16,6 +16,9 @@ using Microsoft.VisualStudio.Shell;
 [Guid("6e1a9b24-342a-4a6c-9477-981504d6cfa1")]
 public class DataGuardOptionsPage : DialogPage
 {
+    private int validationTimeoutSeconds = 300;
+    private int assessmentTimeoutSeconds = 60;
+
     /// <summary>
     /// Gets or sets a value indicating whether detailed diagnostic logging is enabled.
     /// Defaults to true so that logs are captured automatically without manual command-line flags.
@@ -48,4 +51,37 @@ public class DataGuardOptionsPage : DialogPage
     [DisplayName("Run Validation on Build")]
     [Description("Automatically trigger the DataGuard 'validate' command when a solution build or rebuild finishes successfully.")]
     public bool RunValidationOnBuild { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets the validation command timeout in seconds.
+    /// Range: 5–900 seconds. Default: 300 seconds.
+    /// </summary>
+    [Category("Automation")]
+    [DisplayName("Validation Timeout (seconds)")]
+    [Description("Maximum duration (in seconds) before the CLI validation process is terminated. Range: 5–900 seconds. Default: 300 seconds.")]
+    [DefaultValue(300)]
+    public int ValidationTimeoutSeconds
+    {
+        get => this.validationTimeoutSeconds;
+        set => this.validationTimeoutSeconds = ClampTimeout(value);
+    }
+
+    /// <summary>
+    /// Gets or sets the assessment command timeout in seconds.
+    /// Range: 5–900 seconds. Default: 60 seconds.
+    /// </summary>
+    [Category("Automation")]
+    [DisplayName("Assessment Timeout (seconds)")]
+    [Description("Maximum duration (in seconds) before the CLI workspace assessment process is terminated. Range: 5–900 seconds. Default: 60 seconds.")]
+    [DefaultValue(60)]
+    public int AssessmentTimeoutSeconds
+    {
+        get => this.assessmentTimeoutSeconds;
+        set => this.assessmentTimeoutSeconds = ClampTimeout(value);
+    }
+
+    internal static int ClampTimeout(int value)
+    {
+        return value < 5 ? 5 : (value > 900 ? 900 : value);
+    }
 }

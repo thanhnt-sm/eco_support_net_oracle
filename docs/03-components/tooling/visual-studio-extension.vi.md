@@ -231,15 +231,16 @@ Tiện ích đọc cấu hình từ:
 2. **VS Options page** (Tools → Options → DataGuard)
 3. **Biến môi trường** (`DATAGUARD_CONNECTION_STRING`)
 
-### Options Page
+### Options Page (Tools → Options → DataGuard → General)
 
-| Cài đặt | Kiểu | Mặc định | Mô tả |
-|---------|------|----------|-------|
-| CLI Path | `string` | `dataguard` | Đường dẫn đến file thực thi CLI |
-| Default Provider | `enum` | `sqlserver` | Database provider mặc định |
-| Auto-validate on Build | `bool` | `false` | Chạy xác thực trước build |
-| Show Output Pane | `bool` | `true` | Tự hiện output pane khi xác thực |
-
+| Cài đặt | Kiểu | Phân nhóm | Mặc định | Mô tả |
+|---------|------|-----------|----------|-------|
+| Enable Detailed Logging | `bool` | Diagnostics & Logging | `true` | Tự động ghi lại sự kiện vòng đời tiện ích, thực thi lệnh, CLI output và lỗi |
+| Log Directory | `string` | Diagnostics & Logging | `""` (trống) | Thư mục lưu log tùy chỉnh (mặc định `%APPDATA%\DataGuard\logs`) |
+| Custom CLI Executable Path | `string` | CLI Configuration | `""` (trống) | Đường dẫn tuyệt đối đến `dataguard.exe` (fallback về `DATAGUARD_CLI_PATH`, `~/.dotnet/tools`, hoặc PATH) |
+| Run Validation on Build | `bool` | Automation | `false` | Tự động kích hoạt lệnh xác thực khi build/rebuild solution thành công |
+| Validation Timeout (seconds) | `int` | Automation | `300` | Thời gian chờ tối đa trước khi dừng tiến trình CLI `validate` (giới hạn trong khoảng 5 đến 900 giây) |
+| Assessment Timeout (seconds) | `int` | Automation | `60` | Thời gian chờ tối đa trước khi dừng tiến trình CLI `assess` (giới hạn trong khoảng 5 đến 900 giây) |
 ### Tùy chọn Validation Rules
 
 `Tools → Options → DataGuard → Validation Rules` cung cấp một toggle cho mỗi nhóm rule. `GetDisabledRuleIds()` ánh xạ mỗi toggle bị tắt sang các rule ID cụ thể (ví dụ tắt dialect leakage loại trừ `DG010-DG013,MY001-MY003,PG001-PG002`). `Run Validation` chuyển tiếp danh sách đó thành `validate --skip-rules <ids>`.

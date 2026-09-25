@@ -308,4 +308,87 @@ public class DataGuardPackageTests
         DataGuardLogger.Configure(true, @"\\malicious-smb-server\share\logs");
         DataGuardLogger.LogFilePath.Should().NotStartWith(@"\\malicious-smb-server");
     }
+
+    [Fact]
+    public void FormatProgressLine_ContractDiscovered_SuppressesOutput()
+    {
+        var json = "{\"Kind\":\"ContractDiscovered\",\"Phase\":\"Contract Discovery\",\"Detail\":\"Found SQL in Repositories/UserDao.cs:42\"}";
+        var output = DataGuardPackage.FormatProgressLine(json, false);
+
+        output.FormattedOutput.Should().BeNull();
+    }
+
+    [Fact]
+    public void FormatProgressLine_RuleExecutedWithZeroViolations_SuppressesOutput()
+    {
+        var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"ContractCount\":1,\"ViolationCount\":0}}";
+        var output = DataGuardPackage.FormatProgressLine(json, false);
+
+        output.FormattedOutput.Should().BeNull();
+    }
+
+    [Fact]
+    public void FormatProgressLine_RuleExecutedWithViolations_PreservesOutput()
+    {
+        var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"ContractCount\":1,\"ViolationCount\":3}}";
+        var output = DataGuardPackage.FormatProgressLine(json, false);
+
+        output.FormattedOutput.Should().NotBeNull();
+        output.FormattedOutput.Should().Contain("DG101");
+        output.FormattedOutput.Should().Contain("3 violations");
+    }
+
+    [Fact]
+    public void FormatProgressLine_PhaseStartedAndCompleted_PreservesOutput()
+    {
+        var startedJson = "{\"Kind\":\"PhaseStarted\",\"Phase\":\"Rule Evaluation\",\"Detail\":\"Running active rules\"}";
+        var startedOutput = DataGuardPackage.FormatProgressLine(startedJson, false);
+        startedOutput.FormattedOutput.Should().NotBeNull();
+        startedOutput.FormattedOutput.Should().Contain("▶ Rule Evaluation — Running active rules");
+
+        var completedJson = "{\"Kind\":\"PhaseCompleted\",\"Phase\":\"Contract Discovery\",\"Data\":{\"ContractCount\":2886}}";
+        var completedOutput = DataGuardPackage.FormatProgressLine(completedJson, false);
+        completedOutput.FormattedOutput.Should().NotBeNull();
+        completedOutput.FormattedOutput.Should().Contain("✔ Contract Discovery: 2886 contracts");
+    }
+
+    [Fact]
+    public void FormatProgressLine_Summary_PreservesOutputAndCounts()
+    {
+        var summaryJson = "{\"Kind\":\"Summary\",\"Phase\":\"Validation complete\",\"Data\":{\"ErrorCount\":2,\"WarningCount\":5}}";
+        var output = DataGuardPackage.FormatProgressLine(summaryJson, false);
+
+        output.FormattedOutput.Should().NotBeNull();
+        output.FormattedOutput.Should().Contain("✔ Validation complete: 2 errors, 5 warnings");
+        output.ErrorCount.Should().Be(2);
+        output.WarningCount.Should().Be(5);
+    }
+
+    [Theory]
+    [InlineData(300, 300)]
+    [InlineData(5, 5)]
+    [InlineData(900, 900)]
+    [InlineData(0, 5)]
+    [InlineData(-100, 5)]
+    [InlineData(1000, 900)]
+    public void ValidationTimeoutSeconds_ClampsToSafeRange(int input, int expected)
+    {
+        var options = (DataGuardOptionsPage)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(DataGuardOptionsPage));
+        options.ValidationTimeoutSeconds = input;
+        options.ValidationTimeoutSeconds.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(60, 60)]
+    [InlineData(5, 5)]
+    [InlineData(900, 900)]
+    [InlineData(0, 5)]
+    [InlineData(-50, 5)]
+    [InlineData(1500, 900)]
+    public void AssessmentTimeoutSeconds_ClampsToSafeRange(int input, int expected)
+    {
+        var options = (DataGuardOptionsPage)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(DataGuardOptionsPage));
+        options.AssessmentTimeoutSeconds = input;
+        options.AssessmentTimeoutSeconds.Should().Be(expected);
+    }
 }
