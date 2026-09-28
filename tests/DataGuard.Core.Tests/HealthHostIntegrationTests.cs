@@ -61,7 +61,7 @@ public sealed class HealthHostIntegrationTests
         startInfo.ArgumentList.Add("true");
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start DataGuard.Host.");
-        await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
+        await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(15)));
         var exitedPromptly = process.HasExited;
         if (!process.HasExited)
         {

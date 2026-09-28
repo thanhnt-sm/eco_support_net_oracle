@@ -283,12 +283,12 @@ Phát hiện vấn đề cú pháp SQL cross-dialect. Sử dụng regex word-bou
 |------------|---------|
 | **Mức độ** | Warning |
 | **Kích hoạt** | Từ khóa/toán tử Oracle trong SQL không phải Oracle |
-| **Thông báo** | Oracle-specific keyword '{keyword}' used in non-Oracle context |
-| **Properties Bag** | `keyword`, `migration` |
+| **Thông báo** | `[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)` |
+| **Properties Bag** | `keyword`, `migration`, `targetProvider` |
 
 #### Từ Điển Gợi Ý Di Chuyển (Migration Dictionary)
 
-Thay vì chỉ là một tập hợp phát hiện tĩnh, `DG010` được hỗ trợ bởi từ điển di chuyển chi tiết cung cấp các gợi ý thay thế tương đương bằng chuẩn ANSI SQL hoặc SQL Server:
+Thay vì chỉ là một tập hợp phát hiện tĩnh, `DG010` được hỗ trợ bởi từ điển di chuyển chi tiết cung cấp các gợi ý thay thế tương đương bằng chuẩn ANSI SQL hoặc SQL Server ngay trong nội dung thông báo vi phạm và thuộc tính:
 
 | Từ khóa / Toán tử Oracle | Gợi ý chuyển đổi khuyến nghị |
 |--------------------------|-----------------------------|
@@ -305,7 +305,7 @@ Thay vì chỉ là một tập hợp phát hiện tĩnh, `DG010` được hỗ t
 | `(+)` | Thay thế outer-join `(+)` bằng cú pháp ANSI `LEFT JOIN` / `RIGHT JOIN` |
 | `**` | `POWER(base, exponent) (ANSI SQL)` |
 
-Các gợi ý này được tích hợp vào extension VS Code và hiển thị trực tiếp trong tooltip của trình soạn thảo qua `DataGuardHoverProvider`.
+Các gợi ý này được tích hợp vào tiện ích mở rộng VS Code (hiển thị trực tiếp trong tooltip qua `DataGuardHoverProvider`) và tiện ích Visual Studio 2022 (hiển thị trực tiếp trong nội dung văn bản Error List).
 ### DG011 — Function không phải Oracle trong ngữ cảnh Oracle
 
 | Thuộc tính | Giá trị |

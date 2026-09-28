@@ -177,6 +177,28 @@ The extension parses SARIF 2.1.0 output and creates `ErrorTask` entries for the 
 | `result.message.text` | `Text` |
 | `result.locations[].physicalLocation.artifactLocation.uri` | `Document` |
 | `result.locations[].physicalLocation.region.startLine` | `Line` |
+| `result.locations[].physicalLocation.region.startColumn` | `Column` |
+
+### Error List Navigation
+
+Each `ErrorTask` attaches an asynchronous `Navigate` event handler that switches to the Visual Studio main thread and calls:
+```csharp
+VsShellUtilities.OpenDocument(
+    this,
+    task.Document,
+    Microsoft.VisualStudio.VSConstants.LOGVIEWID_Code,
+    out _,
+    out _,
+    out IVsWindowFrame windowFrame,
+    out IVsTextView textView);
+windowFrame?.Show();
+if (textView != null)
+{
+    textView.SetCaretPos(task.Line, task.Column);
+    textView.CenterLines(task.Line, 1);
+}
+```
+Double-clicking an item in the Error List automatically opens the target source file, places the caret at the exact `Line` and `Column`, and centers the line in the active text editor. If the target file no longer exists, a diagnostic message is printed to the DataGuard Output pane.
 
 ### Error Categories
 
@@ -186,14 +208,24 @@ The extension parses SARIF 2.1.0 output and creates `ErrorTask` entries for the 
 | `warning` | `TaskErrorCategory.Warning` |
 | `note` | `TaskErrorCategory.Message` |
 
-## Output Pane
+## Output Pane and Rule Inventory Summary
 
 A dedicated "DataGuard" output pane displays:
 
 - Command being executed
-- CLI stdout (real-time streaming)
+- CLI stdout (real-time streaming progress)
 - CLI stderr (errors)
-- Summary: "Validation complete: N issues (X errors, Y warnings)"
+- Validation summary and Rule Inventory Banner:
+
+```text
+[DataGuard] ==================== Validation Summary ====================
+[DataGuard] Rules Evaluated: 12 (DG001, DG002, DG010, ...)
+[DataGuard] Rules with Findings: DG010 (2)
+[DataGuard] Double-click any Error List item to jump directly to code.
+[DataGuard] ==========================================================
+```
+
+The inventory accumulator (`_ruleInventory`) tracks rule IDs, rule titles, and finding counts under lock synchronization across CLI progress events and clears between validation runs.
 
 The pane is created via `IVsOutputWindow`:
 
@@ -203,6 +235,18 @@ outputWindow.CreatePane(ref guidDataGuardOutputPane, "DataGuard", 1, 1);
 outputWindow.GetPane(ref guidDataGuardOutputPane, out var pane);
 ```
 
+## Bundled Roslyn Analyzers and Code Fixes
+
+The extension packages Roslyn code analyzers and fixes directly inside the VSIX container:
+- `DataGuard.Analyzers.dll`
+- `DataGuard.CodeFixes.dll`
+
+These assemblies are built during the VSIX packaging target (`BuildAnalyzers`) and registered as Analyzer assets in `source.extension.vsixmanifest`:
+```xml
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.Analyzers.dll" />
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.CodeFixes.dll" />
+```
+This enables in-editor live diagnostics and quick-fixes for solutions opened in Visual Studio 2022 without requiring separate per-project NuGet package installations.
 ## Process Gate for Cancellation
 
 The extension maintains a `CancellationTokenSource` that gates the running process:
@@ -247,7 +291,7 @@ The extension reads configuration from:
 
 ## Limitations
 
-- Requires the `dataguard` CLI installed and on PATH
-- No real-time squiggles (unlike the VS Code extension with Roslyn analyzers)
+- Requires the `dataguard` CLI installed and on PATH for full project-wide batch validation
+- In-editor squiggles and code fixes for opened C# documents are provided by the bundled Roslyn analyzers (`DataGuard.Analyzers.dll` and `DataGuard.CodeFixes.dll`)
 - SARIF file paths must be within the solution directory for Error List navigation
 - One validation at a time; concurrent requests queue

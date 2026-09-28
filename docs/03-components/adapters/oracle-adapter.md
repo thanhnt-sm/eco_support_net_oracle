@@ -283,12 +283,12 @@ Detects cross-dialect SQL syntax issues. Uses word-boundary regex matching to av
 |----------|-------|
 | **Severity** | Warning |
 | **Trigger** | Oracle keywords/operators in non-Oracle SQL |
-| **Message** | Oracle-specific keyword `{keyword}` used in non-Oracle context |
-| **Properties Bag** | `keyword`, `migration` |
+| **Message** | `[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)` |
+| **Properties Bag** | `keyword`, `migration`, `targetProvider` |
 
 #### Migration Dictionary
 
-Rather than a simple detection set, `DG010` is backed by a comprehensive migration dictionary that emits actionable ANSI SQL and SQL Server replacement hints:
+Rather than a simple detection set, `DG010` is backed by a comprehensive migration dictionary that emits actionable ANSI SQL and SQL Server replacement hints directly in the diagnostic message and properties:
 
 | Oracle Keyword / Operator | Recommended Migration Hint |
 |---------------------------|----------------------------|
@@ -305,7 +305,7 @@ Rather than a simple detection set, `DG010` is backed by a comprehensive migrati
 | `(+)` | Replace outer-join `(+)` with ANSI `LEFT JOIN` / `RIGHT JOIN` |
 | `**` | `POWER(base, exponent) (ANSI SQL)` |
 
-These hints are ingested by the VS Code extension and surfaced directly in editor tooltips via `DataGuardHoverProvider`.
+These hints are ingested by the VS Code extension (surfaced directly in editor tooltips via `DataGuardHoverProvider`) and the Visual Studio 2022 extension (displayed directly in the Error List message text).
 ### DG011 — Non-Oracle Function in Oracle Context
 
 | Property | Value |

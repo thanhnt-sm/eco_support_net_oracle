@@ -110,7 +110,7 @@ done
 if [[ -z "$COMMIT_MSG" ]]; then
     COMMIT_MSG="chore(sync): automated workspace synchronization [$(date -u +'%Y-%m-%dT%H:%M:%SZ')]"
 else
-    COMMIT_MSG="$(printf '%s' "$COMMIT_MSG" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+    COMMIT_MSG="$(printf '%s' "$COMMIT_MSG" | sed -e 's/^[\\\"'\'']*//' -e 's/[\\\"'\'']*$//')"
 fi
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────

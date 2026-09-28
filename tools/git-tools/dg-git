@@ -81,45 +81,45 @@ cmd_doctor() {
     
     # 1. Detached HEAD
     if git status | grep -q "HEAD detached"; then
-        echo -e "${RED}❌ Detached HEAD${NC}"; ((issues++))
+        echo -e "${RED}❌ Detached HEAD${NC}"; issues=$((issues + 1))
     fi
     
     # 2. Merge conflicts
     if git status | grep -qE "both modified|both added|both deleted"; then
-        echo -e "${RED}❌ Merge conflicts${NC}"; ((issues++))
+        echo -e "${RED}❌ Merge conflicts${NC}"; issues=$((issues + 1))
     fi
     
     # 3. Large files staged (>100MB)
     while IFS= read -r file; do
         [[ -f "$file" ]] && {
             size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0)
-            [[ $size -gt 104857600 ]] && { log_error "Large file: $file ($(numfmt --to=iec $size 2>/dev/null || echo $size))"; ((issues++)); }
+            [[ $size -gt 104857600 ]] && { log_error "Large file: $file ($(numfmt --to=iec $size 2>/dev/null || echo $size))"; issues=$((issues + 1)); }
         }
     done < <(git diff --cached --name-only)
     
     # 4. Sensitive files staged
     local sensitive_patterns=('\.env$' '\.env\.' '\.pem$' '\.key$' '\.p12$' '\.pfx$' 'id_rsa$' 'id_ed25519$' '\.p8$' '\.ppk$' 'appsettings\.json$' 'appsettings\..*\.json$' '\.pem$' '\.crt$' '\.cer$' '\.p12$' '\.pfx$')
     while IFS= read -r file; do
-        for p in "${sensitive_patterns[@]}"; do [[ "$file" =~ $p ]] && { log_warn "Sensitive file: $file"; ((warnings++)); }; done
+        for p in "${sensitive_patterns[@]}"; do [[ "$file" =~ $p ]] && { log_warn "Sensitive file: $file"; warnings=$((warnings + 1)); }; done
     done < <(git diff --cached --name-only)
     
     # 5. Secrets in staged (git-secrets if available)
-    command -v git-secrets >/dev/null && ! git secrets --scan --cached 2>/dev/null && { log_error "Secrets in staged files"; ((issues++)); }
+    command -v git-secrets >/dev/null && ! git secrets --scan --cached 2>/dev/null && { log_error "Secrets in staged files"; issues=$((issues + 1)); }
     
     # 6. Large files in history
     local large_files=$(git rev-list --objects --all | git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' | awk '$1=="blob" && $3>104857600 {print $4}' | head -5)
-    [[ -n "$large_files" ]] && { log_warn "Large files in history:"; echo "$large_files" | while read f; do log_warn "  $f"; done; ((warnings++)); }
+    [[ -n "$large_files" ]] && { log_warn "Large files in history:"; echo "$large_files" | while read f; do log_warn "  $f"; done; warnings=$((warnings + 1)); }
     
     # 7. Branch tracking & divergence
     local branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
     [[ "$branch" != "HEAD" ]] && {
         local upstream=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)
-        [[ -z "$upstream" ]] && { log_warn "Branch '$branch' not tracking remote"; ((warnings++)); }
+        [[ -z "$upstream" ]] && { log_warn "Branch '$branch' not tracking remote"; warnings=$((warnings + 1)); }
         local ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo 0)
         local behind=$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0)
-        [[ $ahead -gt 0 && $behind -gt 0 ]] && { log_error "Diverged ($ahead ahead, $behind behind)"; ((issues++)); }
-        [[ $behind -gt 0 ]] && { log_warn "$behind commits behind"; ((warnings++)); }
-        [[ $ahead -gt 0 ]] && { log_warn "$ahead commits ahead (unpushed)"; ((warnings++)); }
+        [[ $ahead -gt 0 && $behind -gt 0 ]] && { log_error "Diverged ($ahead ahead, $behind behind)"; issues=$((issues + 1)); }
+        [[ $behind -gt 0 ]] && { log_warn "$behind commits behind"; warnings=$((warnings + 1)); }
+        [[ $ahead -gt 0 ]] && { log_warn "$ahead commits ahead (unpushed)"; warnings=$((warnings + 1)); }
     }
     
     # 8. Remotes

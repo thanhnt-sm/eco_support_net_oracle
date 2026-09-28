@@ -6,6 +6,11 @@ All notable changes to DataGuard are documented here. Format based on
 ## [Unreleased]
 
 ### Added
+- **Visual Studio Extension (2026-09-28)**: Error List navigation jumps directly to exact line and column via `VsShellUtilities.OpenDocument` with fallback to document/project opening.
+- **Visual Studio Extension (2026-09-28)**: Bundled Roslyn analyzers (`DataGuard.Analyzers.dll`) and code fixes (`DataGuard.CodeFixes.dll`) into VSIX container via MSBuild target and manifest asset declarations for out-of-the-box IDE squiggles.
+- **Visual Studio Extension (2026-09-28)**: Output Window logs rule inventory summary banner (`DataGuard: Ran N rules across M unique check types`) after validation completion.
+- **Core SQL Source (2026-09-28)**: Stored procedure heuristic detection in `ProjectCSharpSqlSource.IsSqlString` expanded to support `PROC_`, `FNC_`, and `P_` prefixes alongside existing `SP_` and `USP_`.
+- **Oracle Adapter (2026-09-28)**: Enriched `DG010` dialect incompatibility messages now explicitly display target provider and migration syntax hint in visible text.
 - `DataGuard.Contracts` package (netstandard2.0): `SkipContractCheck`, `ExpectedSpParameter`, `ExpectedColumn` attributes usable by quick-fixes in consumer projects.
 - Manual ground-truth mode: `dataguard validate --offline --assembly <dll>` reads expected columns/parameters from attributes (zero DB access).
 - Snapshot mode persists ground-truth schema; offline `validate` rebuilds rules from the snapshot; `snapshot diff --fail-on-drift` exits non-zero on drift.

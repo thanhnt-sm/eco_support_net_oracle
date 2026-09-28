@@ -213,27 +213,47 @@ public void GetOrder(int id) { }
 3. Ánh xạ `DataGuard.Contracts.ParameterDirection` → `DataGuard.Core.Abstractions.ParameterDirection`
 4. Tạo các thể hiện `EntityDescriptor` và `StoredProcedureDescriptor`
 
-## SqlKeywordMatcher
+## ProjectCSharpSqlSource
 
-Tiện ích dùng chung cho khớp keyword dialect giữa các checker MySQL, PostgreSQL, và Oracle.
+Trích xuất các truy vấn SQL và contract thực thi stored procedure từ mã nguồn C# thông qua phân tích cây cú pháp Roslyn AST qua nhiều pass.
+
+### Heuristic phát hiện Stored Procedure & SQL (`IsSqlString`)
+
+Khi đánh giá một biểu thức hoặc chuỗi ký tự có đại diện cho một contract SQL cần kiểm tra hay không, `ProjectCSharpSqlSource.IsSqlString` áp dụng kiểm tra từ khóa và quy ước đặt tên:
+
+1. **Từ khóa SQL**: Khớp biểu thức chính quy trực tiếp với các câu lệnh SQL chuẩn (`SELECT`, `INSERT`, `UPDATE`, `DELETE`,...).
+2. **Quy ước đặt tên Stored Procedure**: So khớp tiền tố không phân biệt hoa thường hỗ trợ:
+   - `SP_` (Quy ước Stored Procedure chuẩn)
+   - `USP_` (Quy ước User Stored Procedure)
+   - `PROC_` (Quy ước tiền tố Procedure)
+   - `FNC_` (Quy ước tiền tố Function)
+   - `P_` (Quy ước tham số hoá/thủ tục gói)
+3. **Oracle Package Procedures**: Ký hiệu dấu chấm gói (ví dụ `CUSTOMER_PKG.GET_CUSTOMERS`).
 
 ```csharp
-public static class SqlKeywordMatcher
+internal static bool IsSqlString(string text)
 {
-    public static bool ContainsAny(string sqlText, IEnumerable<string> keywords)
-    {
-        foreach (var keyword in keywords)
-        {
-            if (sqlText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
+    var trimmed = text.Trim();
+    if (SqlKeywordRegex.IsMatch(trimmed))
+        return true;
+
+    if (trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("proc_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("fnc_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("p_", StringComparison.OrdinalIgnoreCase))
+        return true;
+
+    if (trimmed.Contains('.') && !trimmed.Contains(' ') && Regex.IsMatch(trimmed, @"^[A-Za-z_][\w]*\.[A-Za-z_][\w]*$"))
+        return true;
+
+    return false;
 }
 ```
 
-Khớp substring đơn giản với so sánh không phân biệt hoa thường. Được sử dụng bởi các checker đặc thù dialect để phát hiện cú pháp SQL đặc trưng database.
+## SqlKeywordMatcher
 
+Tiện ích dùng chung cho khớp keyword dialect giữa các checker MySQL, PostgreSQL, và Oracle.
 ## Đăng Ký Sources
 
 Sources được đăng ký với validation pipeline:
@@ -261,3 +281,4 @@ foreach (var source in sources)
 | `SqlServerStoredProcedureParser` | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Có |
 | `RawSqlParser` | `raw-sql` | Văn bản SQL + đường dẫn file | `RawSqlDescriptor[]` | Không |
 | `ManualContractSource` | `manual` | Đường dẫn assembly | `EntityDescriptor[]` + `StoredProcedureDescriptor[]` | Không |
+| `ProjectCSharpSqlSource` | `csharp-source` | Thư mục mã nguồn / project C# | `RawSqlDescriptor[]` + `StoredProcedureDescriptor[]` | Không |

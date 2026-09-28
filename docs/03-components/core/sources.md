@@ -214,27 +214,47 @@ public void GetOrder(int id) { }
 3. Maps `DataGuard.Contracts.ParameterDirection` → `DataGuard.Core.Abstractions.ParameterDirection`
 4. Builds `EntityDescriptor` and `StoredProcedureDescriptor` instances
 
-## SqlKeywordMatcher
+## ProjectCSharpSqlSource
 
-Shared utility for dialect keyword matching across MySQL, PostgreSQL, and Oracle checkers.
+Extracts SQL queries and stored procedure execution contracts from C# source code via Roslyn AST analysis across multiple passes.
+
+### Stored Procedure & SQL Heuristic Detection (`IsSqlString`)
+
+When evaluating whether an expression or string literal represents an actionable SQL contract, `ProjectCSharpSqlSource.IsSqlString` applies keyword validation and naming conventions:
+
+1. **SQL Keywords**: Direct regex matching against SQL statements (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, etc.).
+2. **Stored Procedure Naming Conventions**: Case-insensitive prefix matching supporting:
+   - `SP_` (Standard Stored Procedure)
+   - `USP_` (User Stored Procedure)
+   - `PROC_` (Procedure prefix convention)
+   - `FNC_` (User-defined Function convention)
+   - `P_` (Package/parameterized procedure convention)
+3. **Oracle Package Procedures**: Identifier dotted notation (e.g., `CUSTOMER_PKG.GET_CUSTOMERS`).
 
 ```csharp
-public static class SqlKeywordMatcher
+internal static bool IsSqlString(string text)
 {
-    public static bool ContainsAny(string sqlText, IEnumerable<string> keywords)
-    {
-        foreach (var keyword in keywords)
-        {
-            if (sqlText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
+    var trimmed = text.Trim();
+    if (SqlKeywordRegex.IsMatch(trimmed))
+        return true;
+
+    if (trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("proc_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("fnc_", StringComparison.OrdinalIgnoreCase) ||
+        trimmed.StartsWith("p_", StringComparison.OrdinalIgnoreCase))
+        return true;
+
+    if (trimmed.Contains('.') && !trimmed.Contains(' ') && Regex.IsMatch(trimmed, @"^[A-Za-z_][\w]*\.[A-Za-z_][\w]*$"))
+        return true;
+
+    return false;
 }
 ```
 
-Simple substring matching with case-insensitive comparison. Used by dialect-specific checkers to detect database-specific SQL syntax.
+## SqlKeywordMatcher
 
+Shared utility for dialect keyword matching across MySQL, PostgreSQL, and Oracle checkers.
 ## Source Registration
 
 Sources are registered with the validation pipeline:
@@ -262,3 +282,4 @@ foreach (var source in sources)
 | `SqlServerStoredProcedureParser` | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Yes |
 | `RawSqlParser` | `raw-sql` | SQL text + file path | `RawSqlDescriptor[]` | No |
 | `ManualContractSource` | `manual` | Assembly path | `EntityDescriptor[]` + `StoredProcedureDescriptor[]` | No |
+| `ProjectCSharpSqlSource` | `csharp-source` | C# project / source directory | `RawSqlDescriptor[]` + `StoredProcedureDescriptor[]` | No |

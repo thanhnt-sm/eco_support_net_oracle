@@ -177,6 +177,28 @@ Tiện ích phân tích output SARIF 2.1.0 và tạo entries `ErrorTask` cho VS 
 | `result.message.text` | `Text` |
 | `result.locations[].physicalLocation.artifactLocation.uri` | `Document` |
 | `result.locations[].physicalLocation.region.startLine` | `Line` |
+| `result.locations[].physicalLocation.region.startColumn` | `Column` |
+
+### Điều hướng Error List (Error List Navigation)
+
+Mỗi `ErrorTask` gắn một bộ lắng nghe sự kiện `Navigate` bất đồng bộ để chuyển sang luồng chính Visual Studio và thực thi:
+```csharp
+VsShellUtilities.OpenDocument(
+    this,
+    task.Document,
+    Microsoft.VisualStudio.VSConstants.LOGVIEWID_Code,
+    out _,
+    out _,
+    out IVsWindowFrame windowFrame,
+    out IVsTextView textView);
+windowFrame?.Show();
+if (textView != null)
+{
+    textView.SetCaretPos(task.Line, task.Column);
+    textView.CenterLines(task.Line, 1);
+}
+```
+Nhấp đúp vào bất kỳ mục nào trong Error List sẽ tự động mở tệp mã nguồn mục tiêu, đặt con trỏ tại đúng vị trí dòng (`Line`) và cột (`Column`), đồng thời căn giữa dòng trong trình chỉnh sửa văn bản đang hoạt động. Nếu tệp không tồn tại, một thông báo chẩn đoán sẽ được ghi vào Output pane.
 
 ### Danh mục lỗi
 
@@ -186,14 +208,24 @@ Tiện ích phân tích output SARIF 2.1.0 và tạo entries `ErrorTask` cho VS 
 | `warning` | `TaskErrorCategory.Warning` |
 | `note` | `TaskErrorCategory.Message` |
 
-## Output Pane
+## Output Pane và Banner Tóm tắt Rule Inventory
 
 Output pane chuyên dụng "DataGuard" hiển thị:
 
 - Lệnh đang được thực thi
-- CLI stdout (streaming thời gian thực)
+- CLI stdout (streaming tiến độ thời gian thực)
 - CLI stderr (lỗi)
-- Tóm tắt: "Validation complete: N issues (X errors, Y warnings)"
+- Tóm tắt xác thực và Banner tổng hợp Rule Inventory:
+
+```text
+[DataGuard] ==================== Validation Summary ====================
+[DataGuard] Rules Evaluated: 12 (DG001, DG002, DG010, ...)
+[DataGuard] Rules with Findings: DG010 (2)
+[DataGuard] Double-click any Error List item to jump directly to code.
+[DataGuard] ==========================================================
+```
+
+Bộ tích luỹ danh mục (`_ruleInventory`) theo dõi rule ID, tiêu đề rule và số lượng vi phạm với cơ chế đồng bộ khoá (`lock`) qua các sự kiện tiến độ JSON của CLI và được xoá sạch trước mỗi phiên chạy xác thực.
 
 Pane được tạo qua `IVsOutputWindow`:
 
@@ -202,6 +234,19 @@ var outputWindow = await GetServiceAsync<SVsOutputWindow, IVsOutputWindow>();
 outputWindow.CreatePane(ref guidDataGuardOutputPane, "DataGuard", 1, 1);
 outputWindow.GetPane(ref guidDataGuardOutputPane, out var pane);
 ```
+
+## Đóng gói Roslyn Analyzers và Code Fixes bên trong VSIX
+
+Tiện ích đóng gói trực tiếp các bộ phân tích mã và sửa nhanh Roslyn vào gói VSIX:
+- `DataGuard.Analyzers.dll`
+- `DataGuard.CodeFixes.dll`
+
+Các assembly này được biên dịch trong target đóng gói VSIX (`BuildAnalyzers`) và đăng ký dưới dạng asset Analyzer trong `source.extension.vsixmanifest`:
+```xml
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.Analyzers.dll" />
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.CodeFixes.dll" />
+```
+Nhờ đó, người dùng mở solution trên Visual Studio 2022 sẽ nhận được chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (quick-fixes) trực tiếp mà không bắt buộc phải cài đặt thêm gói NuGet riêng lẻ vào từng project.
 
 ## Process Gate cho hủy bỏ
 
@@ -247,7 +292,7 @@ Tiện ích đọc cấu hình từ:
 
 ## Giới hạn
 
-- Yêu cầu cài đặt CLI `dataguard` và nằm trong PATH
-- Không có squiggles thời gian thực (khác với tiện ích VS Code với Roslyn analyzers)
+- Yêu cầu cài đặt CLI `dataguard` và nằm trong PATH để chạy kiểm tra toàn bộ solution dạng batch
+- Chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (code fixes) trong trình soạn thảo C# được cung cấp sẵn bởi các bộ Roslyn analyzer đi kèm (`DataGuard.Analyzers.dll` và `DataGuard.CodeFixes.dll`)
 - Đường dẫn file SARIF phải nằm trong thư mục solution để điều hướng Error List
 - Một xác thực tại một thời điểm; yêu cầu đồng thời xếp hàng
