@@ -1497,13 +1497,7 @@ public sealed class DataGuardPackage : AsyncPackage
                                         out _,
                                         out _,
                                         out IVsWindowFrame windowFrame);
-                                    var textView = VsShellUtilities.GetTextView(windowFrame);
                                     windowFrame?.Show();
-                                    if (textView != null)
-                                    {
-                                        textView.SetCaretPos(task.Line, task.Column);
-                                        textView.CenterLines(task.Line, 1);
-                                    }
                                 }
                                 else
                                 {
