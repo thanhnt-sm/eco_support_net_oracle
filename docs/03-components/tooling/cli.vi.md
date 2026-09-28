@@ -84,7 +84,7 @@ Khi bật `--progress`, CLI sẽ stream các sự kiện NDJSON mà máy có th�
 {"Kind":"ContractDiscovered","Phase":"Acquiring contracts","Detail":"EntityDescriptor","Data":null}
 {"Kind":"PhaseCompleted","Phase":"Acquiring contracts","Detail":"Contract acquisition completed.","Data":{"ContractCount":42,"Status":"Complete"}}
 {"Kind":"PhaseStarted","Phase":"Validating rules","Detail":"Running enabled validation rules.","Data":{"ContractCount":42}}
-{"Kind":"RuleExecuted","Phase":"Validating rules","Detail":"DG001","Data":null}
+{"Kind":"RuleExecuted","Phase":"Validating rules","Detail":"Rule DG017","Data":{"RuleId":"DG017","RuleTitle":"Avoid SELECT *","ContractCount":2886,"ViolationCount":312}}
 {"Kind":"Summary","Phase":"Validation complete","Detail":"Validation completed.","Data":{"ErrorCount":0,"WarningCount":2,"ViolationCount":2}}
 ```
 

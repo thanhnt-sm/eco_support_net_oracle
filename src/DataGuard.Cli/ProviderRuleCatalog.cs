@@ -12,6 +12,30 @@ namespace DataGuard.Cli;
 /// <summary>Named provider rule inventory used by CLI composition and outcome reporting.</summary>
 public static class ProviderRuleCatalog
 {
+    public static readonly IReadOnlyDictionary<string, string> RuleTitles = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["DG001"] = "Track Unvalidated SQL Calls",
+        ["DG002"] = "Parameter Type Match",
+        ["DG003"] = "Parameter Direction (In/Out/Return)",
+        ["DG004"] = "Result Set Column Shape",
+        ["DG005"] = "Nullable Compatibility",
+        ["DG006"] = "Naming Convention Compliance",
+        ["DG007"] = "Entity Length Exceeds Column",
+        ["DG008"] = "Multi-Byte Length Overflow Risk",
+        ["DG009"] = "Inferred Size Fallback Risk",
+        ["DG010"] = "Oracle Syntax in Non-Oracle Context",
+        ["DG011"] = "Non-Oracle Function in Oracle Context",
+        ["DG012"] = "Provider Option Mismatch",
+        ["DG013"] = "SQL Server Syntax Leak",
+        ["DG014"] = "Unmapped Type Usage",
+        ["DG015"] = "Phantom Table Reference",
+        ["DG016"] = "Phantom Column / Raw SQL Parse Error",
+        ["DG017"] = "Avoid SELECT *",
+        ["DG018"] = "Live Query Shape Mismatch",
+        ["DG020"] = "Undetermined Query Shape",
+        ["DG101"] = "Parameter Count Match",
+    };
+
     public static IReadOnlyList<ProviderRuleRegistration> Get(
         string provider,
         string? connectionString = null,

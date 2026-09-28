@@ -513,8 +513,11 @@ public sealed class DataGuardPackage : AsyncPackage
                             break;
                         }
 
-                        formatted = "[DataGuard]   " + detail +
-                            (contracts.HasValue ? " Checked " + contracts.Value + " contracts" : string.Empty) +
+                        var ruleId = GetProgressString(data, "RuleId") ?? detail;
+                        var ruleTitle = GetProgressString(data, "RuleTitle");
+                        var ruleLabel = string.IsNullOrEmpty(ruleTitle) ? ruleId : $"{ruleId} ({ruleTitle})";
+                        formatted = "[DataGuard]   " + ruleLabel +
+                            (contracts.HasValue ? ": " + contracts.Value + " contracts checked" : string.Empty) +
                             " → " + violations.Value + " violations";
                         break;
                     case "Summary":
@@ -552,6 +555,15 @@ public sealed class DataGuardPackage : AsyncPackage
             value.ValueKind == JsonValueKind.Number &&
             value.TryGetInt32(out var count)
             ? count
+            : null;
+    }
+
+    private static string? GetProgressString(JsonElement data, string name)
+    {
+        return data.ValueKind == JsonValueKind.Object &&
+            data.TryGetProperty(name, out var value) &&
+            value.ValueKind == JsonValueKind.String
+            ? value.GetString()
             : null;
     }
 
@@ -1363,9 +1375,15 @@ public sealed class DataGuardPackage : AsyncPackage
                         var column = region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startColumn", out var startColumn)
                             ? Math.Max(0, startColumn.GetInt32() - 1)
                             : 0;
+                        var sarifRuleId = result.TryGetProperty("ruleId", out var ruleIdNode) && ruleIdNode.ValueKind == JsonValueKind.String
+                            ? ruleIdNode.GetString()
+                            : null;
                         var message = result.TryGetProperty("message", out var messageNode) && messageNode.TryGetProperty("text", out var messageText)
                             ? Redact(messageText.GetString() ?? "DataGuard contract violation")
                             : "DataGuard contract violation";
+                        var prefixedMessage = string.IsNullOrEmpty(sarifRuleId)
+                            ? message
+                            : $"[{sarifRuleId}] {message}";
                         var level = result.TryGetProperty("level", out var levelNode) ? levelNode.GetString() : null;
                         tasks.Add(new ErrorTask
                         {
@@ -1374,7 +1392,7 @@ public sealed class DataGuardPackage : AsyncPackage
                             Document = resolvedPath,
                             ErrorCategory = level == "error" ? TaskErrorCategory.Error : level == "warning" ? TaskErrorCategory.Warning : TaskErrorCategory.Message,
                             Line = line,
-                            Text = message,
+                            Text = prefixedMessage,
                         });
                     }
                 }

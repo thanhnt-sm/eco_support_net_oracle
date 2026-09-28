@@ -2247,38 +2247,46 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
             contracts,
             rules,
             cancellationToken,
-            progress is null
-                ? null
-                : (ruleId, violationCount) => progress.Emit(new ProgressEvent(
-                    ProgressEventKind.RuleExecuted,
-                    "Validating rules",
-                    $"Rule {ruleId} checked one contract.",
-                    new Dictionary<string, object?>
-                    {
-                        ["RuleId"] = ruleId,
-                        ["ContractCount"] = 1,
-                        ["ViolationCount"] = violationCount,
-                    }))));
+            executionCompleted: null));
+        var violationsByRule = allViolations.GroupBy(v => v.RuleId).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        foreach (var rule in rules)
+        {
+            var ruleViolationCount = violationsByRule.GetValueOrDefault(rule.RuleId, 0);
+            progress?.Emit(new ProgressEvent(
+                ProgressEventKind.RuleExecuted,
+                "Validating rules",
+                $"Rule {rule.RuleId}",
+                new Dictionary<string, object?>
+                {
+                    ["RuleId"] = rule.RuleId,
+                    ["RuleTitle"] = ProviderRuleCatalog.RuleTitles.GetValueOrDefault(rule.RuleId, rule.RuleId),
+                    ["ContractCount"] = contracts.Count,
+                    ["ViolationCount"] = ruleViolationCount,
+                }));
+        }
     }
     else
     {
         foreach (var rule in rules)
         {
+            int ruleViolationCount = 0;
             foreach (var contract in contracts)
             {
                 var ruleViolations = await rule.ValidateAsync(contract, contracts, cancellationToken);
                 allViolations.AddRange(ruleViolations);
-                progress?.Emit(new ProgressEvent(
-                    ProgressEventKind.RuleExecuted,
-                    "Validating rules",
-                    $"Rule {rule.RuleId} checked one contract.",
-                    new Dictionary<string, object?>
-                    {
-                        ["RuleId"] = rule.RuleId,
-                        ["ContractCount"] = 1,
-                        ["ViolationCount"] = ruleViolations.Count,
-                    }));
+                ruleViolationCount += ruleViolations.Count;
             }
+            progress?.Emit(new ProgressEvent(
+                ProgressEventKind.RuleExecuted,
+                "Validating rules",
+                $"Rule {rule.RuleId}",
+                new Dictionary<string, object?>
+                {
+                    ["RuleId"] = rule.RuleId,
+                    ["RuleTitle"] = ProviderRuleCatalog.RuleTitles.GetValueOrDefault(rule.RuleId, rule.RuleId),
+                    ["ContractCount"] = contracts.Count,
+                    ["ViolationCount"] = ruleViolationCount,
+                }));
         }
     }
 

@@ -330,12 +330,22 @@ public class DataGuardPackageTests
     [Fact]
     public void FormatProgressLine_RuleExecutedWithViolations_PreservesOutput()
     {
-        var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"ContractCount\":1,\"ViolationCount\":3}}";
+        var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"RuleId\":\"DG101\",\"RuleTitle\":\"Parameter Count Match\",\"ContractCount\":1,\"ViolationCount\":3}}";
         var output = DataGuardPackage.FormatProgressLine(json, false);
 
         output.FormattedOutput.Should().NotBeNull();
-        output.FormattedOutput.Should().Contain("DG101");
+        output.FormattedOutput.Should().Contain("DG101 (Parameter Count Match):");
         output.FormattedOutput.Should().Contain("3 violations");
+    }
+
+    [Fact]
+    public void FormatProgressLine_RuleExecutedWithoutTitle_FallsBackToRuleId()
+    {
+        var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"RuleId\":\"DG101\",\"ContractCount\":1,\"ViolationCount\":3}}";
+        var output = DataGuardPackage.FormatProgressLine(json, false);
+
+        output.FormattedOutput.Should().NotBeNull();
+        output.FormattedOutput.Should().Contain("DG101: 1 contracts checked → 3 violations");
     }
 
     [Fact]
