@@ -67,7 +67,8 @@ public class OracleDialectChecker : IDialectAnalyzer
     public IReadOnlyList<ContractViolation> CheckOracleSyntaxInNonOracleContext(
         string sqlText,
         bool isOracleContext,
-        Location? location = null)
+        Location? location = null,
+        string targetProvider = "sqlserver")
     {
         ArgumentNullException.ThrowIfNull(sqlText);
         if (isOracleContext)
@@ -85,13 +86,14 @@ public class OracleDialectChecker : IDialectAnalyzer
             {
                 violations.Add(new ContractViolation(
                     "DG010",
-                    $"Oracle-specific keyword `{keyword}` used in non-Oracle context",
+                    $"[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)",
                     DiagnosticSeverity.Warning,
                     location,
                     new Dictionary<string, object?>
                     {
                         { "keyword", keyword },
                         { "migration", hint },
+                        { "targetProvider", targetProvider },
                     }));
             }
         }
@@ -103,13 +105,14 @@ public class OracleDialectChecker : IDialectAnalyzer
             {
                 violations.Add(new ContractViolation(
                     "DG010",
-                    $"Oracle-specific operator `{op}` used in non-Oracle context",
+                    $"[Migration: Oracle -> {targetProvider}] Operator '{op}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)",
                     DiagnosticSeverity.Warning,
                     location,
                     new Dictionary<string, object?>
                     {
                         { "operator", op },
                         { "migration", hint },
+                        { "targetProvider", targetProvider },
                     }));
             }
         }

@@ -11,6 +11,7 @@ using DataGuard.Core.Reporting;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataGuard.Core.Tests")]
 namespace DataGuard.Core.Sources;
 
 /// <summary>
@@ -206,18 +207,22 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
                 // F8 fix: detect commandType: CommandType.StoredProcedure named argument BEFORE
                 // ExtractSqlText, so that "MY_PROC" (which fails IsSqlString) is still captured.
+                // Also check positional argument (Dapper overloads typically place commandType at index 4 or 5).
+                // TODO: positional arg detection — verify index 4 per Dapper overloads
                 var isDapperSp = false;
                 string? dapperProcName = null;
-                foreach (var arg in invocation.ArgumentList.Arguments)
+                for (var argIdx = 0; argIdx < invocation.ArgumentList.Arguments.Count; argIdx++)
                 {
-                    if (arg.NameColon?.Name.Identifier.ValueText == "commandType")
+                    var arg = invocation.ArgumentList.Arguments[argIdx];
+                    if (arg.NameColon?.Name.Identifier.ValueText == "commandType" ||
+                        (arg.NameColon == null && argIdx >= 4))
                     {
                         var argText = arg.Expression.ToString();
                         if (argText.EndsWith("StoredProcedure", StringComparison.Ordinal))
                         {
                             isDapperSp = true;
+                            break;
                         }
-                        break;
                     }
                 }
 
@@ -505,7 +510,12 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
                 var arg0 = init.ArgumentList.Arguments[0].Expression;
                 var resolved = TryResolveString(arg0, semanticModel, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(resolved) && !resolved.Contains(' ') && resolved.Length > 1 && !resolved.StartsWith("sp_", StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrWhiteSpace(resolved) && !resolved.Contains(' ') && resolved.Length > 1 &&
+                    !resolved.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) &&
+                    !resolved.StartsWith("usp_", StringComparison.OrdinalIgnoreCase) &&
+                    !resolved.StartsWith("proc_", StringComparison.OrdinalIgnoreCase) &&
+                    !resolved.StartsWith("fnc_", StringComparison.OrdinalIgnoreCase) &&
+                    !resolved.StartsWith("p_", StringComparison.OrdinalIgnoreCase))
                 {
                     var sqlText = $"SELECT * FROM {resolved}";
                     AddDescriptor(sqlText, init.GetLocation(), null, Array.Empty<PropertyDescriptor>(), null);
@@ -942,7 +952,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         }
     }
 
-    private static bool IsSqlString(string text)
+    internal static bool IsSqlString(string text)
     {
         var trimmed = text.Trim();
         if (SqlKeywordRegex.IsMatch(trimmed))
@@ -952,7 +962,10 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
         // Stored procedure invocation convention
         if (trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase))
+            trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("proc_", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("fnc_", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("p_", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

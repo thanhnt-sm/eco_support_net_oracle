@@ -20,6 +20,7 @@ using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Task = System.Threading.Tasks.Task;
+using Microsoft.VisualStudio.TextManager.Interop;
 
 /// <summary>
 /// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials into devenv.
@@ -59,6 +60,7 @@ public sealed class DataGuardPackage : AsyncPackage
     private ErrorListProvider? errorListProvider;
     private uint updateSolutionEventsCookie;
     private BuildEventsHandler? buildEventsHandler;
+    private readonly List<(string? RuleId, string? RuleTitle, int ViolationCount)> _ruleInventory = new();
 
     /// <inheritdoc />
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
@@ -273,6 +275,10 @@ public sealed class DataGuardPackage : AsyncPackage
         sb.Append('"');
         return sb.ToString();
     }
+    internal static (int line, int column) ConvertSarifPosition(int startLine, int startColumn)
+    {
+        return (Math.Max(0, startLine - 1), Math.Max(0, startColumn - 1));
+    }
 
     internal static string? ResolveSarifArtifactUri(string? uri, string? uriBaseId, string solutionDirectory)
     {
@@ -392,12 +398,23 @@ public sealed class DataGuardPackage : AsyncPackage
         public string? FormattedOutput { get; }
         public int? ErrorCount { get; }
         public int? WarningCount { get; }
+        public (string? RuleId, string? RuleTitle, int ViolationCount)? InventoryEntry { get; }
 
         public ParsedProgress(string? formattedOutput, int? errorCount, int? warningCount)
+            : this(formattedOutput, errorCount, warningCount, null)
+        {
+        }
+
+        public ParsedProgress(
+            string? formattedOutput,
+            int? errorCount,
+            int? warningCount,
+            (string? RuleId, string? RuleTitle, int ViolationCount)? inventoryEntry)
         {
             this.FormattedOutput = formattedOutput;
             this.ErrorCount = errorCount;
             this.WarningCount = warningCount;
+            this.InventoryEntry = inventoryEntry;
         }
     }
 
@@ -405,17 +422,17 @@ public sealed class DataGuardPackage : AsyncPackage
     {
         if (discardedLine)
         {
-            return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null);
+            return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null, null);
         }
 
-        if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings))
+        if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings, out var inventoryEntry))
         {
             if (string.IsNullOrEmpty(formatted))
             {
-                return new ParsedProgress(null, eventErrors, eventWarnings);
+                return new ParsedProgress(null, eventErrors, eventWarnings, inventoryEntry);
             }
 
-            return new ParsedProgress(formatted + "\r\n", eventErrors, eventWarnings);
+            return new ParsedProgress(formatted + "\r\n", eventErrors, eventWarnings, inventoryEntry);
         }
 
         if (!string.IsNullOrWhiteSpace(text))
@@ -423,15 +440,23 @@ public sealed class DataGuardPackage : AsyncPackage
             var diagnostic = IsJsonPayload(text)
                 ? "[structured diagnostic redacted]"
                 : Redact(text);
-            return new ParsedProgress("[DataGuard CLI] " + diagnostic + "\r\n", null, null);
+            return new ParsedProgress("[DataGuard CLI] " + diagnostic + "\r\n", null, null, null);
         }
 
-        return new ParsedProgress(null, null, null);
+        return new ParsedProgress(null, null, null, null);
     }
 
     private async Task ProcessProgressLineAsync(StringBuilder line, bool discardedLine, ProgressReadResult result)
     {
         var parsed = FormatProgressLine(line.ToString(), discardedLine);
+        if (parsed.InventoryEntry.HasValue)
+        {
+            lock (this._ruleInventory)
+            {
+                this._ruleInventory.Add(parsed.InventoryEntry.Value);
+            }
+        }
+
         if (parsed.ErrorCount.HasValue && parsed.WarningCount.HasValue)
         {
             result.ErrorCount = parsed.ErrorCount.Value;
@@ -442,6 +467,20 @@ public sealed class DataGuardPackage : AsyncPackage
         if (parsed.FormattedOutput != null)
         {
             await this.WriteOutputAsync(parsed.FormattedOutput);
+        }
+
+        if (parsed.ErrorCount.HasValue && parsed.WarningCount.HasValue)
+        {
+            string banner;
+            lock (this._ruleInventory)
+            {
+                banner = BuildRuleInventoryBanner(this._ruleInventory);
+            }
+
+            if (!string.IsNullOrEmpty(banner))
+            {
+                await this.WriteOutputAsync(banner);
+            }
         }
     }
 
@@ -466,9 +505,20 @@ public sealed class DataGuardPackage : AsyncPackage
         out int? errorCount,
         out int? warningCount)
     {
+        return TryFormatProgress(line, out formatted, out errorCount, out warningCount, out _);
+    }
+
+    internal static bool TryFormatProgress(
+        string line,
+        out string? formatted,
+        out int? errorCount,
+        out int? warningCount,
+        out (string? RuleId, string? RuleTitle, int ViolationCount)? inventoryEntry)
+    {
         formatted = string.Empty;
         errorCount = null;
         warningCount = null;
+        inventoryEntry = null;
 
         try
         {
@@ -507,14 +557,16 @@ public sealed class DataGuardPackage : AsyncPackage
                         formatted = null;
                         break;
                     case "RuleExecuted":
+                        var ruleId = GetProgressString(data, "RuleId") ?? detail;
+                        var ruleTitle = GetProgressString(data, "RuleTitle");
+                        inventoryEntry = (ruleId, ruleTitle, violations.GetValueOrDefault());
+
                         if (!violations.HasValue || violations.Value <= 0)
                         {
                             formatted = null;
                             break;
                         }
 
-                        var ruleId = GetProgressString(data, "RuleId") ?? detail;
-                        var ruleTitle = GetProgressString(data, "RuleTitle");
                         var ruleLabel = string.IsNullOrEmpty(ruleTitle) ? ruleId : $"{ruleId} ({ruleTitle})";
                         formatted = "[DataGuard]   " + ruleLabel +
                             (contracts.HasValue ? ": " + contracts.Value + " contracts checked" : string.Empty) +
@@ -546,6 +598,28 @@ public sealed class DataGuardPackage : AsyncPackage
         {
             return false;
         }
+    }
+
+    internal static string BuildRuleInventoryBanner(IReadOnlyList<(string? RuleId, string? RuleTitle, int ViolationCount)> inventory)
+    {
+        if (inventory == null || inventory.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var evaluated = inventory.Where(r => !string.IsNullOrEmpty(r.RuleId) && r.ViolationCount >= 0).ToList();
+        var withViolations = inventory.Where(r => !string.IsNullOrEmpty(r.RuleId) && r.ViolationCount > 0).ToList();
+
+        var banner = new StringBuilder();
+        banner.AppendLine("[DataGuard] ==================== Validation Summary ====================");
+        banner.AppendLine($"[DataGuard] Rules Evaluated: {evaluated.Count} ({string.Join(", ", evaluated.Select(r => r.RuleId))})");
+        if (withViolations.Count > 0)
+        {
+            banner.AppendLine($"[DataGuard] Rules with Findings: {string.Join(", ", withViolations.Select(r => $"{r.RuleId} ({r.ViolationCount})"))}");
+        }
+        banner.AppendLine("[DataGuard] Double-click any Error List item to jump directly to code.");
+        banner.AppendLine("[DataGuard] ==========================================================");
+        return banner.ToString();
     }
 
     private static int? GetProgressCount(JsonElement data, string name)
@@ -655,6 +729,10 @@ public sealed class DataGuardPackage : AsyncPackage
 
     private async Task RunValidationAsync()
     {
+        lock (this._ruleInventory)
+        {
+            this._ruleInventory.Clear();
+        }
         await this.RunCliAsync("validate");
     }
 
@@ -1369,12 +1447,9 @@ public sealed class DataGuardPackage : AsyncPackage
                         }
 
                         var region = physical.TryGetProperty("region", out var candidateRegion) ? candidateRegion : default;
-                        var line = region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startLine", out var startLine)
-                            ? Math.Max(0, startLine.GetInt32() - 1)
-                            : 0;
-                        var column = region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startColumn", out var startColumn)
-                            ? Math.Max(0, startColumn.GetInt32() - 1)
-                            : 0;
+                        var (line, column) = ConvertSarifPosition(
+                            region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startLine", out var startLine) ? startLine.GetInt32() : 0,
+                            region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startColumn", out var startColumn) ? startColumn.GetInt32() : 0);
                         var sarifRuleId = result.TryGetProperty("ruleId", out var ruleIdNode) && ruleIdNode.ValueKind == JsonValueKind.String
                             ? ruleIdNode.GetString()
                             : null;
@@ -1385,7 +1460,7 @@ public sealed class DataGuardPackage : AsyncPackage
                             ? message
                             : $"[{sarifRuleId}] {message}";
                         var level = result.TryGetProperty("level", out var levelNode) ? levelNode.GetString() : null;
-                        tasks.Add(new ErrorTask
+                        var task = new ErrorTask
                         {
                             Category = TaskCategory.BuildCompile,
                             Column = column,
@@ -1393,7 +1468,36 @@ public sealed class DataGuardPackage : AsyncPackage
                             ErrorCategory = level == "error" ? TaskErrorCategory.Error : level == "warning" ? TaskErrorCategory.Warning : TaskErrorCategory.Message,
                             Line = line,
                             Text = prefixedMessage,
-                        });
+                        };
+                        task.Navigate += (sender, e) =>
+                        {
+                            this.JoinableTaskFactory.RunAsync(async () =>
+                            {
+                                await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+                                if (File.Exists(task.Document))
+                                {
+                                    VsShellUtilities.OpenDocument(
+                                        this,
+                                        task.Document,
+                                        Microsoft.VisualStudio.VSConstants.LOGVIEWID_Code,
+                                        out _,
+                                        out _,
+                                        out IVsWindowFrame windowFrame,
+                                        out IVsTextView textView);
+                                    windowFrame?.Show();
+                                    if (textView != null)
+                                    {
+                                        textView.SetCaretPos(task.Line, task.Column);
+                                        textView.CenterLines(task.Line, 1);
+                                    }
+                                }
+                                else
+                                {
+                                    await this.WriteOutputAsync($"[DataGuard] Cannot navigate: file not found '{task.Document}'.\r\n");
+                                }
+                            }).FileAndForget("DataGuard/NavigateTask");
+                        };
+                        tasks.Add(task);
                     }
                 }
             }

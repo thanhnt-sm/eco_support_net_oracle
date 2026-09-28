@@ -58,6 +58,40 @@
     <DataGuardCliPublishDir>$(MSBuildProjectDirectory)\obj\cli\</DataGuardCliPublishDir>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <DataGuardAnalyzersPublishDir>$(MSBuildProjectDirectory)\obj\analyzers\</DataGuardAnalyzersPublishDir>
+  </PropertyGroup>
+
+  <!--
+    BuildAnalyzers: compile DataGuard.Analyzers and DataGuard.CodeFixes into obj\analyzers
+    so they can be included as VSIXSourceItem without a ProjectReference (which would violate
+    the zero-ProjectReference VSIX architecture). Mirrors the PublishDataGuardCli pattern.
+  -->
+  <Target Name="BuildAnalyzers"
+          Condition="'$(CreateVsixContainer)' == 'true'"
+          BeforeTargets="IncludeAnalyzersInVsix">
+    <MakeDir Directories="$(DataGuardAnalyzersPublishDir)" Condition="!Exists('$(DataGuardAnalyzersPublishDir)')" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\DataGuard.Analyzers.csproj&quot; -c $(Configuration) -o &quot;$(DataGuardAnalyzersPublishDir)&quot; --no-restore" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\DataGuard.CodeFixes\DataGuard.CodeFixes.csproj&quot; -c $(Configuration) -o &quot;$(DataGuardAnalyzersPublishDir)&quot; --no-restore" />
+  </Target>
+
+  <Target Name="IncludeAnalyzersInVsix"
+          Condition="'$(CreateVsixContainer)' == 'true'"
+          BeforeTargets="GetVsixSourceItems"
+          DependsOnTargets="BuildAnalyzers">
+    <Error Condition="!Exists('$(DataGuardAnalyzersPublishDir)DataGuard.Analyzers.dll')"
+           Text="BuildAnalyzers target failed: DataGuard.Analyzers.dll not found at $(DataGuardAnalyzersPublishDir). Refusing to build VSIX without analyzer." />
+    <ItemGroup>
+      <VSIXSourceItem Include="$(DataGuardAnalyzersPublishDir)DataGuard.Analyzers.dll" />
+      <VSIXSourceItem Include="$(DataGuardAnalyzersPublishDir)DataGuard.CodeFixes.dll" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CleanBundledAnalyzers" AfterTargets="Clean">
+    <RemoveDir Directories="$(DataGuardAnalyzersPublishDir)" Condition="Exists('$(DataGuardAnalyzersPublishDir)')" />
+  </Target>
+
+
   <Target Name="PublishDataGuardCli"
           Condition="'$(CreateVsixContainer)' == 'true'"
           BeforeTargets="IncludeBundledCliInVsix">

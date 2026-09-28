@@ -27,5 +27,11 @@
   </Prerequisites>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
+    <Asset Type="Microsoft.VisualStudio.Analyzer"
+           d:Source="File"
+           Path="DataGuard.Analyzers.dll" />
+    <Asset Type="Microsoft.VisualStudio.Analyzer"
+           d:Source="File"
+           Path="DataGuard.CodeFixes.dll" />
   </Assets>
 </PackageManifest>

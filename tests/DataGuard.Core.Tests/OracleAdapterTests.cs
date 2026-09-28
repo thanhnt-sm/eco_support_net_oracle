@@ -296,6 +296,80 @@ public class OracleDialectCheckerTests
         var violations = _checker.CheckSqlServerSyntaxLeak("BEGIN proc_name; END;", isOracleContext: true);
         violations.Should().BeEmpty();
     }
+
+    [Fact]
+    public void CheckOracleSyntax_Listagg_MessageContainsMigrationHint()
+    {
+        var violations = _checker.CheckOracleSyntaxInNonOracleContext(
+            "SELECT LISTAGG(name, ',') WITHIN GROUP (ORDER BY id) FROM t",
+            isOracleContext: false,
+            targetProvider: "sqlserver");
+
+        violations.Should().ContainSingle(v => v.RuleId == "DG010");
+        var v = violations[0];
+        v.Message.Should().Contain("STRING_AGG");
+        v.Message.Should().Contain("Migration: Oracle");
+        v.Message.Should().Contain("sqlserver");
+    }
+
+    [Fact]
+    public void CheckOracleSyntax_Listagg_PropertiesContainTargetProvider()
+    {
+        var violations = _checker.CheckOracleSyntaxInNonOracleContext(
+            "SELECT LISTAGG(name, ',') WITHIN GROUP (ORDER BY id) FROM t",
+            isOracleContext: false,
+            targetProvider: "sqlserver");
+
+        violations.Should().ContainSingle(v => v.RuleId == "DG010");
+        var v = violations[0];
+        v.Properties.Should().NotBeNull();
+        v.Properties.Should().ContainKey("targetProvider");
+        v.Properties!["targetProvider"].Should().Be("sqlserver");
+    }
+
+    [Fact]
+    public void CheckOracleSyntax_PlusOperator_MessageContainsJoinHint()
+    {
+        var violations = _checker.CheckOracleSyntaxInNonOracleContext(
+            "SELECT a.id, b.name FROM a, b WHERE a.id = b.id(+)",
+            isOracleContext: false,
+            targetProvider: "sqlserver");
+
+        violations.Should().ContainSingle(v => v.RuleId == "DG010");
+        var v = violations[0];
+        v.Message.Should().Contain("outer-join");
+        v.Message.Should().Contain("[Migration: Oracle -> sqlserver]");
+        v.Properties.Should().NotBeNull();
+        v.Properties.Should().ContainKey("targetProvider");
+        v.Properties!["targetProvider"].Should().Be("sqlserver");
+    }
+
+    [Theory]
+    [InlineData("DECODE")]
+    [InlineData("NVL")]
+    [InlineData("SYSDATE")]
+    public void CheckOracleSyntax_AllKeywords_MessageFormatConsistent(string keyword)
+    {
+        var sql = keyword switch
+        {
+            "DECODE" => "SELECT DECODE(a, 1, 'x', 'y') FROM t",
+            "NVL" => "SELECT NVL(a, 'x') FROM t",
+            "SYSDATE" => "SELECT SYSDATE FROM dual",
+            _ => throw new ArgumentException("Unknown keyword", nameof(keyword))
+        };
+
+        var violations = _checker.CheckOracleSyntaxInNonOracleContext(
+            sql,
+            isOracleContext: false,
+            targetProvider: "sqlserver");
+
+        violations.Should().Contain(v =>
+            v.RuleId == "DG010" &&
+            v.Message.StartsWith("[Migration: Oracle -> sqlserver]") &&
+            v.Message.Contains(". (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)") &&
+            v.Properties != null &&
+            (string)v.Properties["targetProvider"]! == "sqlserver");
+    }
 }
 
 /// <summary>
