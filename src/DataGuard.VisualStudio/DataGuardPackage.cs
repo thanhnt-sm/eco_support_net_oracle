@@ -60,7 +60,20 @@ public sealed class DataGuardPackage : AsyncPackage
     private ErrorListProvider? errorListProvider;
     private uint updateSolutionEventsCookie;
     private BuildEventsHandler? buildEventsHandler;
-    private readonly List<(string? RuleId, string? RuleTitle, int ViolationCount)> _ruleInventory = new();
+    internal readonly struct RuleInventoryItem
+    {
+        public RuleInventoryItem(string? ruleId, string? ruleTitle, int violationCount)
+        {
+            this.RuleId = ruleId;
+            this.RuleTitle = ruleTitle;
+            this.ViolationCount = violationCount;
+        }
+        public string? RuleId { get; }
+        public string? RuleTitle { get; }
+        public int ViolationCount { get; }
+    }
+
+    private readonly List<RuleInventoryItem> _ruleInventory = new();
 
     /// <inheritdoc />
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
@@ -398,7 +411,7 @@ public sealed class DataGuardPackage : AsyncPackage
         public string? FormattedOutput { get; }
         public int? ErrorCount { get; }
         public int? WarningCount { get; }
-        public (string? RuleId, string? RuleTitle, int ViolationCount)? InventoryEntry { get; }
+        public RuleInventoryItem? InventoryEntry { get; }
 
         public ParsedProgress(string? formattedOutput, int? errorCount, int? warningCount)
             : this(formattedOutput, errorCount, warningCount, null)
@@ -409,7 +422,7 @@ public sealed class DataGuardPackage : AsyncPackage
             string? formattedOutput,
             int? errorCount,
             int? warningCount,
-            (string? RuleId, string? RuleTitle, int ViolationCount)? inventoryEntry)
+            RuleInventoryItem? inventoryEntry)
         {
             this.FormattedOutput = formattedOutput;
             this.ErrorCount = errorCount;
@@ -513,7 +526,7 @@ public sealed class DataGuardPackage : AsyncPackage
         out string? formatted,
         out int? errorCount,
         out int? warningCount,
-        out (string? RuleId, string? RuleTitle, int ViolationCount)? inventoryEntry)
+        out RuleInventoryItem? inventoryEntry)
     {
         formatted = string.Empty;
         errorCount = null;
@@ -559,7 +572,7 @@ public sealed class DataGuardPackage : AsyncPackage
                     case "RuleExecuted":
                         var ruleId = GetProgressString(data, "RuleId") ?? detail;
                         var ruleTitle = GetProgressString(data, "RuleTitle");
-                        inventoryEntry = (ruleId, ruleTitle, violations.GetValueOrDefault());
+                        inventoryEntry = new RuleInventoryItem(ruleId, ruleTitle, violations.GetValueOrDefault());
 
                         if (!violations.HasValue || violations.Value <= 0)
                         {
@@ -600,7 +613,7 @@ public sealed class DataGuardPackage : AsyncPackage
         }
     }
 
-    internal static string BuildRuleInventoryBanner(IReadOnlyList<(string? RuleId, string? RuleTitle, int ViolationCount)> inventory)
+    internal static string BuildRuleInventoryBanner(IReadOnlyList<RuleInventoryItem> inventory)
     {
         if (inventory == null || inventory.Count == 0)
         {
