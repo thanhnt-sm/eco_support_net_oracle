@@ -59,7 +59,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <DataGuardAnalyzersPublishDir>$(MSBuildProjectDirectory)\obj\analyzers\</DataGuardAnalyzersPublishDir>
+    <DataGuardAnalyzersPublishDir>$(MSBuildProjectDirectory)\obj\analyzers</DataGuardAnalyzersPublishDir>
   </PropertyGroup>
 
   <!--
@@ -71,19 +71,19 @@
           Condition="'$(CreateVsixContainer)' == 'true'"
           BeforeTargets="IncludeAnalyzersInVsix">
     <MakeDir Directories="$(DataGuardAnalyzersPublishDir)" Condition="!Exists('$(DataGuardAnalyzersPublishDir)')" />
-    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\DataGuard.Analyzers.csproj&quot; -c $(Configuration) -o &quot;$(DataGuardAnalyzersPublishDir)&quot; --no-restore" />
-    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\DataGuard.CodeFixes\DataGuard.CodeFixes.csproj&quot; -c $(Configuration) -o &quot;$(DataGuardAnalyzersPublishDir)&quot; --no-restore" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\DataGuard.Analyzers.csproj&quot; -c $(Configuration) --no-restore -o &quot;$(DataGuardAnalyzersPublishDir)&quot;" />
+    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)..\DataGuard.CodeFixes\DataGuard.CodeFixes.csproj&quot; -c $(Configuration) --no-restore -o &quot;$(DataGuardAnalyzersPublishDir)&quot;" />
   </Target>
 
   <Target Name="IncludeAnalyzersInVsix"
           Condition="'$(CreateVsixContainer)' == 'true'"
           BeforeTargets="GetVsixSourceItems"
           DependsOnTargets="BuildAnalyzers">
-    <Error Condition="!Exists('$(DataGuardAnalyzersPublishDir)DataGuard.Analyzers.dll')"
+    <Error Condition="!Exists('$(DataGuardAnalyzersPublishDir)\DataGuard.Analyzers.dll')"
            Text="BuildAnalyzers target failed: DataGuard.Analyzers.dll not found at $(DataGuardAnalyzersPublishDir). Refusing to build VSIX without analyzer." />
     <ItemGroup>
-      <VSIXSourceItem Include="$(DataGuardAnalyzersPublishDir)DataGuard.Analyzers.dll" />
-      <VSIXSourceItem Include="$(DataGuardAnalyzersPublishDir)DataGuard.CodeFixes.dll" />
+      <VSIXSourceItem Include="$(DataGuardAnalyzersPublishDir)\DataGuard.Analyzers.dll" />
+      <VSIXSourceItem Include="$(DataGuardAnalyzersPublishDir)\DataGuard.CodeFixes.dll" />
     </ItemGroup>
   </Target>
 

@@ -186,6 +186,7 @@
       "dataguard.sqlclassification": {
         "type": "Project"
       }
-    }
+    },
+    ".NETStandard,Version=v2.0/win-x64": {}
   }
 }
