@@ -1476,14 +1476,15 @@ public sealed class DataGuardPackage : AsyncPackage
                                 await this.JoinableTaskFactory.SwitchToMainThreadAsync();
                                 if (File.Exists(task.Document))
                                 {
+                                    var windowId = Microsoft.VisualStudio.VSConstants.LOGVIEWID_Code;
                                     VsShellUtilities.OpenDocument(
                                         this,
                                         task.Document,
-                                        Microsoft.VisualStudio.VSConstants.LOGVIEWID_Code,
+                                        windowId,
                                         out _,
                                         out _,
-                                        out IVsWindowFrame windowFrame,
-                                        out IVsTextView textView);
+                                        out IVsWindowFrame windowFrame);
+                                    var textView = VsShellUtilities.GetTextView(windowFrame);
                                     windowFrame?.Show();
                                     if (textView != null)
                                     {

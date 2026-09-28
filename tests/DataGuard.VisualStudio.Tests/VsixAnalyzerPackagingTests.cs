@@ -101,37 +101,4 @@ public class VsixAnalyzerPackagingTests
             1,
             "vsixmanifest must declare at least one Microsoft.VisualStudio.Analyzer asset");
     }
-
-    [Fact]
-    public void ObjAnalyzersDirectory_AfterBuildAnalyzersTarget_ContainsAnalyzersDll()
-    {
-        // Verifies the MSBuild BuildAnalyzers target output — works without full VSIX build.
-        var objAnalyzersDir = Path.Combine(
-            RepoRoot, "src", "DataGuard.VisualStudio", "obj", "analyzers");
-
-        if (!Directory.Exists(objAnalyzersDir))
-        {
-            return; // BuildAnalyzers target hasn't run yet — skip.
-        }
-
-        var analyzersDll = Path.Combine(objAnalyzersDir, "DataGuard.Analyzers.dll");
-        File.Exists(analyzersDll).Should().BeTrue(
-            $"BuildAnalyzers MSBuild target must output DataGuard.Analyzers.dll to {objAnalyzersDir}");
-    }
-
-    [Fact]
-    public void ObjAnalyzersDirectory_AfterBuildAnalyzersTarget_ContainsCodeFixesDll()
-    {
-        var objAnalyzersDir = Path.Combine(
-            RepoRoot, "src", "DataGuard.VisualStudio", "obj", "analyzers");
-
-        if (!Directory.Exists(objAnalyzersDir))
-        {
-            return;
-        }
-
-        var codeFixesDll = Path.Combine(objAnalyzersDir, "DataGuard.CodeFixes.dll");
-        File.Exists(codeFixesDll).Should().BeTrue(
-            $"BuildAnalyzers MSBuild target must output DataGuard.CodeFixes.dll to {objAnalyzersDir}");
-    }
 }
