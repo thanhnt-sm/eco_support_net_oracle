@@ -32,6 +32,18 @@ fi
 if [[ -d "/c/Program Files/Docker/Docker/resources/bin" ]]; then
     export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
 fi
+for winget_pkg in /c/Users/*/AppData/Local/Microsoft/WinGet/Packages/rhysd.actionlint*; do
+    if [[ -d "$winget_pkg" ]]; then
+        export PATH="$PATH:$winget_pkg"
+        break
+    fi
+done
+for py_dir in /c/Users/*/AppData/Local/Programs/Python/Python*; do
+    if [[ -d "$py_dir" ]]; then
+        export PATH="$PATH:$py_dir"
+        break
+    fi
+done
 # ── Paths ────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR/..")"
@@ -43,6 +55,7 @@ COMMIT_MSG=""
 DO_PUSH=false
 DRY_RUN=false
 STASH_REF=""
+STASHED=false
 export SKIP_ACT="${SKIP_ACT:-1}"
 # ── Logging helpers ──────────────────────────────────────────────────────────
 log_info()    { printf "${BLUE}ℹ️  %s${NC}\n" "$*"; }
@@ -83,12 +96,21 @@ while [[ $# -gt 0 ]]; do
         --with-act)   export SKIP_ACT=0; shift ;;
         -h|--help)    print_help; exit 0 ;;
         -*)           log_error "Unknown option: $1"; print_help; exit 1 ;;
-        *)            COMMIT_MSG="$1"; shift ;;
+        *)
+            if [[ -z "$COMMIT_MSG" ]]; then
+                COMMIT_MSG="$1"
+            else
+                COMMIT_MSG="$COMMIT_MSG $1"
+            fi
+            shift
+            ;;
     esac
 done
 
 if [[ -z "$COMMIT_MSG" ]]; then
     COMMIT_MSG="chore(sync): automated workspace synchronization [$(date -u +'%Y-%m-%dT%H:%M:%SZ')]"
+else
+    COMMIT_MSG="$(printf '%s' "$COMMIT_MSG" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
 fi
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────
@@ -131,23 +153,23 @@ if [[ -n "$LOCAL_CHANGES" && -x "$PROJECT_ROOT/tools/git-tools/dg-git" ]]; then
     log_success "No secrets found in local changes."
 fi
 
-if [[ -n "$UNSTAGED_CHANGES" || -n "$UNTRACKED_CHANGES" ]]; then
-    echo -e "${YELLOW}Local unstaged changes detected. Stashing them while preserving the staged selection...${NC}"
+if [[ -n "$LOCAL_CHANGES" ]]; then
+    echo -e "${YELLOW}Local uncommitted changes detected. Stashing them safely before remote sync...${NC}"
     STASH_NAME="github-automator-stash-$(date +%s)"
-    if ! git stash push --keep-index -u -m "$STASH_NAME"; then
-        log_error "Failed to stash unstaged work; refusing to continue."
+    if ! git stash push -u -m "$STASH_NAME"; then
+        log_error "Failed to stash local work; refusing to continue."
         exit 1
     fi
-    STASH_REF="$(git stash list --format='%gd%x09%gs' | sed -n "\|$STASH_NAME$|{s/\t.*//;p;q;}")"
+    STASH_REF="$(git stash list --format='%gd%x09%gs' | tr -d '\r' | sed -n "\|$STASH_NAME$|{s/\t.*//;p;q;}")"
     if [[ -z "$STASH_REF" ]]; then
         log_error "Cannot identify the stash created by this run; refusing to continue."
         exit 1
     fi
     STASHED=true
-    echo -e "${GREEN}✅ Unstaged work safely stashed; staged selection preserved.${NC}"
+    echo -e "${GREEN}✅ Local work safely stashed.${NC}"
 else
     STASHED=false
-    echo -e "${GREEN}✨ No unstaged work to stash; staged selection remains in place.${NC}"
+    echo -e "${GREEN}✨ No local work to stash; working tree is clean.${NC}"
 fi
 
 # ==============================================================================
@@ -226,7 +248,7 @@ fi
 # ==============================================================================
 if [[ "$STASHED" == "true" ]]; then
     echo -e "${CYAN}Applying local changes via git stash pop $STASH_REF...${NC}"
-    if ! git stash pop "$STASH_REF"; then
+    if ! git stash pop --index "$STASH_REF" 2>/dev/null && ! git stash pop "$STASH_REF"; then
         log_error "Failed to restore stashed local changes. Resolve manually before continuing."
         exit 1
     fi
@@ -251,9 +273,12 @@ if [[ -z "$STAGED_CHANGES" ]]; then
     git add -A
     STAGED_CHANGES="$(git diff --cached --name-only 2>/dev/null || true)"
     if [[ -z "$STAGED_CHANGES" ]]; then
-        AHEAD_COUNT="$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
+        AHEAD_COUNT="$(git rev-list --count "${REMOTE_BRANCH:-@{u}}..HEAD" 2>/dev/null || git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
         if [[ "$DO_PUSH" == "true" && "$AHEAD_COUNT" -gt 0 ]]; then
             echo -e "${CYAN}ℹ️  Working tree clean, but local branch is ahead by ${AHEAD_COUNT} commit(s). Proceeding to push...${NC}"
+        elif [[ "$AHEAD_COUNT" -gt 0 ]]; then
+            echo -e "${YELLOW}ℹ️  Working tree clean, but local branch is ahead by ${AHEAD_COUNT} commit(s). Use --push to push to remote.${NC}"
+            exit 0
         else
             echo -e "${GREEN}✨ Working tree clean; nothing to commit or push.${NC}"
             exit 0
@@ -271,7 +296,7 @@ FINAL_CHANGES="$STAGED_CHANGES"
 hr
 echo -e "${BLUE}${BOLD}[5/6] 🧪 Simulating local CI/CD pipeline & security audit...${NC}"
 
-if [[ -z "$FINAL_CHANGES" ]]; then
+if [[ -z "$FINAL_CHANGES" && "${AHEAD_COUNT:-0}" -eq 0 ]]; then
     echo -e "${GREEN}✅ Nothing to verify — no changes to CI/CD pipeline.${NC}"
 else
     echo -e "${CYAN}▶ Canonical local gates (workflow, security, tests, act)${NC}"
