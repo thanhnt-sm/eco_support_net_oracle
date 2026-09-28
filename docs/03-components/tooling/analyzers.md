@@ -78,6 +78,9 @@ All diagnostic IDs are defined as constants in the `DiagnosticIds` class:
 | `DG011` | NonOracleFunctionInOracle | CI | DataGuard.Dialect |
 | `DG012` | ProviderOptionMismatch | CI | DataGuard.Dialect |
 | `DG013` | SqlServerSyntaxLeak | CI | DataGuard.Dialect |
+
+> **Note on Stored Procedures:**
+> Calls to stored procedures detected via `CommandType.StoredProcedure` (ADO.NET or Dapper) populate `RawSqlDescriptor.IsStoredProcedure = true`. Rule `DG013` (SQL Server syntax leak) is skipped for synthesized stored procedure invocations, and `DG101` (parameter count check) suppresses inline token checks because parameters are supplied out-of-band.
 | `DG014` | UnmappedTypeUsage | CI | DataGuard.Dialect |
 | `DG015` | PhantomTable | CI | DataGuard.Contracts |
 | `DG016` | PhantomColumn | CI | DataGuard.Contracts |

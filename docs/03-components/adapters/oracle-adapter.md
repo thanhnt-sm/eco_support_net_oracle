@@ -283,8 +283,29 @@ Detects cross-dialect SQL syntax issues. Uses word-boundary regex matching to av
 |----------|-------|
 | **Severity** | Warning |
 | **Trigger** | Oracle keywords/operators in non-Oracle SQL |
-| **Message** | Oracle-specific keyword '{keyword}' used in non-Oracle context |
+| **Message** | Oracle-specific keyword `{keyword}` used in non-Oracle context |
+| **Properties Bag** | `keyword`, `migration` |
 
+#### Migration Dictionary
+
+Rather than a simple detection set, `DG010` is backed by a comprehensive migration dictionary that emits actionable ANSI SQL and SQL Server replacement hints:
+
+| Oracle Keyword / Operator | Recommended Migration Hint |
+|---------------------------|----------------------------|
+| `DECODE` | `CASE WHEN … THEN … ELSE … END (ANSI SQL)` |
+| `NVL` | `COALESCE(expr, replacement) (ANSI SQL)` |
+| `NVL2` | `CASE WHEN expr IS NOT NULL THEN a ELSE b END (ANSI SQL)` |
+| `DUAL` | Remove `FROM DUAL` or use `FROM (VALUES (0)) AS dual(n) (SQL Server)` |
+| `ROWNUM` | `TOP n` or `ROW_NUMBER() OVER (ORDER BY …) (ANSI SQL)` |
+| `CONNECT BY` / `START WITH` | Recursive CTE: `WITH cte AS (… UNION ALL …) (ANSI SQL)` |
+| `SYSDATE` / `SYSTIMESTAMP` | `GETDATE()` / `SYSDATETIME()` (SQL Server) or `CURRENT_TIMESTAMP` (ANSI SQL) |
+| `NEXTVAL` | `NEXT VALUE FOR sequence_name (SQL Server 2012+)` or `IDENTITY` |
+| `LISTAGG` / `WM_CONCAT` | `STRING_AGG(col, ',') WITHIN GROUP (ORDER BY col) (SQL Server 2017+)` |
+| `REGEXP_LIKE` / `REGEXP_REPLACE` | `LIKE`, `PATINDEX`, `REPLACE`, or CLR-based regex functions |
+| `(+)` | Replace outer-join `(+)` with ANSI `LEFT JOIN` / `RIGHT JOIN` |
+| `**` | `POWER(base, exponent) (ANSI SQL)` |
+
+These hints are ingested by the VS Code extension and surfaced directly in editor tooltips via `DataGuardHoverProvider`.
 ### DG011 — Non-Oracle Function in Oracle Context
 
 | Property | Value |

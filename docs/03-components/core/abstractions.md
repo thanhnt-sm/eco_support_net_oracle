@@ -81,6 +81,8 @@ classDiagram
         +string SqlText
         +IReadOnlyList~ParameterDescriptor~ Parameters
         +IReadOnlyList~ColumnDescriptor~ ResultColumns
+        +bool IsStoredProcedure
+        +string ProcedureName
     }
 
     class DatabaseSchemaDescriptor {
@@ -229,7 +231,8 @@ Represents an inline SQL statement (e.g. Dapper query, raw ADO.NET command).
 | `SqlText` | `string` | The SQL text |
 | `Parameters` | `IReadOnlyList<ParameterDescriptor>` | Detected parameters |
 | `ResultColumns` | `IReadOnlyList<ColumnDescriptor>` | Detected result columns |
-
+| `IsStoredProcedure` | `bool` | True when descriptor represents a stored-procedure call rather than raw SQL |
+| `ProcedureName` | `string?` | The bare procedure name (without EXEC/CALL prefix), or null for plain SQL |
 ### DatabaseSchemaDescriptor
 
 Represents the ground-truth database schema used by length/dialect rules.

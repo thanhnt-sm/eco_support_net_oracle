@@ -134,7 +134,9 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             Location location,
             string? targetTypeName,
             IReadOnlyList<PropertyDescriptor> expectedProperties,
-            string? providerHint)
+            string? providerHint,
+            bool isStoredProcedure = false,
+            string? procedureName = null)
         {
             var lineSpan = location.GetLineSpan();
             var filePath = lineSpan.Path;
@@ -177,7 +179,11 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 TargetTypeName: targetTypeName,
                 OperationType: opType,
                 ReferencedTables: tables,
-                ConnectionProviderHint: providerHint);
+                ConnectionProviderHint: providerHint)
+            {
+                IsStoredProcedure = isStoredProcedure,
+                ProcedureName = procedureName,
+            };
 
             seenSqlTexts.Add(sqlText.Trim());
             descriptors.Add(descriptor);
@@ -198,10 +204,65 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     continue;
                 }
 
-                var sqlText = ExtractSqlText(invocation, methodName, semanticModel, cancellationToken);
-                if (string.IsNullOrWhiteSpace(sqlText))
+                // F8 fix: detect commandType: CommandType.StoredProcedure named argument BEFORE
+                // ExtractSqlText, so that "MY_PROC" (which fails IsSqlString) is still captured.
+                var isDapperSp = false;
+                string? dapperProcName = null;
+                foreach (var arg in invocation.ArgumentList.Arguments)
                 {
-                    continue;
+                    if (arg.NameColon?.Name.Identifier.ValueText == "commandType")
+                    {
+                        var argText = arg.Expression.ToString();
+                        if (argText.EndsWith("StoredProcedure", StringComparison.Ordinal))
+                        {
+                            isDapperSp = true;
+                        }
+                        break;
+                    }
+                }
+
+                string sqlText;
+                if (isDapperSp)
+                {
+                    // First positional/named arg that is a string literal is the proc name.
+                    // Bypass IsSqlString filter — proc names intentionally fail it.
+                    string? firstString = null;
+                    foreach (var arg in invocation.ArgumentList.Arguments)
+                    {
+                        if (arg.NameColon != null && arg.NameColon.Name.Identifier.ValueText == "commandType")
+                        {
+                            continue;
+                        }
+                        var resolved = TryResolveString(arg.Expression, semanticModel, cancellationToken);
+                        if (!string.IsNullOrWhiteSpace(resolved))
+                        {
+                            firstString = resolved;
+                            break;
+                        }
+                    }
+                    if (firstString == null)
+                    {
+                        continue;
+                    }
+
+                    // Validate proc name pattern
+                    // Accept plain identifiers, schema-qualified names (schema.proc), and bracketed names ([dbo].[Proc]).
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(
+                        firstString,
+                        @"^(\[[\w\s]+\]|[A-Za-z0-9_#$]+)(\.(\[[\w\s]+\]|[A-Za-z0-9_#$]+))*$"))
+                    {
+                        continue;
+                    }
+                    dapperProcName = firstString;
+                    sqlText = $"EXEC {firstString}";
+                }
+                else
+                {
+                    sqlText = ExtractSqlText(invocation, methodName, semanticModel, cancellationToken);
+                    if (string.IsNullOrWhiteSpace(sqlText))
+                    {
+                        continue;
+                    }
                 }
 
                 var (targetTypeName, typeSymbol) = ResolveTargetType(invocation, semanticModel, cancellationToken);
@@ -225,7 +286,14 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     providerHint = InferProviderHint(receiverType);
                 }
 
-                AddDescriptor(sqlText, invocation.GetLocation(), targetTypeName, expectedProperties, providerHint);
+                AddDescriptor(
+                    sqlText,
+                    invocation.GetLocation(),
+                    targetTypeName,
+                    expectedProperties,
+                    providerHint,
+                    isStoredProcedure: isDapperSp,
+                    procedureName: dapperProcName);
             }
 
             // 2. CommandText assignments (cmd.CommandText = "SELECT ...")
@@ -259,6 +327,145 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 }
 
                 AddDescriptor(sqlText, assignment.GetLocation(), null, Array.Empty<PropertyDescriptor>(), providerHint);
+            }
+
+            // 2b. CommandType.StoredProcedure assignments — detect SP calls via ADO.NET pattern.
+            // e.g.: var cmd = new SqlCommand("GET_CUSTOMER_BY_ID", conn);
+            //       cmd.CommandType = CommandType.StoredProcedure;
+            // The CommandText assignment ("GET_CUSTOMER_BY_ID") fails IsSqlString() so it was silently
+            // skipped in section 2. We now scan for CommandType assignments and back-fill the SP descriptor.
+            foreach (var assignment in root.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Only interested in assignments whose right-hand side ends with StoredProcedure
+                var rightText = assignment.Right.ToString();
+                if (!rightText.EndsWith("StoredProcedure", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                // Left side must be a CommandType member access (cmd.CommandType = … or CommandType = …)
+                var leftName = assignment.Left switch
+                {
+                    MemberAccessExpressionSyntax ma => ma.Name.Identifier.ValueText,
+                    IdentifierNameSyntax id => id.Identifier.ValueText,
+                    _ => null,
+                };
+                if (leftName is not "CommandType")
+                {
+                    continue;
+                }
+
+                // Determine the receiver variable (cmd in cmd.CommandType = …)
+                string? receiverName = assignment.Left is MemberAccessExpressionSyntax maLeft
+                    ? (maLeft.Expression as IdentifierNameSyntax)?.Identifier.ValueText
+                    : null;
+
+                // Search the enclosing block for a CommandText assignment or ctor arg on the same variable.
+                var enclosingBlock = assignment.Ancestors().OfType<BlockSyntax>().FirstOrDefault();
+                if (enclosingBlock == null)
+                {
+                    continue;
+                }
+
+                string? procName = null;
+                Location? procLocation = null;
+                string? providerHintSp = null;
+
+                // Case A: cmd.CommandText = "PROC_NAME" assignment in same block
+                foreach (var sibling in enclosingBlock.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+                {
+                    var sibLeft = sibling.Left switch
+                    {
+                        MemberAccessExpressionSyntax ma => (receiver: (ma.Expression as IdentifierNameSyntax)?.Identifier.ValueText, name: ma.Name.Identifier.ValueText),
+                        _ => (receiver: null, name: null),
+                    };
+                    if (sibLeft.name != "CommandText")
+                    {
+                        continue;
+                    }
+
+                    // Require receiver consistency: if we know the receiver var (cmd), only match cmd.CommandText.
+                    // If receiverName is null (no receiver on CommandType=... side), only match receiver-less CommandText.
+                    // This prevents associating unrelated variables' CommandText assignments.
+                    if (receiverName != null)
+                    {
+                        if (sibLeft.receiver != null && sibLeft.receiver != receiverName)
+                        {
+                            continue;
+                        }
+                    }
+                    else if (sibLeft.receiver != null)
+                    {
+                        // receiverName is null → CommandType was set without qualifier; skip qualified sibling.
+                        continue;
+                    }
+                    var resolved = TryResolveString(sibling.Right, semanticModel, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(resolved))
+                    {
+                        procName = resolved;
+                        procLocation = sibling.GetLocation();
+                        if (sibling.Left is MemberAccessExpressionSyntax ma2)
+                        {
+                            var rType = semanticModel.GetTypeInfo(ma2.Expression, cancellationToken).Type?.Name
+                                ?? (ma2.Expression as IdentifierNameSyntax)?.Identifier.ValueText;
+                            providerHintSp = InferProviderHint(rType);
+                        }
+                        break;
+                    }
+                }
+
+                // Case B: new SqlCommand("PROC_NAME", conn) object creation on the same variable
+                if (procName == null && receiverName != null)
+                {
+                    foreach (var decl in enclosingBlock.DescendantNodes().OfType<VariableDeclaratorSyntax>())
+                    {
+                        if (decl.Identifier.ValueText != receiverName)
+                        {
+                            continue;
+                        }
+                        if (decl.Initializer?.Value is ObjectCreationExpressionSyntax ctor
+                            && ctor.Type.ToString().EndsWith("Command", StringComparison.OrdinalIgnoreCase)
+                            && ctor.ArgumentList?.Arguments.Count > 0)
+                        {
+                            var firstArg = ctor.ArgumentList.Arguments[0].Expression;
+                            var resolved = TryResolveString(firstArg, semanticModel, cancellationToken);
+                            if (!string.IsNullOrWhiteSpace(resolved))
+                            {
+                                procName = resolved;
+                                procLocation = ctor.GetLocation();
+                                providerHintSp = InferProviderHint(ctor.Type.ToString());
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(procName))
+                {
+                    continue;
+                }
+
+                // Validate proc name against safe identifier pattern before synthesizing SQL.
+                if (!System.Text.RegularExpressions.Regex.IsMatch(
+                    procName,
+                    @"^(\[[\w\s]+\]|[A-Za-z0-9_#$]+)(\.(\[[\w\s]+\]|[A-Za-z0-9_#$]+))*$"))
+                {
+                    continue;
+                }
+
+                // Synthesize a provider-aware SQL text for the engine (suppresses DG013 via IsStoredProcedure flag).
+                var spSqlText = $"EXEC {procName}";
+
+                AddDescriptor(
+                    spSqlText,
+                    procLocation ?? assignment.GetLocation(),
+                    targetTypeName: null,
+                    expectedProperties: Array.Empty<PropertyDescriptor>(),
+                    providerHint: providerHintSp,
+                    isStoredProcedure: true,
+                    procedureName: procName);
             }
 
             // 3. Object creations (new SqlCommand("SELECT ...", conn) / new OracleCommand(...) / new NpgsqlCommand(...))

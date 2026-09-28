@@ -113,6 +113,12 @@ Tương tự phát hiện EF Core:
 1. **Tham chiếu package** — kiểm tra *.csproj cho `Dapper`
 2. **Mã nguồn** — kiểm tra *.cs files cho việc sử dụng `Dapper.`
 
+
+### Tự Động Phát Hiện Stored Procedure (Dapper & ADO.NET)
+
+Bên cạnh các truy vấn chuỗi SQL thô, engine trích xuất contract tự động phát hiện các lệnh gọi stored procedure mà không đòi hỏi tiền tố phương ngôn SQL:
+- **Lệnh gọi Dapper**: Phát hiện các invocation truyền đối số `commandType: CommandType.StoredProcedure` (vd: `conn.QueryAsync<T>("SP_NAME", commandType: CommandType.StoredProcedure)`). Ngay cả khi `"SP_NAME"` không chứa các từ khóa SQL truy vấn thông thường (như `SELECT`), tên thủ tục vẫn được trích xuất an toàn và tạo `RawSqlDescriptor` với `IsStoredProcedure = true` cùng `ProcedureName = "SP_NAME"`.
+- **Lệnh gọi ADO.NET Command**: Nhận diện phép gán `cmd.CommandType = CommandType.StoredProcedure` và trích xuất `CommandText` tương ứng của `SqlCommand` / `OracleCommand` / `NpgsqlCommand` thành stored procedure descriptor.
 ## Phát Hiện Connection String
 
 Thứ tự ưu tiên:

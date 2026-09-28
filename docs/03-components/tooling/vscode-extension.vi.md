@@ -94,6 +94,25 @@ Tiện ích chạy `dataguard validate --format sarif --output <file-tạm>` và
 | `warning` | `DiagnosticSeverity.Warning` |
 | `note` | `DiagnosticSeverity.Information` |
 
+
+## Trải Nghiệm Trực Tiếp Trong Editor (CodeLens, Decorations & Hover)
+
+Để cung cấp phản hồi tức thì trực tiếp trên các file mã nguồn C# mà không cần chuyển view, DataGuard đăng ký ba provider đồng bộ với kết quả phân tích:
+
+### 1. CodeLens Provider (`DataGuardCodeLensProvider`)
+- **Chú thích vi phạm**: Hiển thị `⚠ DataGuard: N findings` phía trên các dòng có chẩn đoán vi phạm contract hoặc phương ngôn.
+- **Thẩm quyền duy nhất**: Chỉ hiển thị khi có vi phạm thực tế (không phát huy hiệu thừa "✅ No Issues").
+- **An toàn & Hiệu năng**: Giới hạn tối đa 50 CodeLens mỗi tài liệu để tránh làm đơ trình soạn thảo, tự động xóa trên các file chưa lưu (dirty) cho đến khi xác thực lại, và tuân thủ cancellation token.
+
+### 2. Quản Lý Decoration Editor (`DataGuardDecorationManager`)
+- **Biểu tượng lề (Gutter Icons) & Tô sáng dòng**: Hiển thị vi phạm lỗi (`diffEditor.removedTextBackground`) và cảnh báo (`diffEditor.modifiedTextBackground`) trên dòng mã cùng các vạch dấu overview ruler.
+- **Đồng bộ đa editor**: Áp dụng trên toàn bộ các trình soạn thảo đang hiển thị (`visibleTextEditors`), không chỉ riêng tab đang kích hoạt.
+- **Ngăn xếp hiển thị sạch**: Decorations không khai báo inline hover message riêng nhằm tránh xung đột xếp chồng tooltip với Hover Provider chuyên dụng.
+
+### 3. Markdown Hover Provider (`DataGuardHoverProvider`)
+- **Nội dung tooltip Markdown phong phú**: Là đầu mối duy nhất hiển thị tooltip chi tiết khi rê chuột lên phát hiện của DataGuard, bao gồm mã quy tắc, mức độ nghiêm trọng, thông báo đã khử độc và chi tiết tham số.
+- **Hướng dẫn di chuyển (Migration Guidance) Oracle**: Tự động hiển thị gợi ý chuyển đổi từ thuộc tính finding (ví dụ `DG010` gợi ý cú pháp tương đương trong ANSI/SQL Server cho các từ khóa đặc thù của Oracle).
+- **Bảo mật**: Khởi tạo với `isTrusted: false` và `supportHtml: false` ngăn ngừa hoàn toàn nguy cơ chèn mã độc (injection).
 ## Cây xem Discovered SQL Queries
 
 View `dataguard.sqlQueriesView` trong thanh Activity Bar DataGuard hiển thị danh mục các truy vấn SQL inline cùng ánh xạ model C# phát hiện được trong workspace (hỗ trợ chuỗi ký tự thông thường, nội suy chuỗi, hằng số, biến cục bộ, trường dữ liệu, và phân giải truy vấn SQL từ thuộc tính bao gồm cả thuộc tính thân biểu thức, kèm cơ chế phát hiện chu trình call-stack ngăn ngừa đệ quy vô hạn giữa các phụ thuộc vòng):

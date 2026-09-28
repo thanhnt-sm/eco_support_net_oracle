@@ -79,8 +79,10 @@ public class ParameterCountRule : ContractRuleBase
             var paramMatches = Regex.Matches(sqlText, @"@\w+");
             var detectedCount = paramMatches.Count;
 
-            // For stored procedures with EXEC prefix, validate
-            if (sqlText.Trim().ToLower().StartsWith("exec ") || sqlText.Trim().ToLower().StartsWith("execute "))
+            // Suppress DG101 if IsStoredProcedure=true (parameters passed out-of-band, no inline tokens).
+            if ((sqlText.Trim().StartsWith("exec ", StringComparison.OrdinalIgnoreCase) ||
+                 sqlText.Trim().StartsWith("execute ", StringComparison.OrdinalIgnoreCase)) &&
+                !sqlDesc.IsStoredProcedure)
             {
                 if (detectedCount == 0)
                 {

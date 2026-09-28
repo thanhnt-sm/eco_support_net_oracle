@@ -63,6 +63,8 @@ export interface FindingItem {
     quickFixAvailable: boolean;
     quickFixTitle?: string;
     rawSnippet?: string;
+    /** SARIF result.properties (e.g. DG010 migration hints). */
+    properties?: Record<string, unknown>;
 }
 
 export interface SarifRegion {
@@ -95,6 +97,8 @@ export interface SarifResult {
         text?: string;
     };
     locations?: SarifLocation[];
+    /** SARIF properties bag (e.g. migration hints, keyword, operator). */
+    properties?: Record<string, unknown>;
 }
 
 export interface SarifRun {
@@ -195,7 +199,9 @@ export function parseSarifToFindings(
                 endColumn,
                 quickFixAvailable: qfInfo.available,
                 quickFixTitle: qfInfo.title,
-                rawSnippet
+                rawSnippet,
+                // F7: propagate SARIF result.properties (e.g. migration hints)
+                properties: result.properties,
             });
         }
     }

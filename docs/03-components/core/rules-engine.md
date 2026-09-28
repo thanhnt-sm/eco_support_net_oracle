@@ -71,8 +71,11 @@ The base class also provides a static `CreateViolation` helper for consistent vi
 **Severity:** Error
 **Scope:** `RawSqlDescriptor`
 
-Validates that stored procedure calls have the expected number of parameters. For SQL text starting with `EXEC`/`EXECUTE`, it counts `@`-prefixed parameter tokens and flags when zero parameters are detected.
+Validates that stored procedure calls have the expected number of parameters. For raw SQL text starting with `EXEC`/`EXECUTE`, it counts `@`-prefixed parameter tokens and flags when zero parameters are detected.
 
+**Stored Procedure Handling:**
+- When a descriptor represents an explicit stored procedure call (`RawSqlDescriptor.IsStoredProcedure == true`), parameters are passed out-of-band (e.g. via Dapper parameters or ADO.NET `DbParameterCollection`) rather than inline `@`-tokens.
+- `DG101` is suppressed for descriptors with `IsStoredProcedure == true` to prevent false positive zero-parameter flags.
 ### DG002 — ParameterTypeMatchRule
 
 **Severity:** Error

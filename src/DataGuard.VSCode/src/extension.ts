@@ -15,6 +15,9 @@ import { DataGuardFindingsTreeProvider, FindingTreeItem } from "./ui/findings-tr
 import { DataGuardSqlQueriesTreeProvider, QueryScanItem, ScanConnectionItem, ScanReport } from "./ui/sql-queries-tree-provider";
 import { DataGuardQuickFixProvider } from "./ui/quick-fix-provider";
 import { parseSarifToFindings, redactForUi, SarifLocation, SarifLog, SarifRegion, SarifResult, SarifRun } from "./ui/redaction";
+import { DataGuardCodeLensProvider } from "./ui/codelens-provider";
+import { DataGuardDecorationManager } from "./ui/decoration-manager";
+import { DataGuardHoverProvider } from "./ui/hover-provider";
 
 const RUN_VALIDATION_COMMAND = "dataguard.runValidation";
 const CANCEL_VALIDATION_COMMAND = "dataguard.cancelValidation";
@@ -50,6 +53,9 @@ let findingsTreeProvider: DataGuardFindingsTreeProvider | undefined;
 let sqlQueriesTreeProvider: DataGuardSqlQueriesTreeProvider | undefined;
 let quickFixProvider: DataGuardQuickFixProvider | undefined;
 let latestScanReport: ScanReport | null = null;
+let codeLensProvider: DataGuardCodeLensProvider | undefined;
+let decorationManager: DataGuardDecorationManager | undefined;
+let hoverProvider: DataGuardHoverProvider | undefined;
 export function activate(context: vscode.ExtensionContext): void {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.name = "DataGuard";
@@ -62,6 +68,11 @@ export function activate(context: vscode.ExtensionContext): void {
     quickFixProvider = new DataGuardQuickFixProvider();
     sqlQueriesTreeProvider = new DataGuardSqlQueriesTreeProvider();
 
+    // CodeLens, decoration, and hover providers
+    codeLensProvider = new DataGuardCodeLensProvider();
+    decorationManager = new DataGuardDecorationManager();
+    hoverProvider = new DataGuardHoverProvider();
+
     const treeView = vscode.window.registerTreeDataProvider("dataguard.findingsView", findingsTreeProvider);
     const sqlQueriesView = vscode.window.registerTreeDataProvider("dataguard.sqlQueriesView", sqlQueriesTreeProvider);
     const codeActionDisposable = vscode.languages.registerCodeActionsProvider(
@@ -69,7 +80,26 @@ export function activate(context: vscode.ExtensionContext): void {
         quickFixProvider,
         { providedCodeActionKinds: DataGuardQuickFixProvider.providedCodeActionKinds }
     );
-    context.subscriptions.push(statusBarItem, diagnostics, treeView, sqlQueriesView, codeActionDisposable);
+    const codeLensDisposable = vscode.languages.registerCodeLensProvider(
+        { scheme: "file", language: "csharp" },
+        codeLensProvider
+    );
+    const hoverDisposable = vscode.languages.registerHoverProvider(
+        { scheme: "file", language: "csharp" },
+        hoverProvider
+    );
+    // F12: toggle CodeLens/decorations on settings change
+    const configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("dataguard")) {
+            codeLensProvider?.refresh();
+            decorationManager?.clear();
+        }
+    });
+    context.subscriptions.push(
+        statusBarItem, diagnostics, treeView, sqlQueriesView, codeActionDisposable,
+        codeLensDisposable, hoverDisposable, configChangeDisposable,
+        { dispose: () => decorationManager?.dispose() }
+    );
     context.subscriptions.push(
         vscode.commands.registerCommand(RUN_VALIDATION_COMMAND, () => runValidation(context)),
         vscode.commands.registerCommand(CANCEL_VALIDATION_COMMAND, () => cancelValidation()),
@@ -118,6 +148,10 @@ export async function deactivate(): Promise<void> {
     DataGuardDashboardPanel.currentPanel?.dispose();
     findingsTreeProvider = undefined;
     quickFixProvider = undefined;
+    // decorationManager.dispose() called via subscriptions
+    codeLensProvider = undefined;
+    decorationManager = undefined;
+    hoverProvider = undefined;
     statusBarItem?.dispose();
     outputChannel?.dispose();
     diagnostics?.dispose();
@@ -233,6 +267,10 @@ function clearFindingsAndDiagnostics(): void {
     findingsTreeProvider?.clear();
     sqlQueriesTreeProvider?.clear();
     latestScanReport = null;
+    // F9/F12: clear decorations and CodeLens
+    decorationManager?.clear();
+    codeLensProvider?.clear();
+    hoverProvider?.clear();
     if (DataGuardDashboardPanel.currentPanel) {
         DataGuardDashboardPanel.currentPanel.clear();
         DataGuardDashboardPanel.currentPanel.updateScanReport(null);
@@ -367,7 +405,10 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     channel.clear();
     channel.show(true);
     diagnostics?.clear();
-
+    // F9: clear stale decorations before CLI run
+    decorationManager?.clear();
+    codeLensProvider?.clear();
+    hoverProvider?.clear();
     const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "dataguard-"));
     if (!runCoordinator.isReservationCurrent(reservationToken)) {
         await fs.rm(outputDirectory, { recursive: true, force: true });
@@ -451,6 +492,11 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         if (expectsSarif && outputPath) {
             const diagnosticCount = await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel);
             channel.appendLine(`[DataGuard] SARIF summary: ${diagnosticCount} finding(s) loaded into Problems.`);
+            // Update UI providers with fresh findings
+            const findings = findingsTreeProvider?.getFindings() ?? [];
+            decorationManager?.applyFindings(findings);
+            hoverProvider?.setFindings(findings);
+            codeLensProvider?.setFindings(findings);
         }
             const summaryPath = path.join(outputDirectory, "summary.json");
             try {

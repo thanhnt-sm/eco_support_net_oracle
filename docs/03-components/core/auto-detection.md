@@ -127,6 +127,12 @@ Similar to EF Core detection:
 1. **Package references** — checks *.csproj for `Dapper`
 2. **Source code** — checks *.cs files for `Dapper.` usage
 
+
+### Stored Procedure Auto-Detection (Dapper & ADO.NET)
+
+In addition to raw SQL string queries, the contract extraction engine auto-detects stored procedure calls without requiring SQL dialect prefixes:
+- **Dapper Invocations**: Detects calls passing `commandType: CommandType.StoredProcedure` (e.g. `conn.QueryAsync<T>("SP_NAME", commandType: CommandType.StoredProcedure)`). Even if `"SP_NAME"` does not contain standard SQL query keywords (like `SELECT`), the proc name is captured, creating a `RawSqlDescriptor` with `IsStoredProcedure = true` and `ProcedureName = "SP_NAME"`.
+- **ADO.NET Command Invocations**: Recognizes `cmd.CommandType = CommandType.StoredProcedure` assignments and back-fills the corresponding `SqlCommand` / `OracleCommand` / `NpgsqlCommand` `CommandText` as a stored procedure descriptor.
 ## Connection String Detection
 
 Priority order:

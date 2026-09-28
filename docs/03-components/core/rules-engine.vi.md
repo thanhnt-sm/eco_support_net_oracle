@@ -73,6 +73,9 @@ Lớp cơ sở cũng cung cấp helper tĩnh `CreateViolation` để tạo viola
 
 Kiểm tra rằng các lệnh gọi stored procedure có đúng số lượng tham số. Đối với văn bản SQL bắt đầu bằng `EXEC`/`EXECUTE`, nó đếm các token tham số tiền tố `@` và cảnh báo khi phát hiện 0 tham số.
 
+**Xử lý Stored Procedure:**
+- Khi một descriptor đại diện cho lệnh gọi stored procedure rõ ràng (`RawSqlDescriptor.IsStoredProcedure == true`), các tham số được truyền qua đối tượng riêng (out-of-band, vd: qua Dapper parameters hoặc `DbParameterCollection` trong ADO.NET) thay vì các inline token `@`.
+- `DG101` được chủ động bỏ qua (suppressed) đối với các descriptor có `IsStoredProcedure == true` nhằm loại trừ cảnh báo sai (false positive).
 ### DG002 — ParameterTypeMatchRule
 
 **Mức độ:** Error

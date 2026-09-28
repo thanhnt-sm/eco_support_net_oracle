@@ -228,6 +228,12 @@ public record RawSqlDescriptor(
     public string? ConnectionProviderHint { get; init; } = ConnectionProviderHint;
     public RawSqlParseStatus ParseStatus { get; init; } = RawSqlParseStatus.Parsed;
     public string? ParseError { get; init; }
+
+    /// <summary>True when this descriptor represents a stored-procedure call rather than raw SQL.</summary>
+    public bool IsStoredProcedure { get; init; } = false;
+
+    /// <summary>The bare procedure name (without EXEC/CALL prefix), or null for plain SQL.</summary>
+    public string? ProcedureName { get; init; } = null;
 }
 
 public enum RawSqlParseStatus

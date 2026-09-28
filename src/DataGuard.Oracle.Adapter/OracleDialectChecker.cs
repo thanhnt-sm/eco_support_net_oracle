@@ -19,20 +19,38 @@ public class OracleDialectChecker : IDialectAnalyzer
             ? CheckNonOracleSyntaxInOracleContext(sqlText, isOracleContext: true, location)
             : CheckOracleSyntaxInNonOracleContext(sqlText, isOracleContext: false, location);
 
-    // Only genuinely Oracle-exclusive constructs. Standard SQL (window functions,
-    // PIVOT, PARTITION BY, KEEP, MODEL) is valid in modern SQL Server/PostgreSQL too
-    // and must not be flagged as "Oracle-only".
-    private static readonly HashSet<string> OracleKeywords = new(StringComparer.OrdinalIgnoreCase)
+    // Only genuinely Oracle-exclusive constructs.
+    // Maps Oracle keyword to ANSI/SQL Server migration hint. Key preserved as "keyword" property.
+    private static readonly Dictionary<string, string> OracleKeywordMigrations = new(StringComparer.OrdinalIgnoreCase)
     {
-        "DECODE", "NVL", "NVL2", "DUAL", "ROWNUM", "CONNECT BY", "START WITH",
-        "SYSDATE", "SYSTIMESTAMP", "NEXTVAL", "CURRVAL", "ROWID",
-        "LISTAGG", "WM_CONCAT", "XMLAGG", "XMLFOREST", "XMLELEMENT",
-        "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR",
+        ["DECODE"] = "Use CASE WHEN … THEN … ELSE … END (ANSI SQL)",
+        ["NVL"] = "Use COALESCE(expr, replacement) (ANSI SQL)",
+        ["NVL2"] = "Use CASE WHEN expr IS NOT NULL THEN a ELSE b END (ANSI SQL)",
+        ["DUAL"] = "Remove FROM DUAL or use FROM (VALUES (0)) AS dual(n) (SQL Server)",
+        ["ROWNUM"] = "Use TOP n or ROW_NUMBER() OVER (ORDER BY …) (ANSI SQL)",
+        ["CONNECT BY"] = "Use recursive CTE: WITH cte AS (… UNION ALL …) (ANSI SQL)",
+        ["START WITH"] = "Part of CONNECT BY hierarchy — rewrite as recursive CTE (ANSI SQL)",
+        ["SYSDATE"] = "Use GETDATE() (SQL Server) or CURRENT_TIMESTAMP (ANSI SQL)",
+        ["SYSTIMESTAMP"] = "Use SYSDATETIME() (SQL Server) or CURRENT_TIMESTAMP (ANSI SQL)",
+        ["NEXTVAL"] = "Use NEXT VALUE FOR sequence_name (SQL Server 2012+) or IDENTITY",
+        ["CURRVAL"] = "No direct equivalent; capture NEXTVAL output into a variable",
+        ["ROWID"] = "Use a surrogate key column (UNIQUEIDENTIFIER or BIGINT)",
+        ["LISTAGG"] = "Use STRING_AGG(col, ',') WITHIN GROUP (ORDER BY col) (SQL Server 2017+)",
+        ["WM_CONCAT"] = "Use STRING_AGG(col, ',') (SQL Server 2017+) or FOR XML PATH trick",
+        ["XMLAGG"] = "Use FOR XML PATH or STRING_AGG for simple aggregation",
+        ["XMLFOREST"] = "Use FOR XML PATH('row') or JSON_OBJECT equivalent",
+        ["XMLELEMENT"] = "Use FOR XML EXPLICIT or JSON_OBJECT",
+        ["REGEXP_LIKE"] = "Use LIKE or PATINDEX with wildcards; full regex via CLR",
+        ["REGEXP_REPLACE"] = "Use REPLACE or CLR-based regex function",
+        ["REGEXP_SUBSTR"] = "Use SUBSTRING with PATINDEX; or CLR-based regex function",
+        ["REGEXP_INSTR"] = "Use CHARINDEX or PATINDEX; no direct equivalent without CLR",
     };
 
-    private static readonly HashSet<string> OracleOperators = new(StringComparer.OrdinalIgnoreCase)
+    // Maps Oracle operator to migration hint. Key preserved as "operator" property.
+    private static readonly Dictionary<string, string> OracleOperatorMigrations = new(StringComparer.OrdinalIgnoreCase)
     {
-        "(+)", "**",
+        ["(+)"] = "Replace Oracle outer-join (+) with ANSI LEFT JOIN / RIGHT JOIN syntax",
+        ["**"] = "Use POWER(base, exponent) (ANSI SQL)",
     };
 
     private static readonly HashSet<string> SqlServerKeywords = new(StringComparer.OrdinalIgnoreCase)
@@ -60,31 +78,39 @@ public class OracleDialectChecker : IDialectAnalyzer
         var violations = new List<ContractViolation>();
         var sanitized = MaskCommentsAndLiterals(sqlText);
 
-        // Check for Oracle-specific keywords
-        foreach (var keyword in OracleKeywords)
+        // Check for Oracle-specific keywords (emits "keyword" and "migration" properties).
+        foreach (var (keyword, hint) in OracleKeywordMigrations)
         {
             if (ContainsKeyword(sanitized, keyword))
             {
                 violations.Add(new ContractViolation(
                     "DG010",
-                    $"Oracle-specific keyword '{keyword}' used in non-Oracle context",
+                    $"Oracle-specific keyword `{keyword}` used in non-Oracle context",
                     DiagnosticSeverity.Warning,
                     location,
-                    new Dictionary<string, object?> { { "keyword", keyword } }));
+                    new Dictionary<string, object?>
+                    {
+                        { "keyword", keyword },
+                        { "migration", hint },
+                    }));
             }
         }
 
-        // Check for Oracle-specific operators
-        foreach (var op in OracleOperators)
+        // Check for Oracle-specific operators (emits "operator" property).
+        foreach (var (op, hint) in OracleOperatorMigrations)
         {
             if (sanitized.Contains(op, StringComparison.OrdinalIgnoreCase))
             {
                 violations.Add(new ContractViolation(
                     "DG010",
-                    $"Oracle-specific operator '{op}' used in non-Oracle context",
+                    $"Oracle-specific operator `{op}` used in non-Oracle context",
                     DiagnosticSeverity.Warning,
                     location,
-                    new Dictionary<string, object?> { { "operator", op } }));
+                    new Dictionary<string, object?>
+                    {
+                        { "operator", op },
+                        { "migration", hint },
+                    }));
             }
         }
         return violations;
@@ -243,8 +269,9 @@ public class OracleDialectChecker : IDialectAnalyzer
 
     private static bool ContainsKeyword(string text, string keyword)
     {
-        // Use word boundaries to avoid partial matches
-        var pattern = $@"\b{System.Text.RegularExpressions.Regex.Escape(keyword)}\b";
+        // F11: match multi-word keywords across whitespace (e.g. CONNECT\nBY).
+        var escapedKeyword = System.Text.RegularExpressions.Regex.Escape(keyword);
+        var pattern = $@"\b{escapedKeyword.Replace(@"\ ", @"\s+")}\b";
         return System.Text.RegularExpressions.Regex.IsMatch(text, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 

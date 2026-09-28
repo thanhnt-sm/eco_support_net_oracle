@@ -81,6 +81,8 @@ classDiagram
         +string SqlText
         +IReadOnlyList~ParameterDescriptor~ Parameters
         +IReadOnlyList~ColumnDescriptor~ ResultColumns
+        +bool IsStoredProcedure
+        +string ProcedureName
     }
 
     class DatabaseSchemaDescriptor {
@@ -224,7 +226,8 @@ Rules nhận contract mục tiêu cùng toàn bộ tập hợp contract (cần t
 | `SqlText` | `string` | Văn bản SQL |
 | `Parameters` | `IReadOnlyList<ParameterDescriptor>` | Tham số đã phát hiện |
 | `ResultColumns` | `IReadOnlyList<ColumnDescriptor>` | Cột result set đã phát hiện |
-
+| `IsStoredProcedure` | `bool` | True khi descriptor đại diện cho lệnh gọi stored procedure thay vì raw SQL |
+| `ProcedureName` | `string?` | Tên thủ tục rút gọn (không gồm prefix EXEC/CALL), hoặc null cho plain SQL |
 ### DatabaseSchemaDescriptor
 
 Đại diện cho schema database ground-truth được dùng bởi các rules kiểm tra length/dialect.

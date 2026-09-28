@@ -284,7 +284,28 @@ Phát hiện vấn đề cú pháp SQL cross-dialect. Sử dụng regex word-bou
 | **Mức độ** | Warning |
 | **Kích hoạt** | Từ khóa/toán tử Oracle trong SQL không phải Oracle |
 | **Thông báo** | Oracle-specific keyword '{keyword}' used in non-Oracle context |
+| **Properties Bag** | `keyword`, `migration` |
 
+#### Từ Điển Gợi Ý Di Chuyển (Migration Dictionary)
+
+Thay vì chỉ là một tập hợp phát hiện tĩnh, `DG010` được hỗ trợ bởi từ điển di chuyển chi tiết cung cấp các gợi ý thay thế tương đương bằng chuẩn ANSI SQL hoặc SQL Server:
+
+| Từ khóa / Toán tử Oracle | Gợi ý chuyển đổi khuyến nghị |
+|--------------------------|-----------------------------|
+| `DECODE` | `CASE WHEN … THEN … ELSE … END (ANSI SQL)` |
+| `NVL` | `COALESCE(expr, replacement) (ANSI SQL)` |
+| `NVL2` | `CASE WHEN expr IS NOT NULL THEN a ELSE b END (ANSI SQL)` |
+| `DUAL` | Xóa bỏ `FROM DUAL` hoặc dùng `FROM (VALUES (0)) AS dual(n) (SQL Server)` |
+| `ROWNUM` | `TOP n` hoặc `ROW_NUMBER() OVER (ORDER BY …) (ANSI SQL)` |
+| `CONNECT BY` / `START WITH` | Dùng CTE đệ quy: `WITH cte AS (… UNION ALL …) (ANSI SQL)` |
+| `SYSDATE` / `SYSTIMESTAMP` | `GETDATE()` / `SYSDATETIME()` (SQL Server) hoặc `CURRENT_TIMESTAMP` (ANSI SQL) |
+| `NEXTVAL` | `NEXT VALUE FOR sequence_name (SQL Server 2012+)` hoặc `IDENTITY` |
+| `LISTAGG` / `WM_CONCAT` | `STRING_AGG(col, ',') WITHIN GROUP (ORDER BY col) (SQL Server 2017+)` |
+| `REGEXP_LIKE` / `REGEXP_REPLACE` | `LIKE`, `PATINDEX`, `REPLACE`, hoặc các hàm regex nền tảng CLR |
+| `(+)` | Thay thế outer-join `(+)` bằng cú pháp ANSI `LEFT JOIN` / `RIGHT JOIN` |
+| `**` | `POWER(base, exponent) (ANSI SQL)` |
+
+Các gợi ý này được tích hợp vào extension VS Code và hiển thị trực tiếp trong tooltip của trình soạn thảo qua `DataGuardHoverProvider`.
 ### DG011 — Function không phải Oracle trong ngữ cảnh Oracle
 
 | Thuộc tính | Giá trị |

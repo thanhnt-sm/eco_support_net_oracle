@@ -78,6 +78,9 @@ Tất cả diagnostic ID được định nghĩa dưới dạng hằng số tron
 | `DG011` | NonOracleFunctionInOracle | CI | DataGuard.Dialect |
 | `DG012` | ProviderOptionMismatch | CI | DataGuard.Dialect |
 | `DG013` | SqlServerSyntaxLeak | CI | DataGuard.Dialect |
+
+> **Lưu ý về Stored Procedures:**
+> Các lệnh gọi stored procedure phát hiện qua `CommandType.StoredProcedure` (ADO.NET hoặc Dapper) thiết lập thuộc tính `RawSqlDescriptor.IsStoredProcedure = true`. Quy tắc `DG013` (rò rỉ cú pháp SQL Server) được bỏ qua đối với các lệnh gọi stored procedure tổng hợp này, và `DG101` (kiểm tra số lượng tham số) sẽ bỏ qua việc đếm token tham số inline vì tham số được truyền qua đối tượng riêng (out-of-band).
 | `DG014` | UnmappedTypeUsage | CI | DataGuard.Dialect |
 | `DG015` | PhantomTable | CI | DataGuard.Contracts |
 | `DG016` | PhantomColumn | CI | DataGuard.Contracts |

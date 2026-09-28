@@ -94,6 +94,25 @@ To protect the VS Code extension host against denial-of-service or out-of-memory
 | `warning` | `DiagnosticSeverity.Warning` |
 | `note` | `DiagnosticSeverity.Information` |
 
+
+## Editor In-Line Experience (CodeLens, Decorations & Hover)
+
+To provide immediate feedback directly in C# editor files without switching views, DataGuard registers three synchronized editor providers bound to validated findings:
+
+### 1. CodeLens Provider (`DataGuardCodeLensProvider`)
+- **Violation Annotations**: Emits `⚠ DataGuard: N findings` above lines with active contract or dialect diagnostics.
+- **Single Authority**: Only renders when violations exist (does not emit redundant "✅ No Issues" badges).
+- **Safety & Performance**: Capped at 50 CodeLenses per document to prevent editor stalls on large files, automatically cleared on dirty (edited) documents until re-validation, and respects cancellation tokens.
+
+### 2. Editor Decoration Manager (`DataGuardDecorationManager`)
+- **Gutter Icons & Highlights**: Displays error (`diffEditor.removedTextBackground`) and warning (`diffEditor.modifiedTextBackground`) line decorations and overview ruler markers.
+- **Multi-Editor Sync**: Applies across all visible text editors, not only the active tab.
+- **Clean Stack**: Decorations do not define redundant inline hover messages to avoid tooltip stacking with the dedicated hover provider.
+
+### 3. Markdown Hover Provider (`DataGuardHoverProvider`)
+- **Rich Markdown Diagnostics**: Sole authority for rich tooltip content over DataGuard findings, displaying rule codes, severity badges, sanitized messages, and parameter details.
+- **Oracle Migration Guidance**: Automatically includes migration hints from finding properties (e.g. `DG010` Oracle keyword migrations providing ANSI/SQL Server equivalents).
+- **Security Hardened**: Constructed with `isTrusted: false` and `supportHtml: false` to eliminate injection risks.
 ## Discovered SQL Queries Tree View
 
 The `dataguard.sqlQueriesView` view in the DataGuard Activity Bar displays an inventory of discovered inline SQL queries and C# model mappings across the workspace (supporting string literals, interpolations, constants, local variables, fields, and property SQL resolution including expression-bodied properties, with call-stack cycle detection preventing infinite recursion across cyclic dependencies):
