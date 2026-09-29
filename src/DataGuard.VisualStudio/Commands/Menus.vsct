@@ -56,6 +56,13 @@
           <CommandName>DataGuardViewRules</CommandName>
         </Strings>
       </Button>
+      <Button guid="guidDataGuardCommandSet" id="ForgetConsentCommand" priority="0x0105" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>Forget Solution Consent</ButtonText>
+          <CommandName>DataGuardForgetSolutionConsent</CommandName>
+        </Strings>
+      </Button>
     </Buttons>
   </Commands>
   <Symbols>
@@ -69,6 +76,7 @@
       <IDSymbol name="AssessCommand" value="0x0102" />
       <IDSymbol name="ExportLogsCommand" value="0x0103" />
       <IDSymbol name="ViewRulesCommand" value="0x0104" />
+      <IDSymbol name="ForgetConsentCommand" value="0x0105" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

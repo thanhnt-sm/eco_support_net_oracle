@@ -28,6 +28,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Guards the VSIX gate invariants in ci.yml/release.yml (shared assert after MSBuild,
+      # fork-PR upload guard, release runs VS unit tests). See scripts/check-workflow-policy.py.
+      # The ubuntu-24.04 runner-image README lists libyaml-dev and yamllint but no python3-yaml /
+      # PyYAML, so the fallback cannot be proven dead and stays: pinned, wheel-only (no sdist
+      # build), user scope. The image's /etc/pip.conf sets break-system-packages, so pip may install.
+      # The policy unit tests (scripts/tests) run first so the fixtures cannot rot silently.
+      - name: Workflow policy check
+        run: |
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user --only-binary=:all: pyyaml==6.0.2
+          python3 -m unittest discover -s scripts/tests -v
+          python3 scripts/check-workflow-policy.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -123,6 +135,60 @@ jobs:
 
       - name: Run Visual Studio tests
         run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
+
+  # The test job above compiles the package with CreateVsixContainer=false, so CreatePkgDef
+  # reflection failures (TypeLoadException on exotic BCL/Interop types) never surface there.
+  # This job performs the real VSSDK packaging build on every push/PR and asserts the VSIX
+  # contains the bundled CLI, the Roslyn analyzers and a manifest whose version matches source.
+  visual-studio-vsix-package:
+    name: Visual Studio VSIX Packaging Gate
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Locate MSBuild
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild not found on runner' }
+          "MSBUILD=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Package VSIX (CreateVsixContainer=true)
+        shell: pwsh
+        run: |
+          & $env:MSBUILD src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { throw "VSIX packaging build failed with exit code $LASTEXITCODE" }
+
+      # Shared gate with release.yml (scripts/assert-vsix.ps1). Expected version is the
+      # compiled fallback constant, which must equal the committed manifest version.
+      - name: Assert VSIX contents
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem src/DataGuard.VisualStudio/bin/Release -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw 'VSSDK build did not produce a VSIX' }
+          $sourceVersion = (Select-String -Path src/DataGuard.VisualStudio/ExtensionVersion.cs -Pattern 'Fallback = "([^"]+)"').Matches[0].Groups[1].Value
+          & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $sourceVersion
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Fork PRs build the VSIX (the gate above still runs) but never publish it: an unsigned
+      # installable built from untrusted code must not be hosted under this repository.
+      - name: Upload VSIX artifact
+        if: ${{ env.ACT != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-visualstudio-vsix-ci-${{ github.sha }}
+          path: src/DataGuard.VisualStudio/bin/Release/**/*.vsix
+          retention-days: 7
 
   security-scan:
     name: Security Scan

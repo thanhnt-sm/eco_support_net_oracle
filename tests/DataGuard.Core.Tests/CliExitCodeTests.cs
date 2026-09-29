@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.IO;
 using FluentAssertions;
 using Xunit;
 
@@ -13,64 +11,19 @@ namespace DataGuard.Core.Tests;
 /// </summary>
 public class CliExitCodeTests
 {
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "DataGuard.sln")))
-        {
-            dir = dir.Parent;
-        }
-
-        return dir?.FullName ?? throw new InvalidOperationException("DataGuard.sln not found above " + AppContext.BaseDirectory);
-    }
-
-    private static string TestConfiguration =>
-        new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
-
-    private static string CliDllPath => Path.Combine(
-        FindRepoRoot(), "src", "DataGuard.Cli", "bin", TestConfiguration, "net9.0", "DataGuard.Cli.dll");
-
     private static (int ExitCode, string Output) RunCli(params string[] args)
         => RunCliInDirectory(null, null, args);
 
+    /// <summary>Stdout and stderr are joined: these assertions care that a message appeared, not on which stream.</summary>
     private static (int ExitCode, string Output) RunCliInDirectory(
         string? workingDirectory,
         string? standardInput,
         params string[] args)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = standardInput is not null,
-            UseShellExecute = false,
-        };
-
-        if (workingDirectory is not null)
-        {
-            psi.WorkingDirectory = workingDirectory;
-        }
-
         // These fixtures assert offline snapshot behavior. Do not inherit an
         // operator/CI credential that the CLI correctly gives precedence to.
-        psi.Environment.Remove("DATAGUARD_CONNECTION_STRING");
-        psi.ArgumentList.Add(CliDllPath);
-        foreach (var arg in args)
-        {
-            psi.ArgumentList.Add(arg);
-        }
-
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start CLI");
-        if (standardInput is not null)
-        {
-            process.StandardInput.Write(standardInput);
-            process.StandardInput.Close();
-        }
-
-        var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit(60_000).Should().BeTrue("CLI must exit within 60s");
-        return (process.ExitCode, output);
+        var run = CliProcessTestRunner.Run(workingDirectory, standardInput, environmentConnection: null, args);
+        return (run.ExitCode, run.Stdout + run.Stderr);
     }
 
     private static string WriteLegacySnapshot(string dir, int violationCount)

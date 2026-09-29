@@ -13,20 +13,16 @@ DataGuard validates database contracts between .NET code, stored procedures, and
 
 ## Requirements
 
-The extension executes `dataguard.exe` directly without invoking a shell. It discovers the executable in the following precedence order:
-1. An absolute `dataguard.exe` path configured in **Tools > Options > DataGuard > General > Custom CLI Executable Path**.
-2. An approved `dataguard.exe` path set in the machine or user environment variable `DATAGUARD_CLI_PATH`.
-3. `%USERPROFILE%\.dotnet\tools\dataguard.exe`.
+The extension bundles `dataguard.exe` and executes it directly without invoking a shell. It discovers the executable in the following precedence order:
+1. An absolute `dataguard.exe` path configured in **Tools > Options > DataGuard > General > Custom CLI Executable Path** (for example a build from GitHub Releases; verify its SHA-256).
+2. The CLI bundled with the extension (`cli\dataguard.exe`).
+3. An approved `dataguard.exe` path set in the machine or user environment variable `DATAGUARD_CLI_PATH`.
 4. Standard install directories (`%ProgramFiles%\DataGuard\dataguard.exe`, `%LocalAppData%\Programs\DataGuard\dataguard.exe`).
 5. Directories listed in the `PATH` environment variable.
 
-Install `DataGuard.Cli` globally:
+If the bundled CLI is missing, reinstall the extension or point the custom path at a verified `dataguard.exe`. Restart Visual Studio after changing environment variables.
 
-```powershell
-dotnet tool install -g DataGuard.Cli
-```
-
-> **Note:** After installing `DataGuard.Cli` globally, restart Visual Studio so its inherited `PATH` and user profile environment variables are refreshed.
+Every run asks for consent once per solution file (and again when its `.dataguard.yml` changes); **Tools > DataGuard > Forget Solution Consent** revokes it. Results are published only after the CLI confirms IDE-safe mode.
 
 Place `.dataguard.yml` at the solution root. Snapshot/manual mode is appropriate for offline and regulated environments; live database access remains an explicit CLI configuration decision.
 

@@ -7,31 +7,30 @@
 namespace DataGuard.VisualStudio;
 
 using System;
-using System.Collections.Generic;
 using System.ComponentModel.Design;
 using System.Diagnostics;
-using System.IO;
-using System.Text.RegularExpressions;
-using System.Text.Json;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Settings;
+using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Shell.Settings;
 using Task = System.Threading.Tasks.Task;
-using Microsoft.VisualStudio.TextManager.Interop;
 
 /// <summary>
-/// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials into devenv.
+/// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials
+/// into devenv. Registration, lifetime and command wiring live here; command execution is in
+/// DataGuardPackage.Commands.cs, consent in DataGuardPackage.Consent.cs, result publishing in
+/// DataGuardPackage.Publishing.cs and run-stop paths in DataGuardPackage.Lifetime.cs.
 /// </summary>
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("DataGuard", "Database contract validation for .NET code and stored procedures.", "1.0.0")]
+[InstalledProductRegistration("DataGuard", "Database contract validation for .NET code and stored procedures.", ExtensionVersion.Fallback)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
 [ProvideOptionPage(typeof(DataGuardOptionsPage), "DataGuard", "General", 0, 0, true)]
 [ProvideOptionPage(typeof(DataGuardRulesOptionsPage), "DataGuard", "Validation Rules", 0, 0, true)]
 [System.Runtime.InteropServices.Guid(PackageGuidString)]
-public sealed class DataGuardPackage : AsyncPackage
+public sealed partial class DataGuardPackage : AsyncPackage
 {
     /// <summary>Package GUID registered by the VSIX manifest.</summary>
     public const string PackageGuidString = "04a7c09c-4f79-439f-8298-952900cdb5ae";
@@ -40,99 +39,61 @@ public sealed class DataGuardPackage : AsyncPackage
     private const int CancelCommandId = 0x0101;
     private const int AssessCommandId = 0x0102;
     private const int ExportLogsCommandId = 0x0103;
-    private const int MaxProgressLineLength = 16 * 1024;
     private const int ViewRulesCommandId = 0x0104;
+    private const int ForgetConsentCommandId = 0x0105;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
     private static readonly Guid CommandSet = new(CommandSetGuidString);
-    private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
-    private Process? cancelledProcess;
 
-    internal enum ProcessStopOutcome
-    {
-        Terminated,
-        AlreadyExited,
-        Failed,
-    }
-    private readonly object processGate = new();
-    private Process? activeProcess;
-    private bool commandReserved;
+    private readonly CliProcessRegistry processRegistry = new();
+    private readonly RuleInventory ruleInventory = new();
+    private OutputPaneWriter? output;
     private ErrorListProvider? errorListProvider;
-    private uint updateSolutionEventsCookie;
+    private ErrorListPresenter? errorListPresenter;
+    private SolutionTrustGate? trustGate;
     private BuildEventsHandler? buildEventsHandler;
-    internal readonly struct RuleInventoryItem
-    {
-        public RuleInventoryItem(string? ruleId, string? ruleTitle, int violationCount)
-        {
-            this.RuleId = ruleId;
-            this.RuleTitle = ruleTitle;
-            this.ViolationCount = violationCount;
-        }
-        public string? RuleId { get; }
-        public string? RuleTitle { get; }
-        public int ViolationCount { get; }
-    }
-
-    private readonly List<RuleInventoryItem> _ruleInventory = new();
+    private SolutionLifetimeWatcher? solutionLifetimeWatcher;
+    private uint updateSolutionEventsCookie;
 
     /// <inheritdoc />
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await this.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        this.output = new OutputPaneWriter(this);
 
-        // Load configuration from Tools -> Options -> DataGuard -> General
         var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
         DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
-
-        var vsVersion = "Visual Studio (Process " + Process.GetCurrentProcess().Id + ")";
-        try
-        {
-            var dte = await this.GetServiceAsync(typeof(EnvDTE.DTE)) as EnvDTE.DTE;
-            if (dte != null)
-            {
-                vsVersion = $"{dte.Name} {dte.Version} ({dte.Edition})";
-            }
-        }
-        catch
-        {
-            // Non-fatal if DTE is not available
-        }
-
-        DataGuardLogger.EnsureInitialized(vsVersion, "1.0.0");
+        DataGuardLogger.EnsureInitialized(await this.DescribeHostAsync(), ExtensionVersion.Current);
         DataGuardLogger.LogInfo("DataGuard Visual Studio Package initialized successfully.");
         this.JoinableTaskFactory.RunAsync(async () =>
         {
             await Task.Yield();
-            CleanStaleTempDirectories();
+            TempDirectoryCleaner.CleanStaleTempDirectories();
         }).FileAndForget("DataGuard/StartupTempClean");
 
         this.errorListProvider = new ErrorListProvider(this);
-        var commandService = await this.GetServiceAsync(typeof(IMenuCommandService)) as OleMenuCommandService;
-        if (commandService == null)
+        this.errorListPresenter = new ErrorListPresenter(this.errorListProvider, this.JoinableTaskFactory, this.output.WriteAsync);
+        this.trustGate = new SolutionTrustGate(this.CreateConsentStore());
+
+        if (await this.GetServiceAsync(typeof(IMenuCommandService)) is OleMenuCommandService commandService)
         {
-            return;
+            this.AddCommand(commandService, ValidateCommandId, () => this.RunValidationAsync(fromBuild: false), "DataGuard/RunValidation");
+            this.AddCommand(commandService, CancelCommandId, this.CancelValidationAsync, "DataGuard/CancelValidation");
+            this.AddCommand(commandService, AssessCommandId, this.RunAssessmentAsync, "DataGuard/Assess");
+            this.AddCommand(commandService, ExportLogsCommandId, this.ViewLogsAsync, "DataGuard/ViewLogs");
+            this.AddCommand(commandService, ViewRulesCommandId, this.ViewRulesAsync, "DataGuard/ViewRules");
+            this.AddCommand(commandService, ForgetConsentCommandId, this.ForgetSolutionConsentAsync, "DataGuard/ForgetConsent");
         }
 
-        commandService.AddCommand(new OleMenuCommand(
-            (_, _) => this.JoinableTaskFactory.RunAsync(this.RunValidationAsync).FileAndForget("DataGuard/RunValidation"),
-            new CommandID(CommandSet, ValidateCommandId)));
-        commandService.AddCommand(new OleMenuCommand(
-            (_, _) => this.JoinableTaskFactory.RunAsync(this.CancelValidationAsync).FileAndForget("DataGuard/CancelValidation"),
-            new CommandID(CommandSet, CancelCommandId)));
-        commandService.AddCommand(new OleMenuCommand(
-            (_, _) => this.JoinableTaskFactory.RunAsync(this.RunAssessmentAsync).FileAndForget("DataGuard/Assess"),
-            new CommandID(CommandSet, AssessCommandId)));
-        commandService.AddCommand(new OleMenuCommand(
-            (_, _) => this.JoinableTaskFactory.RunAsync(this.ViewLogsAsync).FileAndForget("DataGuard/ViewLogs"),
-            new CommandID(CommandSet, ExportLogsCommandId)));
-        commandService.AddCommand(new OleMenuCommand(
-            this.ExecuteViewRules,
-            new CommandID(CommandSet, ViewRulesCommandId)));
-
-        var buildManager = await this.GetServiceAsync(typeof(SVsSolutionBuildManager)) as IVsSolutionBuildManager;
-        if (buildManager != null)
+        if (await this.GetServiceAsync(typeof(SVsSolutionBuildManager)) is IVsSolutionBuildManager buildManager)
         {
-            this.buildEventsHandler = new BuildEventsHandler(this);
+            this.buildEventsHandler = new BuildEventsHandler(this.JoinableTaskFactory, this.RunValidationOnBuildAsync);
             buildManager.AdviseUpdateSolutionEvents(this.buildEventsHandler, out this.updateSolutionEventsCookie);
+        }
+
+        if (await this.GetServiceAsync(typeof(SVsSolution)) is IVsSolution solution)
+        {
+            this.solutionLifetimeWatcher = new SolutionLifetimeWatcher(solution, this.OnBeforeCloseSolution);
+            this.solutionLifetimeWatcher.Advise();
         }
     }
 
@@ -141,24 +102,21 @@ public sealed class DataGuardPackage : AsyncPackage
     {
         if (disposing)
         {
-            Process? process;
-            lock (this.processGate)
-            {
-                process = this.activeProcess;
-                this.activeProcess = null;
-            }
-
+            var process = this.processRegistry.DetachActive();
             if (process != null)
             {
-                StopProcess(process);
+                ProcessTerminator.StopProcess(process);
                 process.Dispose();
             }
+
+            this.solutionLifetimeWatcher?.Dispose();
+            this.solutionLifetimeWatcher = null;
 
             if (this.updateSolutionEventsCookie != 0)
             {
 #pragma warning disable VSTHRD108 // Thread affinity checks should be unconditional
 #pragma warning disable VSTHRD010 // Invoke single-threaded types on Main thread
-                if (this.GetService(typeof(SVsSolutionBuildManager)) as IVsSolutionBuildManager is { } buildManager)
+                if (this.GetService(typeof(SVsSolutionBuildManager)) is IVsSolutionBuildManager buildManager)
                 {
                     buildManager.UnadviseUpdateSolutionEvents(this.updateSolutionEventsCookie);
                     this.updateSolutionEventsCookie = 0;
@@ -174,1455 +132,60 @@ public sealed class DataGuardPackage : AsyncPackage
         base.Dispose(disposing);
     }
 
-    private static ProcessStopOutcome StopProcess(Process process)
+    private void AddCommand(OleMenuCommandService commandService, int commandId, Func<Task> handler, string fileAndForgetName)
     {
+        commandService.AddCommand(new OleMenuCommand(
+            (_, _) => this.JoinableTaskFactory.RunAsync(handler).FileAndForget(fileAndForgetName),
+            new CommandID(CommandSet, commandId)));
+    }
+
+    private ITrustConsentStore CreateConsentStore()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
         try
         {
-            if (process.HasExited)
-            {
-                return ProcessStopOutcome.AlreadyExited;
-            }
-
-            bool taskkillSucceeded = false;
-            try
-            {
-                using (var killer = Process.Start(new ProcessStartInfo
-                {
-                    FileName = "taskkill",
-                    Arguments = "/pid " + process.Id + " /T /F",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                }))
-                {
-                    taskkillSucceeded = killer != null && killer.WaitForExit(5000) && killer.ExitCode == 0;
-                }
-            }
-            catch (System.ComponentModel.Win32Exception)
-            {
-                taskkillSucceeded = false;
-            }
-
-            if (taskkillSucceeded || process.HasExited)
-            {
-                return ProcessStopOutcome.Terminated;
-            }
-
-            // Fallback: force kill process directly if taskkill failed or was unavailable
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill();
-                    try
-                    {
-                        process.WaitForExit(1000);
-                    }
-                    catch
-                    {
-                    }
-                }
-                return ProcessStopOutcome.Terminated;
-            }
-            catch
-            {
-                try
-                {
-                    return process.HasExited ? ProcessStopOutcome.Terminated : ProcessStopOutcome.Failed;
-                }
-                catch
-                {
-                    return ProcessStopOutcome.Failed;
-                }
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-            return ProcessStopOutcome.AlreadyExited;
-        }
-        catch (InvalidOperationException)
-        {
-            return ProcessStopOutcome.AlreadyExited;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return ProcessStopOutcome.Failed;
-        }
-    }
-    internal static string Quote(string value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return "\"\"";
-        }
-
-        var sb = new StringBuilder();
-        sb.Append('"');
-        var backslashCount = 0;
-        foreach (var c in value)
-        {
-            if (c == '\\')
-            {
-                backslashCount++;
-            }
-            else if (c == '"')
-            {
-                sb.Append('\\', (backslashCount * 2) + 1);
-                sb.Append('"');
-                backslashCount = 0;
-            }
-            else
-            {
-                if (backslashCount > 0)
-                {
-                    sb.Append('\\', backslashCount);
-                    backslashCount = 0;
-                }
-                sb.Append(c);
-            }
-        }
-        if (backslashCount > 0)
-        {
-            sb.Append('\\', backslashCount * 2);
-        }
-        sb.Append('"');
-        return sb.ToString();
-    }
-    internal static (int line, int column) ConvertSarifPosition(int startLine, int startColumn)
-    {
-        return (Math.Max(0, startLine - 1), Math.Max(0, startColumn - 1));
-    }
-
-    internal static string? ResolveSarifArtifactUri(string? uri, string? uriBaseId, string solutionDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(uri) || string.IsNullOrWhiteSpace(solutionDirectory))
-        {
-            return null;
-        }
-
-        var canonicalSolutionDir = Path.GetFullPath(solutionDirectory);
-        if (!canonicalSolutionDir.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
-        {
-            canonicalSolutionDir += Path.DirectorySeparatorChar;
-        }
-
-        string? resolved = null;
-        if (Path.IsPathRooted(uri))
-        {
-            resolved = Path.GetFullPath(uri);
-        }
-        else if (!string.IsNullOrEmpty(uriBaseId) && uriBaseId == "%SRCROOT%")
-        {
-            resolved = Path.GetFullPath(Path.Combine(canonicalSolutionDir, uri!.Replace('/', '\\')));
-        }
-
-        if (resolved != null)
-        {
-            // Enforce solution directory containment to prevent arbitrary file navigation / path traversal
-            if (resolved.StartsWith(canonicalSolutionDir, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(resolved, canonicalSolutionDir.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-            {
-                return resolved;
-            }
-        }
-
-        return null;
-    }
-
-    private static string Redact(string value)
-    {
-        return DataGuardLogger.Redact(value);
-    }
-    private static async Task DrainAsync(StreamReader reader)
-    {
-        var buffer = new char[4096];
-        try
-        {
-            while (await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false) > 0)
-            {
-                // Drain without retaining potentially sensitive CLI output.
-            }
-        }
-        catch (Exception ex) when (ex is ObjectDisposedException || ex is IOException || ex is OperationCanceledException)
-        {
-            // Stream was closed or process cancelled/terminated; drain completes cleanly.
-        }
-    }
-
-    private async Task<ProgressReadResult> ReadProgressAsync(StreamReader reader)
-    {
-        var result = new ProgressReadResult();
-        var buffer = new char[4096];
-        var line = new StringBuilder();
-        var discardedLine = false;
-        int read;
-
-        try
-        {
-            while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
-            {
-                for (var index = 0; index < read; index++)
-                {
-                    var character = buffer[index];
-                    if (AppendProgressChar(character, line, ref discardedLine))
-                    {
-                        await this.ProcessProgressLineAsync(line, discardedLine, result);
-                        line.Clear();
-                        discardedLine = false;
-                    }
-                }
-            }
-        }
-        catch (Exception ex) when (ex is ObjectDisposedException || ex is IOException || ex is OperationCanceledException)
-        {
-            // Stream was closed or process cancelled/terminated; progress reader exits cleanly.
-        }
-        if (line.Length > 0 || discardedLine)
-        {
-            await this.ProcessProgressLineAsync(line, discardedLine, result);
-        }
-
-        return result;
-    }
-    internal static bool AppendProgressChar(char character, StringBuilder line, ref bool discardedLine)
-    {
-        if (character == '\n')
-        {
-            return true;
-        }
-
-        if (character != '\r' && !discardedLine)
-        {
-            if (line.Length < MaxProgressLineLength)
-            {
-                line.Append(character);
-            }
-            else
-            {
-                discardedLine = true;
-            }
-        }
-
-        return false;
-    }
-
-    internal readonly struct ParsedProgress
-    {
-        public string? FormattedOutput { get; }
-        public int? ErrorCount { get; }
-        public int? WarningCount { get; }
-        public RuleInventoryItem? InventoryEntry { get; }
-
-        public ParsedProgress(string? formattedOutput, int? errorCount, int? warningCount)
-            : this(formattedOutput, errorCount, warningCount, null)
-        {
-        }
-
-        public ParsedProgress(
-            string? formattedOutput,
-            int? errorCount,
-            int? warningCount,
-            RuleInventoryItem? inventoryEntry)
-        {
-            this.FormattedOutput = formattedOutput;
-            this.ErrorCount = errorCount;
-            this.WarningCount = warningCount;
-            this.InventoryEntry = inventoryEntry;
-        }
-    }
-
-    internal static ParsedProgress FormatProgressLine(string text, bool discardedLine)
-    {
-        if (discardedLine)
-        {
-            return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null, null);
-        }
-
-        if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings, out var inventoryEntry))
-        {
-            if (string.IsNullOrEmpty(formatted))
-            {
-                return new ParsedProgress(null, eventErrors, eventWarnings, inventoryEntry);
-            }
-
-            return new ParsedProgress(formatted + "\r\n", eventErrors, eventWarnings, inventoryEntry);
-        }
-
-        if (!string.IsNullOrWhiteSpace(text))
-        {
-            var diagnostic = IsJsonPayload(text)
-                ? "[structured diagnostic redacted]"
-                : Redact(text);
-            return new ParsedProgress("[DataGuard CLI] " + diagnostic + "\r\n", null, null, null);
-        }
-
-        return new ParsedProgress(null, null, null, null);
-    }
-
-    private async Task ProcessProgressLineAsync(StringBuilder line, bool discardedLine, ProgressReadResult result)
-    {
-        var parsed = FormatProgressLine(line.ToString(), discardedLine);
-        if (parsed.InventoryEntry.HasValue)
-        {
-            lock (this._ruleInventory)
-            {
-                this._ruleInventory.Add(parsed.InventoryEntry.Value);
-            }
-        }
-
-        if (parsed.ErrorCount.HasValue && parsed.WarningCount.HasValue)
-        {
-            result.ErrorCount = parsed.ErrorCount.Value;
-            result.WarningCount = parsed.WarningCount.Value;
-            result.HasSummary = true;
-        }
-
-        if (parsed.FormattedOutput != null)
-        {
-            await this.WriteOutputAsync(parsed.FormattedOutput);
-        }
-
-        if (parsed.ErrorCount.HasValue && parsed.WarningCount.HasValue)
-        {
-            string banner;
-            lock (this._ruleInventory)
-            {
-                banner = BuildRuleInventoryBanner(this._ruleInventory);
-            }
-
-            if (!string.IsNullOrEmpty(banner))
-            {
-                await this.WriteOutputAsync(banner);
-            }
-        }
-    }
-
-    internal static bool IsJsonPayload(string text)
-    {
-        try
-        {
-            using (JsonDocument.Parse(text))
-            {
-                return true;
-            }
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    internal static bool TryFormatProgress(
-        string line,
-        out string? formatted,
-        out int? errorCount,
-        out int? warningCount)
-    {
-        return TryFormatProgress(line, out formatted, out errorCount, out warningCount, out _);
-    }
-
-    internal static bool TryFormatProgress(
-        string line,
-        out string? formatted,
-        out int? errorCount,
-        out int? warningCount,
-        out RuleInventoryItem? inventoryEntry)
-    {
-        formatted = string.Empty;
-        errorCount = null;
-        warningCount = null;
-        inventoryEntry = null;
-
-        try
-        {
-            using (var document = JsonDocument.Parse(line))
-            {
-                var root = document.RootElement;
-                if (root.ValueKind != JsonValueKind.Object ||
-                    !root.TryGetProperty("Kind", out var kindNode) ||
-                    !root.TryGetProperty("Phase", out var phaseNode) ||
-                    kindNode.ValueKind != JsonValueKind.String ||
-                    phaseNode.ValueKind != JsonValueKind.String)
-                {
-                    return false;
-                }
-
-                var kind = kindNode.GetString();
-                var phase = Redact(phaseNode.GetString() ?? "DataGuard operation");
-                var detail = root.TryGetProperty("Detail", out var detailNode) && detailNode.ValueKind == JsonValueKind.String
-                    ? Redact(detailNode.GetString() ?? string.Empty)
-                    : string.Empty;
-                var data = root.TryGetProperty("Data", out var dataNode) && dataNode.ValueKind == JsonValueKind.Object
-                    ? dataNode
-                    : default;
-                var contracts = GetProgressCount(data, "ContractCount");
-                var violations = GetProgressCount(data, "ViolationCount");
-
-                switch (kind)
-                {
-                    case "PhaseStarted":
-                        formatted = "[DataGuard] ▶ " + phase + (string.IsNullOrEmpty(detail) ? string.Empty : " — " + detail);
-                        break;
-                    case "PhaseCompleted":
-                        formatted = "[DataGuard] ✔ " + phase + (contracts.HasValue ? ": " + contracts.Value + " contracts" : string.Empty);
-                        break;
-                    case "ContractDiscovered":
-                        formatted = null;
-                        break;
-                    case "RuleExecuted":
-                        var ruleId = GetProgressString(data, "RuleId") ?? detail;
-                        var ruleTitle = GetProgressString(data, "RuleTitle");
-                        inventoryEntry = new RuleInventoryItem(ruleId, ruleTitle, violations.GetValueOrDefault());
-
-                        if (!violations.HasValue || violations.Value <= 0)
-                        {
-                            formatted = null;
-                            break;
-                        }
-
-                        var ruleLabel = string.IsNullOrEmpty(ruleTitle) ? ruleId : $"{ruleId} ({ruleTitle})";
-                        formatted = "[DataGuard]   " + ruleLabel +
-                            (contracts.HasValue ? ": " + contracts.Value + " contracts checked" : string.Empty) +
-                            " → " + violations.Value + " violations";
-                        break;
-                    case "Summary":
-                        errorCount = GetProgressCount(data, "ErrorCount");
-                        warningCount = GetProgressCount(data, "WarningCount");
-                        var criticalCount = GetProgressCount(data, "CriticalCount");
-                        if (!errorCount.HasValue ||
-                            !warningCount.HasValue ||
-                            (string.Equals(phase, "Assessment complete", StringComparison.Ordinal) && !criticalCount.HasValue))
-                        {
-                            return false;
-                        }
-
-                        errorCount += criticalCount ?? 0;
-                        formatted = "[DataGuard] ✔ " + phase +
-                            $": {errorCount.Value} errors, {warningCount.Value} warnings";
-                        break;
-                    default:
-                        return false;
-                }
-
-                return true;
-            }
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    internal static string BuildRuleInventoryBanner(IReadOnlyList<RuleInventoryItem> inventory)
-    {
-        if (inventory == null || inventory.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var evaluated = inventory.Where(r => !string.IsNullOrEmpty(r.RuleId) && r.ViolationCount >= 0).ToList();
-        var withViolations = inventory.Where(r => !string.IsNullOrEmpty(r.RuleId) && r.ViolationCount > 0).ToList();
-
-        var banner = new StringBuilder();
-        banner.AppendLine("[DataGuard] ==================== Validation Summary ====================");
-        banner.AppendLine($"[DataGuard] Rules Evaluated: {evaluated.Count} ({string.Join(", ", evaluated.Select(r => r.RuleId))})");
-        if (withViolations.Count > 0)
-        {
-            banner.AppendLine($"[DataGuard] Rules with Findings: {string.Join(", ", withViolations.Select(r => $"{r.RuleId} ({r.ViolationCount})"))}");
-        }
-        banner.AppendLine("[DataGuard] Double-click any Error List item to jump directly to code.");
-        banner.AppendLine("[DataGuard] ==========================================================");
-        return banner.ToString();
-    }
-
-    private static int? GetProgressCount(JsonElement data, string name)
-    {
-        return data.ValueKind == JsonValueKind.Object &&
-            data.TryGetProperty(name, out var value) &&
-            value.ValueKind == JsonValueKind.Number &&
-            value.TryGetInt32(out var count)
-            ? count
-            : null;
-    }
-
-    private static string? GetProgressString(JsonElement data, string name)
-    {
-        return data.ValueKind == JsonValueKind.Object &&
-            data.TryGetProperty(name, out var value) &&
-            value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
-    }
-
-    internal sealed class ProgressReadResult
-    {
-        public int ErrorCount { get; set; }
-
-        public int WarningCount { get; set; }
-
-        public bool HasSummary { get; set; }
-    }
-
-    private class BuildEventsHandler : IVsUpdateSolutionEvents
-    {
-        private readonly DataGuardPackage package;
-
-        public BuildEventsHandler(DataGuardPackage package) => this.package = package;
-
-        public int UpdateSolution_Begin(ref int pfCancelUpdate) => VSConstants.S_OK;
-
-        public int UpdateSolution_Done(int fSucceeded, int fModified, int fCancelCommand)
-        {
-            if (fSucceeded != 0 && fCancelCommand == 0)
-            {
-                this.package.JoinableTaskFactory.RunAsync(async () =>
-                {
-                    await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
-                    var options = (DataGuardOptionsPage)this.package.GetDialogPage(typeof(DataGuardOptionsPage));
-                    if (options != null && options.RunValidationOnBuild)
-                    {
-                        await this.package.RunValidationAsync();
-                    }
-                }).FileAndForget("DataGuard/RunValidationOnBuild");
-            }
-
-            return VSConstants.S_OK;
-        }
-
-        public int UpdateSolution_StartUpdate(ref int pfCancelUpdate) => VSConstants.S_OK;
-
-        public int UpdateSolution_Cancel() => VSConstants.S_OK;
-
-        public int OnActiveProjectCfgChange(IVsHierarchy pIVsHierarchy) => VSConstants.S_OK;
-    }
-
-    private void ExecuteViewRules(object sender, EventArgs e)
-    {
-        _ = this.JoinableTaskFactory.RunAsync(async () =>
-        {
-            await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-            await this.ActivateOutputPaneAsync();
-            await this.WriteOutputAsync("========================================================================\r\n");
-            await this.WriteOutputAsync("DataGuard Validation Rules — Current Configuration\r\n");
-            await this.WriteOutputAsync("========================================================================\r\n");
-
-            var options = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
-            var rules = options.GetRuleCatalog();
-            var grouped = new Dictionary<string, List<DataGuardRulesOptionsPage.RuleDescriptor>>();
-
-            foreach (var rule in rules)
-            {
-                if (!grouped.TryGetValue(rule.Category, out var categoryRules))
-                {
-                    categoryRules = new List<DataGuardRulesOptionsPage.RuleDescriptor>();
-                    grouped.Add(rule.Category, categoryRules);
-                }
-
-                categoryRules.Add(rule);
-            }
-
-            foreach (var kvp in grouped)
-            {
-                await this.WriteOutputAsync($"\r\nCategory: {kvp.Key}\r\n");
-                await this.WriteOutputAsync("------------------------------------------------------------------------\r\n");
-                foreach (var rule in kvp.Value)
-                {
-                    var status = rule.IsEnabled ? "[ENABLED] " : "[DISABLED]";
-                    await this.WriteOutputAsync($"{status} {rule.Id}: {rule.Name}\r\n");
-                    await this.WriteOutputAsync($"           {rule.Description}\r\n");
-                }
-            }
-
-            await this.WriteOutputAsync("\r\n========================================================================\r\n");
-            await this.WriteOutputAsync("[ENABLED] = enabled    [DISABLED] = disabled\r\n");
-            await this.WriteOutputAsync("To change rules: Tools -> Options -> DataGuard -> Validation Rules.\r\n");
-            await this.WriteOutputAsync("========================================================================\r\n");
-        });
-    }
-
-    private async Task RunValidationAsync()
-    {
-        lock (this._ruleInventory)
-        {
-            this._ruleInventory.Clear();
-        }
-        await this.RunCliAsync("validate");
-    }
-
-    private async Task RunAssessmentAsync()
-    {
-        await this.RunCliAsync("assess");
-    }
-
-    private async Task RunCliAsync(string command)
-    {
-        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-        var solution = await this.GetServiceAsync(typeof(SVsSolution)) as IVsSolution;
-        if (solution == null)
-        {
-            await this.WriteOutputAsync("[DataGuard] Visual Studio solution service is unavailable.\r\n");
-            return;
-        }
-
-        ErrorHandler.ThrowOnFailure(solution.GetSolutionInfo(out var solutionDirectory, out _, out _));
-        if (string.IsNullOrWhiteSpace(solutionDirectory))
-        {
-            await this.WriteOutputAsync("[DataGuard] Open a solution before running " + command + ".\r\n");
-            return;
-        }
-
-        solutionDirectory = solutionDirectory!.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-        lock (this.processGate)
-        {
-            if (this.activeProcess != null || this.commandReserved)
-            {
-                _ = this.WriteOutputAsync("[DataGuard] A DataGuard command is already running for this solution.\r\n");
-                return;
-            }
-
-            this.commandReserved = true;
-        }
-
-        try
-        {
-            var options = (DataGuardOptionsPage?)this.GetDialogPage(typeof(DataGuardOptionsPage));
-            var timeoutSeconds = command == "validate"
-                ? (options?.ValidationTimeoutSeconds ?? 300)
-                : (options?.AssessmentTimeoutSeconds ?? 60);
-            DataGuardLogger.Configure(options?.EnableDetailedLogging ?? true, options?.CustomLogDirectory);
-            var cliPath = DataGuardLogger.FindCliExecutable(options?.CustomCliPath, solutionDirectory: solutionDirectory);
-
-            if (string.IsNullOrEmpty(cliPath))
-            {
-                if (!string.IsNullOrWhiteSpace(options?.CustomCliPath))
-                {
-                    await this.WriteOutputAsync("[DataGuard] Custom CLI path '" + options!.CustomCliPath!.Trim()
-                        + "' was not found or is not a valid executable. Check Tools > Options > DataGuard > General > Custom CLI Executable Path.\r\n");
-                    lock (this.processGate)
-                    {
-                        this.commandReserved = false;
-                    }
-                    return;
-                }
-
-                await this.WriteOutputAsync("[DataGuard] CLI executable was not found. Attempting to install it globally...\r\n");
-                await this.TryAutoInstallCliAsync();
-
-                // Always re-check the path, even if installation failed, because it might already exist but wasn't found in initial paths.
-                cliPath = DataGuardLogger.FindCliExecutable(options?.CustomCliPath, solutionDirectory: solutionDirectory);
-
-                if (string.IsNullOrEmpty(cliPath))
-                {
-                    lock (this.processGate)
-                    {
-                        this.commandReserved = false;
-                    }
-
-                    await this.WriteOutputAsync("[DataGuard] CLI installation failed or executable was not found. Install it manually with 'dotnet tool install -g DataGuard.Cli', restart Visual Studio, or set Tools > Options > DataGuard > General > Custom CLI Executable Path to dataguard.exe.\r\n");
-                    return;
-                }
-            }
-
-            var temporaryDirectory = Path.Combine(Path.GetTempPath(), "DataGuard", Guid.NewGuid().ToString("N"));
-            Process? process = null;
-            try
-            {
-                Directory.CreateDirectory(temporaryDirectory);
-                var sarifPath = Path.Combine(temporaryDirectory, "validation.sarif");
-                var ruleOptions = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
-                var disabledRules = ruleOptions.GetDisabledRuleIds();
-                var validRules = new List<string>();
-                foreach (var ruleId in disabledRules)
-                {
-                    if (!string.IsNullOrWhiteSpace(ruleId) && Regex.IsMatch(ruleId, "^[A-Za-z0-9_-]+$"))
-                    {
-                        validRules.Add(ruleId);
-                    }
-                }
-                var skipArg = validRules.Count > 0 ? " --skip-rules " + Quote(string.Join(",", validRules)) : string.Empty;
-                var configPath = Path.Combine(solutionDirectory, ".dataguard.yml");
-                var ruleCatalog = ruleOptions.GetRuleCatalog();
-                var enabledRuleCount = ruleCatalog.Count(rule => rule.IsEnabled);
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = cliPath,
-                    Arguments = command == "validate"
-                        ? "validate --config " + Quote(configPath) + " --format sarif --output " + Quote(sarifPath)
-                            + " --project " + Quote(solutionDirectory) + " --progress" + skipArg
-                        : "assess --workspace " + Quote(solutionDirectory) + " --format sarif --output " + Quote(sarifPath) + " --progress",
-                    WorkingDirectory = solutionDirectory,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                };
-
-                startInfo.EnvironmentVariables["DOTNET_ROLL_FORWARD"] = "LatestMajor";
-                process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-                var stopwatch = Stopwatch.StartNew();
-
-                lock (this.processGate)
-                {
-                    process.Start();
-                    this.activeProcess = process;
-                    this.cancelledProcess = null;
-                }
-                await this.WriteCommandBannerAsync(
-                    command,
-                    solutionDirectory,
-                    configPath,
-                    command == "validate" ? enabledRuleCount : 0,
-                    command == "validate" ? disabledRules.Count : 0);
-                await this.SetStatusTextAsync(command == "validate" ? "DataGuard: Validating..." : "DataGuard: Assessing...");
-
-                var stdoutDrainTask = DrainAsync(process.StandardOutput);
-                var stderrDrainTask = this.ReadProgressAsync(process.StandardError);
-                var exitTask = Task.Run(() => process.WaitForExit());
-                Task completed;
-                using (var timeoutCts = new CancellationTokenSource())
-                {
-                    var delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), timeoutCts.Token);
-                    completed = await Task.WhenAny(exitTask, delayTask);
-                    timeoutCts.Cancel();
-                }
-
-                if (completed != exitTask)
-                {
-                    if (!exitTask.IsCompleted)
-                    {
-                        var termination = StopProcess(process);
-                        var drains = Task.WhenAll(stdoutDrainTask, stderrDrainTask);
-                        await this.SetStatusTextAsync("DataGuard: Timed out");
-                        await this.WriteOutputAsync(termination == ProcessStopOutcome.Terminated
-                            ? "[DataGuard] " + command + " timed out after " + timeoutSeconds + " seconds and its process tree was terminated.\r\n"
-                            : termination == ProcessStopOutcome.AlreadyExited
-                                ? "[DataGuard] " + command + " exceeded " + timeoutSeconds + " seconds but completed before termination was requested.\r\n"
-                                : "[DataGuard] " + command + " timed out, but its process tree could not be terminated. Stop it manually.\r\n");
-                        if (termination == ProcessStopOutcome.Failed)
-                        {
-                            bool exitCompleted;
-                            bool drainsCompleted;
-                            using (var cleanupCts = new CancellationTokenSource())
-                            {
-                                var cleanupTimeout = Task.Delay(TimeSpan.FromSeconds(120), cleanupCts.Token);
-                                exitCompleted = await Task.WhenAny(exitTask, cleanupTimeout) == exitTask;
-                                drainsCompleted = exitCompleted &&
-                                    await Task.WhenAny(drains, cleanupTimeout) == drains;
-                                cleanupCts.Cancel();
-                            }
-                            if (ShouldForceReleaseFailedTerminationReservation(exitCompleted, drainsCompleted))
-                            {
-                                process.StandardOutput.Close();
-                                process.StandardError.Close();
-                                DataGuardLogger.LogWarning("Timed-out command did not exit or drain within 120 seconds after termination failed; releasing the command reservation.");
-                            }
-                            else
-                            {
-                                try
-                                {
-                                    await drains;
-                                }
-                                catch (Exception ex)
-                                {
-                                    DataGuardLogger.LogWarning("Timed-out command stream drain failed: " + Redact(ex.Message));
-                                }
-                            }
-                        }
-                        else if (termination == ProcessStopOutcome.AlreadyExited)
-                        {
-                            try
-                            {
-                                await drains;
-                            }
-                            catch (Exception ex)
-                            {
-                                DataGuardLogger.LogWarning("Timed-out command stream drain failed: " + Redact(ex.Message));
-                            }
-                        }
-                        else if (await Task.WhenAny(drains, Task.Delay(TimeSpan.FromSeconds(5))) == drains)
-                        {
-                            try
-                            {
-                                await drains;
-                            }
-                            catch (Exception ex)
-                            {
-                                DataGuardLogger.LogWarning("Timed-out command stream drain failed: " + Redact(ex.Message));
-                            }
-                        }
-                        else
-                        {
-                            process.StandardOutput.Close();
-                            process.StandardError.Close();
-                        }
-
-                        if (termination != ProcessStopOutcome.AlreadyExited)
-                        {
-                            return;
-                        }
-                    }
-                }
-
-                var drainTasks = Task.WhenAll(stdoutDrainTask, stderrDrainTask);
-                var drainCompleted = await Task.WhenAny(drainTasks, Task.Delay(TimeSpan.FromSeconds(3)));
-                if (drainCompleted != drainTasks)
-                {
-                    try
-                    {
-                        process.StandardOutput.Close();
-                        process.StandardError.Close();
-                    }
-                    catch
-                    {
-                    }
-                    await Task.WhenAny(drainTasks, Task.Delay(500));
-                    _ = drainTasks.ContinueWith(t => { var ex = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-                }
-
-                var progressSummary = stderrDrainTask.IsCompleted
-                    ? await stderrDrainTask
-                    : new ProgressReadResult();
-                bool wasCancelled;
-                lock (this.processGate)
-                {
-                    wasCancelled = ReferenceEquals(this.cancelledProcess, process);
-                }
-
-                bool shouldSuppress = false;
-                try
-                {
-                    shouldSuppress = DecideCancellationSuppression(wasCancelled, stdoutDrainTask.IsCompleted && stderrDrainTask.IsCompleted);
-                }
-                catch (InvalidOperationException)
-                {
-                    await this.WriteOutputAsync("[DataGuard] Warning: Process output streams could not be completely drained upon cancellation.\r\n");
-                    shouldSuppress = wasCancelled;
-                }
-
-                if (shouldSuppress)
-                {
-                    stopwatch.Stop();
-                    DataGuardLogger.LogValidationRun(
-                        command,
-                        solutionDirectory,
-                        configPath,
-                        disabledRules,
-                        130,
-                        stopwatch.ElapsedMilliseconds,
-                        0);
-                    await this.WriteOutputAsync("[DataGuard] Validation cancelled by user. No diagnostics were produced.\r\n");
-                    await this.SetStatusTextAsync("DataGuard: Cancelled");
-                    return;
-                }
-                stopwatch.Stop();
-                var diagnosticCount = await this.PublishSarifAsync(sarifPath, solutionDirectory);
-                DataGuardLogger.LogValidationRun(
-                    command,
-                    solutionDirectory,
-                    configPath,
-                    disabledRules,
-                    process.ExitCode,
-                    stopwatch.ElapsedMilliseconds,
-                    diagnosticCount);
-                await this.WriteOutputAsync("[DataGuard] " + command + " completed in " + stopwatch.ElapsedMilliseconds + " ms with exit code " + process.ExitCode + ".\r\n");
-                var exitExplanation = process.ExitCode == 0 && progressSummary.HasSummary && progressSummary.WarningCount > 0
-                    ? "[WARN] Validation completed with warnings. See Error List."
-                    : ExplainExitCode(command, process.ExitCode);
-                if (progressSummary.HasSummary || process.ExitCode != 0)
-                {
-                    await this.WriteOutputAsync("[DataGuard] " + exitExplanation + "\r\n");
-                }
-                var resultText = progressSummary.HasSummary
-                    ? "Result: " + progressSummary.ErrorCount + " errors, " + progressSummary.WarningCount + " warnings\r\n"
-                    : "Result: No final validation summary was produced.\r\n";
-                await this.WriteOutputAsync(
-                    "========================================================================\r\n" +
-                    resultText +
-                    "Action: Open Error List to see details and jump to source locations.\r\n" +
-                    "Docs:   Tools -> Options -> DataGuard -> Validation Rules\r\n" +
-                    "========================================================================\r\n");
-                await this.SetStatusTextAsync(
-                    process.ExitCode == 130
-                        ? "DataGuard: Cancelled"
-                        : progressSummary.HasSummary
-                            ? "DataGuard: " + progressSummary.ErrorCount + " errors, " + progressSummary.WarningCount + " warnings"
-                            : "DataGuard: Result summary unavailable");
-            }
-            catch (Exception ex)
-            {
-                await this.WriteOutputAsync("[DataGuard] Failed to start " + command + ": " + Redact(ex.Message) + "\r\n");
-            }
-            finally
-            {
-                lock (this.processGate)
-                {
-                    if (process != null)
-                    {
-                        if (ReferenceEquals(this.activeProcess, process))
-                        {
-                            this.activeProcess = null;
-                        }
-
-                        if (ReferenceEquals(this.cancelledProcess, process))
-                        {
-                            this.cancelledProcess = null;
-                        }
-                    }
-
-                    this.commandReserved = false;
-                }
-
-                if (process != null)
-                {
-                    process.Dispose();
-                }
-
-                try
-                {
-                    if (Directory.Exists(temporaryDirectory))
-                    {
-                        SafeDeleteDirectory(temporaryDirectory);
-                    }
-                }
-                catch (IOException)
-                {
-                }
-                catch (UnauthorizedAccessException)
-                {
-                }
-            }
-        }
-        catch
-        {
-            lock (this.processGate)
-            {
-                this.commandReserved = false;
-            }
-
-            throw;
-        }
-    }
-
-    internal static bool DecideCancellationSuppression(bool cancellationRequested, bool streamsDrained)
-    {
-        if (cancellationRequested && !streamsDrained)
-        {
-            throw new InvalidOperationException("Streams must be drained before suppressing publication.");
-        }
-
-        return cancellationRequested;
-    }
-
-    internal static bool ShouldForceReleaseFailedTerminationReservation(bool exitCompleted, bool drainsCompleted) =>
-        !exitCompleted || !drainsCompleted;
-
-    internal static bool ShouldRecordCancellation(ProcessStopOutcome outcome, bool ownsActiveProcess) =>
-        outcome == ProcessStopOutcome.Terminated && ownsActiveProcess;
-    internal static void CleanStaleTempDirectories()
-    {
-        try
-        {
-            var now = DateTime.UtcNow;
-            var tempBase = Path.GetTempPath();
-            var tempRoot = Path.Combine(tempBase, "DataGuard");
-            if (Directory.Exists(tempRoot))
-            {
-                var rootInfo = new DirectoryInfo(tempRoot);
-                if ((rootInfo.Attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    Directory.Delete(tempRoot, recursive: false);
-                }
-                else
-                {
-                    foreach (var dir in Directory.EnumerateDirectories(tempRoot))
-                    {
-                        try
-                        {
-                            var dirInfo = new DirectoryInfo(dir);
-                            if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
-                            {
-                                Directory.Delete(dir, recursive: false);
-                                continue;
-                            }
-
-                            var lastWrite = Directory.GetLastWriteTimeUtc(dir);
-                            var creation = Directory.GetCreationTimeUtc(dir);
-                            var latest = lastWrite > creation ? lastWrite : creation;
-                            if (now - latest > TimeSpan.FromMinutes(15))
-                            {
-                                SafeDeleteDirectory(dir);
-                            }
-                        }
-                        catch (IOException)
-                        {
-                        }
-                        catch (UnauthorizedAccessException)
-                        {
-                        }
-                    }
-                }
-            }
-
-            // Also sweep dataguard-* directories in tempBase
-            try
-            {
-                foreach (var dir in Directory.EnumerateDirectories(tempBase, "dataguard-*"))
-                {
-                    try
-                    {
-                        var dirInfo = new DirectoryInfo(dir);
-                        if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
-                        {
-                            Directory.Delete(dir, recursive: false);
-                            continue;
-                        }
-
-                        var lastWrite = Directory.GetLastWriteTimeUtc(dir);
-                        var creation = Directory.GetCreationTimeUtc(dir);
-                        var latest = lastWrite > creation ? lastWrite : creation;
-                        if (now - latest > TimeSpan.FromMinutes(15))
-                        {
-                            SafeDeleteDirectory(dir);
-                        }
-                    }
-                    catch (IOException)
-                    {
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                    }
-                }
-            }
-            catch
-            {
-            }
-        }
-        catch
-        {
-            // Best-effort sweep; ignore failures so operations are never blocked.
-        }
-    }
-    internal static void SafeDeleteDirectory(string path)
-    {
-        try
-        {
-            var dirInfo = new DirectoryInfo(path);
-            if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
-            {
-                if ((dirInfo.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden)) != 0)
-                {
-                    dirInfo.Attributes &= ~(FileAttributes.ReadOnly | FileAttributes.Hidden);
-                }
-                Directory.Delete(path, recursive: false);
-                return;
-            }
-
-            try
-            {
-                foreach (var subDir in Directory.GetDirectories(path))
-                {
-                    try
-                    {
-                        SafeDeleteDirectory(subDir);
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                foreach (var file in Directory.GetFiles(path))
-                {
-                    TryDeleteFile(file);
-                }
-            }
-            catch
-            {
-            }
-
-            if ((dirInfo.Attributes & (FileAttributes.ReadOnly | FileAttributes.Hidden)) != 0)
-            {
-                dirInfo.Attributes &= ~(FileAttributes.ReadOnly | FileAttributes.Hidden);
-            }
-
-            Directory.Delete(path, recursive: false);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-    }
-
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            var attributes = File.GetAttributes(path);
-            if ((attributes & FileAttributes.ReadOnly) != 0)
-            {
-                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
-            }
-            File.Delete(path);
-        }
-        catch
-        {
-        }
-    }
-    private async Task WriteCommandBannerAsync(
-        string command,
-        string solutionDirectory,
-        string configPath,
-        int enabledRuleCount,
-        int disabledRuleCount)
-    {
-        await this.ActivateOutputPaneAsync();
-        var title = command == "validate" ? "Run Validation" : "Assess Workspace";
-        var description = command == "validate"
-            ? "Validates C# and database contracts (parameters, result shapes, types, naming, and SQL dialect)."
-            : "Assesses workspace configuration, dependencies, and environment readiness.";
-        await this.WriteOutputAsync(
-            "========================================================================\r\n" +
-            "DataGuard — " + title + "\r\n" +
-            "========================================================================\r\n" +
-            "What:   " + description + "\r\n" +
-            "Scope:  " + solutionDirectory + "\r\n" +
-            "Config: " + configPath + "\r\n" +
-            (command == "validate"
-                ? "Rules:  " + enabledRuleCount + " enabled, " + disabledRuleCount + " disabled\r\n"
-                : string.Empty) +
-            "========================================================================\r\n");
-    }
-
-    private async Task SetStatusTextAsync(string text)
-    {
-        try
-        {
-            await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var statusBar = await this.GetServiceAsync(typeof(SVsStatusbar)) as IVsStatusbar;
-            statusBar?.SetText(text);
-        }
-        catch
-        {
-            // Output Window feedback remains available when the status bar is unavailable.
-        }
-    }
-
-    private static string ExplainExitCode(string command, int exitCode)
-    {
-        switch (command, exitCode)
-        {
-            case (_, 0):
-                return "[OK] No issues found.";
-            case ("validate", 1):
-                return "[WARN] Validation found errors. See Error List.";
-            case ("validate", 2):
-                return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml.";
-            case ("validate", 3):
-                return "[WARN] Validation incomplete — contract acquisition failed (no DB connection or snapshot).";
-            case ("assess", 1):
-                return "[WARN] Assessment found findings. See Error List.";
-            case ("assess", 4):
-                return "[WARN] Assessment completed with tool errors (check config or permissions).";
-            case (_, 130):
-                return "[CANCELLED] Cancelled by user.";
-            default:
-                return "Unexpected exit code " + exitCode + ".";
-        }
-    }
-
-    private async Task<bool> TryAutoInstallCliAsync()
-    {
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = "tool install -g DataGuard.Cli --add-source https://api.nuget.org/v3/index.json --ignore-failed-sources",
-                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-            };
-
-            using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            process.Start();
-
-            var stdoutDrainTask = DrainAsync(process.StandardOutput);
-            var stderrDrainTask = DrainAsync(process.StandardError);
-            var exitTask = Task.Run(() => process.WaitForExit());
-
-            var completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(30)));
-            if (completed != exitTask)
-            {
-                StopProcess(process);
-                await this.WriteOutputAsync("[DataGuard] Auto-installation timed out.\r\n");
-                return false;
-            }
-
-            var installDrains = Task.WhenAll(stdoutDrainTask, stderrDrainTask);
-            var drainDone = await Task.WhenAny(installDrains, Task.Delay(TimeSpan.FromSeconds(3)));
-            if (drainDone != installDrains)
-            {
-                try
-                {
-                    process.StandardOutput.Close();
-                    process.StandardError.Close();
-                }
-                catch
-                {
-                }
-                _ = installDrains.ContinueWith(t => { var ex = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-            }
-
-            if (process.ExitCode == 0)
-            {
-                await this.WriteOutputAsync("[DataGuard] CLI successfully auto-installed.\r\n");
-                return true;
-            }
-            else
-            {
-                await this.WriteOutputAsync($"[DataGuard] Auto-installation failed (Exit Code {process.ExitCode}).\r\n");
-                return false;
-            }
+            return new SettingsStoreTrustConsentStore(new ShellSettingsManager(this).GetWritableSettingsStore(SettingsScope.UserSettings));
         }
         catch (Exception ex)
         {
-            await this.WriteOutputAsync($"[DataGuard] Auto-installation failed: {ex.Message}\r\n");
-            return false;
+            // Never let a settings-store failure block package load; consent then lasts for this session only.
+            DataGuardLogger.LogWarning("VS settings store unavailable; solution consent will not persist: " + DataGuardLogger.Redact(ex.Message));
+            return new InMemoryTrustConsentStore();
         }
     }
 
-    private async Task<int> PublishSarifAsync(string sarifPath, string solutionDirectory)
+    private async Task<string> DescribeHostAsync()
     {
-        if (!File.Exists(sarifPath))
-        {
-            await this.WriteOutputAsync("[DataGuard] Validation produced no SARIF diagnostics.\r\n");
-            return 0;
-        }
-
-        var tasks = new List<ErrorTask>();
-
+        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         try
         {
-            using (var reader = new StreamReader(sarifPath))
-            using (var document = JsonDocument.Parse(await reader.ReadToEndAsync().ConfigureAwait(false)))
+            if (await this.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE.DTE dte)
             {
-                if (!document.RootElement.TryGetProperty("runs", out var runs) || runs.ValueKind != JsonValueKind.Array)
-                {
-                    await this.WriteOutputAsync("[DataGuard] SARIF output has no runs array.\r\n");
-                    return 0;
-                }
-
-                foreach (var run in runs.EnumerateArray())
-                {
-                    if (!run.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
-                    {
-                        continue;
-                    }
-
-                    foreach (var result in results.EnumerateArray())
-                    {
-                        if (!result.TryGetProperty("locations", out var locations) || locations.ValueKind != JsonValueKind.Array || locations.GetArrayLength() == 0)
-                        {
-                            continue;
-                        }
-
-                        if (!locations[0].TryGetProperty("physicalLocation", out var physical) || physical.ValueKind != JsonValueKind.Object)
-                        {
-                            continue;
-                        }
-
-                        if (!physical.TryGetProperty("artifactLocation", out var artifactLocation) || artifactLocation.ValueKind != JsonValueKind.Object)
-                        {
-                            continue;
-                        }
-
-                        if (!artifactLocation.TryGetProperty("uri", out var uriProperty) || uriProperty.ValueKind != JsonValueKind.String)
-                        {
-                            continue;
-                        }
-
-                        var rawUri = uriProperty.GetString();
-                        var uriBaseId = artifactLocation.TryGetProperty("uriBaseId", out var baseIdNode) ? baseIdNode.GetString() : null;
-                        var resolvedPath = ResolveSarifArtifactUri(rawUri, uriBaseId, solutionDirectory);
-                        if (string.IsNullOrEmpty(resolvedPath))
-                        {
-                            continue;
-                        }
-
-                        var region = physical.TryGetProperty("region", out var candidateRegion) ? candidateRegion : default;
-                        var (line, column) = ConvertSarifPosition(
-                            region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startLine", out var startLine) ? startLine.GetInt32() : 0,
-                            region.ValueKind == JsonValueKind.Object && region.TryGetProperty("startColumn", out var startColumn) ? startColumn.GetInt32() : 0);
-                        var sarifRuleId = result.TryGetProperty("ruleId", out var ruleIdNode) && ruleIdNode.ValueKind == JsonValueKind.String
-                            ? ruleIdNode.GetString()
-                            : null;
-                        var message = result.TryGetProperty("message", out var messageNode) && messageNode.TryGetProperty("text", out var messageText)
-                            ? Redact(messageText.GetString() ?? "DataGuard contract violation")
-                            : "DataGuard contract violation";
-                        var prefixedMessage = string.IsNullOrEmpty(sarifRuleId)
-                            ? message
-                            : $"[{sarifRuleId}] {message}";
-                        var level = result.TryGetProperty("level", out var levelNode) ? levelNode.GetString() : null;
-                        var task = new ErrorTask
-                        {
-                            Category = TaskCategory.BuildCompile,
-                            Column = column,
-                            Document = resolvedPath,
-                            ErrorCategory = level == "error" ? TaskErrorCategory.Error : level == "warning" ? TaskErrorCategory.Warning : TaskErrorCategory.Message,
-                            Line = line,
-                            Text = prefixedMessage,
-                        };
-                        task.Navigate += (sender, e) =>
-                        {
-                            this.JoinableTaskFactory.RunAsync(async () =>
-                            {
-                                await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-                                if (File.Exists(task.Document))
-                                {
-                                    var windowId = Microsoft.VisualStudio.VSConstants.LOGVIEWID_Code;
-                                    VsShellUtilities.OpenDocument(
-                                        this,
-                                        task.Document,
-                                        windowId,
-                                        out _,
-                                        out _,
-                                        out IVsWindowFrame windowFrame);
-                                    windowFrame?.Show();
-                                }
-                                else
-                                {
-                                    await this.WriteOutputAsync($"[DataGuard] Cannot navigate: file not found '{task.Document}'.\r\n");
-                                }
-                            }).FileAndForget("DataGuard/NavigateTask");
-                        };
-                        tasks.Add(task);
-                    }
-                }
+                return $"{dte.Name} {dte.Version} ({dte.Edition})";
             }
         }
-        catch (Exception ex) when (ex is JsonException || ex is IOException || ex is KeyNotFoundException)
+        catch
         {
-            await this.WriteOutputAsync("[DataGuard] SARIF output could not be read or was invalid: " + ex.Message + "\r\n");
-            return 0;
+            // Non-fatal if DTE is not available.
         }
 
-        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-        if (this.errorListProvider == null)
-        {
-            return tasks.Count;
-        }
-
-        this.errorListProvider.Tasks.Clear();
-        foreach (var task in tasks)
-        {
-            this.errorListProvider.Tasks.Add(task);
-        }
-
-        if (tasks.Count > 0)
-        {
-            this.errorListProvider.Show();
-        }
-
-        await this.WriteOutputAsync("[DataGuard] Loaded " + tasks.Count + " diagnostics into Error List.\r\n");
-        return tasks.Count;
+        return "Visual Studio (Process " + Process.GetCurrentProcess().Id + ")";
     }
 
-    private async Task CancelValidationAsync()
+    private async Task ViewRulesAsync()
     {
-        Process? processToStop = null;
-        ProcessStopOutcome outcome;
-        lock (this.processGate)
-        {
-            if (this.activeProcess == null)
-            {
-                outcome = ProcessStopOutcome.AlreadyExited;
-            }
-            else
-            {
-                processToStop = this.activeProcess;
-                outcome = ProcessStopOutcome.Failed;
-            }
-        }
-
-        if (processToStop != null)
-        {
-            outcome = await Task.Run(() => StopProcess(processToStop));
-            lock (this.processGate)
-            {
-                if (ShouldRecordCancellation(outcome, ReferenceEquals(this.activeProcess, processToStop)))
-                {
-                    this.cancelledProcess = processToStop;
-                }
-            }
-        }
-
-        switch (outcome)
-        {
-            case ProcessStopOutcome.Terminated:
-                await this.WriteOutputAsync("[DataGuard] DataGuard command cancelled by user. No further diagnostics will be produced.\r\n");
-                await this.SetStatusTextAsync("DataGuard: Cancelled");
-                break;
-            case ProcessStopOutcome.AlreadyExited:
-                await this.WriteOutputAsync("[DataGuard] The command already completed; processing diagnostics.\r\n");
-                break;
-            default:
-                await this.WriteOutputAsync("[DataGuard] Cancellation requested, but the process tree could not be terminated. Stop it manually.\r\n");
-                break;
-        }
+        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var options = (DataGuardRulesOptionsPage)this.GetDialogPage(typeof(DataGuardRulesOptionsPage));
+        await RuleCatalogPrinter.PrintAsync(options.GetRuleCatalog(), this.output!);
     }
 
     private async Task ViewLogsAsync()
     {
-        await this.ActivateOutputPaneAsync();
-        await this.WriteOutputAsync("[DataGuard] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
-        await this.WriteOutputAsync("[DataGuard] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
-        await this.WriteOutputAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
+        await this.output!.ActivateAsync();
+        await this.output.WriteAsync("[DataGuard] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
+        await this.output.WriteAsync("[DataGuard] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
+        await this.output.WriteAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         DataGuardLogger.OpenLog(this);
-    }
-
-    private async Task ActivateOutputPaneAsync()
-    {
-        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-        var outputWindow = await this.GetServiceAsync(typeof(SVsOutputWindow)) as IVsOutputWindow;
-        if (outputWindow == null)
-        {
-            return;
-        }
-
-        var paneGuid = OutputPaneGuid;
-        outputWindow.CreatePane(ref paneGuid, "DataGuard", 1, 1);
-        if (ErrorHandler.Succeeded(outputWindow.GetPane(ref paneGuid, out var pane)) && pane != null)
-        {
-            pane.Activate();
-        }
-    }
-
-    private async Task WriteOutputAsync(string text)
-    {
-        DataGuardLogger.LogInfo(text.TrimEnd('\r', '\n'));
-
-        await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-        var outputWindow = await this.GetServiceAsync(typeof(SVsOutputWindow)) as IVsOutputWindow;
-        if (outputWindow == null)
-        {
-            return;
-        }
-
-        var paneGuid = OutputPaneGuid;
-        outputWindow.CreatePane(ref paneGuid, "DataGuard", 1, 1);
-        if (ErrorHandler.Succeeded(outputWindow.GetPane(ref paneGuid, out var pane)) && pane != null)
-        {
-            pane.OutputStringThreadSafe(text);
-        }
     }
 }

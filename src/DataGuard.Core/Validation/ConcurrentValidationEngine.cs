@@ -47,7 +47,7 @@ public sealed class ConcurrentValidationEngine
         var result = await this.ValidateDetailedAsync(contracts, rules, cancellationToken, executionCompleted);
         if (result.IsIncomplete)
         {
-            throw new ValidationIncompleteException("Validation result exceeded the configured violation cap.", result);
+            throw new ValidationIncompleteException(DescribeIncompleteResult(result), result);
         }
 
         return result.Violations;
@@ -121,9 +121,11 @@ public sealed class ConcurrentValidationEngine
             {
                 throw;
             }
-            catch
+            catch (Exception exception)
             {
-                return;
+                // A rule failure (including RegexMatchTimeoutException) must never be dropped silently: it faults the
+                // producer, which completes the channel with the error so the consumer observes it (review M1).
+                throw new InvalidOperationException(DescribeRuleFailure(rule.RuleId, exception), exception);
             }
 
             foreach (var violation in violations)
@@ -132,6 +134,21 @@ public sealed class ConcurrentValidationEngine
             }
         }
     }
+
+    /// <summary>Names every failed rule (and its exception type) so a timed-out regex is visible; falls back to the cap message.</summary>
+    private static string DescribeIncompleteResult(ValidationExecutionResult result)
+    {
+        var failed = result.RuleOutcomes
+            .Where(outcome => outcome.State == RuleExecutionState.Failed)
+            .Select(outcome => $"{outcome.RuleId} ({outcome.FailureReason ?? "unknown failure"})")
+            .ToList();
+        return failed.Count == 0
+            ? "Validation result exceeded the configured violation cap."
+            : "Validation incomplete: rule execution failed for " + string.Join(", ", failed) + ".";
+    }
+
+    private static string DescribeRuleFailure(string ruleId, Exception exception) =>
+        $"Rule {ruleId} failed: {exception.GetType().Name}: {exception.Message}";
 
     public Task<ValidationExecutionResult> ValidateDetailedAsync(
         IReadOnlyList<ContractDescriptor> contracts,

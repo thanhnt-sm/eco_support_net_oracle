@@ -10,6 +10,8 @@ import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-lan
 import { readConnectionSecret, redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath, storeConnectionSecret } from "./security";
 import { RunCoordinator } from "./run-coordinator";
 import { buildCliArguments, CliCommand, normalizeProvider } from "./command-args";
+import { buildIdeSafeFailureMessage, formatProgressLine, hasIdeSafeAck } from "./ide-safe-contract";
+import { buildLiveDatabaseConfirmation, countReadQueries, isLiveDatabaseCommand, maskConnectionHost } from "./live-database-confirmation";
 import { DataGuardDashboardPanel } from "./ui/dashboard-panel";
 import { DataGuardFindingsTreeProvider, FindingTreeItem } from "./ui/findings-tree-provider";
 import { DataGuardSqlQueriesTreeProvider, QueryScanItem, ScanConnectionItem, ScanReport } from "./ui/sql-queries-tree-provider";
@@ -40,6 +42,10 @@ interface ValidationRun {
 interface ChildExit {
     readonly code: number | null;
     readonly output: string;
+    /** First non-empty stderr line (trimmed), kept separately for the ide-safe handshake check. */
+    readonly firstStderrLine?: string;
+    /** True when the process could not be started; the error was already reported. */
+    readonly startFailed: boolean;
 }
 
 const MAX_CLI_OUTPUT = 1024 * 1024;
@@ -104,8 +110,8 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand(RUN_VALIDATION_COMMAND, () => runValidation(context)),
         vscode.commands.registerCommand(CANCEL_VALIDATION_COMMAND, () => cancelValidation()),
         vscode.commands.registerCommand(ASSESS_COMMAND, () => runAssessment(context)),
-        vscode.commands.registerCommand(SNAPSHOT_COMMAND, () => runConfirmedOperation(context, "snapshot")),
-        vscode.commands.registerCommand(BASELINE_COMMAND, () => runConfirmedOperation(context, "baseline")),
+        vscode.commands.registerCommand(SNAPSHOT_COMMAND, () => runCliCommand(context, "snapshot", "timeoutSeconds")),
+        vscode.commands.registerCommand(BASELINE_COMMAND, () => runCliCommand(context, "baseline", "timeoutSeconds")),
         vscode.commands.registerCommand(CONFIGURE_CONNECTION_COMMAND, () => configureConnection(context)),
         vscode.commands.registerCommand("dataguard.openDashboard", () => {
             DataGuardDashboardPanel.createOrShow(context.extensionUri, findingsTreeProvider?.getFindings() ?? [], latestScanReport);
@@ -314,14 +320,16 @@ async function runAssessment(context: vscode.ExtensionContext): Promise<void> {
     await runCliCommand(context, "assess", "assessmentTimeoutSeconds");
 }
 
-async function runConfirmedOperation(context: vscode.ExtensionContext, command: "snapshot" | "baseline"): Promise<void> {
-    const action = command === "snapshot" ? "refresh the schema snapshot" : "create a baseline";
-    const choice = await vscode.window.showWarningMessage(`DataGuard will ${action} using the configured provider and credentials. Continue?`, { modal: true }, "Continue");
-    if (choice !== "Continue") {
-        return;
+/** Modal gate for every live-database command; runs after the credential is known and before any run slot is taken. */
+async function confirmLiveDatabaseCommand(command: CliCommand, connectionString: string | undefined): Promise<boolean> {
+    if (!isLiveDatabaseCommand(command)) {
+        return true;
     }
-
-    await runCliCommand(context, command, "timeoutSeconds");
+    // summary.json is CLI output that is cast, not validated: countReadQueries guards `queries` and each entry.
+    const readQueryCount = countReadQueries(latestScanReport);
+    const message = buildLiveDatabaseConfirmation({ command, maskedHost: maskConnectionHost(connectionString), readQueryCount });
+    const choice = await vscode.window.showWarningMessage(message, { modal: true }, "Continue");
+    return choice === "Continue";
 }
 
 async function configureConnection(context: vscode.ExtensionContext): Promise<void> {
@@ -365,6 +373,13 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         connectionString = await readConnectionSecret(context.secrets, workspaceFolder.uri.toString());
     } catch {
         void vscode.window.showErrorMessage("DataGuard could not access VS Code SecretStorage.");
+        return;
+    }
+    if (connectionString !== undefined && connectionString.trim().length === 0) {
+        connectionString = undefined;
+    }
+    const hasUserCredential = connectionString !== undefined;
+    if (!(await confirmLiveDatabaseCommand(command, connectionString))) {
         return;
     }
 
@@ -419,7 +434,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     const outputPath = expectsSarif
         ? path.join(outputDirectory, "validation.sarif")
         : (expectsSummary ? path.join(outputDirectory, "summary.json") : undefined);
-    const args = buildCliArguments(command, workspaceFolder.uri.fsPath, provider, configPath, outputPath);
+    const args = buildCliArguments(command, workspaceFolder.uri.fsPath, provider, configPath, outputPath, { hasUserCredential });
     channel.appendLine(`[DataGuard] ${command === "validate" ? "Validation" : "Local assessment"} started for ${path.basename(workspaceFolder.uri.fsPath)}.`);
     if (!runCoordinator.isReservationCurrent(reservationToken)) {
         await fs.rm(outputDirectory, { recursive: true, force: true });
@@ -468,6 +483,10 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     try {
         const result = await waitForExit(child, channel);
         const exitCode = result.code;
+        if (result.startFailed) {
+            setStatus("error");
+            return;
+        }
         if (exitCode !== 0 && result.output.length > 0) {
             const rawErrors = result.output
                 .split("\n")
@@ -479,13 +498,19 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             }
         }
         if (run.timedOut) {
-            channel.appendLine(`\n[DataGuard] ${command} timed out after ${timeoutSeconds} seconds.`);
-            setStatus("error");
-            void vscode.window.showErrorMessage(`DataGuard ${command} timed out after ${timeoutSeconds} seconds.`);
+            const timedOut = `${command} timed out after ${timeoutSeconds} seconds.`;
+            reportRunError(channel, `DataGuard ${timedOut}`, `\n[DataGuard] ${timedOut}`);
             return;
         }
         if (run.cancelled) {
             channel.appendLine(`\n[DataGuard] ${command} cancelled.`);
+            return;
+        }
+        // ide-safe handshake: without the ack the CLI never applied the policy (old CLI, wrapper, or a
+        // crash before the policy ran), so its SARIF is not evidence. Never retried without the flag.
+        if (expectsSarif && !hasIdeSafeAck(result.firstStderrLine)) {
+            const message = buildIdeSafeFailureMessage(result.firstStderrLine);
+            reportRunError(channel, message, `\n[DataGuard] ${message} (exit code ${exitCode ?? "unknown"})`);
             return;
         }
 
@@ -562,8 +587,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             setStatus("warning");
             void vscode.window.showWarningMessage(`DataGuard ${command} found findings. See Problems or the DataGuard output channel.`);
         } else {
-            setStatus("error");
-            void vscode.window.showErrorMessage(`DataGuard could not complete ${command}. See the DataGuard output channel.`);
+            reportRunError(channel, `DataGuard could not complete ${command}. See the DataGuard output channel.`);
         }
     } finally {
         clearTimeout(run.timeout);
@@ -615,18 +639,17 @@ async function selectWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefin
     return selected?.folder;
 }
 
-interface ProgressEventPayload {
-    Kind?: string;
-    Phase?: string;
-    Detail?: string;
-    Data?: Record<string, unknown>;
-}
-
 const MAX_PROGRESS_BUFFER = 1024 * 1024;
+
+interface ProgressTextState {
+    buffer: string;
+    /** First non-empty line seen, trimmed; the stderr one feeds the ide-safe handshake check. */
+    firstLine?: string;
+}
 
 function processProgressText(
     text: string,
-    state: { buffer: string },
+    state: ProgressTextState,
     channel: vscode.OutputChannel,
 ): void {
     state.buffer += text;
@@ -641,33 +664,20 @@ function processProgressText(
         if (!line) {
             continue;
         }
-        if (line.startsWith("{") && line.endsWith("}")) {
-            try {
-                const payload = JSON.parse(line) as ProgressEventPayload;
-                if (payload.Kind) {
-                    if (payload.Detail) {
-                        channel.appendLine(`[DataGuard] ${redactSensitiveText(payload.Detail)}`);
-                    } else if (payload.Phase) {
-                        channel.appendLine(`[DataGuard] ${redactSensitiveText(payload.Phase)}`);
-                    }
-                    continue;
-                }
-            } catch {
-                // Not JSON progress, fall through
-            }
-        }
-        if (line.startsWith("[INFO]") || line.startsWith("[WARN]") || line.startsWith("[ERROR]")) {
-            channel.appendLine(`[DataGuard] ${redactSensitiveText(line)}`);
+        state.firstLine ??= line;
+        const rendered = formatProgressLine(line);
+        if (rendered !== undefined) {
+            channel.appendLine(`[DataGuard] ${rendered}`);
         }
     }
 }
 
 async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<ChildExit> {
     let output = "";
-    const stdoutState = { buffer: "", decoder: new StringDecoder("utf8") };
-    const stderrState = { buffer: "", decoder: new StringDecoder("utf8") };
+    const stdoutState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
+    const stderrState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
 
-    const handleChunk = (chunk: Buffer | string, state: { buffer: string; decoder: StringDecoder }): void => {
+    const handleChunk = (chunk: Buffer | string, state: ProgressTextState & { decoder: StringDecoder }): void => {
         const decoded = typeof chunk === "string" ? chunk : state.decoder.write(chunk);
         if (output.length < MAX_CLI_OUTPUT) {
             output += decoded.slice(0, MAX_CLI_OUTPUT - output.length);
@@ -708,10 +718,10 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
         if (stderrState.buffer.trim()) {
             processProgressText("\n", stderrState, channel);
         }
-        return { code: code as number | null, output };
+        return { code: code as number | null, output, firstStderrLine: stderrState.firstLine, startFailed: false };
     } catch (error) {
         showStartError(error, channel);
-        return { code: null, output };
+        return { code: null, output, firstStderrLine: stderrState.firstLine, startFailed: true };
     } finally {
         child.stdout?.removeListener("data", onStdoutData);
         child.stderr?.removeListener("data", onStderrData);
@@ -862,9 +872,21 @@ function terminateProcessTree(child: ChildProcess): void {
 function showStartError(error: unknown, channel: vscode.OutputChannel): void {
     const err = error as NodeJS.ErrnoException;
     const message = err.code === "ENOENT"
-        ? "DataGuard CLI was not found. Install it with 'dotnet tool install -g DataGuard.Cli' or set dataguard.cliPath in User Settings."
+        ? "DataGuard CLI was not found. Install the dataguard CLI from GitHub Releases (verify SHA-256) and set dataguard.cliPath in User Settings."
         : `Failed to start DataGuard: ${redactSensitiveText(err.message ?? String(error))}`;
     channel.appendLine(`\n${message}`);
+    void vscode.window.showErrorMessage(message);
+}
+
+/**
+ * Failed-run reporting, always in this order: optional output-channel line, status bar to error,
+ * error notification. `channelLine` is omitted when the caller already wrote the channel line.
+ */
+function reportRunError(channel: vscode.OutputChannel, message: string, channelLine?: string): void {
+    if (channelLine !== undefined) {
+        channel.appendLine(channelLine);
+    }
+    setStatus("error");
     void vscode.window.showErrorMessage(message);
 }
 

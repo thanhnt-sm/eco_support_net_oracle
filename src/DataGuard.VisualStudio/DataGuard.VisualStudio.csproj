@@ -63,16 +63,30 @@
     BuildAnalyzers: compile DataGuard.Analyzers and DataGuard.CodeFixes
     so they can be included as VSIXSourceItem without a ProjectReference (which would violate
     the zero-ProjectReference VSIX architecture).
+
+    Restore and Build must be separate MSBuild task invocations with different global properties.
+    A single Targets="Restore;Build" call evaluates the project instance once, before Restore writes
+    obj\*.nuget.g.props/targets, so NETStandard.Library.targets (netstandard.dll + facades) is never
+    imported and csc fails with CS0518/CS0234/CS0653 on a clean checkout (every CI run). Local builds
+    only pass because obj\ is already warm. The unique MSBuildRestoreSessionId forces a fresh
+    evaluation for Restore, mirroring what `msbuild -restore` does internally; the Build call then
+    evaluates again with the normal properties and sees the generated imports.
   -->
   <Target Name="BuildAnalyzers"
           Condition="'$(CreateVsixContainer)' == 'true'"
           BeforeTargets="IncludeAnalyzersInVsix">
     <MSBuild Projects="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\DataGuard.Analyzers.csproj"
+             Properties="Configuration=$(Configuration);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())"
+             Targets="Restore" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\DataGuard.Analyzers.csproj"
              Properties="Configuration=$(Configuration)"
-             Targets="Restore;Build" />
+             Targets="Build" />
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\DataGuard.CodeFixes\DataGuard.CodeFixes.csproj"
+             Properties="Configuration=$(Configuration);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())"
+             Targets="Restore" />
     <MSBuild Projects="$(MSBuildThisFileDirectory)..\DataGuard.CodeFixes\DataGuard.CodeFixes.csproj"
              Properties="Configuration=$(Configuration)"
-             Targets="Restore;Build" />
+             Targets="Build" />
   </Target>
 
   <Target Name="IncludeAnalyzersInVsix"
@@ -90,7 +104,10 @@
           Condition="'$(CreateVsixContainer)' == 'true'"
           BeforeTargets="IncludeBundledCliInVsix">
     <RemoveDir Directories="$(DataGuardCliPublishDir)" Condition="Exists('$(DataGuardCliPublishDir)')" />
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true -o &quot;$(DataGuardCliPublishDir)&quot;" />
+    <!-- NuGetLockFilePath (relative → resolved per project) keeps the win-x64 self-contained restore from
+         rewriting the committed packages.lock.json files of the CLI and its 8 referenced projects, which
+         otherwise breaks the next locked-mode restore with NU1004 (see CHANGELOG 2026-09-29). -->
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true /p:NuGetLockFilePath=obj\cli-publish.packages.lock.json /p:RestoreLockedMode=false -o &quot;$(DataGuardCliPublishDir)&quot;" />
   </Target>
 
   <Target Name="IncludeBundledCliInVsix"

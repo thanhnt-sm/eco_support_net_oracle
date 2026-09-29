@@ -35,9 +35,11 @@ public class PhantomIdentifierRule : ContractRuleBase
         @"\b([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Linear-time SELECT-list scan (red-team F11): the lazy `\s+(.+?)\s+FROM` form backtracks quadratically on
+    // long whitespace runs. NonBacktracking keeps the leftmost/shortest match, so group 1 still stops at the first FROM.
     private static readonly Regex SelectListRegex = new(
-        @"\bSELECT\s+(.+?)\s+FROM\b",
-        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+        @"\bSELECT\b\s*(.*?)\s*\bFROM\b",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.NonBacktracking);
 
     private static readonly HashSet<string> SqlKeywords = new(StringComparer.OrdinalIgnoreCase)
     {

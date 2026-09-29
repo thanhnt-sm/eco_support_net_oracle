@@ -21,70 +21,29 @@ using DataGuard.Core.Validation;
 using DataGuard.Cli;
 using DataGuard.Cli.Hooks;
 
+// Bound every regex in the process before any type with a static Regex field is touched (red-team F11).
+RegexMatchTimeoutStartup.Apply();
+
 var assembly = Assembly.GetExecutingAssembly();
 var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
     ?? assembly.GetName().Version?.ToString() ?? "0.1.0";
 
-static bool IsSafeWritablePath(string path)
+// Target and parent may never be links; repository-controlled ancestors (inside the current directory) are
+// walked too, host-chosen ones (a junctioned %TEMP%) are not. See SafeWritablePath.
+static bool IsSafeWritablePath(string path) => SafeWritablePath.IsSafe(path, Directory.GetCurrentDirectory());
+
+// Shared refusal for every user-chosen output sink (validate formats, oracle-check SARIF). Runs before any work or
+// connection; exit 4 is the operational tool-error code, the same one assess uses for its SARIF sink.
+static bool RefuseUnsafeOutput(string outputPath, string artifact)
 {
-    try
-    {
-        var fullPath = Path.GetFullPath(path);
-        var parent = Path.GetDirectoryName(fullPath);
-        if (string.IsNullOrWhiteSpace(parent) || IsLink(parent) || IsLink(fullPath))
-        {
-            return false;
-        }
-
-        var current = new DirectoryInfo(parent);
-        while (current != null)
-        {
-            if (IsLink(current.FullName))
-            {
-                return false;
-            }
-            current = current.Parent;
-        }
-
-        return true;
-    }
-    catch (Exception)
+    if (IsSafeWritablePath(outputPath))
     {
         return false;
     }
 
-    static bool IsLink(string candidate)
-    {
-        try
-        {
-            var fileInfo = new FileInfo(candidate);
-            if (fileInfo.LinkTarget != null)
-            {
-                return true;
-            }
-
-            var dirInfo = new DirectoryInfo(candidate);
-            if (dirInfo.LinkTarget != null)
-            {
-                return true;
-            }
-
-            if (File.Exists(candidate) || Directory.Exists(candidate))
-            {
-                var attrs = File.GetAttributes(candidate);
-                if (attrs != (FileAttributes)(-1) && attrs.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    Console.Error.WriteLine($"Refusing to write {artifact} through a symbolic link or invalid path.");
+    Environment.ExitCode = 4;
+    return true;
 }
 
 static async Task WriteTextAtomicallyAsync(string outputPath, string content, CancellationToken cancellationToken)
@@ -173,6 +132,10 @@ var progressOption = new Option<bool>("--progress");
 progressOption.Description = "Write safe line-delimited JSON progress events to stderr";
 var projectOption = new Option<string>("--project");
 projectOption.Description = "Path to C# project (.csproj), solution (.sln), or directory to extract inline SQL queries and C# models";
+var ideSafeOption = new Option<bool>(IdeSafePolicy.OptionName);
+ideSafeOption.Description = "IDE-safe mode for untrusted repositories: never load assemblies, never open database, secret-manager or network connections, ignore connection strings from config and environment";
+var allowEnvConnectionOption = new Option<bool>(IdeSafePolicy.AllowEnvConnectionOptionName);
+allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DATAGUARD_CONNECTION_STRING (config-file connection strings are still ignored); no effect without --ide-safe";
 
 #endregion
 
@@ -180,7 +143,7 @@ projectOption.Description = "Path to C# project (.csproj), solution (.sln), or d
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -197,6 +160,25 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var efContextName = result.GetValue(efContextOption);
     var skipRulesRaw = result.GetValue(skipRulesOption);
     var projectPath = result.GetValue(projectOption);
+    var ideSafe = result.GetValue(ideSafeOption);
+    var allowEnvConnection = ideSafe && result.GetValue(allowEnvConnectionOption);
+    var environmentConnection = Environment.GetEnvironmentVariable(IdeSafeEnvironment.ConnectionVariable);
+    if (ideSafe)
+    {
+        // Hosts require this acknowledgement as the first stderr line, before any progress event.
+        Console.Error.WriteLine(IdeSafePolicy.ActiveLine);
+
+        // IDE-safe: reject every option that would load code or open a connection before doing any work.
+        var rejectedOption = IdeSafePolicy.FirstRejectedValidateOption(
+            result.GetValue(connectionOption), offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName);
+        if (rejectedOption is not null)
+        {
+            Console.Error.WriteLine(IdeSafePolicy.FormatRejectionLine(rejectedOption));
+            Environment.ExitCode = 2;
+            return;
+        }
+    }
+
     ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
     HashSet<string>? skipRuleIds = null;
     if (!string.IsNullOrWhiteSpace(skipRulesRaw))
@@ -217,6 +199,24 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
     var config = resolved.Configuration;
     var provider = resolved.Provider;
+
+    // Connection-bound rules share the acquisition credential unless the IDE-safe policy withholds it (review H1).
+    var rulesConnectionString = config.ConnectionString;
+    if (ideSafe)
+    {
+        // Strip code-loading, connection and repo-chosen write paths from whatever the config/env requested.
+        var safe = IdeSafePolicy.Apply(
+            config,
+            environmentConnectionPresent: !string.IsNullOrWhiteSpace(environmentConnection),
+            allowEnvConnection,
+            environmentConnection);
+        config = safe.Configuration;
+        rulesConnectionString = safe.RulesConnectionString;
+        IdeSafePolicy.WriteReport(Console.Error, safe);
+
+        // Downstream credential providers re-read the environment; clear it so they cannot recover a secret.
+        IdeSafeEnvironment.Scrub(allowEnvConnection);
+    }
 
     if (offline)
     {
@@ -255,6 +255,13 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     {
         Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
         Environment.ExitCode = 2;
+        return;
+    }
+
+    // FileSarifSink / ContractEvidenceWriter / ContractExportWriter write wherever they are pointed; the write-path
+    // policy is enforced here, once, for every file format (post-review gate scenario g).
+    if (normalizedFormat is not "text" && RefuseUnsafeOutput(output!, normalizedFormat == "sarif" ? "SARIF" : normalizedFormat + " output"))
+    {
         return;
     }
 
@@ -391,7 +398,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             "Validating rules",
             "Running enabled validation rules.",
             new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
-        var violations = await ValidateContractsAsync(contracts, config, provider, ct, skipRuleIds, progress);
+        var violations = await ValidateContractsAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress);
         if (normalizedFormat == "text")
         {
             var emitter = new DiagnosticEmitter();
@@ -423,9 +430,10 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
                         await WriteTextAtomicallyAsync(summaryFile, summary.ToJson(), ct);
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Non-fatal: summary.json is supplementary to SARIF
+                    // Non-fatal (summary.json is supplementary to SARIF) but never silent: hosts read stderr.
+                    Console.Error.WriteLine($"summary.json not written: {ex.Message}");
                 }
             }
         }
@@ -633,6 +641,12 @@ verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
     {
         Console.Error.WriteLine("verify-shape requires --project.");
         Environment.ExitCode = 2;
+        return;
+    }
+
+    // WriteTextAtomicallyAsync would refuse the path later, but only after the live pass; refuse before connecting.
+    if (!string.IsNullOrWhiteSpace(output) && RefuseUnsafeOutput(output, "verify-shape output"))
+    {
         return;
     }
 
@@ -1013,7 +1027,7 @@ snapshotRefreshCommand.SetAction(
                 throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
             }
 
-            var violations = await ValidateContractsAsync(acquisition.Contracts, config, provider, ct);
+            var violations = await ValidateContractsAsync(acquisition.Contracts, config, provider, config.ConnectionString, ct);
 
             var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
             var baselineManager = new BaselineManager(snapshotPath);
@@ -1258,7 +1272,7 @@ snapshotDiffCommand.SetAction(
                 return;
             }
 
-            var currentViolations = await ValidateContractsAsync(freshContracts, config, provider, ct);
+            var currentViolations = await ValidateContractsAsync(freshContracts, config, provider, config.ConnectionString, ct);
             Console.WriteLine("Warning: --legacy-violation-diff compares violations only; it is not structural schema drift evidence.");
             var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
                 ? BaselineManager.ComputeSchemaHash(baseline.Violations)
@@ -1510,6 +1524,11 @@ oracleCheckCommand.SetAction(
             DefaultPackage = package ?? config.DefaultPackage
         };
 
+        if (!string.IsNullOrEmpty(output) && RefuseUnsafeOutput(output, "SARIF"))
+        {
+            return;
+        }
+
         try
         {
             var violations = await RunOracleValidationAsync(config, verbose, ct);
@@ -1628,6 +1647,7 @@ var assessCommand = new Command("assess", "Run read-only environment/dependency/
     formatOption,
     verboseOption,
     progressOption,
+    ideSafeOption,
 };
 
 assessCommand.SetAction(
@@ -1641,6 +1661,20 @@ assessCommand.SetAction(
         var remoteProvider = result.GetValue(remoteAdvisoriesOption);
         var allowNetwork = result.GetValue(allowNetworkOption);
         var approvedPackages = result.GetValue(remotePublicPackageOption) ?? Array.Empty<string>();
+        if (result.GetValue(ideSafeOption))
+        {
+            Console.Error.WriteLine(IdeSafePolicy.ActiveLine);
+            var rejectedOption = IdeSafePolicy.FirstRejectedAssessOption(allowNetwork, remoteProvider);
+            if (rejectedOption is not null)
+            {
+                Console.Error.WriteLine(IdeSafePolicy.FormatRejectionLine(rejectedOption));
+                Environment.ExitCode = 2;
+                return;
+            }
+
+            IdeSafeEnvironment.Scrub(allowEnvConnection: false);
+        }
+
         ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
         var normalizedFormat = format?.ToLowerInvariant() ?? "text";
         if (normalizedFormat is not ("text" or "json" or "sarif"))
@@ -1731,7 +1765,7 @@ assessCommand.SetAction(
 
             foreach (var error in report.Errors)
             {
-                Console.Error.WriteLine($"[{error.Code}] {error.Path}: {error.Message}");
+                Console.Error.WriteLine($"[{error.Code}] {RelativizeToWorkspace(request.WorkspaceRoot, error.Path)}: {error.Message}");
             }
 
             // Findings are a failed assessment; operational/tool errors use the frozen code 4.
@@ -1760,6 +1794,29 @@ assessCommand.SetAction(
             Environment.ExitCode = 4;
         }
     });
+
+// Echoes a path relative to the workspace (or "." for the root itself); paths outside it are returned unchanged.
+static string RelativizeToWorkspace(string workspaceRoot, string? path)
+{
+    if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+    {
+        return path ?? string.Empty;
+    }
+
+    try
+    {
+        var relative = Path.GetRelativePath(Path.GetFullPath(workspaceRoot), Path.GetFullPath(path));
+        var escapesRoot = relative == ".."
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || relative.StartsWith("../", StringComparison.Ordinal)
+            || Path.IsPathFullyQualified(relative);
+        return escapesRoot ? path : relative.Replace(Path.DirectorySeparatorChar, '/');
+    }
+    catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+    {
+        return path;
+    }
+}
 
 static async Task<AssessmentReport> RunAssessmentWithRemoteAdvisories(AssessmentRequest request, RemoteAdvisoryPolicy policy, CancellationToken cancellationToken)
 {
@@ -2228,16 +2285,18 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
     return contracts;
 }
 
+// rulesConnectionString: connection for connection-bound rules; null registers their offline variants.
 static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     IReadOnlyList<ContractDescriptor> contracts,
     DataGuardConfiguration config,
     string provider,
+    string? rulesConnectionString,
     CancellationToken cancellationToken = default,
     HashSet<string>? skipRuleIds = null,
     ProgressEmitter? progress = null)
 {
     var allViolations = new List<ContractViolation>();
-    var rules = GetRulesForProvider(provider, config.ConnectionString, progress)
+    var rules = GetRulesForProvider(provider, rulesConnectionString, progress)
         .Where(r => skipRuleIds is null || !skipRuleIds.Contains(r.RuleId))
         .ToList();
     if (config.EnableConcurrentValidation)
@@ -2296,7 +2355,26 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
         var baseline = await baselineManager.LoadAsync(cancellationToken);
         if (baseline != null)
         {
+            var countBeforeBaseline = allViolations.Count;
             allViolations = baselineManager.FilterNewViolations(allViolations, baseline).ToList();
+            var suppressedCount = countBeforeBaseline - allViolations.Count;
+            if (suppressedCount > 0)
+            {
+                // A baseline silently hiding findings is a red-team concern (F10): always make it visible.
+                var baselineDisplayPath = RelativizeToWorkspace(Directory.GetCurrentDirectory(), Path.GetFullPath(config.BaselineFilePath));
+                if (progress is not null)
+                {
+                    progress.Emit(new ProgressEvent(
+                        ProgressEventKind.BaselineApplied,
+                        "Validating rules",
+                        baselineDisplayPath,
+                        new Dictionary<string, object?> { ["SuppressedCount"] = suppressedCount }));
+                }
+                else
+                {
+                    Console.Error.WriteLine($"baseline: {suppressedCount} violations suppressed by {baselineDisplayPath}");
+                }
+            }
         }
     }
 
@@ -2321,7 +2399,7 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
         throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
     }
 
-    return await ValidateContractsAsync(acquisition.Contracts, config, provider, cancellationToken, progress: null);
+    return await ValidateContractsAsync(acquisition.Contracts, config, provider, config.ConnectionString, cancellationToken, progress: null);
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
@@ -2373,7 +2451,7 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
     return violations;
 }
 
-static List<IContractRule> GetRulesForProvider(string provider, string? connectionString = null, ProgressEmitter? progress = null)
+static List<IContractRule> GetRulesForProvider(string provider, string? connectionString, ProgressEmitter? progress = null)
 {
     return ProviderRuleCatalog.Get(provider, connectionString, progress)
         .Where(registration => registration.Availability == RuleAvailability.Ready)

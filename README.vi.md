@@ -15,7 +15,9 @@
 ## Bắt đầu nhanh
 
 ```bash
-dotnet tool install -g DataGuard.Cli
+# Tải CLI dataguard cho OS của bạn từ GitHub Releases (dataguard-<version>-<rid>.zip) và kiểm tra
+# SHA-256 với file .sha256 đi kèm (DataGuard.Cli chưa được publish lên nuget.org):
+# https://github.com/thanhnt-sm/eco_support_net_oracle/releases
 cd YourProject
 dataguard init            # tạo .dataguard.yml + .dataguard-snapshot.json
 dataguard validate        # chạy rule contract với ground truth

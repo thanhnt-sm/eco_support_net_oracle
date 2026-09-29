@@ -124,7 +124,7 @@ ${css}
     font-size: 12px;
 }
 .queries-table th {
-    background: #0f172a;
+    background: var(--dg-bg-dark);
     color: var(--dg-text-muted);
     text-align: left;
     padding: 10px 12px;
@@ -155,32 +155,32 @@ ${css}
     font-weight: 600;
     text-transform: uppercase;
 }
-.badge-status-matched { background: #065f46; color: #34d399; }
-.badge-status-partial { background: #78350f; color: #fbbf24; }
-.badge-status-unmapped { background: #7f1d1d; color: #f87171; }
-.badge-status-untyped { background: #334155; color: #94a3b8; }
-.badge-warning-text { color: #fbbf24; font-weight: 500; font-size: 11px; }
-.unmapped-highlight { color: #f87171; font-weight: 500; }
+.badge-status-matched { background: var(--dg-badge-matched-bg); color: var(--dg-badge-matched-fg); }
+.badge-status-partial { background: var(--dg-badge-partial-bg); color: var(--dg-badge-partial-fg); }
+.badge-status-unmapped { background: var(--dg-badge-unmapped-bg); color: var(--dg-badge-unmapped-fg); }
+.badge-status-untyped { background: var(--dg-badge-untyped-bg); color: var(--dg-badge-untyped-fg); }
+.badge-warning-text { color: var(--dg-badge-warning-fg); font-weight: 500; font-size: 11px; }
+.unmapped-highlight { color: var(--dg-unmapped-highlight-fg); font-weight: 500; }
     </style>
 </head>
 <body>
     <header class="dashboard-header">
         <div class="dashboard-title">
-            <span>🛡️ DataGuard Contract Drift</span>
+            <span>DataGuard Contract Drift</span>
             <span class="badge-count" id="totalCount">${sanitizedFindings.length}</span>
         </div>
         <div class="toolbar-controls">
-            <button class="btn btn-secondary" id="btnRefresh" title="Re-run contract validation">🔄 Refresh</button>
-            <button class="btn btn-secondary" id="btnClear" title="Clear current findings">🗑️ Clear</button>
+            <button class="btn btn-secondary" id="btnRefresh" title="Re-run contract validation">Refresh</button>
+            <button class="btn btn-secondary" id="btnClear" title="Clear current findings">Clear</button>
         </div>
     </header>
 
     <nav class="nav-tabs" role="tablist">
-        <button class="nav-tab active" id="tabFindings" role="tab" aria-selected="true">Contract Drift Findings (<span id="findingsTabCount">${sanitizedFindings.length}</span>)</button>
-        <button class="nav-tab" id="tabQueries" role="tab" aria-selected="false">SQL ↔ C# Mappings (<span id="queriesTabCount">${initialQueryCount}</span>)</button>
+        <button class="nav-tab active" id="tabFindings" role="tab" aria-selected="true" aria-controls="findingsView">Contract Drift Findings (<span id="findingsTabCount">${sanitizedFindings.length}</span>)</button>
+        <button class="nav-tab" id="tabQueries" role="tab" aria-selected="false" aria-controls="queriesView">SQL ↔ C# Mappings (<span id="queriesTabCount">${initialQueryCount}</span>)</button>
     </nav>
 
-    <div id="findingsView">
+    <div id="findingsView" role="tabpanel" aria-labelledby="tabFindings">
         <div class="filter-bar">
             <input type="text" class="search-input" id="searchInput" placeholder="Search by rule (DG001), message, or file..." aria-label="Search findings">
             <div class="filter-chip-group" role="radiogroup" aria-label="Filter by severity">
@@ -195,16 +195,15 @@ ${css}
             <div class="virtual-scroll-spacer" id="spacer"></div>
             <div class="virtual-content" id="content"></div>
             <div class="empty-state" id="emptyState" style="display: none;">
-                <div style="font-size: 32px;">✨</div>
                 <div>No contract drifts detected. All SQL and entity definitions match.</div>
             </div>
         </main>
     </div>
 
-    <div id="queriesView" style="display: none;">
+    <div id="queriesView" role="tabpanel" aria-labelledby="tabQueries" style="display: none;">
         <div class="filter-bar">
             <input type="text" class="search-input" id="queriesSearchInput" placeholder="Filter queries by SQL snippet, target type, or table..." aria-label="Filter queries">
-            <button class="btn btn-secondary" id="btnScanProject" title="Scan project for SQL and C# mappings">🔍 Scan Project</button>
+            <button class="btn btn-secondary" id="btnScanProject" title="Scan project for SQL and C# mappings">Scan Project</button>
         </div>
         <div class="queries-table-container">
             <table class="queries-table" id="queriesTable">
@@ -222,7 +221,6 @@ ${css}
                 <tbody id="queriesTableBody"></tbody>
             </table>
             <div class="empty-state" id="queriesEmptyState" style="display: none;">
-                <div style="font-size: 32px;">🔍</div>
                 <div>No SQL queries discovered yet. Click "Scan Project" to discover queries.</div>
             </div>
         </div>
@@ -274,6 +272,7 @@ ${css}
             const queriesTableBody = document.getElementById('queriesTableBody');
             const queriesEmptyState = document.getElementById('queriesEmptyState');
             const btnScanProject = document.getElementById('btnScanProject');
+            const btnRefresh = document.getElementById('btnRefresh');
 
             // Tabs
             tabFindings.addEventListener('click', function() {
@@ -294,6 +293,23 @@ ${css}
                 queriesView.style.display = 'block';
                 renderQueries();
             });
+
+            var navTabs = document.querySelector('.nav-tabs');
+            if (navTabs) {
+                navTabs.addEventListener('keydown', function(e) {
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                        e.preventDefault();
+                        var tabs = navTabs.querySelectorAll('[role="tab"]');
+                        var idx = Array.from(tabs).indexOf(document.activeElement);
+                        if (idx < 0) return;
+                        var next = e.key === 'ArrowRight'
+                            ? tabs[(idx + 1) % tabs.length]
+                            : tabs[(idx - 1 + tabs.length) % tabs.length];
+                        next.focus();
+                        next.click();
+                    }
+                });
+            }
 
             function updateCounts() {
                 let errors = 0, warnings = 0, infos = 0;
@@ -326,6 +342,7 @@ ${css}
                     return true;
                 });
 
+                focusedFindingIndex = -1;
                 spacer.style.height = (filteredFindings.length * ITEM_HEIGHT) + 'px';
                 if (filteredFindings.length === 0) {
                     emptyState.style.display = 'flex';
@@ -362,6 +379,7 @@ ${css}
                     html += '<div class="finding-card ' + sevClass + '" data-id="' + escapeHtmlClient(item.id) + '" tabindex="0" role="button" aria-label="Finding ' + escapeHtmlClient(item.ruleId) + '">';
                     html += '  <div class="finding-header">';
                     html += '    <span class="rule-badge ' + badgeClass + '">[' + escapeHtmlClient(item.ruleId) + ']</span>';
+                    html += '    <span class="severity-label">' + escapeHtmlClient(item.severity) + '</span>';
                     html += '    <span class="finding-location">' + escapeHtmlClient(item.filePath) + ':' + item.startLine + ':' + item.startColumn + '</span>';
                     html += '  </div>';
                     html += '  <div class="finding-message">' + escapeHtmlClient(item.message) + '</div>';
@@ -369,15 +387,37 @@ ${css}
                         html += '  <div class="code-snippet" style="font-size: 11px; color: var(--dg-text-muted); background: rgba(0,0,0,0.3); padding: 3px 6px; border-radius: 3px;">' + escapeHtmlClient(item.rawSnippet) + '</div>';
                     }
                     html += '  <div class="finding-actions">';
-                    html += '    <button class="btn btn-secondary jump-btn" data-id="' + escapeHtmlClient(item.id) + '">🔍 Jump to Source</button>';
+                    html += '    <button class="btn btn-secondary jump-btn" data-id="' + escapeHtmlClient(item.id) + '">Jump to Source</button>';
                     if (item.quickFixAvailable) {
-                        html += '    <button class="btn btn-cta quick-fix-btn" data-id="' + escapeHtmlClient(item.id) + '" title="' + escapeHtmlClient(item.quickFixTitle || 'Apply Quick-Fix') + '">⚡ ' + escapeHtmlClient(item.quickFixTitle || 'Quick-Fix') + '</button>';
+                        html += '    <button class="btn btn-cta quick-fix-btn" data-id="' + escapeHtmlClient(item.id) + '" title="' + escapeHtmlClient(item.quickFixTitle || 'Apply Quick-Fix') + '">' + escapeHtmlClient(item.quickFixTitle || 'Quick-Fix') + '</button>';
                     }
                     html += '  </div>';
                     html += '</div>';
                 }
                 content.innerHTML = html;
             }
+
+            var focusedFindingIndex = -1;
+
+            viewport.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (filteredFindings.length === 0) return;
+                    if (e.key === 'ArrowDown') {
+                        focusedFindingIndex = Math.min(focusedFindingIndex + 1, filteredFindings.length - 1);
+                    } else {
+                        focusedFindingIndex = Math.max(focusedFindingIndex - 1, 0);
+                    }
+                    // Scroll the virtual viewport to bring the target item into view
+                    viewport.scrollTop = focusedFindingIndex * ITEM_HEIGHT;
+                    // After scroll triggers re-render, focus the card
+                    requestAnimationFrame(function() {
+                        var targetId = filteredFindings[focusedFindingIndex].id;
+                        var card = content.querySelector('[data-id="' + targetId + '"]');
+                        if (card) card.focus();
+                    });
+                }
+            });
 
             // Queries Rendering
             function renderQueries() {
@@ -414,7 +454,7 @@ ${css}
                     tbody += '  <td>' + escapeHtmlClient(q.operation || 'Read') + '</td>';
                     tbody += '  <td><div class="query-sql-link" ' + locAttr + ' title="Click to jump to source">' + escapeHtmlClient(q.sql) + '</div>';
                     if (q.location && q.location.file) {
-                        tbody += '    <div style="font-size: 11px; color: var(--dg-text-muted); margin-top: 2px;">📍 ' + escapeHtmlClient(q.location.file) + ':' + (q.location.line || 1) + '</div>';
+                        tbody += '    <div style="font-size: 11px; color: var(--dg-text-muted); margin-top: 2px;">' + escapeHtmlClient(q.location.file) + ':' + (q.location.line || 1) + '</div>';
                     }
                     tbody += '  </td>';
                     tbody += '  <td><code>' + escapeHtmlClient(q.targetType || 'untyped') + '</code></td>';
@@ -452,6 +492,8 @@ ${css}
             });
 
             btnScanProject.addEventListener('click', function() {
+                btnScanProject.disabled = true;
+                btnScanProject.textContent = 'Scan Project…';
                 if (vscode) vscode.postMessage({ command: 'scanProject' });
             });
 
@@ -503,9 +545,36 @@ ${css}
                 }
             });
 
-            document.getElementById('btnRefresh').addEventListener('click', function() {
-                if (vscode) vscode.postMessage({ command: 'refresh' });
+            content.addEventListener('focusin', function(e) {
+                const target = e.target;
+                if (!target) return;
+                const card = target.closest('[data-id]');
+                if (!card) return;
+                const id = card.getAttribute('data-id');
+                const idx = filteredFindings.findIndex(function(f) { return f.id === id; });
+                if (idx >= 0) focusedFindingIndex = idx;
             });
+
+            content.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    const target = e.target;
+                    if (!target) return;
+                    if (target.tagName === 'BUTTON' || target.tagName === 'A') return;
+                    const card = target.closest('.finding-card');
+                    if (card && vscode) {
+                        e.preventDefault();
+                        const id = card.getAttribute('data-id');
+                        vscode.postMessage({ command: 'jumpToFinding', findingId: id });
+                    }
+                }
+            });
+            if (btnRefresh) {
+                btnRefresh.addEventListener('click', function() {
+                    btnRefresh.disabled = true;
+                    btnRefresh.textContent = 'Refresh…';
+                    if (vscode) vscode.postMessage({ command: 'refresh' });
+                });
+            }
 
             document.getElementById('btnClear').addEventListener('click', function() {
                 if (vscode) vscode.postMessage({ command: 'clear' });
@@ -516,22 +585,33 @@ ${css}
                 if (!message) return;
                 switch (message.type) {
                     case 'setFindings':
+                        if (btnRefresh) {
+                            btnRefresh.disabled = false;
+                            btnRefresh.textContent = 'Refresh';
+                        }
                         allFindings = message.findings || [];
                         updateCounts();
                         applyFilter();
                         break;
                     case 'clearFindings':
+                        if (btnRefresh) {
+                            btnRefresh.disabled = false;
+                            btnRefresh.textContent = 'Refresh';
+                        }
                         allFindings = [];
                         updateCounts();
                         applyFilter();
                         break;
                     case 'setScanReport':
+                        if (btnScanProject) {
+                            btnScanProject.disabled = false;
+                            btnScanProject.textContent = 'Scan Project';
+                        }
                         currentReport = message.report;
                         renderQueries();
                         break;
                 }
             });
-
             updateCounts();
             applyFilter();
             renderQueries();

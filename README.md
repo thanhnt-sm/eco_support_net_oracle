@@ -12,7 +12,9 @@
 ## Quickstart
 
 ```bash
-dotnet tool install -g DataGuard.Cli
+# Download dataguard-<version>-<rid>.zip for your OS from GitHub Releases and verify it with the
+# .sha256 file next to it (needs the .NET 9 runtime; DataGuard.Cli is not yet published on nuget.org):
+# https://github.com/thanhnt-sm/eco_support_net_oracle/releases
 cd YourProject
 dataguard init            # writes .dataguard.yml + .dataguard-snapshot.json
 dataguard validate        # runs contract rules against ground truth
@@ -79,7 +81,7 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 
 - **Roslyn analyzers** (`DataGuard.Analyzers`): DG001 diagnostics with quick fixes (MaxLength, UseOracle, SkipContractCheck, naming) in any C# IDE.
 - **VS Code extension** (`DataGuard.VSCode`): trusted-workspace CLI runner with private SARIF diagnostics, cancellation and bounded output.
-- **Visual Studio 2022 extension** (`DataGuard.VisualStudio`): VSSDK Tools commands for the same local CLI workflow; packaged on Windows CI.
+- **Visual Studio 2022 extension** (`DataGuard.VisualStudio`): Tools → DataGuard commands over the bundled CLI, always run in `--ide-safe` mode with per-solution consent (keyed by the `.dataguard.yml` hash); SARIF results land in the Error List with line/column navigation. Packaged and content-checked on Windows CI.
 
 ## Documentation
 

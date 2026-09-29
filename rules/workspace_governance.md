@@ -11,7 +11,7 @@
 | Documentation/tri thức | `docs/`, `plans/`, `research/`, `grants/`, `brainstorm/`, root README/contributing/security/license | Không lẫn production source; historical material phải được gắn nhãn rõ. |
 | Discovery evidence | `_observability_discovery/` | Chỉ chứa hồ sơ discovery tĩnh, redacted và bundle bằng chứng do owner yêu cầu; không chứa source, secret, payload, runtime state hoặc generated build output. |
 | Automation | `.github/`, `.githooks/`, `scripts/`, `tools/`, `Dockerfile`, `.dockerignore` | Chỉ giữ khi CI, release, hook hoặc runbook DataGuard có reference. |
-| Local runtime/state | `.omp/`, `.omo/`, `.codegraph/`, `.codex/` (skills symlink-only), cache lint/test | Không commit output generated; không xóa session/state khi process còn dùng. |
+| Local runtime/state | `.omp/`, `.omo/`, `.claude/` (Claude Code kit: agent memory, routing logs), `.codegraph/`, `.codex/` (skills symlink-only), cache lint/test | Không commit output generated (`.claude/` nằm trong `.gitignore` và allowlist của `scripts/preflight_agent_check.sh`); không xóa session/state khi process còn dùng. |
 
 ## Cleanup di sản (đã hoàn tất 2026-08-24)
 

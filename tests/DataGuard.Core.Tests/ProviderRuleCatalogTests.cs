@@ -1,5 +1,6 @@
 using DataGuard.Cli;
 using DataGuard.Core.Models;
+using DataGuard.Core.Rules;
 using DataGuard.Core.Validation;
 using FluentAssertions;
 using Xunit;
@@ -41,6 +42,26 @@ public class ProviderRuleCatalogTests
         outcome.State.Should().Be(RuleExecutionState.Unavailable);
         outcome.PrerequisiteReason.Should().Contain("analyzer");
         outcome.MakesValidationIncomplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Get_WithConnection_RegistersLiveShapeRuleBoundToConnection()
+    {
+        var live = ProviderRuleCatalog.Get("sqlserver", "Server=127.0.0.1,1;Connect Timeout=1")
+            .Select(registration => registration.Rule).OfType<LiveSqlShapeValidationRule>().Single();
+
+        live.HasLiveConnection.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Get_WithoutConnection_RegistersConnectionlessLiveShapeRule()
+    {
+        // The catalog has one switch: a null connection registers the offline variant (IDE-safe hands it null, see IdeSafePolicyTests).
+        var registrations = ProviderRuleCatalog.Get("sqlserver", connectionString: null);
+
+        var live = registrations.Select(registration => registration.Rule).OfType<LiveSqlShapeValidationRule>().Single();
+        live.HasLiveConnection.Should().BeFalse();
+        registrations.Select(registration => registration.Rule.RuleId).Should().Contain("DG018");
     }
 
     [Fact]

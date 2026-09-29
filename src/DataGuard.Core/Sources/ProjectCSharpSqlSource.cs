@@ -67,6 +67,9 @@ public sealed class ProjectCSharpSqlSource : IContractSource
 
     private static readonly string SpacePadding = new(' ', 512);
 
+    /// <summary>Longest SQL literal (chars) fed to rules; larger literals are skipped with a DG1291 note.</summary>
+    public const int MaxSqlLiteralLength = 256 * 1024;
+
     private readonly string _projectOrPath;
     private readonly ProgressEmitter? _progress;
 
@@ -143,6 +146,13 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             var filePath = lineSpan.Path;
             var lineNumber = lineSpan.StartLinePosition.Line + 1;
             var fileName = Path.GetFileName(filePath);
+
+            // Cap literal size before any rule regex sees the text (red-team F11: regex DoS via a huge literal).
+            if (sqlText.Length > MaxSqlLiteralLength)
+            {
+                Console.WriteLine($"[WARN] DG1291 SQL literal in {fileName}:{lineNumber} is {sqlText.Length} chars (cap {MaxSqlLiteralLength}); skipped");
+                return;
+            }
 
             var key = $"{filePath}:{lineNumber}:{sqlText.Trim()}";
             if (!seenSql.Add(key))

@@ -36,12 +36,17 @@ public static class ProviderRuleCatalog
         ["DG101"] = "Parameter Count Match",
     };
 
+    /// <summary>Builds the rule inventory for <paramref name="provider"/>.</summary>
+    /// <param name="provider">Provider key (sqlserver, oracle, postgresql, mysql).</param>
+    /// <param name="connectionString">Connection used by connection-bound rules; null registers their offline variants.</param>
+    /// <param name="progress">Optional progress sink for long-running rules.</param>
     public static IReadOnlyList<ProviderRuleRegistration> Get(
         string provider,
         string? connectionString = null,
         ProgressEmitter? progress = null)
     {
         var rules = new List<ProviderRuleRegistration>();
+
         AddCoreRules(rules, connectionString, provider, progress);
         if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
         {

@@ -359,3 +359,41 @@ Working tree                 ✅ clean, branch main synced with origin/main (com
 
 - [ ] Giám sát nightly/schedule scan trên GitHub Actions.
 - [ ] Tiếp tục rà soát các hạng mục mở rộng tính năng theo roadmap `plans/HANDOFF.md`.
+
+---
+
+## 📌 PHIÊN NÀY — VS Extension Hardening: `--ide-safe`, Trust Gate, Modularization (2026-09-29)
+
+Plan: `plans/260929-0835-vs-extension-hardening/plan.md` · Predict: `plans/reports/predict-260929-0835-vs-extension-hardening.md` · Journal: `docs/journals/260929-0854-vs-extension-hardening-ide-safe-and-trust-gate.md` · Branch: `feat/vs-extension-hardening`
+
+1. ✅ **Red-team/predict**: phát hiện Critical — `.dataguard.yml` trong repo có thể đặt `GroundTruthMode: Manual` + `ManualAssemblyPath` → CLI gọi `Assembly.LoadFrom` khi VS chạy validate (kể cả tự động sau build), không có trust prompt. Tái hiện thực tế với CLI build sẵn.
+2. ✅ **CLI `--ide-safe`** (`src/DataGuard.Cli/IdeSafePolicy.cs`, `Program.cs`): ép Snapshot, xoá assembly/connection/secret-manager/audit/telemetry từ config+env, từ chối `--connection/--offline/--assembly/--ef-*`, `--allow-network/--remote-advisories` (exit 2). 15 test mới.
+3. ✅ **VS extension**: `DataGuardPackage.cs` 1 629 dòng → 3 partial + 17 collaborator ≤ 200 dòng; `SolutionTrustGate` (consent theo solution + SHA-256 config, build event không hỏi); luôn truyền `--ide-safe`, CLI cũ từ chối cờ → dừng; bỏ auto `dotnet tool install`; custom CLI path phải tuyệt đối; `ErrorListProvider.Navigate` nhảy đúng dòng/cột; SARIF per-result try/skip + cap 2 000; redact rộng hơn; version đọc từ manifest. 88/89 VS tests pass (1 skip chủ đích).
+4. ✅ **Build/CI**: sửa gốc lock-file drift (nested `dotnet publish -r win-x64` → `NuGetLockFilePath` riêng); job `visual-studio-vsix-package` chạy CreateVsixContainer thật + assert nội dung VSIX trên mọi push/PR. Local MSBuild packaging pass, VSIX 50.5 MB đủ `cli/dataguard.exe`, analyzers, pkgdef.
+5. ✅ **VS Code**: `validate`/`assess` cũng truyền `--ide-safe` (76/76 TS tests). **Docs**: README, `docs/USAGE.md`, `SECURITY.md`/`.vi.md`, CHANGELOG, VS Code README; `FIX_DATAGUARDVISUALSTUDIO_BUILD_PLAN.md` gộp vào plan dir.
+6. ⚠️ Fable subagent quota cạn giữa phiên (HTTP 429): 4 red-team lens (VS ext, CLI, supply chain, Core/adapters) + 1 scout không hoàn tất; lead tự đọc và thực thi. Code review độc lập: xem report `plans/reports/code-reviewer-260929-0854-*.md` nếu có.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] Chạy lại 4 red-team lens khi quota Fable reset (2026-10-01 07:00 Asia/Bangkok).
+- [ ] Push branch + PR; kiểm tra job `visual-studio-vsix-package` trên windows-latest.
+- [ ] Deferred: VS findings tree/status bar parity, Init command, ký VSIX, assess SARIF sanitizer, Oracle/PG exit 3, tách `Program.cs`.
+7. ✅ **Push + PR**: `.claude/` vào `.gitignore` + allowlist `scripts/preflight_agent_check.sh` + `rules/workspace_governance.md`; pre-push `verify_local_gates.sh` pass; PR #24 mở (https://github.com/thanhnt-sm/eco_support_net_oracle/pull/24), 10 checks pending — theo dõi job `Visual Studio VSIX Packaging Gate`.
+8. ✅ **`/ck:plan red-team validate --tdd`** trên plan 260929-0835: 3 lens (Security Adversary, Assumption Destroyer, Failure Mode) → 14 finding (5 High) chấp nhận toàn bộ; 7 câu hỏi validate đã chốt (`--allow-env-connection`, baseline warn, `.sln` trong consent key, upload artifact chỉ same-repo, modal cho verify-shape, bỏ hướng dẫn `dotnet tool` vì `DataGuard.Cli` chưa có trên nuget.org). Plan follow-up TDD 5 phase: `plans/260929-0952-vs-hardening-redteam-tdd-followup/` (chưa thực thi theo yêu cầu owner).
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] `/ck:cook D:\100.Software\Github\eco_support_net_oracle\plans\260929-0952-vs-hardening-redteam-tdd-followup\plan.md --tdd` (sau `/clear`).
+- [ ] Owner: reserve/publish `DataGuard.Cli` trên nuget.org; quyết định ký VSIX.
+- [ ] Theo dõi PR #24 checks; re-run 2 red-team lens bị rate-limit (supply chain, Core/adapters) sau 2026-10-01 07:00.
+
+---
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên 2026-09-29 chiều — Cook `--tdd` follow-up red-team VS hardening)
+
+- **Plan**: `plans/260929-0952-vs-hardening-redteam-tdd-followup/` — 5 phase, tất cả **Completed**. Đóng 14 finding red-team đã chấp nhận.
+- **Commit đã push** lên `origin/feat/vs-extension-hardening` (PR #24 đã cập nhật body): `cce75a0` CLI handshake `ide-safe: active` + `--allow-env-connection` + baseline warning + regex bound; `3cf1a27` VS Code ack gate + credential carve-out + modal verify-shape; `f228d16` VS publish-after-handshake, ProgressPump, consent theo `.sln`, Forget Solution Consent; `c37a2ce` `scripts/assert-vsix.ps1` dùng chung CI/release, fork-PR guard, job `cli-package` (zip + sha256), docs; `56cfec8` sửa review (H1: live shape rule tắt dưới ide-safe; M1/M2/M3/M4-close; L*); `6d3eb67` mọi sink validate/oracle-check/verify-shape từ chối output qua reparse point trong workspace (exit 4).
+- **Kiểm chứng**: Core 898 / VS 155 (+1 skip) / Analyzers 13 / CodeFixes 24 / GoldenCorpus 28 / Observability 38 / VS Code 95 — 0 fail; VSIX packaging + assert 0.2.3 OK; policy self-test 14/14; e2e (a)–(g) PASS. Review 7/10, 0 Critical; 1 High + 5 Medium đã sửa trong nhánh. Báo cáo: `plans/reports/*-260929-1{015,412,449}-*.md`.
+- **Breaking cho IDE**: hai extension từ chối CLI ≤ 0.2.2; **release CLI kế tiếp phải tag `v0.3.0`** (lần đầu chạy job `cli-package` và thứ tự test → patch version → msbuild → assert của release.yml).
+- **Việc chủ sở hữu / còn nợ**: reserve `DataGuard.Cli` trên nuget.org; quyết định ký Authenticode VSIX; `Process.Start` trong lock registry (M4 nửa sau); DG1291 chỉ ra stdout (VS không thấy); writer snapshot/baseline phía Core chưa audit reparse point; `IdeSafeEndToEndTests.cs` (442 dòng) và `check-workflow-policy.py` (292 dòng) vượt 200 dòng; chạy lại 2 lens red-team bị rate-limit sau 2026-10-01 07:00 Asia/Bangkok. 9 file `packages.lock.json` chỉ khác CRLF — không commit.
+- **Bổ sung tối 2026-09-29** (`ce20e3a`, `27283d9`, đã push): CI trên `8a2df13` đỏ ở "Visual Studio VSIX Packaging Gate" + marketplace "Package Visual Studio Extension" (chưa từng xanh từ khi thêm gate; `main` cũng lỗi từ `9f82f3f`) — nguyên nhân: target `BuildAnalyzers` trong `DataGuard.VisualStudio.csproj` chạy `Restore;Build` trong một MSBuild task nên Analyzers biên dịch từ evaluation trước restore (CS0518); đã tách Restore/Build → **xanh lần đầu trên `27283d9`**. CodeQL 12 alert (query `dataguard/*` khớp chuỗi anchored) trên fixture test → sửa fixture. `/simplify` 4 lens: 20 finding áp dụng, hành vi giữ nguyên (e2e byte-identical), bỏ qua: chờ target sau taskkill, gate writer snapshot/baseline Core, job test release song song, `fetch-depth:0` của `cli-package` (MinVer cần history). Suite: Core 898 / VS 155+1 / VS Code 95 / policy unittest 14. Nợ mới: `VsixAnalyzerPackagingTests` pass "rỗng" khi không có VSIX (nên skip tường minh); `DataGuardLogger.cs` > 200 dòng; test `Timeout_TerminatedAfterSarifWasWritten_StillPublishes` flake 1 lần dưới tải; cherry-pick fix csproj sang `main` hoặc merge PR #24.
