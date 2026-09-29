@@ -173,6 +173,8 @@ var progressOption = new Option<bool>("--progress");
 progressOption.Description = "Write safe line-delimited JSON progress events to stderr";
 var projectOption = new Option<string>("--project");
 projectOption.Description = "Path to C# project (.csproj), solution (.sln), or directory to extract inline SQL queries and C# models";
+var ideSafeOption = new Option<bool>(IdeSafePolicy.OptionName);
+ideSafeOption.Description = "IDE-safe mode for untrusted repositories: never load assemblies, never open database, secret-manager or network connections, ignore connection strings from config and environment";
 
 #endregion
 
@@ -180,7 +182,7 @@ projectOption.Description = "Path to C# project (.csproj), solution (.sln), or d
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -197,6 +199,20 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var efContextName = result.GetValue(efContextOption);
     var skipRulesRaw = result.GetValue(skipRulesOption);
     var projectPath = result.GetValue(projectOption);
+    var ideSafe = result.GetValue(ideSafeOption);
+    if (ideSafe)
+    {
+        // IDE-safe: reject every option that would load code or open a connection before doing any work.
+        var rejectedOption = IdeSafePolicy.FirstRejectedValidateOption(
+            result.GetValue(connectionOption), offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName);
+        if (rejectedOption is not null)
+        {
+            Console.Error.WriteLine(IdeSafePolicy.FormatRejectionLine(rejectedOption));
+            Environment.ExitCode = 2;
+            return;
+        }
+    }
+
     ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
     HashSet<string>? skipRuleIds = null;
     if (!string.IsNullOrWhiteSpace(skipRulesRaw))
@@ -217,6 +233,19 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
     var config = resolved.Configuration;
     var provider = resolved.Provider;
+
+    if (ideSafe)
+    {
+        // Strip code-loading, connection and repo-chosen write paths from whatever the config/env requested.
+        var safe = IdeSafePolicy.Apply(
+            config,
+            environmentConnectionPresent: !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")));
+        config = safe.Configuration;
+        if (safe.Suppressed.Count > 0)
+        {
+            Console.Error.WriteLine(IdeSafePolicy.FormatSuppressionLine(safe.Suppressed));
+        }
+    }
 
     if (offline)
     {
@@ -1628,6 +1657,7 @@ var assessCommand = new Command("assess", "Run read-only environment/dependency/
     formatOption,
     verboseOption,
     progressOption,
+    ideSafeOption,
 };
 
 assessCommand.SetAction(
@@ -1641,6 +1671,17 @@ assessCommand.SetAction(
         var remoteProvider = result.GetValue(remoteAdvisoriesOption);
         var allowNetwork = result.GetValue(allowNetworkOption);
         var approvedPackages = result.GetValue(remotePublicPackageOption) ?? Array.Empty<string>();
+        if (result.GetValue(ideSafeOption))
+        {
+            var rejectedOption = IdeSafePolicy.FirstRejectedAssessOption(allowNetwork, remoteProvider);
+            if (rejectedOption is not null)
+            {
+                Console.Error.WriteLine(IdeSafePolicy.FormatRejectionLine(rejectedOption));
+                Environment.ExitCode = 2;
+                return;
+            }
+        }
+
         ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
         var normalizedFormat = format?.ToLowerInvariant() ?? "text";
         if (normalizedFormat is not ("text" or "json" or "sarif"))

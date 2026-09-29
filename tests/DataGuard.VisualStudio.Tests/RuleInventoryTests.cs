@@ -12,7 +12,7 @@ public class RuleInventoryTests
     {
         var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Scan\",\"Data\":{\"RuleId\":\"DG001\",\"RuleTitle\":\"Title\",\"ViolationCount\":0,\"ContractCount\":5}}";
 
-        var success = DataGuardPackage.TryFormatProgress(
+        var success = ProgressLineParser.TryFormatProgress(
             json,
             out var formatted,
             out var errorCount,
@@ -32,7 +32,7 @@ public class RuleInventoryTests
     {
         var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Scan\",\"Data\":{\"RuleId\":\"DG001\",\"RuleTitle\":\"Title\",\"ViolationCount\":3,\"ContractCount\":5}}";
 
-        var success = DataGuardPackage.TryFormatProgress(
+        var success = ProgressLineParser.TryFormatProgress(
             json,
             out var formatted,
             out var errorCount,
@@ -58,10 +58,10 @@ public class RuleInventoryTests
             "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Scan\",\"Data\":{\"RuleId\":\"DG010\",\"RuleTitle\":\"Title 10\",\"ViolationCount\":0,\"ContractCount\":5}}"
         };
 
-        var inventory = new List<DataGuardPackage.RuleInventoryItem>();
+        var inventory = new List<RuleInventoryItem>();
         foreach (var ruleJson in rules)
         {
-            var success = DataGuardPackage.TryFormatProgress(
+            var success = ProgressLineParser.TryFormatProgress(
                 ruleJson,
                 out _,
                 out _,
@@ -75,7 +75,7 @@ public class RuleInventoryTests
             }
         }
 
-        var banner = DataGuardPackage.BuildRuleInventoryBanner(inventory);
+        var banner = RuleInventory.BuildRuleInventoryBanner(inventory);
 
         banner.Should().Contain("Rules Evaluated: 3");
         banner.Should().Contain("DG001");
@@ -89,7 +89,7 @@ public class RuleInventoryTests
     {
         var json = "{\"Kind\":\"Summary\",\"Phase\":\"Completed\",\"Data\":{\"ErrorCount\":0,\"WarningCount\":0}}";
 
-        var success = DataGuardPackage.TryFormatProgress(
+        var success = ProgressLineParser.TryFormatProgress(
             json,
             out var formatted,
             out var errorCount,

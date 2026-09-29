@@ -11,6 +11,7 @@ DataGuard detects **database contract drift** between .NET code, stored procedur
 - Drains CLI streams safely; the Output channel contains redacted lifecycle status, scan summary metrics, and findings counts.
 - Supports cancellation and terminates the process tree owned by the extension.
 - Never runs in untrusted or virtual workspaces. It does not send telemetry or connect to a database itself.
+- Always launches `validate` and `assess` with `--ide-safe`: the CLI ignores any `.dataguard.yml` setting that could load an assembly (`GroundTruthMode: Manual`, `ManualAssemblyPath`), open a database, secret-manager or network connection, or write to a repository-chosen path.
 ## Requirements
 
 Install the DataGuard CLI and ensure it is on `PATH`:

@@ -124,6 +124,70 @@ jobs:
       - name: Run Visual Studio tests
         run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
 
+  # The test job above compiles the package with CreateVsixContainer=false, so CreatePkgDef
+  # reflection failures (TypeLoadException on exotic BCL/Interop types) never surface there.
+  # This job performs the real VSSDK packaging build on every push/PR and asserts the VSIX
+  # contains the bundled CLI, the Roslyn analyzers and a manifest whose version matches source.
+  visual-studio-vsix-package:
+    name: Visual Studio VSIX Packaging Gate
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Locate MSBuild
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild not found on runner' }
+          "MSBUILD=$msbuild" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Package VSIX (CreateVsixContainer=true)
+        shell: pwsh
+        run: |
+          & $env:MSBUILD src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { throw "VSIX packaging build failed with exit code $LASTEXITCODE" }
+
+      - name: Assert VSIX contents
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem src/DataGuard.VisualStudio/bin/Release -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw 'VSSDK build did not produce a VSIX' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($vsix.FullName)
+          try {
+            $entries = $zip.Entries | ForEach-Object { $_.FullName }
+            foreach ($required in @('cli/dataguard.exe', 'DataGuard.Analyzers.dll', 'DataGuard.CodeFixes.dll', 'extension.vsixmanifest', 'DataGuard.VisualStudio.dll', 'DataGuard.VisualStudio.pkgdef')) {
+              if (-not ($entries -contains $required)) { throw "VSIX is missing required entry '$required'. Entries: $($entries -join ', ')" }
+            }
+            $manifestEntry = $zip.GetEntry('extension.vsixmanifest')
+            $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
+            try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $manifestVersion = $manifest.PackageManifest.Metadata.Identity.Version
+            $sourceVersion = (Select-String -Path src/DataGuard.VisualStudio/ExtensionVersion.cs -Pattern 'Fallback = "([^"]+)"').Matches[0].Groups[1].Value
+            if ($manifestVersion -ne $sourceVersion) { throw "Manifest version '$manifestVersion' does not match ExtensionVersion.Fallback '$sourceVersion'" }
+            Write-Host "VSIX OK: $($vsix.Name) ($([math]::Round($vsix.Length / 1MB, 1)) MB), version $manifestVersion, $($entries.Count) entries"
+          } finally {
+            $zip.Dispose()
+          }
+
+      - name: Upload VSIX artifact
+        if: ${{ env.ACT != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-visualstudio-vsix-ci
+          path: src/DataGuard.VisualStudio/bin/Release/**/*.vsix
+          retention-days: 7
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest

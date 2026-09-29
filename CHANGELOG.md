@@ -5,8 +5,17 @@ All notable changes to DataGuard are documented here. Format based on
 
 ## [Unreleased]
 
+### Security
+- **CLI (2026-09-29)**: new `--ide-safe` option on `validate` and `assess`. Forces Snapshot mode and strips `ManualAssemblyPath`, connection strings (config and `DATAGUARD_CONNECTION_STRING`), secret-manager settings, `AuditLogPath` and telemetry output from repository-controlled configuration; rejects `--connection`, `--offline`, `--assembly`, `--ef-*`, `--allow-network`, `--remote-advisories` with exit code 2. Closes the path where a hostile `.dataguard.yml` could make an IDE-launched CLI call `Assembly.LoadFrom` or authenticate to an attacker host.
+- **Visual Studio Extension (2026-09-29)**: per-solution trust gate — first run asks for consent, stored per (solution directory, SHA-256 of `.dataguard.yml`) in the VS user settings store; "Run Validation on Build" never prompts and skips unconsented solutions. CLI is always launched with `--ide-safe`; an older CLI that rejects the flag stops the run instead of falling back. Removed the unprompted `dotnet tool install -g DataGuard.Cli` auto-install. Custom CLI path must be absolute (no solution-relative resolution). All exception messages written to the Output pane are redacted; redaction now covers `User Id=…;Password=…` forms and JWT-shaped tokens.
+
+- **VS Code Extension (2026-09-29)**: `validate` and `assess` now pass `--ide-safe` in addition to the existing workspace-trust gate, so a tampered `.dataguard.yml` in a trusted workspace can no longer load assemblies or open connections.
+
 ### Added
-- **Visual Studio Extension (2026-09-28)**: Error List navigation jumps directly to exact line and column via `VsShellUtilities.OpenDocument` with fallback to document/project opening.
+- **CI (2026-09-29)**: `visual-studio-vsix-package` job runs the real VSSDK packaging build (`CreateVsixContainer=true`) on every push/PR and asserts the VSIX contains `cli/dataguard.exe`, the Roslyn analyzers, the pkgdef and a manifest version matching `ExtensionVersion.Fallback`. CreatePkgDef regressions no longer wait for a release tag.
+- **Visual Studio Extension (2026-09-29)**: Output pane warns when the solution has no `.dataguard.yml` (source-only rules ran); exit code 3 is explained as "validation incomplete" with the CLI reason; Help → About and log banner report the real manifest version.
+
+- **Visual Studio Extension (2026-09-28)**: Error List navigation opens the document via `VsShellUtilities.OpenDocument` with fallback to document/project opening (caret positioning added 2026-09-29, see Fixed).
 - **Visual Studio Extension (2026-09-28)**: Bundled Roslyn analyzers (`DataGuard.Analyzers.dll`) and code fixes (`DataGuard.CodeFixes.dll`) into VSIX container via MSBuild target and manifest asset declarations for out-of-the-box IDE squiggles.
 - **Visual Studio Extension (2026-09-28)**: Output Window logs rule inventory summary banner (`DataGuard: Ran N rules across M unique check types`) after validation completion.
 - **Core SQL Source (2026-09-28)**: Stored procedure heuristic detection in `ProjectCSharpSqlSource.IsSqlString` expanded to support `PROC_`, `FNC_`, and `P_` prefixes alongside existing `SP_` and `USP_`.
@@ -26,6 +35,7 @@ All notable changes to DataGuard are documented here. Format based on
 - SqlServerIntegrationTests: Testcontainers MsSql, auto-skip when Docker unavailable.
 
 ### Changed
+- **Visual Studio Extension (2026-09-29)**: `DataGuardPackage.cs` (1 629 lines) split into single-purpose units (`CliArgumentBuilder`, `CliRunSession`, `ProcessTerminator`, `ProgressLineParser`, `RuleInventory`, `SarifErrorListPublisher`, `SolutionTrustGate`, `TempDirectoryCleaner`, `ExitCodeExplainer`, `ExtensionVersion`); behaviour-preserving except where listed under Security/Fixed.
 - `DataGuard.Analyzers` retargeted to netstandard2.0 and decoupled from DataGuard.Core (loads in Visual Studio); bundles `DataGuard.Contracts.dll`.
 - License unified to MIT (removed PolyForm Noncommercial `LICENSE.md`); README rewritten as DataGuard landing page.
 - `sp_describe_first_result_set` reads correct ordinals, uses `EXEC [schema].[proc]`, skips zero-result-set procedures.
@@ -44,6 +54,8 @@ All notable changes to DataGuard are documented here. Format based on
 - Microsoft.SourceLink.GitHub 8.0.0 → 10.0.400 (build tool, deterministic builds).
 
 ### Fixed
+- **Visual Studio Extension (2026-09-29)**: Error List double-click now positions the caret at the SARIF line/column via `ErrorListProvider.Navigate` (the previous handler only opened the document). SARIF results with malformed fields are skipped individually instead of aborting the whole load; Error List is capped at 2 000 tasks per run with the truncation count reported; percent-encoded relative URIs are decoded; `assess` no longer shows the previous `validate` run's rule inventory.
+- **Build (2026-09-29)**: the VSIX build's nested `dotnet publish -r win-x64` of the CLI rewrote nine committed `packages.lock.json` files (adding `win-x64` + ILLink.Tasks), which then failed the next `--locked-mode` restore with NU1004. The publish now uses `NuGetLockFilePath=obj\cli-publish.packages.lock.json`, so committed lock files stay untouched.
 - Analyzer package missing `DataGuard.Core.dll` at load time (bundled dependency closure).
 - `oracle-check` exit code (returns 1 on failure); DG098/DG099 descriptor registration (Warning, not DG002 fallback).
 - Docker image baking wrong version (VERSION build-arg); fake `github.com/DataGuard/DataGuard` URLs in 4 packages.

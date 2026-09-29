@@ -111,10 +111,20 @@ dataguard validate --connection "..." --verbose
 | `--provider` | `SqlServer` \| `Oracle` | Từ config |
 | `--schema` | Schema/owner name | Từ config |
 | `--package` | Oracle package name | Từ config |
+| `--project` | `.csproj` / `.sln` / thư mục để trích SQL inline và model C# | - |
+| `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`) | - |
+| `--progress` | Ghi JSON progress event từng dòng ra stderr (IDE dùng) | `false` |
+| `--ide-safe` | Chế độ IDE-safe cho repo chưa tin cậy (xem dưới) | `false` |
+
+**`--ide-safe` (IDE hosts / untrusted repositories)**:
+`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--ef-snapshot`, `--ef-project`, `--ef-context` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này.
 
 **Exit Codes**:
 - `0` = Pass (không violation mới)
-- `1` = Fail (có violation mới)
+- `1` = Fail (có violation mới, hoặc CLI lỗi trước khi in summary)
+- `2` = Sai tham số / config (kể cả option bị `--ide-safe` từ chối)
+- `3` = Validation incomplete (rule không khả dụng cho provider, hoặc không có nguồn contract)
+- `130` = Bị huỷ (Ctrl+C)
 
 ---
 
@@ -412,6 +422,17 @@ END;
 - `💡 Convert to ANSI SQL`
 - `💡 Add [MaxLength(100)]`
 - `💡 Add .UseOracle() to DbContext`
+
+### Visual Studio 2022 Extension (`DataGuard.VisualStudio`)
+
+Menu **Tools → DataGuard**: Run Validation, Cancel, Assess Workspace, View Diagnostic Logs, Validation Rules. Kết quả SARIF được nạp vào **Error List** (double-click nhảy đúng dòng/cột), tối đa 2 000 mục mỗi lần chạy.
+
+**Mô hình tin cậy / Trust model**:
+- Lần chạy đầu tiên cho mỗi solution, extension hỏi xác nhận (modal) và lưu đồng ý theo cặp *(thư mục solution, SHA-256 của `.dataguard.yml`)* trong user settings của VS. Khi repo đổi `.dataguard.yml`, extension hỏi lại.
+- "Run Validation on Build" **không bao giờ** hỏi; nếu solution chưa được đồng ý thì bỏ qua và ghi một dòng vào Output pane.
+- CLI luôn chạy với `--ide-safe` (không nạp assembly, không kết nối DB/secret manager/network). Nếu CLI cũ không nhận cờ này, extension dừng lại thay vì chạy không an toàn.
+- CLI được bundle trong VSIX (`cli\dataguard.exe`); có thể chỉ định đường dẫn tuyệt đối khác trong Tools → Options → DataGuard → General. Extension **không** tự cài `dotnet tool` nữa.
+- Không có `.dataguard.yml` trong solution: CLI chỉ chạy các rule source-only và extension cảnh báo rõ trong Output pane.
 
 ---
 

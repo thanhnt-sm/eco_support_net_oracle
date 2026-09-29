@@ -12,7 +12,7 @@ public class NavigationTests
     {
         var json = "{\"Kind\":\"RuleExecuted\", \"Phase\":\"Validation\", \"Detail\":\"Oracle-DG001\", \"Data\":{\"RuleId\":\"Oracle-DG001\", \"RuleTitle\":\"Avoid SELECT *\", \"ContractCount\":10, \"ViolationCount\":3}}";
 
-        var success = DataGuardPackage.TryFormatProgress(json, out var formatted, out var errors, out var warnings);
+        var success = ProgressLineParser.TryFormatProgress(json, out var formatted, out var errors, out var warnings);
 
         success.Should().BeTrue();
         formatted.Should().NotBeNull();
@@ -27,24 +27,25 @@ public class NavigationTests
     {
         // SARIF positions are 1-based (startLine=5, startColumn=3).
         // Visual Studio ErrorTask Line and Column are 0-based (line=4, column=2).
-        var (line, column) = DataGuardPackage.ConvertSarifPosition(5, 3);
+        var position = SarifErrorListPublisher.ConvertSarifPosition(5, 3);
 
-        line.Should().Be(4);
-        column.Should().Be(2);
+        position.Line.Should().Be(4);
+        position.Column.Should().Be(2);
 
         // Edge case: zero or negative should clamp to 0
-        var (clampedLine, clampedCol) = DataGuardPackage.ConvertSarifPosition(0, 0);
-        clampedLine.Should().Be(0);
-        clampedCol.Should().Be(0);
+        var clamped = SarifErrorListPublisher.ConvertSarifPosition(0, 0);
+        clamped.Line.Should().Be(0);
+        clamped.Column.Should().Be(0);
     }
 
-    [Fact(Skip = "VS SDK integration — requires experimental instance (IVsWindowFrame, IVsTextView, VsShellUtilities)")]
+    [Fact(Skip = "VS SDK integration — requires experimental instance (ErrorListProvider.Navigate needs a live shell)")]
     public void Navigate_WhenFileMissing_WritesOutputMessage()
     {
-        // Documented integration test:
+        // Documented integration test (ErrorListPresenter.CreateTask):
         // When an ErrorTask with a non-existent Document path has its Navigate event raised,
-        // it checks File.Exists(task.Document). When false, it must write:
+        // it checks File.Exists(task.Document). When false, it must write
         // "[DataGuard] Cannot navigate: file not found '{task.Document}'.\r\n"
-        // to the DataGuard output pane rather than calling VsShellUtilities.OpenDocument.
+        // to the DataGuard output pane; when true it calls ErrorListProvider.Navigate(task, LOGVIEWID_Code),
+        // which opens the document and positions the caret at task.Line/task.Column.
     }
 }

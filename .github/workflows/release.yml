@@ -398,6 +398,12 @@ jobs:
           [xml]$manifest = Get-Content $manifestPath
           $manifest.PackageManifest.Metadata.Identity.Version = $env:VERSION
           $manifest.Save((Resolve-Path $manifestPath))
+          # Keep the compiled fallback (Help -> About, log banner, CI equality assert) in step with the manifest.
+          $versionSource = "$env:VISUAL_STUDIO_DIR/ExtensionVersion.cs"
+          $content = Get-Content $versionSource -Raw
+          $updated = $content -replace 'Fallback = "[^"]+"', ('Fallback = "' + $env:VERSION + '"')
+          if ($updated -eq $content) { throw "ExtensionVersion.Fallback constant not found in $versionSource" }
+          Set-Content -Path $versionSource -Value $updated -NoNewline
 
       - name: Locate MSBuild
         id: msbuild

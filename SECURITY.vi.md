@@ -39,3 +39,8 @@ tùy theo mức độ nghiêm trọng.
   năng phát hiện tail-truncation.
 - **Plugins**: rule plugin chỉ được nạp từ thư mục được cấu hình rõ ràng vào isolated, collectible
   assembly-load context.
+- **IDE hosts**: extension Visual Studio và VS Code chạy CLI với `--ide-safe`, bỏ qua mọi thiết lập do
+  repository kiểm soát có thể nạp assembly (`GroundTruthMode: Manual`, `ManualAssemblyPath`), mở kết nối
+  database/secret-manager/network, hoặc ghi vào đường dẫn do repo chọn. Visual Studio còn yêu cầu đồng ý
+  một lần cho mỗi solution và hash `.dataguard.yml` trước lần chạy đầu, không bao giờ hỏi từ build event,
+  không tự cài CLI, và chỉ chấp nhận đường dẫn CLI tuyệt đối.

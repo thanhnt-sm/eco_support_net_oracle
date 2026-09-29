@@ -90,7 +90,10 @@
           Condition="'$(CreateVsixContainer)' == 'true'"
           BeforeTargets="IncludeBundledCliInVsix">
     <RemoveDir Directories="$(DataGuardCliPublishDir)" Condition="Exists('$(DataGuardCliPublishDir)')" />
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true -o &quot;$(DataGuardCliPublishDir)&quot;" />
+    <!-- NuGetLockFilePath (relative → resolved per project) keeps the win-x64 self-contained restore from
+         rewriting the committed packages.lock.json files of the CLI and its 8 referenced projects, which
+         otherwise breaks the next locked-mode restore with NU1004 (see CHANGELOG 2026-09-29). -->
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true /p:NuGetLockFilePath=obj\cli-publish.packages.lock.json /p:RestoreLockedMode=false -o &quot;$(DataGuardCliPublishDir)&quot;" />
   </Target>
 
   <Target Name="IncludeBundledCliInVsix"

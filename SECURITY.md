@@ -38,3 +38,9 @@ We aim to acknowledge reports within 5 business days and to ship fixes as fast a
   tail-truncation detection.
 - **Plugins**: rule plugins load only from an explicitly configured directory into an isolated,
   collectible assembly-load context.
+- **IDE hosts**: the Visual Studio and VS Code extensions run the CLI with `--ide-safe`, which ignores
+  every repository-controlled setting that could load an assembly (`GroundTruthMode: Manual`,
+  `ManualAssemblyPath`), open a database, secret-manager or network connection, or write to a
+  repo-chosen path. Visual Studio additionally requires one-time consent per solution and
+  `.dataguard.yml` hash before the first run, never prompts from build events, never auto-installs
+  the CLI, and only accepts an absolute custom CLI path.

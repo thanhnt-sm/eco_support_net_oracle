@@ -359,3 +359,22 @@ Working tree                 ✅ clean, branch main synced with origin/main (com
 
 - [ ] Giám sát nightly/schedule scan trên GitHub Actions.
 - [ ] Tiếp tục rà soát các hạng mục mở rộng tính năng theo roadmap `plans/HANDOFF.md`.
+
+---
+
+## 📌 PHIÊN NÀY — VS Extension Hardening: `--ide-safe`, Trust Gate, Modularization (2026-09-29)
+
+Plan: `plans/260929-0835-vs-extension-hardening/plan.md` · Predict: `plans/reports/predict-260929-0835-vs-extension-hardening.md` · Journal: `docs/journals/260929-0854-vs-extension-hardening-ide-safe-and-trust-gate.md` · Branch: `feat/vs-extension-hardening`
+
+1. ✅ **Red-team/predict**: phát hiện Critical — `.dataguard.yml` trong repo có thể đặt `GroundTruthMode: Manual` + `ManualAssemblyPath` → CLI gọi `Assembly.LoadFrom` khi VS chạy validate (kể cả tự động sau build), không có trust prompt. Tái hiện thực tế với CLI build sẵn.
+2. ✅ **CLI `--ide-safe`** (`src/DataGuard.Cli/IdeSafePolicy.cs`, `Program.cs`): ép Snapshot, xoá assembly/connection/secret-manager/audit/telemetry từ config+env, từ chối `--connection/--offline/--assembly/--ef-*`, `--allow-network/--remote-advisories` (exit 2). 15 test mới.
+3. ✅ **VS extension**: `DataGuardPackage.cs` 1 629 dòng → 3 partial + 17 collaborator ≤ 200 dòng; `SolutionTrustGate` (consent theo solution + SHA-256 config, build event không hỏi); luôn truyền `--ide-safe`, CLI cũ từ chối cờ → dừng; bỏ auto `dotnet tool install`; custom CLI path phải tuyệt đối; `ErrorListProvider.Navigate` nhảy đúng dòng/cột; SARIF per-result try/skip + cap 2 000; redact rộng hơn; version đọc từ manifest. 88/89 VS tests pass (1 skip chủ đích).
+4. ✅ **Build/CI**: sửa gốc lock-file drift (nested `dotnet publish -r win-x64` → `NuGetLockFilePath` riêng); job `visual-studio-vsix-package` chạy CreateVsixContainer thật + assert nội dung VSIX trên mọi push/PR. Local MSBuild packaging pass, VSIX 50.5 MB đủ `cli/dataguard.exe`, analyzers, pkgdef.
+5. ✅ **VS Code**: `validate`/`assess` cũng truyền `--ide-safe` (76/76 TS tests). **Docs**: README, `docs/USAGE.md`, `SECURITY.md`/`.vi.md`, CHANGELOG, VS Code README; `FIX_DATAGUARDVISUALSTUDIO_BUILD_PLAN.md` gộp vào plan dir.
+6. ⚠️ Fable subagent quota cạn giữa phiên (HTTP 429): 4 red-team lens (VS ext, CLI, supply chain, Core/adapters) + 1 scout không hoàn tất; lead tự đọc và thực thi. Code review độc lập: xem report `plans/reports/code-reviewer-260929-0854-*.md` nếu có.
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] Chạy lại 4 red-team lens khi quota Fable reset (2026-10-01 07:00 Asia/Bangkok).
+- [ ] Push branch + PR; kiểm tra job `visual-studio-vsix-package` trên windows-latest.
+- [ ] Deferred: VS findings tree/status bar parity, Init command, ký VSIX, assess SARIF sanitizer, Oracle/PG exit 3, tách `Program.cs`.

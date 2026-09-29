@@ -21,9 +21,13 @@ public static class DataGuardLogger
 {
     private static readonly object FileGate = new();
     private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
+
+    // Covers key=value / key: value forms (incl. "User Id=x;Password=y" connection strings),
+    // bearer headers, and JWT-shaped tokens. Bounded quantifiers keep it linear on hostile input.
     private static readonly Regex SensitiveRegex = new(
-        @"(?i)(password|pwd|secret|token|api[_-]?key|bearer)\s*[:=]\s*[^\s;,]+",
-        RegexOptions.Compiled);
+        @"(?i)(password|pwd|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|sas)\s*[:=]\s*(?:bearer\s+)?[^\s;,]{1,512}|(?i)(bearer)\s+[^\s;,]{1,512}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
+        RegexOptions.Compiled,
+        TimeSpan.FromMilliseconds(250));
 
     private static string? logFilePath;
     private static bool initialized;
@@ -112,7 +116,7 @@ public static class DataGuardLogger
 
             try
             {
-                var cliInPath = FindCliExecutable(null);
+                var cliInPath = CliLocator.FindCliExecutable(null);
                 var header = string.Format(
                     "================================================================================\r\n" +
                     "[{0:yyyy-MM-dd HH:mm:ss.fff} UTC] DataGuard Visual Studio Extension Initialized\r\n" +
@@ -199,164 +203,16 @@ public static class DataGuardLogger
             return string.Empty;
         }
 
-        return SensitiveRegex.Replace(input, "$1=[REDACTED]");
-    }
-
-    /// <summary>
-    /// Locates the dataguard CLI binary checking custom path, bundled extension CLI, environment, and standard install locations.
-    /// </summary>
-    public static string FindCliExecutable(string? customCliPath, string? extensionDirectory = null, string? solutionDirectory = null)
-    {
-        var normalizedCustom = customCliPath?.Trim(' ', '"');
-        if (!string.IsNullOrEmpty(normalizedCustom))
-        {
-            if (!Path.IsPathRooted(normalizedCustom) && !string.IsNullOrWhiteSpace(solutionDirectory))
-            {
-                try
-                {
-                    var resolved = Path.GetFullPath(Path.Combine(solutionDirectory, normalizedCustom));
-                    if (IsValidExecutablePath(resolved, requireRooted: true))
-                    {
-                        return resolved;
-                    }
-                }
-                catch
-                {
-                }
-            }
-
-            return IsValidExecutablePath(normalizedCustom, requireRooted: true)
-                ? normalizedCustom!
-                : string.Empty;
-        }
-
-        string? extDir = extensionDirectory;
-        if (string.IsNullOrEmpty(extDir))
-        {
-            try
-            {
-                var asm = typeof(DataGuardLogger).Assembly;
-                var location = asm.Location;
-                if (!string.IsNullOrEmpty(location))
-                {
-                    extDir = Path.GetDirectoryName(location);
-                }
-
-                // Fallback to CodeBase if Location is empty or bundled CLI is not present (handles shadow copying in VS)
-                if (string.IsNullOrEmpty(extDir) || !File.Exists(Path.Combine(extDir, "cli", "dataguard.exe")))
-                {
-                    var codeBase = asm.CodeBase;
-                    if (!string.IsNullOrEmpty(codeBase) && Uri.TryCreate(codeBase, UriKind.Absolute, out var uri) && uri.IsFile)
-                    {
-                        var localCodeBasePath = uri.LocalPath;
-                        if (!string.IsNullOrEmpty(localCodeBasePath))
-                        {
-                            var codeBaseDir = Path.GetDirectoryName(localCodeBasePath);
-                            if (!string.IsNullOrEmpty(codeBaseDir) && File.Exists(Path.Combine(codeBaseDir, "cli", "dataguard.exe")))
-                            {
-                                extDir = codeBaseDir;
-                            }
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore reflection/path format errors in dynamic AppDomains
-            }
-        }
-
-        if (!string.IsNullOrEmpty(extDir))
-        {
-            var bundledCli = Path.Combine(extDir, "cli", "dataguard.exe");
-            if (File.Exists(bundledCli))
-            {
-                return bundledCli;
-            }
-        }
-
-        var envPath = Environment.GetEnvironmentVariable("DATAGUARD_CLI_PATH")?.Trim(' ', '"');
-        if (IsValidExecutablePath(envPath, requireRooted: true))
-        {
-            return envPath!;
-        }
-
-        var baseUserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var baseProgramFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        var baseLocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-
-        var candidatePaths = new System.Collections.Generic.List<string>();
-        if (!string.IsNullOrWhiteSpace(baseUserProfile))
-        {
-            candidatePaths.Add(Path.Combine(baseUserProfile, ".dotnet", "tools", "dataguard.exe"));
-        }
-
-        if (!string.IsNullOrWhiteSpace(baseProgramFiles))
-        {
-            candidatePaths.Add(Path.Combine(baseProgramFiles, "DataGuard", "dataguard.exe"));
-        }
-
-        if (!string.IsNullOrWhiteSpace(baseLocalAppData))
-        {
-            candidatePaths.Add(Path.Combine(baseLocalAppData, "Programs", "DataGuard", "dataguard.exe"));
-        }
-
-        foreach (var candidate in candidatePaths)
-        {
-            if (IsValidExecutablePath(candidate, requireRooted: true) && File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        // Search PATH directories
-        var systemPath = Environment.GetEnvironmentVariable("PATH");
-        if (!string.IsNullOrWhiteSpace(systemPath))
-        {
-            foreach (var dir in systemPath.Split(Path.PathSeparator))
-            {
-                try
-                {
-                    var trimmed = dir.Trim(' ', '"');
-                    if (string.IsNullOrWhiteSpace(trimmed) || !Path.IsPathRooted(trimmed))
-                    {
-                        continue;
-                    }
-                    var file = Path.Combine(trimmed, "dataguard.exe");
-                    if (IsValidExecutablePath(file, requireRooted: true) && File.Exists(file))
-                    {
-                        return file;
-                    }
-                }
-                catch
-                {
-                    // Ignore invalid PATH entries
-                }
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static bool IsValidExecutablePath(string? path, bool requireRooted = false)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-
         try
         {
-            if (requireRooted && !Path.IsPathRooted(path))
-            {
-                return false;
-            }
-
-            return string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
+            return SensitiveRegex.Replace(input, match =>
+                match.Groups[1].Success ? match.Groups[1].Value + "=[REDACTED]"
+                : match.Groups[2].Success ? match.Groups[2].Value + " [REDACTED]"
+                : "[REDACTED]");
         }
-        catch
+        catch (RegexMatchTimeoutException)
         {
-            return false;
+            return "[REDACTED: input too complex to scan]";
         }
     }
 

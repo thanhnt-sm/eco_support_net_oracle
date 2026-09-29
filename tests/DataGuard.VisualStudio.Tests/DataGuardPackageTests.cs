@@ -11,7 +11,7 @@ public class DataGuardPackageTests
     public void FormatProgressLine_UnknownValidJson_DoesNotEchoContent()
     {
         var json = "{\"Unexpected\":\"Secret123\"}";
-        var output = DataGuardPackage.FormatProgressLine(json, false);
+        var output = ProgressLineParser.FormatProgressLine(json, false);
 
         output.FormattedOutput.Should().NotContain("Secret123");
         output.FormattedOutput.Should().NotContain("Unexpected");
@@ -26,7 +26,7 @@ public class DataGuardPackageTests
     [InlineData("null")]
     public void FormatProgressLine_NonObjectJson_DoesNotThrowAndRedacts(string nonObjectJson)
     {
-        var output = DataGuardPackage.FormatProgressLine(nonObjectJson, false);
+        var output = ProgressLineParser.FormatProgressLine(nonObjectJson, false);
 
         output.FormattedOutput.Should().NotBeNull();
         output.FormattedOutput.Should().Contain("[structured diagnostic redacted]");
@@ -35,7 +35,7 @@ public class DataGuardPackageTests
     [Fact]
     public void FormatProgressLine_DiscardedLine_OutputsDiscardMessage()
     {
-        var output = DataGuardPackage.FormatProgressLine("some giant text", true);
+        var output = ProgressLineParser.FormatProgressLine("some giant text", true);
 
         output.FormattedOutput.Should().Contain("exceeded the safe display limit and was discarded");
     }
@@ -45,7 +45,7 @@ public class DataGuardPackageTests
     {
         var json = "{\"Kind\":\"Summary\", \"Phase\":\"Completed\", \"Data\":{}}";
 
-        var success = DataGuardPackage.TryFormatProgress(json, out var formatted, out var errors, out var warnings);
+        var success = ProgressLineParser.TryFormatProgress(json, out var formatted, out var errors, out var warnings);
 
         success.Should().BeFalse();
     }
@@ -55,7 +55,7 @@ public class DataGuardPackageTests
     {
         var json = "{\"Kind\":\"Summary\", \"Phase\":\"Assessment complete\", \"Data\":{\"ErrorCount\":2, \"WarningCount\":1, \"CriticalCount\":5}}";
 
-        var success = DataGuardPackage.TryFormatProgress(json, out var formatted, out var errors, out var warnings);
+        var success = ProgressLineParser.TryFormatProgress(json, out var formatted, out var errors, out var warnings);
 
         success.Should().BeTrue();
         errors.Should().Be(7);
@@ -65,24 +65,24 @@ public class DataGuardPackageTests
     [Fact]
     public void DecideCancellationSuppression_WhenCancelledAndDrained_ReturnsTrue()
     {
-        var suppress = DataGuardPackage.DecideCancellationSuppression(cancellationRequested: true, streamsDrained: true);
+        var suppress = CliRunSession.DecideCancellationSuppression(cancellationRequested: true, streamsDrained: true);
         suppress.Should().BeTrue();
     }
 
     [Fact]
     public void DecideCancellationSuppression_WhenCancelledButNotDrained_Throws()
     {
-        System.Action act = () => DataGuardPackage.DecideCancellationSuppression(cancellationRequested: true, streamsDrained: false);
+        System.Action act = () => CliRunSession.DecideCancellationSuppression(cancellationRequested: true, streamsDrained: false);
         act.Should().Throw<System.InvalidOperationException>().WithMessage("*drained*");
     }
 
     [Fact]
     public void ShouldRecordCancellation_RequiresLiveOwnedTermination()
     {
-        DataGuardPackage.ShouldRecordCancellation(DataGuardPackage.ProcessStopOutcome.Terminated, true).Should().BeTrue();
-        DataGuardPackage.ShouldRecordCancellation(DataGuardPackage.ProcessStopOutcome.Terminated, false).Should().BeFalse();
-        DataGuardPackage.ShouldRecordCancellation(DataGuardPackage.ProcessStopOutcome.AlreadyExited, true).Should().BeFalse();
-        DataGuardPackage.ShouldRecordCancellation(DataGuardPackage.ProcessStopOutcome.Failed, true).Should().BeFalse();
+        CliProcessRegistry.ShouldRecordCancellation(ProcessStopOutcome.Terminated, true).Should().BeTrue();
+        CliProcessRegistry.ShouldRecordCancellation(ProcessStopOutcome.Terminated, false).Should().BeFalse();
+        CliProcessRegistry.ShouldRecordCancellation(ProcessStopOutcome.AlreadyExited, true).Should().BeFalse();
+        CliProcessRegistry.ShouldRecordCancellation(ProcessStopOutcome.Failed, true).Should().BeFalse();
     }
 
     [Theory]
@@ -90,13 +90,13 @@ public class DataGuardPackageTests
     [InlineData(true, false)]
     public void ShouldForceReleaseFailedTerminationReservation_WhenExitOrDrainsRemainIncomplete_ReturnsTrue(bool exitCompleted, bool drainsCompleted)
     {
-        DataGuardPackage.ShouldForceReleaseFailedTerminationReservation(exitCompleted, drainsCompleted).Should().BeTrue();
+        CliRunTimeoutHandler.ShouldForceReleaseFailedTerminationReservation(exitCompleted, drainsCompleted).Should().BeTrue();
     }
 
     [Fact]
     public void ShouldForceReleaseFailedTerminationReservation_WhenExitAndDrainsComplete_ReturnsFalse()
     {
-        DataGuardPackage.ShouldForceReleaseFailedTerminationReservation(exitCompleted: true, drainsCompleted: true).Should().BeFalse();
+        CliRunTimeoutHandler.ShouldForceReleaseFailedTerminationReservation(exitCompleted: true, drainsCompleted: true).Should().BeFalse();
     }
 
     [Fact]
@@ -107,11 +107,11 @@ public class DataGuardPackageTests
 
         for (int i = 0; i < 16 * 1024; i++)
         {
-            DataGuardPackage.AppendProgressChar('a', sb, ref discarded);
+            ProgressLineParser.AppendProgressChar('a', sb, ref discarded);
         }
         discarded.Should().BeFalse();
 
-        DataGuardPackage.AppendProgressChar('b', sb, ref discarded);
+        ProgressLineParser.AppendProgressChar('b', sb, ref discarded);
         discarded.Should().BeTrue();
     }
 
@@ -119,32 +119,32 @@ public class DataGuardPackageTests
     public void Quote_WithTrailingBackslash_DoublesBackslash()
     {
         var input = @"D:\path\to\solution\";
-        var quoted = DataGuardPackage.Quote(input);
+        var quoted = CliArgumentBuilder.Quote(input);
         quoted.Should().Be("\"D:\\path\\to\\solution\\\\\"");
 
         var inputWithoutTrailing = @"D:\path\to\solution";
-        DataGuardPackage.Quote(inputWithoutTrailing).Should().Be("\"D:\\path\\to\\solution\"");
+        CliArgumentBuilder.Quote(inputWithoutTrailing).Should().Be("\"D:\\path\\to\\solution\"");
     }
 
     [Fact]
     public void Quote_WithNullOrEmpty_ReturnsEmptyQuotes()
     {
-        DataGuardPackage.Quote(null!).Should().Be("\"\"");
-        DataGuardPackage.Quote(string.Empty).Should().Be("\"\"");
+        CliArgumentBuilder.Quote(null!).Should().Be("\"\"");
+        CliArgumentBuilder.Quote(string.Empty).Should().Be("\"\"");
     }
 
     [Fact]
     public void Quote_WithBackslashPrecedingDoubleQuote_EscapesProperly()
     {
         var input = @"dir\""test";
-        var quoted = DataGuardPackage.Quote(input);
+        var quoted = CliArgumentBuilder.Quote(input);
         quoted.Should().Be("\"dir\\\\\\\"test\"");
     }
     [Fact]
     public void ResolveSarifArtifactUri_RelativeUriWithSrcRoot_ReturnsAbsolutePath()
     {
         var solutionDir = @"D:\repo";
-        var resolved = DataGuardPackage.ResolveSarifArtifactUri("src/Model.cs", "%SRCROOT%", solutionDir);
+        var resolved = SarifErrorListPublisher.ResolveSarifArtifactUri("src/Model.cs", "%SRCROOT%", solutionDir);
         resolved.Should().Be(Path.GetFullPath(Path.Combine(solutionDir, "src", "Model.cs")));
     }
 
@@ -152,7 +152,7 @@ public class DataGuardPackageTests
     public void ResolveSarifArtifactUri_WithoutSrcRoot_ReturnsNull()
     {
         var solutionDir = @"D:\repo";
-        var resolved = DataGuardPackage.ResolveSarifArtifactUri("src/Model.cs", null, solutionDir);
+        var resolved = SarifErrorListPublisher.ResolveSarifArtifactUri("src/Model.cs", null, solutionDir);
         resolved.Should().BeNull();
     }
 
@@ -160,7 +160,7 @@ public class DataGuardPackageTests
     public void ResolveSarifArtifactUri_RootedUriOutsideSolution_ReturnsNull()
     {
         var rootedOutside = @"C:\Windows\System32\cmd.exe";
-        var resolved = DataGuardPackage.ResolveSarifArtifactUri(rootedOutside, null, @"D:\repo");
+        var resolved = SarifErrorListPublisher.ResolveSarifArtifactUri(rootedOutside, null, @"D:\repo");
         resolved.Should().BeNull();
     }
 
@@ -169,7 +169,7 @@ public class DataGuardPackageTests
     {
         var solutionDir = @"D:\repo";
         var rootedInside = @"D:\repo\src\File.cs";
-        var resolved = DataGuardPackage.ResolveSarifArtifactUri(rootedInside, null, solutionDir);
+        var resolved = SarifErrorListPublisher.ResolveSarifArtifactUri(rootedInside, null, solutionDir);
         resolved.Should().Be(Path.GetFullPath(rootedInside));
     }
 
@@ -177,7 +177,7 @@ public class DataGuardPackageTests
     public void ResolveSarifArtifactUri_PathTraversalWithSrcRoot_ReturnsNull()
     {
         var solutionDir = @"D:\repo";
-        var resolved = DataGuardPackage.ResolveSarifArtifactUri(@"../../etc/passwd", "%SRCROOT%", solutionDir);
+        var resolved = SarifErrorListPublisher.ResolveSarifArtifactUri(@"../../etc/passwd", "%SRCROOT%", solutionDir);
         resolved.Should().BeNull();
     }
     [Fact]
@@ -190,7 +190,7 @@ public class DataGuardPackageTests
         File.WriteAllText(fakeCli, "dummy");
         try
         {
-            var resolved = DataGuardLogger.FindCliExecutable(null, tempDir);
+            var resolved = CliLocator.FindCliExecutable(null, tempDir);
             resolved.Should().Be(fakeCli);
         }
         finally
@@ -209,7 +209,7 @@ public class DataGuardPackageTests
         File.WriteAllText(fakeCli, "dummy");
         try
         {
-            var resolved = DataGuardLogger.FindCliExecutable(@"C:\nonexistent\path\dataguard.exe", tempDir);
+            var resolved = CliLocator.FindCliExecutable(@"C:\nonexistent\path\dataguard.exe", tempDir);
             resolved.Should().BeEmpty();
         }
         finally
@@ -219,8 +219,9 @@ public class DataGuardPackageTests
     }
 
     [Fact]
-    public void FindCliExecutable_WhenCustomCliPathIsRelative_ResolvesAgainstSolutionDirectory()
+    public void FindCliExecutable_WhenCustomCliPathIsRelative_NeverResolvesAgainstSolutionDirectory()
     {
+        // A repository could ship tools\dataguard.exe; a relative user setting must not pick it up.
         var tempDir = Path.Combine(Path.GetTempPath(), "dg_vsix_rel_test_" + System.Guid.NewGuid().ToString("N"));
         var toolsDir = Path.Combine(tempDir, "tools");
         Directory.CreateDirectory(toolsDir);
@@ -228,8 +229,8 @@ public class DataGuardPackageTests
         File.WriteAllText(fakeCli, "dummy");
         try
         {
-            var resolved = DataGuardLogger.FindCliExecutable(@".\tools\dataguard.exe", null, solutionDirectory: tempDir);
-            resolved.Should().Be(fakeCli);
+            var resolved = CliLocator.FindCliExecutable(@".\tools\dataguard.exe", null, solutionDirectory: tempDir);
+            resolved.Should().BeEmpty();
         }
         finally
         {
@@ -248,7 +249,7 @@ public class DataGuardPackageTests
         File.SetAttributes(testFile, FileAttributes.ReadOnly);
         new DirectoryInfo(subDir).Attributes |= FileAttributes.ReadOnly;
 
-        DataGuardPackage.SafeDeleteDirectory(tempDir);
+        TempDirectoryCleaner.SafeDeleteDirectory(tempDir);
 
         Directory.Exists(tempDir).Should().BeFalse();
     }
@@ -257,7 +258,7 @@ public class DataGuardPackageTests
     public void SafeDeleteDirectory_WhenDirectoryDoesNotExist_DoesNotThrow()
     {
         var nonExistent = Path.Combine(Path.GetTempPath(), "dg_nonexistent_" + System.Guid.NewGuid().ToString("N"));
-        System.Action act = () => DataGuardPackage.SafeDeleteDirectory(nonExistent);
+        System.Action act = () => TempDirectoryCleaner.SafeDeleteDirectory(nonExistent);
         act.Should().NotThrow();
     }
 
@@ -273,7 +274,7 @@ public class DataGuardPackageTests
         var dirInfo = new DirectoryInfo(subDir);
         dirInfo.Attributes |= FileAttributes.Hidden | FileAttributes.ReadOnly;
 
-        DataGuardPackage.SafeDeleteDirectory(tempDir);
+        TempDirectoryCleaner.SafeDeleteDirectory(tempDir);
 
         Directory.Exists(tempDir).Should().BeFalse();
     }
@@ -284,7 +285,7 @@ public class DataGuardPackageTests
         // Tests the production path where extensionDirectory is null, ensuring Assembly.Location/CodeBase resolution does not throw ArgumentException on .NET Framework 4.7.2
         System.Action act = () =>
         {
-            var resolved = DataGuardLogger.FindCliExecutable(null, extensionDirectory: null);
+            var resolved = CliLocator.FindCliExecutable(null, extensionDirectory: null);
             resolved.Should().NotBeNull();
         };
         act.Should().NotThrow();
@@ -295,7 +296,7 @@ public class DataGuardPackageTests
     {
         var path = @"C:\Program Files\DataGuard\test\""malicious\"".log";
         var sanitized = path.Replace("\"", string.Empty);
-        var quoted = DataGuardPackage.Quote(sanitized);
+        var quoted = CliArgumentBuilder.Quote(sanitized);
         quoted.Should().StartWith("\"");
         quoted.Should().EndWith("\"");
         quoted.Should().NotContain("\"malicious\"");
@@ -313,7 +314,7 @@ public class DataGuardPackageTests
     public void FormatProgressLine_ContractDiscovered_SuppressesOutput()
     {
         var json = "{\"Kind\":\"ContractDiscovered\",\"Phase\":\"Contract Discovery\",\"Detail\":\"Found SQL in Repositories/UserDao.cs:42\"}";
-        var output = DataGuardPackage.FormatProgressLine(json, false);
+        var output = ProgressLineParser.FormatProgressLine(json, false);
 
         output.FormattedOutput.Should().BeNull();
     }
@@ -322,7 +323,7 @@ public class DataGuardPackageTests
     public void FormatProgressLine_RuleExecutedWithZeroViolations_SuppressesOutput()
     {
         var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"ContractCount\":1,\"ViolationCount\":0}}";
-        var output = DataGuardPackage.FormatProgressLine(json, false);
+        var output = ProgressLineParser.FormatProgressLine(json, false);
 
         output.FormattedOutput.Should().BeNull();
     }
@@ -331,7 +332,7 @@ public class DataGuardPackageTests
     public void FormatProgressLine_RuleExecutedWithViolations_PreservesOutput()
     {
         var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"RuleId\":\"DG101\",\"RuleTitle\":\"Parameter Count Match\",\"ContractCount\":1,\"ViolationCount\":3}}";
-        var output = DataGuardPackage.FormatProgressLine(json, false);
+        var output = ProgressLineParser.FormatProgressLine(json, false);
 
         output.FormattedOutput.Should().NotBeNull();
         output.FormattedOutput.Should().Contain("DG101 (Parameter Count Match):");
@@ -342,7 +343,7 @@ public class DataGuardPackageTests
     public void FormatProgressLine_RuleExecutedWithoutTitle_FallsBackToRuleId()
     {
         var json = "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Detail\":\"DG101\",\"Data\":{\"RuleId\":\"DG101\",\"ContractCount\":1,\"ViolationCount\":3}}";
-        var output = DataGuardPackage.FormatProgressLine(json, false);
+        var output = ProgressLineParser.FormatProgressLine(json, false);
 
         output.FormattedOutput.Should().NotBeNull();
         output.FormattedOutput.Should().Contain("DG101: 1 contracts checked → 3 violations");
@@ -352,12 +353,12 @@ public class DataGuardPackageTests
     public void FormatProgressLine_PhaseStartedAndCompleted_PreservesOutput()
     {
         var startedJson = "{\"Kind\":\"PhaseStarted\",\"Phase\":\"Rule Evaluation\",\"Detail\":\"Running active rules\"}";
-        var startedOutput = DataGuardPackage.FormatProgressLine(startedJson, false);
+        var startedOutput = ProgressLineParser.FormatProgressLine(startedJson, false);
         startedOutput.FormattedOutput.Should().NotBeNull();
         startedOutput.FormattedOutput.Should().Contain("▶ Rule Evaluation — Running active rules");
 
         var completedJson = "{\"Kind\":\"PhaseCompleted\",\"Phase\":\"Contract Discovery\",\"Data\":{\"ContractCount\":2886}}";
-        var completedOutput = DataGuardPackage.FormatProgressLine(completedJson, false);
+        var completedOutput = ProgressLineParser.FormatProgressLine(completedJson, false);
         completedOutput.FormattedOutput.Should().NotBeNull();
         completedOutput.FormattedOutput.Should().Contain("✔ Contract Discovery: 2886 contracts");
     }
@@ -366,7 +367,7 @@ public class DataGuardPackageTests
     public void FormatProgressLine_Summary_PreservesOutputAndCounts()
     {
         var summaryJson = "{\"Kind\":\"Summary\",\"Phase\":\"Validation complete\",\"Data\":{\"ErrorCount\":2,\"WarningCount\":5}}";
-        var output = DataGuardPackage.FormatProgressLine(summaryJson, false);
+        var output = ProgressLineParser.FormatProgressLine(summaryJson, false);
 
         output.FormattedOutput.Should().NotBeNull();
         output.FormattedOutput.Should().Contain("✔ Validation complete: 2 errors, 5 warnings");
