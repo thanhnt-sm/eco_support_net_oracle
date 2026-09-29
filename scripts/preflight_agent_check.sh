@@ -74,6 +74,7 @@ ALLOWED_ROOT_PATTERNS=(
     "^\.codegraph"
     "^\.omo"
     "^\.omp"
+    "^\.claude$"
 )
 
 ROGUE_COUNT=0
