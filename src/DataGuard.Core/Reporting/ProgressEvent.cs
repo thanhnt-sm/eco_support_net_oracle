@@ -10,6 +10,9 @@ public enum ProgressEventKind
     ContractDiscovered,
     RuleExecuted,
     Summary,
+
+    /// <summary>A baseline filtered violations; <c>Detail</c> is the workspace-relative baseline path, <c>Data.SuppressedCount</c> the count.</summary>
+    BaselineApplied,
 }
 
 /// <summary>

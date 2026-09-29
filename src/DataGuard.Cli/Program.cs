@@ -21,32 +21,22 @@ using DataGuard.Core.Validation;
 using DataGuard.Cli;
 using DataGuard.Cli.Hooks;
 
+// Bound every regex in the process before any type with a static Regex field is touched (red-team F11).
+AppContext.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(1));
+
 var assembly = Assembly.GetExecutingAssembly();
 var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
     ?? assembly.GetName().Version?.ToString() ?? "0.1.0";
 
+// Only the final directory and the target file itself may not be reparse points. Ancestors are not walked:
+// a junctioned %TEMP% is a normal host layout, and the validate SARIF sink applies the same policy.
 static bool IsSafeWritablePath(string path)
 {
     try
     {
         var fullPath = Path.GetFullPath(path);
         var parent = Path.GetDirectoryName(fullPath);
-        if (string.IsNullOrWhiteSpace(parent) || IsLink(parent) || IsLink(fullPath))
-        {
-            return false;
-        }
-
-        var current = new DirectoryInfo(parent);
-        while (current != null)
-        {
-            if (IsLink(current.FullName))
-            {
-                return false;
-            }
-            current = current.Parent;
-        }
-
-        return true;
+        return !string.IsNullOrWhiteSpace(parent) && !IsLink(parent) && !IsLink(fullPath);
     }
     catch (Exception)
     {
@@ -175,6 +165,8 @@ var projectOption = new Option<string>("--project");
 projectOption.Description = "Path to C# project (.csproj), solution (.sln), or directory to extract inline SQL queries and C# models";
 var ideSafeOption = new Option<bool>(IdeSafePolicy.OptionName);
 ideSafeOption.Description = "IDE-safe mode for untrusted repositories: never load assemblies, never open database, secret-manager or network connections, ignore connection strings from config and environment";
+var allowEnvConnectionOption = new Option<bool>(IdeSafePolicy.AllowEnvConnectionOptionName);
+allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DATAGUARD_CONNECTION_STRING (config-file connection strings are still ignored); no effect without --ide-safe";
 
 #endregion
 
@@ -182,7 +174,7 @@ ideSafeOption.Description = "IDE-safe mode for untrusted repositories: never loa
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -200,8 +192,13 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var skipRulesRaw = result.GetValue(skipRulesOption);
     var projectPath = result.GetValue(projectOption);
     var ideSafe = result.GetValue(ideSafeOption);
+    var allowEnvConnection = ideSafe && result.GetValue(allowEnvConnectionOption);
+    var environmentConnection = Environment.GetEnvironmentVariable(IdeSafeEnvironment.ConnectionVariable);
     if (ideSafe)
     {
+        // Hosts require this acknowledgement as the first stderr line, before any progress event.
+        Console.Error.WriteLine(IdeSafePolicy.ActiveLine);
+
         // IDE-safe: reject every option that would load code or open a connection before doing any work.
         var rejectedOption = IdeSafePolicy.FirstRejectedValidateOption(
             result.GetValue(connectionOption), offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName);
@@ -239,12 +236,14 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         // Strip code-loading, connection and repo-chosen write paths from whatever the config/env requested.
         var safe = IdeSafePolicy.Apply(
             config,
-            environmentConnectionPresent: !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")));
+            environmentConnectionPresent: !string.IsNullOrWhiteSpace(environmentConnection),
+            allowEnvConnection,
+            environmentConnection);
         config = safe.Configuration;
-        if (safe.Suppressed.Count > 0)
-        {
-            Console.Error.WriteLine(IdeSafePolicy.FormatSuppressionLine(safe.Suppressed));
-        }
+        IdeSafePolicy.WriteReport(Console.Error, safe);
+
+        // Downstream credential providers re-read the environment; clear it so they cannot recover a secret.
+        IdeSafeEnvironment.Scrub(allowEnvConnection);
     }
 
     if (offline)
@@ -1673,6 +1672,7 @@ assessCommand.SetAction(
         var approvedPackages = result.GetValue(remotePublicPackageOption) ?? Array.Empty<string>();
         if (result.GetValue(ideSafeOption))
         {
+            Console.Error.WriteLine(IdeSafePolicy.ActiveLine);
             var rejectedOption = IdeSafePolicy.FirstRejectedAssessOption(allowNetwork, remoteProvider);
             if (rejectedOption is not null)
             {
@@ -1680,6 +1680,8 @@ assessCommand.SetAction(
                 Environment.ExitCode = 2;
                 return;
             }
+
+            IdeSafeEnvironment.Scrub(allowEnvConnection: false);
         }
 
         ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
@@ -1772,7 +1774,7 @@ assessCommand.SetAction(
 
             foreach (var error in report.Errors)
             {
-                Console.Error.WriteLine($"[{error.Code}] {error.Path}: {error.Message}");
+                Console.Error.WriteLine($"[{error.Code}] {RelativizeToWorkspace(request.WorkspaceRoot, error.Path)}: {error.Message}");
             }
 
             // Findings are a failed assessment; operational/tool errors use the frozen code 4.
@@ -1801,6 +1803,29 @@ assessCommand.SetAction(
             Environment.ExitCode = 4;
         }
     });
+
+// Echoes a path relative to the workspace (or "." for the root itself); paths outside it are returned unchanged.
+static string RelativizeToWorkspace(string workspaceRoot, string? path)
+{
+    if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+    {
+        return path ?? string.Empty;
+    }
+
+    try
+    {
+        var relative = Path.GetRelativePath(Path.GetFullPath(workspaceRoot), Path.GetFullPath(path));
+        var escapesRoot = relative == ".."
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || relative.StartsWith("../", StringComparison.Ordinal)
+            || Path.IsPathFullyQualified(relative);
+        return escapesRoot ? path : relative.Replace(Path.DirectorySeparatorChar, '/');
+    }
+    catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+    {
+        return path;
+    }
+}
 
 static async Task<AssessmentReport> RunAssessmentWithRemoteAdvisories(AssessmentRequest request, RemoteAdvisoryPolicy policy, CancellationToken cancellationToken)
 {
@@ -2337,7 +2362,26 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
         var baseline = await baselineManager.LoadAsync(cancellationToken);
         if (baseline != null)
         {
+            var countBeforeBaseline = allViolations.Count;
             allViolations = baselineManager.FilterNewViolations(allViolations, baseline).ToList();
+            var suppressedCount = countBeforeBaseline - allViolations.Count;
+            if (suppressedCount > 0)
+            {
+                // A baseline silently hiding findings is a red-team concern (F10): always make it visible.
+                var baselineDisplayPath = RelativizeToWorkspace(Directory.GetCurrentDirectory(), Path.GetFullPath(config.BaselineFilePath));
+                if (progress is not null)
+                {
+                    progress.Emit(new ProgressEvent(
+                        ProgressEventKind.BaselineApplied,
+                        "Validating rules",
+                        baselineDisplayPath,
+                        new Dictionary<string, object?> { ["SuppressedCount"] = suppressedCount }));
+                }
+                else
+                {
+                    Console.Error.WriteLine($"baseline: {suppressedCount} violations suppressed by {baselineDisplayPath}");
+                }
+            }
         }
     }
 
