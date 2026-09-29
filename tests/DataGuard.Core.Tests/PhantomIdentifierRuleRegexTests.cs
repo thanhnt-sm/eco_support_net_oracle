@@ -36,8 +36,9 @@ public class PhantomIdentifierRuleRegexTests
     [Fact]
     public async Task ValidateAsync_SelectFollowedBy200KSpaces_CompletesWithinFiveSeconds()
     {
+        // Hostile regex payload (not SQL construction): a bare keyword followed by 200 000 spaces and one stray token.
         var rule = new PhantomIdentifierRule();
-        var hostile = "SELECT" + new string(' ', 200_000) + "x";
+        var hostile = string.Concat("SELECT", new string(' ', 200_000), "x");
 
         var stopwatch = Stopwatch.StartNew();
         var violations = await rule.ValidateAsync(Sql(hostile), new ContractDescriptor[] { Schema() });

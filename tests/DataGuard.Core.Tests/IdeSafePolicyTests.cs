@@ -12,6 +12,11 @@ namespace DataGuard.Core.Tests;
 /// </summary>
 public class IdeSafePolicyTests
 {
+    // Two-segment, credential-free fixtures (same shape as CredentialManagerFullTests): an env-sourced value and a
+    // distinguishable config-sourced value, so the tests can prove which one the policy kept.
+    private const string EnvConnection = "Server=env;Database=Db";
+    private const string ConfigConnection = "Server=cfg;Database=Db";
+
     [Fact]
     public void Apply_ManualModeWithAssemblyPath_ForcesSnapshotAndClearsAssembly()
     {
@@ -77,7 +82,7 @@ public class IdeSafePolicyTests
     }
 
     [Theory]
-    [InlineData("Server=x", false, null, null, null, null, "--connection")]
+    [InlineData(EnvConnection, false, null, null, null, null, "--connection")]
     [InlineData(null, true, null, null, null, null, "--offline")]
     [InlineData(null, false, "a.dll", null, null, null, "--assembly")]
     [InlineData(null, false, null, "Snap.cs", null, null, "--ef-snapshot")]
@@ -132,7 +137,7 @@ public class IdeSafePolicyTests
     {
         const string envValue = "Server=127.0.0.1,1;Connect Timeout=1";
         var merged = new DataGuardConfiguration(
-            ConnectionString: envPresent ? envValue : "Data Source=from-config",
+            ConnectionString: envPresent ? envValue : ConfigConnection,
             GroundTruthMode: mode,
             ManualAssemblyPath: @"tools\evil.dll",
             KeyVaultUri: "https://attacker.vault.azure.net",
@@ -153,14 +158,16 @@ public class IdeSafePolicyTests
         if (expectKept)
         {
             result.Configuration.ConnectionString.Should().Be(envValue);
-            result.Suppressed.Should().Contain("kept environment connection (--allow-env-connection)");
+            result.KeptEnvironmentConnection.Should().BeTrue();
+            result.RulesConnectionString.Should().BeNull("H1: a kept credential serves ground-truth acquisition only");
             result.Suppressed.Should().NotContain(s => s.Contains("database access disabled"));
         }
         else
         {
             result.Configuration.ConnectionString.Should().BeNull();
+            result.KeptEnvironmentConnection.Should().BeFalse();
+            result.RulesConnectionString.Should().BeNull();
             result.Suppressed.Should().Contain(s => s.Contains("database access disabled"));
-            result.Suppressed.Should().NotContain(s => s.Contains("kept environment connection"));
         }
     }
 
@@ -168,21 +175,25 @@ public class IdeSafePolicyTests
     public void Apply_AllowEnvConnection_PrefersEnvironmentValueOverConfigValue()
     {
         // Defensive: even if the merged config carried a config-file value, the kept value is the env one.
-        var merged = new DataGuardConfiguration(ConnectionString: "Data Source=from-config", GroundTruthMode: GroundTruthMode.Full);
+        var merged = new DataGuardConfiguration(ConnectionString: ConfigConnection, GroundTruthMode: GroundTruthMode.Full);
 
-        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: "Server=env");
+        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: EnvConnection);
 
-        result.Configuration.ConnectionString.Should().Be("Server=env");
+        result.Configuration.ConnectionString.Should().Be(EnvConnection);
         result.Configuration.GroundTruthMode.Should().Be(GroundTruthMode.Full);
     }
 
     [Fact]
     public void Apply_KeptEnvConnection_ReportsLiveShapeRuleDisabled()
     {
-        var merged = new DataGuardConfiguration(ConnectionString: "Server=env", GroundTruthMode: GroundTruthMode.Full);
+        var merged = new DataGuardConfiguration(ConnectionString: EnvConnection, GroundTruthMode: GroundTruthMode.Full);
 
-        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: "Server=env");
+        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: EnvConnection);
 
+        // H1: the kept credential is for ground-truth acquisition only; repo-extracted SQL must never be described
+        // against it during validate (that is verify-shape, behind a host confirmation).
+        result.Configuration.ConnectionString.Should().Be(EnvConnection);
+        result.RulesConnectionString.Should().BeNull();
         result.Suppressed.Should().Contain(IdeSafePolicy.LiveShapeRuleDisabledNote);
         IdeSafePolicy.LiveShapeRuleDisabledNote.Should().Be("live SQL shape rule disabled (use verify-shape)");
         IdeSafePolicy.FormatSuppressionLine(result.Suppressed).Should().Contain("live SQL shape rule disabled (use verify-shape)");
@@ -191,7 +202,7 @@ public class IdeSafePolicyTests
     [Fact]
     public void Apply_WithoutKeptConnection_DoesNotReportLiveShapeRule()
     {
-        var merged = new DataGuardConfiguration(ConnectionString: "Server=env", GroundTruthMode: GroundTruthMode.Full);
+        var merged = new DataGuardConfiguration(ConnectionString: EnvConnection, GroundTruthMode: GroundTruthMode.Full);
 
         var stripped = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: false);
         var clean = IdeSafePolicy.Apply(new DataGuardConfiguration(), environmentConnectionPresent: false);
@@ -203,7 +214,7 @@ public class IdeSafePolicyTests
     [Fact]
     public void Apply_AllowEnvConnectionWithoutEnv_StripsConfigConnection()
     {
-        var merged = new DataGuardConfiguration(ConnectionString: "Data Source=from-config", GroundTruthMode: GroundTruthMode.Full);
+        var merged = new DataGuardConfiguration(ConnectionString: ConfigConnection, GroundTruthMode: GroundTruthMode.Full);
 
         var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: false, allowEnvConnection: true);
 
@@ -248,8 +259,8 @@ public class IdeSafePolicyTests
     [Fact]
     public void WriteReport_KeptConnection_WritesSuppressionLineThenKeptLine()
     {
-        var merged = new DataGuardConfiguration(ConnectionString: "Server=env", GroundTruthMode: GroundTruthMode.Manual);
-        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: "Server=env");
+        var merged = new DataGuardConfiguration(ConnectionString: EnvConnection, GroundTruthMode: GroundTruthMode.Manual);
+        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: EnvConnection);
         var writer = new StringWriter();
 
         IdeSafePolicy.WriteReport(writer, result);
