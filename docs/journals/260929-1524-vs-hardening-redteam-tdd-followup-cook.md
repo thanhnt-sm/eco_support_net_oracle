@@ -65,3 +65,11 @@ Owner: thanhnt-sm unless noted.
 - VSIX Authenticode signing decision; reserve `DataGuard.Cli` on nuget.org.
 - First `v0.3.0` tag is the first real run of `cli-package` and the reordered `visual-studio-package`; watch it, and check the osx-arm64 apphost against Gatekeeper.
 - Re-run the two rate-limited red-team lenses (supply chain, Core/adapters) after 2026-10-01 07:00 Asia/Bangkok.
+
+## Addendum (evening) — CI red, `/simplify`, CI green
+
+The first push (`8a2df13`) failed two CI jobs and CodeQL. The debugger's finding overturned an assumption baked into the PR text: the "Visual Studio VSIX Packaging Gate" had never been green on this branch, and `main` has carried the same bug since `9f82f3f`. `BuildAnalyzers` in the VSIX csproj ran `Restore;Build` in a single MSBuild task, so on a clean checkout the Analyzers project compiled from a pre-restore evaluation with no netstandard reference assemblies (CS0518). Locally it passed only because `obj/` was warm. Fix: separate Restore and Build calls with a unique `MSBuildRestoreSessionId` (`ce20e3a`), reproduced red-to-green from a `git archive` copy with the exact CI command. Lesson: "watch the gate on this PR" is not evidence; read the gate's history before claiming it passed.
+
+CodeQL's 12 alerts came from the repo's custom `dataguard/*` queries firing on synthetic test fixtures. Rewriting fixtures to the existing two-segment convention cleared them; the fixture agent also noted the queries are anchored full-string matches, so real credentialed strings with `;` never fire while credential-free `"Server=env"` does — a query-quality item for the owner.
+
+`/simplify` ran four lenses (reuse, simplification, efficiency, altitude) and 20 findings were applied in `27283d9` with output proven byte-identical by e2e diff. Skipped on purpose: waiting for the target after taskkill (behaviour), gating Core snapshot/baseline writers (owner call), a parallel release test job (plan pins the order), and dropping `fetch-depth: 0` (MinVer still needs history). CI on `27283d9`: all jobs green, first time for the packaging gate.
