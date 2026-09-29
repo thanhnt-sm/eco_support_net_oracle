@@ -2,7 +2,7 @@
 
 **Plan:** `plans/260929-0835-vs-extension-hardening/plan.md`
 **Predict report:** `plans/reports/predict-260929-0835-vs-extension-hardening.md` (Verdict STOP → CAUTION)
-**Branch:** `feat/vs-extension-hardening`
+**Branch:** `feat/vs-extension-hardening` · **Commit:** `df442b9` (55 files, +4 105 / −1 720; not pushed)
 **Mode:** `/ck:predict` → red-team → plan → cook → test → review, executed in the main session (Fable) because the Fable subagent quota was exhausted mid-run (HTTP 429, resets 2026-10-01 07:00 Asia/Bangkok). Two scouts and one baseline tester completed on Fable; four red-team lenses and one analyzer scout were rate-limited.
 
 ## Incident-grade finding
@@ -45,13 +45,14 @@ That is a load attempt of a repository-supplied DLL path. With the opt-in "Run V
 
 ## Code review
 
-Independent Fable `code-reviewer` (completed after two rate-limited attempts elsewhere): no Critical/High; four Mediums and six Lows, all triaged — nine fixed in the same change set (fail-safe consent store with in-memory fallback, Error List cleared at run start, release-time version sync, honest VSTHRD003 rationale, fully-qualified custom CLI path, logging on timeout/old-CLI paths, anchored old-CLI detector, phase doc exit-code correction), the rest recorded as deferred in the plan. Reviewer verified ide-safe completeness against every `Program.cs` consumer, trust-gate threading, SARIF containment edge cases (`%2e%2e`, `\\?\`, UNC, `file:`), and CreatePkgDef hazards.
+Independent Fable `code-reviewer` (completed after two rate-limited attempts elsewhere): no Critical/High; four Mediums and six Lows, all triaged — nine fixed in the same change set (fail-safe consent store with in-memory fallback, Error List cleared at run start, release-time version sync, honest VSTHRD003 rationale, fully-qualified custom CLI path, run-log entries on timeout/old-CLI paths (the exit-130 status text is parity, reachable only if the CLI itself exits 130), anchored old-CLI detector, phase doc exit-code correction), the rest recorded as deferred in the plan. Reviewer verified ide-safe completeness against every `Program.cs` consumer, trust-gate threading, SARIF containment edge cases (`%2e%2e`, `\\?\`, UNC, `file:`), and CreatePkgDef hazards.
 
 ## Lessons
 
 - The trust boundary was documented for VS Code and silently absent for VS; parity tables (VS Code scout) found it in minutes. Keep a cross-host security parity table in docs.
 - `dotnet test` of a VSSDK project proves nothing about packaging; CreatePkgDef reflection is a separate gate and now runs on every PR.
 - Lock-file "noise" was a real build defect: a nested RID-specific restore inside the VSIX build. Treat unexplained lock churn as a bug, not noise.
+- The kit's fail-closed commit-gate flagged the jwt.io sample token in a redaction test as a secret; the fixture now assembles a token-shaped string at runtime instead of carrying an allow-marker. Prefer runtime-built fixtures over allow-markers for secret-redaction tests.
 - Rate limits on subagents: keep the lead able to implement; stage large multi-file rewrites in the scratchpad while a baseline build runs in the working tree.
 
 ## Deferred

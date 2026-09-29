@@ -28,7 +28,7 @@ Execution note: Fable weekly quota was exhausted for subagents mid-session (HTTP
 - Root-cause fix for the recurring `packages.lock.json` drift (nested `dotnet publish -r win-x64` in the VSIX build) via `NuGetLockFilePath`.
 
 ## Code review outcome (`plans/reports/code-reviewer-260929-0854-vs-extension-hardening.md`)
-No Critical/High. Fixed in-cycle: consent store fail-safe + in-memory fallback (#1), Error List clear-at-run-start policy (#2), release.yml now rewrites `ExtensionVersion.Fallback` (#3), VSTHRD003 rationale corrected (#4), fully-qualified custom CLI path (#7), timeout/CLI-too-old runs logged + exit-130 status (#9), old-CLI detector anchored on the quoted flag (#10b), null-presenter message (#11), phase-01 exit-code note (#12).
+No Critical/High. Fixed in-cycle: consent store fail-safe + in-memory fallback (#1), Error List clear-at-run-start policy (#2), release.yml now rewrites `ExtensionVersion.Fallback` (#3), VSTHRD003 rationale corrected (#4), fully-qualified custom CLI path (#7), timeout and CLI-too-old runs now written to the run log (#9; the exit-130 status text on the publish path is parity with the original and only reachable if the CLI itself exits 130), old-CLI detector anchored on the quoted flag (#10b), null-presenter message (#11), phase-01 exit-code note (#12).
 Deferred from review: pre-existing cancel race (#5), orphan process after failed termination (#6), unlocked bundled-CLI restore → commit a win-x64 lock file (#8), TruncatedCount counts unparsed results (#11), test gaps (registry transitions, live CliRunSession, consent-store exceptions, end-to-end `--ide-safe` handler wiring, extra URI edge cases).
 
 ## Deferred (tracked, not in this cycle)
