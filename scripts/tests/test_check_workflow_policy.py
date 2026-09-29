@@ -94,6 +94,10 @@ CASES: list[tuple[str, str, str, str | None]] = [
      fixture("push, workflow_dispatch", upload_if=""), None),
     ("installers msbuild without assert fails", "installers.yml",
      fixture("push, workflow_dispatch", assert_run="# scripts/assert-vsix.ps1 was here", upload_if=""), "(a)"),
+    ("marketplace shape push plus pull_request plus dispatch with guarded upload passes", "marketplace.yml",
+     fixture("push, pull_request, workflow_dispatch"), None),
+    ("marketplace unguarded upload on pull_request fails", "marketplace.yml",
+     fixture("push, pull_request, workflow_dispatch", upload_if=""), "(b)"),
     ("release VS test step with continue-on-error does not count", "release.yml", RELEASE_FIXTURE, "(c)"),
 ]
 

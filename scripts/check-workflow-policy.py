@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Workflow policy check for the Visual Studio VSIX gate.
 
-Asserts, over .github/workflows/ci.yml, release.yml and installers.yml:
+Asserts, over .github/workflows/ci.yml, release.yml, installers.yml and marketplace.yml:
   (a) every step that builds DataGuard.VisualStudio.csproj with MSBuild is followed, in the
       same job, by an *effective* step (no `if: false`, no `continue-on-error: true`) whose
       non-comment `run` lines invoke scripts/assert-vsix.ps1;
@@ -33,7 +33,12 @@ except ImportError:  # pragma: no cover - environment guard
     sys.exit(2)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKFLOWS = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/installers.yml"]
+WORKFLOWS = [
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/installers.yml",
+    ".github/workflows/marketplace.yml",
+]
 VS_PROJECT = "DataGuard.VisualStudio.csproj"
 ASSERT_SCRIPT = "scripts/assert-vsix.ps1"
 SAME_REPO_GUARD = "github.event.pull_request.head.repo.full_name == github.repository"
