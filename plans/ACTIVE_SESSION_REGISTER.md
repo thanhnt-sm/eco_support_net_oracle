@@ -386,3 +386,13 @@ Plan: `plans/260929-0835-vs-extension-hardening/plan.md` · Predict: `plans/repo
 - [ ] `/ck:cook D:\100.Software\Github\eco_support_net_oracle\plans\260929-0952-vs-hardening-redteam-tdd-followup\plan.md --tdd` (sau `/clear`).
 - [ ] Owner: reserve/publish `DataGuard.Cli` trên nuget.org; quyết định ký VSIX.
 - [ ] Theo dõi PR #24 checks; re-run 2 red-team lens bị rate-limit (supply chain, Core/adapters) sau 2026-10-01 07:00.
+
+---
+
+## 📌 VIỆC VỪA HOÀN THÀNH (Phiên 2026-09-29 chiều — Cook `--tdd` follow-up red-team VS hardening)
+
+- **Plan**: `plans/260929-0952-vs-hardening-redteam-tdd-followup/` — 5 phase, tất cả **Completed**. Đóng 14 finding red-team đã chấp nhận.
+- **Commit đã push** lên `origin/feat/vs-extension-hardening` (PR #24 đã cập nhật body): `cce75a0` CLI handshake `ide-safe: active` + `--allow-env-connection` + baseline warning + regex bound; `3cf1a27` VS Code ack gate + credential carve-out + modal verify-shape; `f228d16` VS publish-after-handshake, ProgressPump, consent theo `.sln`, Forget Solution Consent; `c37a2ce` `scripts/assert-vsix.ps1` dùng chung CI/release, fork-PR guard, job `cli-package` (zip + sha256), docs; `56cfec8` sửa review (H1: live shape rule tắt dưới ide-safe; M1/M2/M3/M4-close; L*); `6d3eb67` mọi sink validate/oracle-check/verify-shape từ chối output qua reparse point trong workspace (exit 4).
+- **Kiểm chứng**: Core 898 / VS 155 (+1 skip) / Analyzers 13 / CodeFixes 24 / GoldenCorpus 28 / Observability 38 / VS Code 95 — 0 fail; VSIX packaging + assert 0.2.3 OK; policy self-test 14/14; e2e (a)–(g) PASS. Review 7/10, 0 Critical; 1 High + 5 Medium đã sửa trong nhánh. Báo cáo: `plans/reports/*-260929-1{015,412,449}-*.md`.
+- **Breaking cho IDE**: hai extension từ chối CLI ≤ 0.2.2; **release CLI kế tiếp phải tag `v0.3.0`** (lần đầu chạy job `cli-package` và thứ tự test → patch version → msbuild → assert của release.yml).
+- **Việc chủ sở hữu / còn nợ**: reserve `DataGuard.Cli` trên nuget.org; quyết định ký Authenticode VSIX; `Process.Start` trong lock registry (M4 nửa sau); DG1291 chỉ ra stdout (VS không thấy); writer snapshot/baseline phía Core chưa audit reparse point; `IdeSafeEndToEndTests.cs` (442 dòng) và `check-workflow-policy.py` (292 dòng) vượt 200 dòng; chạy lại 2 lens red-team bị rate-limit sau 2026-10-01 07:00 Asia/Bangkok. 9 file `packages.lock.json` chỉ khác CRLF — không commit.
