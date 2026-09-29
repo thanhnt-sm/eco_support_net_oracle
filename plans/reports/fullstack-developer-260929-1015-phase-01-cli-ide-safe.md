@@ -168,3 +168,35 @@ UNEVALUATED: contract acquisition failed: A network-related or instance-specific
 - Files over the 200-line guideline, unchanged in kind: `ConcurrentValidationEngine.cs` (~320), `IdeSafePolicyTests.cs` (~345), `IdeSafeEndToEndTests.cs` (~295), `IdeSafePolicy.cs` (~233). Not refactored in this pass.
 - `SafeWritablePathTests` uses `mklink /J` on Windows (fails loudly, never skips) and `Directory.CreateSymbolicLink` elsewhere; Linux run not exercised here.
 - `packages.lock.json` (9 files) were already dirty at session start; md5 of all lock files is identical to the prior agent's 14:20 baseline (`lock-md5-after-pkg.txt`), so this pass's builds did not change them.
+
+### Follow-up: validate/oracle-check output through an in-workspace junction (post-review gate scenario g)
+
+Source: `plans/reports/tester-260929-1449-post-review-gate.md` (g1/g2 FAIL). Base HEAD 56cfec8, uncommitted. Cause confirmed by reading: `validate --format sarif|evidence|contracts|yaml|typescript` and `oracle-check --output` hand the path straight to `FileSarifSink` / `ContractEvidenceWriter` / `ContractExportWriter.WriteAtomicallyAsync`, none of which consult `SafeWritablePath`; only `assess` (`WriteSarifAsync`) and `init`/`config` did. The `summary.json` refusal was swallowed by `catch (Exception)`.
+
+RED (`IdeSafeEndToEndTests` filter): `Failed: 4, Passed: 9`
+- `Validate_OutputThroughJunctionInsideWorkspace_IsRejected` `[WindowsTheory]` x3 — (`sarif`, junction is the parent = g1), (`sarif`, `junction/sub/` = g2), (`evidence`, g2). Observed RED: exit 0, file landed in `outside-target`.
+- `OracleCheck_OutputThroughJunctionInsideWorkspace_IsRejectedBeforeConnecting` — observed RED: exit 1 `Oracle check requires --connection` (sink never reached, but also never checked).
+- Control `Validate_OutputUnderSiblingJunctionOutsideWorkspace_IsWritten` (g3) GREEN before and after; `Assess_OutputUnderJunction_WritesSarif` unchanged (now uses the shared `CreateJunction` helper).
+
+GREEN: e2e + `CliExitCodeTests` + `SafeWritablePathTests` filter `Passed: 42/42`; full Core `Passed: 897, Failed: 0` (+5); GoldenCorpus 28; `dotnet build DataGuard.sln -c Release -m:1` 0 warnings; `dotnet format whitespace --verify-no-changes` clean; lock files md5-identical to baseline.
+
+Fix (option chosen: CLI-side guard, not lifting into the Core writer — `SafeWritablePath` and the workspace root live in `DataGuard.Cli`; lifting would mean moving the helper into Core and threading the root through `FileSarifSink`/`ContractEvidenceWriter` constructors for the same three call sites):
+- `src/DataGuard.Cli/Program.cs`
+  - new static local `RefuseUnsafeOutput(outputPath, artifact)`: `IsSafeWritablePath` -> else stderr `Refusing to write {artifact} through a symbolic link or invalid path.` + `Environment.ExitCode = 4` (assess's tool-error code) + `return true`.
+  - `validate`: applied once at output resolution for every non-text format (`SARIF` for sarif, `<format> output` otherwise), before acquisition/validation runs — so a rejected path costs no work and no connection.
+  - `oracle-check`: applied before `RunOracleValidationAsync` (hence before `--connection` is required); artifact `SARIF`.
+  - `summary.json` catch now logs `summary.json not written: {ex.Message}` to stderr instead of swallowing; still non-fatal.
+- `tests/DataGuard.Core.Tests/IdeSafeEndToEndTests.cs`: `CreateJunction` helper, `WindowsTheoryAttribute`, 3 new tests (file now 409 lines — over the 200-line guideline; splitting needs a shared process helper outside a single file, left for the lead as before).
+
+Exact messages for docs: sarif -> `Refusing to write SARIF through a symbolic link or invalid path.`; evidence -> `Refusing to write evidence output through a symbolic link or invalid path.`; exit code **4** for `validate` and `oracle-check` (matches `assess`).
+
+#### Addendum: `verify-shape` (naming correction + fail-fast guard)
+
+The coordinator's ":1505 verify-shape sink" is the `oracle-check` command (guarded above). The real `verify-shape` command (`Program.cs:611-861`) takes `--output` and writes via `WriteTextAtomicallyAsync`, which already calls `IsSafeWritablePath` — so it was never unguarded, but it refused *late*: only after the full live describe pass, as `verify-shape failed: Refusing to write to unsafe path: <path>` with exit 1.
+
+RED: `IdeSafeEndToEndTests.VerifyShape_OutputThroughJunctionInsideWorkspace_IsRejectedBeforeConnecting` `[WindowsFact]` — observed exit 1, late message, 2 s live pass against `127.0.0.1,1`.
+GREEN: `RefuseUnsafeOutput(output, "verify-shape output")` placed after the `--project` precondition and before the `try` that builds the schema provider — stderr `Refusing to write verify-shape output through a symbolic link or invalid path.`, exit **4**, no connection attempted, nothing written.
+
+Final gate after this addendum: `dotnet build DataGuard.sln -c Release -m:1` 0 warnings; Core `Passed: 898, Failed: 0` (+1); GoldenCorpus 28; `dotnet format whitespace --verify-no-changes` clean; lock files md5-identical to baseline; changed files still only `src/DataGuard.Cli/Program.cs` and `tests/DataGuard.Core.Tests/IdeSafeEndToEndTests.cs` (now 442 lines).
+
+Sink inventory for the lead (not touched, outside scenario g): the only remaining direct `File.WriteAllTextAsync` on a user-chosen path in `Program.cs` is `init` (`:1382`), which is already preceded by `IsSafeWritablePath`; `snapshot`/`baseline` writers live in Core and were not audited here.

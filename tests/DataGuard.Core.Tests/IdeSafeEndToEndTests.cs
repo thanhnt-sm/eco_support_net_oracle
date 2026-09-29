@@ -188,13 +188,9 @@ public class IdeSafeEndToEndTests
         }
     }
 
-    [WindowsFact]
-    public void Assess_OutputUnderJunction_WritesSarif()
+    /// <summary>NTFS junction (no privilege needed); fails the test loudly rather than skipping when mklink is unavailable.</summary>
+    private static void CreateJunction(string junction, string target)
     {
-        var root = Directory.CreateTempSubdirectory("dg-junction").FullName;
-        var target = Path.Combine(root, "target");
-        var junction = Path.Combine(root, "junc");
-        Directory.CreateDirectory(target);
         var mklink = Process.Start(new ProcessStartInfo("cmd", $"/c mklink /J \"{junction}\" \"{target}\"")
         {
             RedirectStandardOutput = true,
@@ -207,6 +203,16 @@ public class IdeSafeEndToEndTests
         {
             Assert.Fail("mklink /J failed on this machine; junction test cannot run: " + mklinkError);
         }
+    }
+
+    [WindowsFact]
+    public void Assess_OutputUnderJunction_WritesSarif()
+    {
+        var root = Directory.CreateTempSubdirectory("dg-junction").FullName;
+        var target = Path.Combine(root, "target");
+        var junction = Path.Combine(root, "junc");
+        Directory.CreateDirectory(target);
+        CreateJunction(junction, target);
 
         try
         {
@@ -222,6 +228,135 @@ public class IdeSafeEndToEndTests
 
             exitCode.Should().NotBe(4, stderr);
             File.Exists(output).Should().BeTrue("SARIF must be written under a junctioned output directory");
+        }
+        finally
+        {
+            Directory.Delete(junction, recursive: false);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Review M3 / post-review gate (g): a junction committed inside the workspace must never receive validate,
+    /// evidence or oracle-check output, whether it is the direct parent (g1) or an ancestor (g2). The sibling
+    /// junction outside the workspace (g3) stays writable.
+    /// </summary>
+    [WindowsTheory]
+    [InlineData("sarif", "x.sarif", false, "Refusing to write SARIF through a symbolic link or invalid path.")]
+    [InlineData("sarif", "x.sarif", true, "Refusing to write SARIF through a symbolic link or invalid path.")]
+    [InlineData("evidence", "x.md", true, "Refusing to write evidence output through a symbolic link or invalid path.")]
+    public void Validate_OutputThroughJunctionInsideWorkspace_IsRejected(string format, string fileName, bool nested, string expectedMessage)
+    {
+        var root = Directory.CreateTempSubdirectory("dg-ws-junction").FullName;
+        var workspace = Path.Combine(root, "ws");
+        var target = Path.Combine(root, "outside-target");
+        var junction = Path.Combine(workspace, "junction");
+        Directory.CreateDirectory(workspace);
+        Directory.CreateDirectory(Path.Combine(target, "sub"));
+        File.WriteAllText(Path.Combine(workspace, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT Id, Name FROM Users\"; } }");
+        CreateJunction(junction, target);
+        var output = nested ? Path.Combine(junction, "sub", fileName) : Path.Combine(junction, fileName);
+        var landed = nested ? Path.Combine(target, "sub", fileName) : Path.Combine(target, fileName);
+
+        try
+        {
+            var (exitCode, _, stderr) = RunCli(
+                null, workspace, "validate", "--ide-safe", "--project", workspace, "--format", format, "--output", output);
+
+            exitCode.Should().Be(4, stderr);
+            stderr.Should().Contain(expectedMessage);
+            File.Exists(landed).Should().BeFalse("nothing may be written through an in-workspace junction");
+            Directory.GetFiles(target, "*", SearchOption.AllDirectories).Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(junction, recursive: false);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [WindowsFact]
+    public void Validate_OutputUnderSiblingJunctionOutsideWorkspace_IsWritten()
+    {
+        var root = Directory.CreateTempSubdirectory("dg-sibling-junction").FullName;
+        var workspace = Path.Combine(root, "ws");
+        var target = Path.Combine(root, "sibling-target");
+        var junction = Path.Combine(root, "sibling-junction");
+        Directory.CreateDirectory(workspace);
+        Directory.CreateDirectory(Path.Combine(target, "out"));
+        File.WriteAllText(Path.Combine(workspace, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT Id, Name FROM Users\"; } }");
+        CreateJunction(junction, target);
+        var output = Path.Combine(junction, "out", "x.sarif");
+
+        try
+        {
+            var (exitCode, _, stderr) = RunCli(
+                null, workspace, "validate", "--ide-safe", "--project", workspace, "--format", "sarif", "--output", output);
+
+            exitCode.Should().Be(0, stderr);
+            File.Exists(Path.Combine(target, "out", "x.sarif")).Should().BeTrue("a host-chosen junction outside the workspace is a normal layout");
+            File.Exists(Path.Combine(target, "out", "summary.json")).Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(junction, recursive: false);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [WindowsFact]
+    public void OracleCheck_OutputThroughJunctionInsideWorkspace_IsRejectedBeforeConnecting()
+    {
+        var root = Directory.CreateTempSubdirectory("dg-oracle-junction").FullName;
+        var workspace = Path.Combine(root, "ws");
+        var target = Path.Combine(root, "outside-target");
+        var junction = Path.Combine(workspace, "junction");
+        Directory.CreateDirectory(workspace);
+        Directory.CreateDirectory(target);
+        CreateJunction(junction, target);
+        var output = Path.Combine(junction, "x.sarif");
+
+        try
+        {
+            var (exitCode, _, stderr) = RunCli(null, workspace, "oracle-check", "--format", "sarif", "--output", output);
+
+            exitCode.Should().Be(4, stderr);
+            stderr.Should().Contain("Refusing to write SARIF through a symbolic link or invalid path.");
+            stderr.Should().NotContain("requires --connection", "the write-path check must run before any connection is required");
+            Directory.GetFiles(target).Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(junction, recursive: false);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [WindowsFact]
+    public void VerifyShape_OutputThroughJunctionInsideWorkspace_IsRejectedBeforeConnecting()
+    {
+        var root = Directory.CreateTempSubdirectory("dg-verify-junction").FullName;
+        var workspace = Path.Combine(root, "ws");
+        var target = Path.Combine(root, "outside-target");
+        var junction = Path.Combine(workspace, "junction");
+        Directory.CreateDirectory(workspace);
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(workspace, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT Id, Name FROM Users\"; } }");
+        CreateJunction(junction, target);
+        var output = Path.Combine(junction, "shape.json");
+
+        try
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var (exitCode, _, stderr) = RunCli(
+                null, workspace, "verify-shape", "--connection", EnvConnection, "--project", workspace, "--format", "json", "--output", output);
+            stopwatch.Stop();
+
+            exitCode.Should().Be(4, stderr);
+            stderr.Should().Contain("Refusing to write verify-shape output through a symbolic link or invalid path.");
+            stderr.Should().NotContain("verify-shape failed", "the write-path check must run before the live pass, not after it");
+            Directory.GetFiles(target).Should().BeEmpty();
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(30));
         }
         finally
         {
@@ -286,6 +421,18 @@ public class IdeSafeEndToEndTests
 public sealed class WindowsFactAttribute : FactAttribute
 {
     public WindowsFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Skip = "NTFS junctions (mklink /J) require Windows.";
+        }
+    }
+}
+
+/// <summary>Theory counterpart of <see cref="WindowsFactAttribute"/>.</summary>
+public sealed class WindowsTheoryAttribute : TheoryAttribute
+{
+    public WindowsTheoryAttribute()
     {
         if (!OperatingSystem.IsWindows())
         {

@@ -32,6 +32,20 @@ var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>
 // walked too, host-chosen ones (a junctioned %TEMP%) are not. See SafeWritablePath.
 static bool IsSafeWritablePath(string path) => SafeWritablePath.IsSafe(path, Directory.GetCurrentDirectory());
 
+// Shared refusal for every user-chosen output sink (validate formats, oracle-check SARIF). Runs before any work or
+// connection; exit 4 is the operational tool-error code, the same one assess uses for its SARIF sink.
+static bool RefuseUnsafeOutput(string outputPath, string artifact)
+{
+    if (IsSafeWritablePath(outputPath))
+    {
+        return false;
+    }
+
+    Console.Error.WriteLine($"Refusing to write {artifact} through a symbolic link or invalid path.");
+    Environment.ExitCode = 4;
+    return true;
+}
+
 static async Task WriteTextAtomicallyAsync(string outputPath, string content, CancellationToken cancellationToken)
 {
     if (!IsSafeWritablePath(outputPath))
@@ -241,6 +255,13 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         return;
     }
 
+    // FileSarifSink / ContractEvidenceWriter / ContractExportWriter write wherever they are pointed; the write-path
+    // policy is enforced here, once, for every file format (post-review gate scenario g).
+    if (normalizedFormat is not "text" && RefuseUnsafeOutput(output!, normalizedFormat == "sarif" ? "SARIF" : normalizedFormat + " output"))
+    {
+        return;
+    }
+
     progress?.Emit(new ProgressEvent(
         ProgressEventKind.PhaseStarted,
         "Acquiring contracts",
@@ -406,9 +427,10 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
                         await WriteTextAtomicallyAsync(summaryFile, summary.ToJson(), ct);
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Non-fatal: summary.json is supplementary to SARIF
+                    // Non-fatal (summary.json is supplementary to SARIF) but never silent: hosts read stderr.
+                    Console.Error.WriteLine($"summary.json not written: {ex.Message}");
                 }
             }
         }
@@ -616,6 +638,12 @@ verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
     {
         Console.Error.WriteLine("verify-shape requires --project.");
         Environment.ExitCode = 2;
+        return;
+    }
+
+    // WriteTextAtomicallyAsync would refuse the path later, but only after the live pass; refuse before connecting.
+    if (!string.IsNullOrWhiteSpace(output) && RefuseUnsafeOutput(output, "verify-shape output"))
+    {
         return;
     }
 
@@ -1492,6 +1520,11 @@ oracleCheckCommand.SetAction(
             DefaultSchema = schema ?? config.DefaultSchema,
             DefaultPackage = package ?? config.DefaultPackage
         };
+
+        if (!string.IsNullOrEmpty(output) && RefuseUnsafeOutput(output, "SARIF"))
+        {
+            return;
+        }
 
         try
         {
