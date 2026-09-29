@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "CLI ide-safe handshake and contract hardening"
-status: pending
+status: completed
 priority: P1
 effort: "4h"
 dependencies: []

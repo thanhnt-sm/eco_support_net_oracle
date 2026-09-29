@@ -28,6 +28,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Guards the VSIX gate invariants in ci.yml/release.yml (shared assert after MSBuild,
+      # fork-PR upload guard, release runs VS unit tests). See scripts/check-workflow-policy.py.
+      - name: Workflow policy check
+        run: |
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user pyyaml
+          python3 scripts/check-workflow-policy.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -157,34 +164,24 @@ jobs:
           & $env:MSBUILD src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m /nologo /v:minimal
           if ($LASTEXITCODE -ne 0) { throw "VSIX packaging build failed with exit code $LASTEXITCODE" }
 
+      # Shared gate with release.yml (scripts/assert-vsix.ps1). Expected version is the
+      # compiled fallback constant, which must equal the committed manifest version.
       - name: Assert VSIX contents
         shell: pwsh
         run: |
           $vsix = Get-ChildItem src/DataGuard.VisualStudio/bin/Release -Filter '*.vsix' -Recurse | Select-Object -First 1
           if ($null -eq $vsix) { throw 'VSSDK build did not produce a VSIX' }
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip = [System.IO.Compression.ZipFile]::OpenRead($vsix.FullName)
-          try {
-            $entries = $zip.Entries | ForEach-Object { $_.FullName }
-            foreach ($required in @('cli/dataguard.exe', 'DataGuard.Analyzers.dll', 'DataGuard.CodeFixes.dll', 'extension.vsixmanifest', 'DataGuard.VisualStudio.dll', 'DataGuard.VisualStudio.pkgdef')) {
-              if (-not ($entries -contains $required)) { throw "VSIX is missing required entry '$required'. Entries: $($entries -join ', ')" }
-            }
-            $manifestEntry = $zip.GetEntry('extension.vsixmanifest')
-            $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
-            try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
-            $manifestVersion = $manifest.PackageManifest.Metadata.Identity.Version
-            $sourceVersion = (Select-String -Path src/DataGuard.VisualStudio/ExtensionVersion.cs -Pattern 'Fallback = "([^"]+)"').Matches[0].Groups[1].Value
-            if ($manifestVersion -ne $sourceVersion) { throw "Manifest version '$manifestVersion' does not match ExtensionVersion.Fallback '$sourceVersion'" }
-            Write-Host "VSIX OK: $($vsix.Name) ($([math]::Round($vsix.Length / 1MB, 1)) MB), version $manifestVersion, $($entries.Count) entries"
-          } finally {
-            $zip.Dispose()
-          }
+          $sourceVersion = (Select-String -Path src/DataGuard.VisualStudio/ExtensionVersion.cs -Pattern 'Fallback = "([^"]+)"').Matches[0].Groups[1].Value
+          & pwsh -NoProfile -File scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $sourceVersion
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Fork PRs build the VSIX (the gate above still runs) but never publish it: an unsigned
+      # installable built from untrusted code must not be hosted under this repository.
       - name: Upload VSIX artifact
-        if: ${{ env.ACT != 'true' }}
+        if: ${{ env.ACT != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: dataguard-visualstudio-vsix-ci
+          name: dataguard-visualstudio-vsix-ci-${{ github.sha }}
           path: src/DataGuard.VisualStudio/bin/Release/**/*.vsix
           retention-days: 7
 

@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "VS Code parity: credential carve-out and old-CLI detection"
-status: pending
+status: completed
 priority: P1
 effort: "3h"
 dependencies: [1]

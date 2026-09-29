@@ -11,7 +11,7 @@ Priority: Critical · Status: done
 ## Requirements
 Functional:
 1. Trust gate: before any CLI run for a solution, require consent stored per `(solution dir, SHA-256 of .dataguard.yml or "absent")` in the VS user settings store (`ShellSettingsManager` → `WritableSettingsStore`, collection `DataGuard\TrustedSolutions`). First run → modal `VsShellUtilities.ShowMessageBox` (Yes/No) describing: solution path, config present?, that the run is ide-safe (no code loading / no DB connection), and that CLI reads repo files. Build-triggered runs never prompt: if no consent → skip with Output-pane line.
-2. Always pass `--ide-safe`. If the CLI exits 2 and stderr mentions `--ide-safe` (unrecognized option), report "CLI too old for ide-safe mode" and do **not** rerun without it.
+2. Always pass `--ide-safe`. If the CLI exits 1 (System.CommandLine unknown-option rejection) and stderr mentions `--ide-safe`, report "CLI too old for ide-safe mode" and do **not** rerun without it.
 3. Remove `TryAutoInstallCliAsync`; replace with actionable message.
 4. Custom CLI path must be rooted; no solution-relative resolution.
 5. `Navigate` → `errorListProvider.Navigate(task, VSConstants.LOGVIEWID_Code)` after `File.Exists` check.
@@ -39,7 +39,7 @@ Non-functional: every new file ≤ 200 lines; `DataGuardPackage.cs` ≤ 200 line
 | `DataGuardPackage.cs` | InitializeAsync, commands, Error List provider ownership, output pane, thin delegation |
 
 ## Related files
-Create: files above + `tests/DataGuard.VisualStudio.Tests/{SolutionTrustGateTests,SarifErrorListPublisherTests,CliArgumentBuilderTests,ExitCodeExplainerTests}.cs`.
+Create: files above + `tests/DataGuard.VisualStudio.Tests/{SolutionTrustGateTests,SarifErrorListPublisherTests,CliArgumentBuilderTests}.cs` (the `ExitCodeExplainer` tests live in `CliArgumentBuilderTests.cs`).
 Modify: `DataGuardPackage.cs`, `DataGuardLogger.cs`, `DataGuardOptionsPage.cs` (description text), existing tests (retarget statics to new classes).
 Delete: none.
 

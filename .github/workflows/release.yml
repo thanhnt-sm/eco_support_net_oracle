@@ -379,6 +379,68 @@ jobs:
             ${{ runner.temp }}/dataguard-vscode-*.vsix
             ${{ runner.temp }}/dataguard-vscode-*.vsix.sha256
 
+  # Standalone CLI assets for users and IDE custom-CLI paths (DataGuard.Cli is not on nuget.org).
+  # Framework-dependent (.NET 9 runtime required on the target); the RID-specific restore writes
+  # its own lock file so the committed packages.lock.json files stay untouched (same pattern as
+  # the VSIX's bundled-CLI publish).
+  cli-package:
+    name: Package CLI (${{ matrix.rid }})
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        rid: [win-x64, linux-x64, osx-arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish CLI (framework-dependent)
+        env:
+          RID: ${{ matrix.rid }}
+          RELEASE_VERSION: ${{ needs.build-and-test.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/DataGuard.Cli/DataGuard.Cli.csproj \
+            --configuration Release \
+            --runtime "$RID" \
+            --self-contained false \
+            --output "./publish/$RID" \
+            -p:PublishBundledCli=true \
+            -p:Version="$RELEASE_VERSION" \
+            -p:NuGetLockFilePath="obj/cli-publish-$RID.packages.lock.json" \
+            -p:RestoreLockedMode=false
+          ls -la "./publish/$RID"
+
+      - name: Zip and checksum
+        env:
+          RID: ${{ matrix.rid }}
+          RELEASE_VERSION: ${{ needs.build-and-test.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ./artifacts
+          asset="dataguard-$RELEASE_VERSION-$RID.zip"
+          (cd "./publish/$RID" && zip -qr "../../artifacts/$asset" .)
+          (cd ./artifacts && sha256sum "$asset" > "$asset.sha256" && cat "$asset.sha256")
+
+      - name: Upload CLI package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-cli-${{ matrix.rid }}
+          path: |
+            ./artifacts/dataguard-*.zip
+            ./artifacts/dataguard-*.zip.sha256
+          retention-days: 30
+
   visual-studio-package:
     name: Package Visual Studio Extension
     runs-on: windows-latest
@@ -388,6 +450,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Same unit-test gate as ci.yml, run against the committed source before the
+      # manifest/version patch below so a release never packages untested extension code.
+      - name: Restore Visual Studio tests
+        run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
+
+      - name: Run Visual Studio tests
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
 
       - name: Set VSIX manifest version
         shell: pwsh
@@ -421,6 +496,22 @@ jobs:
         run: |
           & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Shared gate with ci.yml (scripts/assert-vsix.ps1): required entries + manifest version
+      # equal to the release version patched in above.
+      - name: Assert VSIX contents
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build-and-test.outputs.release_version }}
+        run: |
+          $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
+          & pwsh -NoProfile -File scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage VSIX and checksum
+        shell: pwsh
+        run: |
           $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
           if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
           Copy-Item $vsix.FullName "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix"
@@ -438,7 +529,7 @@ jobs:
   create-github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-and-test, sign-packages, generate-sbom, vscode-package, visual-studio-package]
+    needs: [build-and-test, sign-packages, generate-sbom, cli-package, vscode-package, visual-studio-package]
     permissions:
       contents: write
     steps:
@@ -447,6 +538,13 @@ jobs:
         with:
           name: signed-nupkgs
           path: ./artifacts
+
+      - name: Download CLI packages (all RIDs)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dataguard-cli-*
+          path: ./artifacts
+          merge-multiple: true
 
       - name: Download SBOMs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -493,9 +591,11 @@ jobs:
             --target "${{ github.sha }}" \
             --draft \
             --title "$RELEASE_TAG" \
-            --notes "Release $RELEASE_TAG of DataGuard (NuGet packages, Visual Studio Extension, and VS Code Extension)." \
+            --notes "Release $RELEASE_TAG of DataGuard (NuGet packages, CLI packages per RID with SHA-256, Visual Studio Extension, and VS Code Extension)." \
             ./artifacts/*.nupkg \
             ./artifacts/*.sigstore.json \
+            ./artifacts/dataguard-*.zip \
+            ./artifacts/dataguard-*.zip.sha256 \
             ./artifacts/*.vsix \
             ./artifacts/*.vsix.sha256 \
             "${sbom_assets[@]}"
@@ -584,12 +684,20 @@ jobs:
           name: dataguard-visualstudio-vsix
           path: ./artifacts
 
+      - name: Download CLI packages (all RIDs)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dataguard-cli-*
+          path: ./artifacts
+          merge-multiple: true
+
       - name: Generate and publish build provenance attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
             ./artifacts/*.nupkg
             ./artifacts/*.vsix
+            ./artifacts/dataguard-*.zip
 
   docker:
     name: Build and Push Docker Image

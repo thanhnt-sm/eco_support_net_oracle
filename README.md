@@ -12,7 +12,9 @@
 ## Quickstart
 
 ```bash
-dotnet tool install -g DataGuard.Cli
+# Download dataguard-<version>-<rid>.zip for your OS from GitHub Releases and verify it with the
+# .sha256 file next to it (needs the .NET 9 runtime; DataGuard.Cli is not yet published on nuget.org):
+# https://github.com/thanhnt-sm/eco_support_net_oracle/releases
 cd YourProject
 dataguard init            # writes .dataguard.yml + .dataguard-snapshot.json
 dataguard validate        # runs contract rules against ground truth

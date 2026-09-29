@@ -1,7 +1,7 @@
 ---
 title: "VS hardening red-team follow-up (TDD)"
 description: ""
-status: pending
+status: in-progress
 priority: P2
 effort: 
 branch: feat/vs-extension-hardening
@@ -44,8 +44,8 @@ Tests-first follow-up to `plans/260929-0835-vs-extension-hardening/` (shipped in
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [CLI ide-safe handshake and contract hardening](./phase-01-cli-ide-safe-handshake-and-contract-hardening.md) | Pending |
-| 2 | [VS extension run-lifecycle and trust-gate fixes](./phase-02-vs-extension-run-lifecycle-and-trust-gate-fixes.md) | Pending |
-| 3 | [VS Code parity: credential carve-out and old-CLI detection](./phase-03-vs-code-parity-credential-carve-out-and-old-cli-detection.md) | Pending |
-| 4 | [Workflows and docs: shared VSIX assert and corrected claims](./phase-04-workflows-and-docs-shared-vsix-assert-and-corrected-claims.md) | Pending |
-| 5 | [Verification and PR update](./phase-05-verification-and-pr-update.md) | Pending |
+| 1 | [CLI ide-safe handshake and contract hardening](./phase-01-cli-ide-safe-handshake-and-contract-hardening.md) | Completed (cce75a0) |
+| 2 | [VS extension run-lifecycle and trust-gate fixes](./phase-02-vs-extension-run-lifecycle-and-trust-gate-fixes.md) | Completed |
+| 3 | [VS Code parity: credential carve-out and old-CLI detection](./phase-03-vs-code-parity-credential-carve-out-and-old-cli-detection.md) | Completed |
+| 4 | [Workflows and docs: shared VSIX assert and corrected claims](./phase-04-workflows-and-docs-shared-vsix-assert-and-corrected-claims.md) | Completed |
+| 5 | [Verification and PR update](./phase-05-verification-and-pr-update.md) | In progress |

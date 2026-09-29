@@ -20,13 +20,21 @@ dotnet add package DataGuard.Analyzers
 
 ### 2. Cài Đặt CLI Tool
 
-```bash
-# Cài global / Global install
-dotnet tool install -g DataGuard.Cli
+`DataGuard.Cli` **chưa** được publish lên nuget.org (owner sẽ đăng ký package ID), nên không dùng
+`dotnet tool install`. Tải `dataguard` từ GitHub Releases và kiểm tra SHA-256:
 
-# Hoặc cài local cho project
-dotnet tool install --local DataGuard.Cli
+```bash
+# 1. Tải dataguard-<version>-<rid>.zip (rid: win-x64 | linux-x64 | osx-arm64) và file .sha256 đi kèm từ
+#    https://github.com/thanhnt-sm/eco_support_net_oracle/releases
+# 2. Kiểm tra checksum
+sha256sum -c dataguard-0.3.0-linux-x64.zip.sha256                                   # Linux/macOS
+(Get-FileHash dataguard-0.3.0-win-x64.zip).Hash -ieq (Get-Content dataguard-0.3.0-win-x64.zip.sha256).Split(' ')[0]   # Windows
+# 3. Giải nén; đặt thư mục vào PATH hoặc trỏ IDE tới đường dẫn tuyệt đối của dataguard(.exe)
+#    Bản build là framework-dependent: máy cần .NET 9 runtime.
 ```
+
+IDE hosts (Visual Studio, VS Code) yêu cầu CLI **0.3.0 trở lên** cho `validate`/`assess`; CLI 0.2.2 trở
+xuống bị từ chối (xem `--ide-safe`). VSIX Visual Studio đã bundle sẵn `cli\dataguard.exe`.
 
 ### 3. Khởi Tạo Cấu Hình / Initialize Config
 
@@ -115,14 +123,21 @@ dataguard validate --connection "..." --verbose
 | `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`) | - |
 | `--progress` | Ghi JSON progress event từng dòng ra stderr (IDE dùng) | `false` |
 | `--ide-safe` | Chế độ IDE-safe cho repo chưa tin cậy (xem dưới) | `false` |
+| `--allow-env-connection` | Chỉ với `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp (chỉ `validate`) | `false` |
 
-**`--ide-safe` (IDE hosts / untrusted repositories)**:
-`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--ef-snapshot`, `--ef-project`, `--ef-context` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này.
+**`--ide-safe` (IDE hosts / untrusted repositories — chỉ `validate` và `assess`)**:
+`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--ef-snapshot`, `--ef-project`, `--ef-context` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`.
+
+- **Handshake**: dòng stderr **đầu tiên** luôn là `ide-safe: active` (in trước cả dòng từ chối option). Host chỉ chấp nhận kết quả khi thấy dòng này; CLI cũ (≤ 0.2.2) không biết cờ, in `Unrecognized command or argument '--ide-safe'` và **exit `1`** — host báo "CLI quá cũ" và không bao giờ chạy lại mà thiếu cờ.
+- **`--allow-env-connection`** (chỉ `validate`, không có tác dụng nếu thiếu `--ide-safe`): giữ lại đúng một credential là `DATAGUARD_CONNECTION_STRING` do host đặt; `ConnectionString` trong file config **luôn** bị xoá. Khi giữ, stderr in `ide-safe: kept environment connection (--allow-env-connection)`; `GroundTruthMode: Manual` bị ép về `Snapshot`. VS Code chỉ truyền cờ này khi có credential trong SecretStorage.
+- **Giới hạn tài nguyên**: `MaxDegreeOfParallelism` > số CPU, `MaxViolationQueueSize` > 100000, `ValidationTimeoutSeconds` > 900 bị kẹp về giới hạn và liệt kê dạng `Name=value (clamped to bound)` trong dòng `ide-safe: suppressed ...`.
+- **Baseline**: vẫn được áp dụng, nhưng mọi suppression đều hiển thị: stderr `baseline: <n> violations suppressed by <path>` và progress event `BaselineApplied` (`--progress`); host echo thành `[WARN]`.
+- **Gia cố regex**: mọi regex trong tiến trình CLI có match timeout 1 giây (input bệnh hoạn → `Validation failed: ...`, exit `1` thay vì treo); SQL literal dài hơn 256 KiB bị bỏ qua với `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`.
 
 **Exit Codes**:
 - `0` = Pass (không violation mới)
 - `1` = Fail (có violation mới, hoặc CLI lỗi trước khi in summary)
-- `2` = Sai tham số / config (kể cả option bị `--ide-safe` từ chối)
+- `2` = Sai tham số / config (kể cả option bị `--ide-safe` từ chối; lưu ý CLI ≤ 0.2.2 không biết `--ide-safe` thì exit `1`)
 - `3` = Validation incomplete (rule không khả dụng cho provider, hoặc không có nguồn contract)
 - `130` = Bị huỷ (Ctrl+C)
 
@@ -290,10 +305,9 @@ exit 0
 ### 1. Legacy Codebase Onboarding (Onboarding Dự Án Cũ)
 
 ```bash
-# 1. Cài đặt packages
+# 1. Cài đặt packages + CLI (tải từ GitHub Releases, kiểm tra SHA-256 — xem "Cài Đặt CLI Tool")
 dotnet add package DataGuard.Core
 dotnet add package DataGuard.Oracle.Adapter  # nếu Oracle
-dotnet tool install -g DataGuard.Cli
 
 # 2. Interactive setup
 dataguard init --wizard
@@ -430,9 +444,18 @@ Menu **Tools → DataGuard**: Run Validation, Cancel, Assess Workspace, View Dia
 **Mô hình tin cậy / Trust model**:
 - Lần chạy đầu tiên cho mỗi solution, extension hỏi xác nhận (modal) và lưu đồng ý theo cặp *(thư mục solution, SHA-256 của `.dataguard.yml`)* trong user settings của VS. Khi repo đổi `.dataguard.yml`, extension hỏi lại.
 - "Run Validation on Build" **không bao giờ** hỏi; nếu solution chưa được đồng ý thì bỏ qua và ghi một dòng vào Output pane.
-- CLI luôn chạy với `--ide-safe` (không nạp assembly, không kết nối DB/secret manager/network). Nếu CLI cũ không nhận cờ này, extension dừng lại thay vì chạy không an toàn.
-- CLI được bundle trong VSIX (`cli\dataguard.exe`); có thể chỉ định đường dẫn tuyệt đối khác trong Tools → Options → DataGuard → General. Extension **không** tự cài `dotnet tool` nữa.
+- `validate`/`assess` luôn chạy với `--ide-safe` (không nạp assembly, không kết nối DB/secret manager/network); extension không có lệnh kết nối database và không truyền `--allow-env-connection`. Kết quả chỉ được nạp vào Error List khi CLI in `ide-safe: active`; thiếu dòng này thì kết quả bị huỷ, và CLI ≤ 0.2.2 (từ chối cờ, exit 1) được báo là quá cũ.
+- Đồng ý được khoá theo *(thư mục solution, đường dẫn `.sln`, SHA-256 của `.dataguard.yml`)*; lệnh **Forget Solution Consent** xoá đồng ý của solution hiện tại.
+- CLI được bundle trong VSIX (`cli\dataguard.exe`); có thể chỉ định đường dẫn tuyệt đối khác tới một `dataguard.exe` tải từ GitHub Releases (kiểm tra SHA-256) trong Tools → Options → DataGuard → General. Extension **không** tự cài và **không** hướng dẫn `dotnet tool install` nữa.
+- Dòng `ide-safe:`/`baseline:` của CLI được hiển thị trong Output pane.
 - Không có `.dataguard.yml` trong solution: CLI chỉ chạy các rule source-only và extension cảnh báo rõ trong Output pane.
+
+### VS Code Extension (`DataGuard.VSCode`)
+
+- `validate`/`assess` chạy với `--ide-safe`; kết quả bị huỷ nếu dòng stderr đầu tiên không phải `ide-safe: active` (thông báo `DataGuard CLI did not confirm IDE-safe mode; results were discarded`, kèm gợi ý `Update the dataguard CLI (0.3.0 or later) or set dataguard.cliPath` khi CLI cũ).
+- Khi có credential trong VS Code SecretStorage, `validate` truyền thêm `--allow-env-connection`: CLI chỉ giữ credential đó (không bao giờ giữ connection string trong `.dataguard.yml`).
+- **Refresh Snapshot**, **Create Baseline**, **Verify SQL Shapes Against Database** (`snapshot`, `baseline`, `verify-shape`) là lệnh kết nối database thật: dùng credential của bạn (hoặc kết nối trong `.dataguard.yml`/`DATAGUARD_CONNECTION_STRING`) và luôn hỏi xác nhận (modal) nêu host đích đã che trước khi chạy; không truyền `--ide-safe`.
+- Dòng `ide-safe:`/`baseline:` của CLI hiển thị trong DataGuard output channel dưới dạng `[WARN]`.
 
 ---
 
@@ -464,8 +487,15 @@ jobs:
       - name: Restore
         run: dotnet restore
       
-      - name: Install DataGuard CLI
-        run: dotnet tool install -g DataGuard.Cli
+      - name: Install DataGuard CLI (GitHub Releases, verify SHA-256)
+        run: |
+          asset="dataguard-${DATAGUARD_VERSION}-linux-x64.zip"
+          base="https://github.com/thanhnt-sm/eco_support_net_oracle/releases/download/v${DATAGUARD_VERSION}"
+          curl -sSL -O "$base/$asset" -O "$base/$asset.sha256"
+          sha256sum -c "$asset.sha256"
+          unzip -q "$asset" -d "$HOME/dataguard" && echo "$HOME/dataguard" >> "$GITHUB_PATH"
+        env:
+          DATAGUARD_VERSION: "0.3.0"     # release tag without the v prefix; needs the .NET 9 runtime above
       
       - name: DataGuard Validate
         run: |
@@ -498,8 +528,14 @@ steps:
   inputs:
     version: '9.0.x'
 
-- script: dotnet tool install -g DataGuard.Cli
-  displayName: 'Install DataGuard CLI'
+- script: |
+    asset="dataguard-$(DATAGUARD_VERSION)-linux-x64.zip"
+    base="https://github.com/thanhnt-sm/eco_support_net_oracle/releases/download/v$(DATAGUARD_VERSION)"
+    curl -sSL -O "$base/$asset" -O "$base/$asset.sha256"
+    sha256sum -c "$asset.sha256"
+    unzip -q "$asset" -d "$(Agent.ToolsDirectory)/dataguard"
+    echo "##vso[task.prependpath]$(Agent.ToolsDirectory)/dataguard"
+  displayName: 'Install DataGuard CLI (GitHub Releases, verify SHA-256)'
 
 - script: |
     dataguard validate \
@@ -527,7 +563,12 @@ dataguard_validate:
   stage: validate
   image: mcr.microsoft.com/dotnet/sdk:9.0
   before_script:
-    - dotnet tool install -g DataGuard.Cli
+    # Download from GitHub Releases and verify SHA-256 (DataGuard.Cli is not on nuget.org yet)
+    - ASSET="dataguard-${DATAGUARD_VERSION}-linux-x64.zip"
+    - BASE="https://github.com/thanhnt-sm/eco_support_net_oracle/releases/download/v${DATAGUARD_VERSION}"
+    - curl -sSL -O "$BASE/$ASSET" -O "$BASE/$ASSET.sha256"
+    - sha256sum -c "$ASSET.sha256"
+    - unzip -q "$ASSET" -d /opt/dataguard && export PATH="/opt/dataguard:$PATH"
   script:
     - dataguard validate --connection "$ORACLE_CONNECTION" --format sarif --output dataguard.sarif
   artifacts:

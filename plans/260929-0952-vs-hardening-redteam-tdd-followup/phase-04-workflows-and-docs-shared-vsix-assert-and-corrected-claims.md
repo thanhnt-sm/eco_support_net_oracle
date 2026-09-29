@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Workflows and docs: shared VSIX assert and corrected claims"
-status: pending
+status: completed
 priority: P2
 effort: "2h"
 dependencies: [2, 3]

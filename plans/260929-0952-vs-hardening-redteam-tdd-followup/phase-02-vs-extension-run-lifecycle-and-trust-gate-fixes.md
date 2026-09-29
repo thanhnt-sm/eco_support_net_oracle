@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "VS extension run-lifecycle and trust-gate fixes"
-status: pending
+status: completed
 priority: P1
 effort: "6h"
 dependencies: [1]

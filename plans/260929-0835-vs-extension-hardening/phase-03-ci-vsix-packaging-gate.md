@@ -10,7 +10,7 @@ Priority: High · Status: done
 - New job `visual-studio-vsix-package` on `windows-latest`: locate MSBuild via vswhere, `msbuild src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m`.
 - Assert the produced VSIX contains `cli/dataguard.exe`, `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `extension.vsixmanifest`; assert manifest `Identity Version` matches `ExtensionVersion.Fallback` constant in source (grep).
 - Upload the VSIX as a CI artifact (retention 7 days).
-- Runs on push/PR like other jobs; `timeout-minutes: 30` (self-contained publish is slow).
+- Runs on push/PR like other jobs; `timeout-minutes: 40` (self-contained publish is slow).
 
 ## Related files
 Modify: `.github/workflows/ci.yml`.
