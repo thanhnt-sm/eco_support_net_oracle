@@ -1,0 +1,473 @@
+name: Build Installers
+
+# Builds the installable DataGuard artifacts (CLI zip per RID, VS Code VSIX, Visual Studio VSIX)
+# on every push to main and on demand, and publishes them to a rolling `nightly` GitHub
+# pre-release so the owner can download them without cutting a versioned `v*` release.
+# Versioned releases stay in release.yml; this workflow never touches `v*` tags.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "plans/**"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer without v prefix (for example 0.3.0 or 0.3.0-rc.1). Empty derives <ExtensionVersion.Fallback>-nightly.<yyyyMMdd>.<run_number>."
+        required: false
+        default: ""
+        type: string
+      publish_prerelease:
+        description: "Publish the artifacts to the rolling 'nightly' GitHub pre-release"
+        required: false
+        default: true
+        type: boolean
+
+# Least-privilege floor; only `publish` elevates to contents: write.
+permissions:
+  contents: read
+
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: "9.0.x"
+  CLI_PROJECT: src/DataGuard.Cli/DataGuard.Cli.csproj
+  VSCODE_DIR: src/DataGuard.VSCode
+  VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
+
+jobs:
+  resolve-version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      plain_semver: ${{ steps.resolve.outputs.plain_semver }}
+      short_sha: ${{ steps.resolve.outputs.short_sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      # `inputs.version` is empty on push events. A derived nightly version carries a prerelease
+      # suffix, so `plain_semver` tells the Visual Studio job whether the VSIX manifest may be
+      # patched (VSIX manifests reject prerelease strings).
+      - name: Resolve version
+        id: resolve
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
+          VERSION_SOURCE: ${{ env.VISUAL_STUDIO_DIR }}/ExtensionVersion.cs
+        run: |
+          set -euo pipefail
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?$'
+          if [[ -n "$INPUT_VERSION" ]]; then
+            version="$INPUT_VERSION"
+          else
+            fallback="$(sed -n 's/.*Fallback = "\([^"]*\)".*/\1/p' "$VERSION_SOURCE" | head -n 1)"
+            if [[ -z "$fallback" ]]; then
+              echo "::error::ExtensionVersion.Fallback constant not found in $VERSION_SOURCE" >&2
+              exit 1
+            fi
+            version="$fallback-nightly.$(date -u +%Y%m%d).$RUN_NUMBER"
+          fi
+          if [[ "$version" =~ [[:space:]/] ]]; then
+            echo "::error::Version '$version' must not contain whitespace or '/'." >&2
+            exit 1
+          fi
+          if [[ ! "$version" =~ $semver ]]; then
+            echo "::error::Version '$version' must be SemVer without a v prefix and without build metadata (GitHub rewrites '+' in asset names, which would break the .sha256 files)." >&2
+            exit 1
+          fi
+          plain=false
+          if [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            plain=true
+          fi
+          {
+            echo "version=$version"
+            echo "tag=nightly"
+            echo "plain_semver=$plain"
+            echo "short_sha=${COMMIT_SHA:0:7}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved version $version (plain SemVer: $plain)"
+
+  # Framework-dependent CLI per RID (.NET 9 runtime required on the target), same recipe as
+  # release.yml's cli-package job. The RID-specific restore writes its own lock file so the
+  # committed packages.lock.json files stay untouched. fetch-depth 0: MinVer needs tag history.
+  cli:
+    name: CLI (${{ matrix.rid }})
+    runs-on: ubuntu-latest
+    needs: resolve-version
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, linux-x64, osx-arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      # MinVer (Directory.Build.props) recomputes Version from git history at build time and wins
+      # over -p:Version alone, so MinVerVersionOverride is what actually stamps the assembly.
+      - name: Publish CLI (framework-dependent)
+        env:
+          RID: ${{ matrix.rid }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          dotnet publish "$CLI_PROJECT" \
+            --configuration Release \
+            --runtime "$RID" \
+            --self-contained false \
+            --output "$RUNNER_TEMP/publish/$RID" \
+            -p:PublishBundledCli=true \
+            -p:MinVerVersionOverride="$VERSION" \
+            -p:Version="$VERSION" \
+            -p:NuGetLockFilePath="obj/cli-publish-$RID.packages.lock.json" \
+            -p:RestoreLockedMode=false
+          ls -la "$RUNNER_TEMP/publish/$RID"
+
+      - name: Zip and checksum
+        env:
+          RID: ${{ matrix.rid }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/artifacts"
+          asset="dataguard-$VERSION-$RID.zip"
+          (cd "$RUNNER_TEMP/publish/$RID" && zip -qr "$RUNNER_TEMP/artifacts/$asset" .)
+          (cd "$RUNNER_TEMP/artifacts" && sha256sum "$asset" > "$asset.sha256" && cat "$asset.sha256")
+          test -s "$RUNNER_TEMP/artifacts/$asset"
+          test -s "$RUNNER_TEMP/artifacts/$asset.sha256"
+
+      - name: Upload CLI package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-cli-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/artifacts/dataguard-*.zip
+            ${{ runner.temp }}/artifacts/dataguard-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  # `npm run package` runs prepare-lsp (dotnet publish of DataGuard.LanguageServer into server/)
+  # before vsce, so the VSIX carries the language server; that is why .NET is set up here.
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    needs: resolve-version
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install and test
+        working-directory: ${{ env.VSCODE_DIR }}
+        run: |
+          npm ci
+          npm test
+
+      # `--out` is appended to the script string, so prepare-lsp still runs before vsce.
+      - name: Package VSIX and checksum
+        working-directory: ${{ env.VSCODE_DIR }}
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/artifacts"
+          asset="dataguard-vscode-$VERSION.vsix"
+          npm pkg set version="$VERSION"
+          npm run package -- --out "$RUNNER_TEMP/artifacts/$asset"
+          (cd "$RUNNER_TEMP/artifacts" && sha256sum "$asset" > "$asset.sha256" && cat "$asset.sha256")
+          test -s "$RUNNER_TEMP/artifacts/$asset"
+          test -s "$RUNNER_TEMP/artifacts/$asset.sha256"
+
+      - name: Upload VS Code VSIX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-vscode-vsix
+          path: |
+            ${{ runner.temp }}/artifacts/dataguard-vscode-*.vsix
+            ${{ runner.temp }}/artifacts/dataguard-vscode-*.vsix.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  visualstudio:
+    name: Visual Studio extension
+    runs-on: windows-latest
+    needs: resolve-version
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Same unit-test gate as ci.yml/release.yml, run against the committed source before any
+      # version patch so a nightly never packages untested extension code.
+      - name: Restore Visual Studio tests
+        run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
+
+      - name: Run Visual Studio tests
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
+
+      # VSIX manifests reject prerelease strings, so the manifest (and the compiled fallback that
+      # CI asserts against it) is patched only for a plain SemVer input. A nightly build keeps
+      # ExtensionVersion.Fallback; the nightly version is carried in the file name only.
+      - name: Set VSIX manifest version (plain SemVer only)
+        if: needs.resolve-version.outputs.plain_semver == 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifestPath = "$env:VISUAL_STUDIO_DIR/source.extension.vsixmanifest"
+          [xml]$manifest = Get-Content -LiteralPath $manifestPath
+          $manifest.PackageManifest.Metadata.Identity.Version = $env:VERSION
+          $manifest.Save((Resolve-Path -LiteralPath $manifestPath))
+          $versionSource = "$env:VISUAL_STUDIO_DIR/ExtensionVersion.cs"
+          $content = Get-Content -LiteralPath $versionSource -Raw
+          # Presence is checked separately: when the input equals the committed Fallback the
+          # replacement is a no-op, which must not be mistaken for a missing constant.
+          if ($content -notmatch 'Fallback = "[^"]+"') { throw "ExtensionVersion.Fallback constant not found in $versionSource" }
+          $updated = $content -replace 'Fallback = "[^"]+"', ('Fallback = "' + $env:VERSION + '"')
+          Set-Content -LiteralPath $versionSource -Value $updated -NoNewline
+
+      # Expected manifest version = the compiled fallback (patched above, or the committed one).
+      - name: Resolve expected manifest version
+        id: manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $match = Select-String -Path "$env:VISUAL_STUDIO_DIR/ExtensionVersion.cs" -Pattern 'Fallback = "([^"]+)"'
+          if ($null -eq $match -or $match.Matches.Count -eq 0) { throw 'ExtensionVersion.Fallback constant not found' }
+          $sourceVersion = $match.Matches[0].Groups[1].Value
+          "version=$sourceVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Expected VSIX manifest version: $sourceVersion"
+
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild not found on runner' }
+          "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      # Same packaging command as ci.yml's Visual Studio VSIX Packaging Gate.
+      - name: Package VSIX (CreateVsixContainer=true)
+        shell: pwsh
+        env:
+          MSBUILD: ${{ steps.msbuild.outputs.path }}
+        run: |
+          & $env:MSBUILD src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { throw "VSIX packaging build failed with exit code $LASTEXITCODE" }
+
+      # Shared gate with ci.yml/release.yml (scripts/assert-vsix.ps1): required entries + manifest version.
+      - name: Assert VSIX contents
+        shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw 'VSSDK build did not produce a VSIX' }
+          & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $env:EXPECTED_VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage VSIX and checksum
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw 'VSSDK build did not produce a VSIX' }
+          $artifacts = Join-Path $env:RUNNER_TEMP 'artifacts'
+          New-Item -ItemType Directory -Force $artifacts | Out-Null
+          $output = Join-Path $artifacts "DataGuard.VisualStudio-$env:VERSION.vsix"
+          Copy-Item -LiteralPath $vsix.FullName -Destination $output -Force
+          # Lowercase hash + two spaces + file name: the format `sha256sum -c` expects.
+          $hash = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $output)" | Set-Content -LiteralPath "$output.sha256" -NoNewline
+          if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { throw "VSIX not found: $output" }
+          if (-not (Test-Path -LiteralPath "$output.sha256" -PathType Leaf)) { throw "Checksum not found: $output.sha256" }
+          Get-Content -LiteralPath "$output.sha256"
+
+      - name: Upload Visual Studio VSIX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dataguard-visualstudio-vsix
+          path: |
+            ${{ runner.temp }}/artifacts/DataGuard.VisualStudio-*.vsix
+            ${{ runner.temp }}/artifacts/DataGuard.VisualStudio-*.vsix.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  # Rolling pre-release: the previous `nightly` release and tag are removed and a fresh one is
+  # created at the current commit. Versioned `v*` tags and release.yml are never touched.
+  publish:
+    name: Publish nightly pre-release
+    runs-on: ubuntu-latest
+    needs: [resolve-version, cli, vscode, visualstudio]
+    if: github.event_name == 'push' || inputs.publish_prerelease
+    permissions:
+      contents: write
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dataguard-*
+          path: ./assets
+          merge-multiple: true
+
+      # Every .sha256 must verify against its payload before anything is published; this also
+      # proves the Windows-written checksum is in `sha256sum -c` format.
+      - name: Verify assets
+        run: |
+          set -euo pipefail
+          cd ./assets
+          ls -la
+          shopt -s nullglob
+          payloads=(*.zip *.vsix)
+          checksums=(*.sha256)
+          if (( ${#payloads[@]} != 5 )); then
+            echo "::error::Expected 5 installer payloads (3 CLI zips, 2 VSIX), found ${#payloads[@]}: ${payloads[*]}" >&2
+            exit 1
+          fi
+          if (( ${#checksums[@]} != ${#payloads[@]} )); then
+            echo "::error::Expected ${#payloads[@]} .sha256 files, found ${#checksums[@]}" >&2
+            exit 1
+          fi
+          for checksum in "${checksums[@]}"; do
+            sha256sum -c "$checksum"
+          done
+
+      - name: Write release notes
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          SHORT_SHA: ${{ needs.resolve-version.outputs.short_sha }}
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PLAIN_SEMVER: ${{ needs.resolve-version.outputs.plain_semver }}
+        run: |
+          set -euo pipefail
+          if [[ "$PLAIN_SEMVER" == "true" ]]; then
+            manifest_note="The Visual Studio VSIX manifest and the VS Code package version are set to \`$VERSION\`."
+          else
+            manifest_note="The Visual Studio VSIX manifest keeps the committed version (VSIX manifests reject prerelease strings), so Visual Studio shows the same version as the last tagged build: uninstall the existing DataGuard extension before installing a nightly. The VS Code package version is \`$VERSION\`."
+          fi
+          cat > body.md <<EOF
+          # Nightly build $VERSION
+
+          Automated, **unsigned** pre-release built from \`$REF_NAME\` at \`$COMMIT_SHA\` ([workflow run]($RUN_URL)).
+          It is rebuilt on every push to \`main\`; the \`nightly\` tag always points at the latest build.
+          For a versioned, signed release use the \`v*\` releases instead.
+
+          ## Files
+
+          | File | What it is |
+          | --- | --- |
+          | \`dataguard-$VERSION-win-x64.zip\` | DataGuard CLI for Windows x64 (framework-dependent, needs the .NET 9 runtime) |
+          | \`dataguard-$VERSION-linux-x64.zip\` | DataGuard CLI for Linux x64 (framework-dependent, needs the .NET 9 runtime) |
+          | \`dataguard-$VERSION-osx-arm64.zip\` | DataGuard CLI for macOS Apple Silicon (framework-dependent, needs the .NET 9 runtime) |
+          | \`dataguard-vscode-$VERSION.vsix\` | VS Code extension (includes the language server) |
+          | \`DataGuard.VisualStudio-$VERSION.vsix\` | Visual Studio 2022 extension (bundles \`cli\\dataguard.exe\` and the Roslyn analyzers) |
+          | \`*.sha256\` | SHA-256 checksum of the file with the same name |
+
+          $manifest_note
+
+          ## Verify
+
+          \`\`\`bash
+          sha256sum -c dataguard-$VERSION-linux-x64.zip.sha256          # Linux / macOS (any of the files)
+          \`\`\`
+
+          \`\`\`powershell
+          (Get-FileHash dataguard-$VERSION-win-x64.zip).Hash -ieq (Get-Content dataguard-$VERSION-win-x64.zip.sha256).Split(' ')[0]   # Windows
+          \`\`\`
+
+          ## Install
+
+          - **CLI**: unzip, then add the folder to \`PATH\` or point the IDE setting \`dataguard.cliPath\` / the Visual Studio custom CLI path at the absolute path of \`dataguard\` (\`dataguard.exe\` on Windows).
+          - **VS Code**: \`code --install-extension dataguard-vscode-$VERSION.vsix --force\` (or Extensions view → \`...\` → Install from VSIX).
+          - **Visual Studio**: double-click \`DataGuard.VisualStudio-$VERSION.vsix\` (VSIXInstaller) and restart Visual Studio.
+          EOF
+          cat body.md
+
+      - name: Recreate rolling nightly pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve-version.outputs.tag }}
+          VERSION: ${{ needs.resolve-version.outputs.version }}
+          SHORT_SHA: ${{ needs.resolve-version.outputs.short_sha }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Removing previous $TAG release and tag..."
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          # A dangling tag (release deleted by hand, or a cancelled run) would make
+          # `gh release create --target` silently reuse the old commit, so remove it too.
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Removing dangling $TAG tag..."
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          fi
+          gh release create "$TAG" \
+            --prerelease \
+            --target "$COMMIT_SHA" \
+            --title "Nightly build $VERSION ($SHORT_SHA)" \
+            --notes-file body.md \
+            ./assets/*.zip \
+            ./assets/*.zip.sha256 \
+            ./assets/*.vsix \
+            ./assets/*.vsix.sha256
+          # The release API creates a lightweight tag; verify it points at this commit.
+          actual="$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" -q .object.sha)"
+          if [[ "$actual" != "$COMMIT_SHA" ]]; then
+            echo "::error::Tag $TAG points at $actual, expected $COMMIT_SHA" >&2
+            exit 1
+          fi
+          gh release view "$TAG" --json url,assets -q '.url, (.assets[] | .name)'

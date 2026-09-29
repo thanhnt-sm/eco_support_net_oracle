@@ -90,6 +90,10 @@ CASES: list[tuple[str, str, str, str | None]] = [
              "github.event.pull_request.head.repo.full_name == github.repository) }}"), None),
     ("both PR triggers fail closed", "ci.yml", fixture("pull_request, pull_request_target"), "(b)"),
     ("unguarded upload without a PR trigger is allowed", "ci.yml", fixture("push", upload_if=""), None),
+    ("installers shape push plus dispatch with unguarded upload passes", "installers.yml",
+     fixture("push, workflow_dispatch", upload_if=""), None),
+    ("installers msbuild without assert fails", "installers.yml",
+     fixture("push, workflow_dispatch", assert_run="# scripts/assert-vsix.ps1 was here", upload_if=""), "(a)"),
     ("release VS test step with continue-on-error does not count", "release.yml", RELEASE_FIXTURE, "(c)"),
 ]
 
