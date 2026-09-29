@@ -40,17 +40,14 @@ public static class ProviderRuleCatalog
     /// <param name="provider">Provider key (sqlserver, oracle, postgresql, mysql).</param>
     /// <param name="connectionString">Connection used by connection-bound rules; null registers their offline variants.</param>
     /// <param name="progress">Optional progress sink for long-running rules.</param>
-    /// <param name="ideSafe">True under <c>--ide-safe</c>: a kept environment credential serves ground-truth acquisition only, so the live SQL shape rule is registered connection-less.</param>
     public static IReadOnlyList<ProviderRuleRegistration> Get(
         string provider,
         string? connectionString = null,
-        ProgressEmitter? progress = null,
-        bool ideSafe = false)
+        ProgressEmitter? progress = null)
     {
         var rules = new List<ProviderRuleRegistration>();
 
-        // IDE-safe: the kept credential never drives sp_describe_first_result_set over repo-extracted SQL (review H1).
-        AddCoreRules(rules, ideSafe ? null : connectionString, provider, progress);
+        AddCoreRules(rules, connectionString, provider, progress);
         if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
         {
             Add(rules, new NonOracleFunctionInOracleContextRule());

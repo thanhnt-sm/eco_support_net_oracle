@@ -54,11 +54,10 @@ public class ProviderRuleCatalogTests
     }
 
     [Fact]
-    public void Get_IdeSafeWithKeptConnection_RegistersConnectionlessLiveShapeRule()
+    public void Get_WithoutConnection_RegistersConnectionlessLiveShapeRule()
     {
-        // H1: the kept --allow-env-connection credential is for ground-truth acquisition only; repo-extracted SQL
-        // must never be described against it during validate (that is verify-shape, behind a host confirmation).
-        var registrations = ProviderRuleCatalog.Get("sqlserver", "Server=127.0.0.1,1;Connect Timeout=1", progress: null, ideSafe: true);
+        // The catalog has one switch: a null connection registers the offline variant (IDE-safe hands it null, see IdeSafePolicyTests).
+        var registrations = ProviderRuleCatalog.Get("sqlserver", connectionString: null);
 
         var live = registrations.Select(registration => registration.Rule).OfType<LiveSqlShapeValidationRule>().Single();
         live.HasLiveConnection.Should().BeFalse();

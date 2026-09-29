@@ -14,20 +14,22 @@ internal static class ExitCodeExplainer
     internal const string TerminatedAtTimeoutExplanation =
         "[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.";
 
-    /// <summary>One-line explanation of the run; <paramref name="terminatedAtTimeout"/> means the extension killed the process at the timeout, so the exit code is not the CLI's verdict.</summary>
-    internal static string Explain(string command, int exitCode, bool hasSummary, int warningCount, bool sarifExists, bool terminatedAtTimeout = false)
+    /// <summary>One-line explanation of the run. A run the extension killed at the timeout is explained as such, since its exit code is taskkill's, not the CLI's verdict.</summary>
+    internal static string Explain(string command, CliRunOutcome outcome, bool sarifExists)
     {
-        if (terminatedAtTimeout)
+        if (outcome.TerminatedAtTimeout)
         {
             return TerminatedAtTimeoutExplanation;
         }
 
+        var exitCode = outcome.ExitCode;
+        var hasSummary = outcome.Progress.HasSummary;
         if (hasSummary && !sarifExists && (exitCode == 0 || exitCode == 1))
         {
             return "[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)";
         }
 
-        if (exitCode == 0 && hasSummary && warningCount > 0)
+        if (exitCode == 0 && hasSummary && outcome.Progress.WarningCount > 0)
         {
             return "[WARN] Validation completed with warnings. See Error List.";
         }

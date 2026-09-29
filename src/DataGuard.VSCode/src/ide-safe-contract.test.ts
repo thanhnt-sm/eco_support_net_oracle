@@ -8,13 +8,14 @@ const ACK = "ide-safe: active";
 const OLD_CLI_LINE = "Unrecognized command or argument '--ide-safe'.";
 
 test("hasIdeSafeAck accepts only an exact ack as the first non-empty stderr line", () => {
-    assert.equal(hasIdeSafeAck([ACK]), true);
-    assert.equal(hasIdeSafeAck(["", "   ", `${ACK}\r`, "ide-safe: suppressed ConnectionString from config"]), true, "blank lines and CR are ignored");
-    assert.equal(hasIdeSafeAck([]), false);
-    assert.equal(hasIdeSafeAck(["ide-safe: suppressed X", ACK]), false, "the ack must come first");
-    assert.equal(hasIdeSafeAck(["ide-safe: active!"]), false, "no prefix match");
-    assert.equal(hasIdeSafeAck(["IDE-SAFE: ACTIVE"]), false, "exact case");
-    assert.equal(hasIdeSafeAck([`{"Kind":"PhaseStarted","Detail":"${ACK}"}`]), false, "a progress event is not the ack");
+    assert.equal(hasIdeSafeAck(ACK), true);
+    assert.equal(hasIdeSafeAck(`  ${ACK}\r`), true, "surrounding whitespace and CR are ignored");
+    assert.equal(hasIdeSafeAck(undefined), false, "no stderr line at all");
+    assert.equal(hasIdeSafeAck(""), false);
+    assert.equal(hasIdeSafeAck("ide-safe: suppressed X"), false, "the ack must be the first non-empty line, not a later one");
+    assert.equal(hasIdeSafeAck("ide-safe: active!"), false, "no prefix match");
+    assert.equal(hasIdeSafeAck("IDE-SAFE: ACTIVE"), false, "exact case");
+    assert.equal(hasIdeSafeAck(`{"Kind":"PhaseStarted","Detail":"${ACK}"}`), false, "a progress event is not the ack");
 });
 
 test("isOldCliRejection is anchored at line start and recognises both new flags", () => {
@@ -34,12 +35,12 @@ test("MIN_CLI_VERSION names the first CLI that acknowledges ide-safe", () => {
 
 test("buildIdeSafeFailureMessage adds the update hint only for an old-CLI rejection", () => {
     const base = "DataGuard CLI did not confirm IDE-safe mode; results were discarded";
-    assert.equal(buildIdeSafeFailureMessage([]), base);
-    assert.equal(buildIdeSafeFailureMessage(["Validation failed: boom"]), base);
-    const withHint = buildIdeSafeFailureMessage([OLD_CLI_LINE, "Some other line"]);
+    assert.equal(buildIdeSafeFailureMessage(undefined), base);
+    assert.equal(buildIdeSafeFailureMessage(""), base);
+    assert.equal(buildIdeSafeFailureMessage("Validation failed: boom"), base);
+    const withHint = buildIdeSafeFailureMessage(OLD_CLI_LINE);
     assert.ok(withHint.startsWith(base));
     assert.ok(withHint.endsWith(`Update the dataguard CLI (${MIN_CLI_VERSION} or later) or set dataguard.cliPath`));
-    assert.ok(!buildIdeSafeFailureMessage(["", OLD_CLI_LINE]).includes("Update"), "only the first line is consulted for the hint");
 });
 
 test("formatProgressLine renders the exact ide-safe ack as [INFO] and every other ide-safe:/baseline: line as [WARN]", () => {

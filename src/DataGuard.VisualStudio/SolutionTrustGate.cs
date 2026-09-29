@@ -92,20 +92,7 @@ internal sealed class SolutionTrustGate
         return sb.ToString();
     }
 
-    private static string NormalizePath(string path)
-    {
-        string full;
-        try
-        {
-            full = Path.GetFullPath(path);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            full = path;
-        }
-
-        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant();
-    }
+    private static string NormalizePath(string path) => PathNormalization.NormalizeFullPath(path).ToUpperInvariant();
 
     private static byte[] Sha256(byte[] data)
     {

@@ -506,7 +506,7 @@ jobs:
         run: |
           $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
           if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
-          & pwsh -NoProfile -File scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $env:VERSION
+          & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $env:VERSION
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stage VSIX and checksum

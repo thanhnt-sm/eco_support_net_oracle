@@ -6,6 +6,7 @@ namespace DataGuard.VisualStudio;
 
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 
 /// <summary>
 /// Single-run guard for CLI processes: at most one command runs per package instance, cancellation
@@ -54,6 +55,8 @@ internal sealed class CliProcessRegistry
             }
 
             this.commandReserved = true;
+
+            // The only reset needed: a Cancel can be recorded only while a reservation is held.
             this.cancelPending = false;
             return true;
         }
@@ -64,7 +67,6 @@ internal sealed class CliProcessRegistry
         lock (this.gate)
         {
             this.commandReserved = false;
-            this.cancelPending = false;
         }
     }
 
@@ -92,10 +94,10 @@ internal sealed class CliProcessRegistry
         }
     }
 
-    /// <summary>Starts the process and registers it atomically so Cancel cannot observe a half-started run.</summary>
-    public void StartAndRegister(Process process) => this.StartAndRegister(process, p => p.Start());
-
-    /// <summary>Same as <see cref="StartAndRegister(Process)"/> with an injected starter (tests assert the calling thread).</summary>
+    /// <summary>
+    /// Starts the process through <paramref name="start"/> (injected so tests can assert the calling
+    /// thread) and registers it atomically so Cancel cannot observe a half-started run.
+    /// </summary>
     public void StartAndRegister(Process process, Action<Process> start)
     {
         lock (this.gate)
@@ -112,6 +114,22 @@ internal sealed class CliProcessRegistry
         {
             return ReferenceEquals(this.cancelledProcess, process);
         }
+    }
+
+    /// <summary>
+    /// Stops the process on the thread pool through <paramref name="stop"/> and records the cancellation
+    /// once the stop has finished. Cancel awaits the result; the solution-close handler must not (that
+    /// would block the UI thread on taskkill for up to 6 s) and relies on the publish gate's solution
+    /// re-check to discard a result that arrives late.
+    /// </summary>
+    public Task<ProcessStopOutcome> StopAndMarkCancelledAsync(Process process, Func<Process, ProcessStopOutcome> stop)
+    {
+        return Task.Run(() =>
+        {
+            var outcome = stop(process);
+            this.TryMarkCancelled(process, outcome);
+            return outcome;
+        });
     }
 
     /// <summary>Records a cancellation only when the stop actually terminated the still-active process.</summary>
@@ -148,7 +166,6 @@ internal sealed class CliProcessRegistry
             }
 
             this.commandReserved = false;
-            this.cancelPending = false;
         }
     }
 

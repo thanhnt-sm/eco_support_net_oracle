@@ -1,4 +1,5 @@
 using DataGuard.Core.Models;
+using DataGuard.Core.Validation;
 
 namespace DataGuard.Cli;
 
@@ -19,23 +20,34 @@ public static class IdeSafePolicy
     /// <summary>Positive acknowledgement hosts require as the first stderr line before publishing any result.</summary>
     public const string ActiveLine = "ide-safe: active";
 
-    /// <summary>Upper bound for <c>MaxViolationQueueSize</c> under IDE-safe mode.</summary>
-    public const int MaxQueueSize = 100_000;
+    /// <summary>Upper bound for <c>MaxViolationQueueSize</c> under IDE-safe mode: the engine's own default.</summary>
+    public const int MaxQueueSize = ConcurrentValidationEngine.DefaultMaxViolationQueueSize;
 
     /// <summary>Upper bound for <c>ValidationTimeoutSeconds</c> under IDE-safe mode.</summary>
     public const int MaxTimeoutSeconds = 900;
 
-    /// <summary>Suppression entry written when the environment credential is kept.</summary>
+    /// <summary>Text of the stderr line acknowledging that the environment credential was kept.</summary>
     public const string KeptEnvironmentConnectionNote = "kept environment connection (--allow-env-connection)";
 
     /// <summary>
-    /// Suppression entry written alongside <see cref="KeptEnvironmentConnectionNote"/>: the kept credential is used for
+    /// Suppression entry written when the environment credential is kept: the kept credential is used for
     /// ground-truth acquisition only; repository-extracted SQL is never described against it during <c>validate</c>.
     /// </summary>
     public const string LiveShapeRuleDisabledNote = "live SQL shape rule disabled (use verify-shape)";
 
-    /// <summary>Result of applying the policy: the sanitized configuration and what was suppressed.</summary>
-    public sealed record Result(DataGuardConfiguration Configuration, IReadOnlyList<string> Suppressed);
+    /// <summary>Result of applying the policy.</summary>
+    /// <param name="Configuration">The sanitized configuration.</param>
+    /// <param name="Suppressed">What was stripped or clamped, in report order.</param>
+    /// <param name="KeptEnvironmentConnection">True when the host-supplied environment credential survived for ground-truth acquisition.</param>
+    /// <param name="RulesConnectionString">
+    /// Connection handed to connection-bound rules. Always null under IDE-safe mode (review H1): even a kept credential
+    /// never drives the live SQL shape rule over repository-extracted SQL; that is <c>verify-shape</c>, behind a host confirmation.
+    /// </param>
+    public sealed record Result(
+        DataGuardConfiguration Configuration,
+        IReadOnlyList<string> Suppressed,
+        bool KeptEnvironmentConnection,
+        string? RulesConnectionString);
 
     /// <summary>
     /// Returns a configuration with every code-loading, outbound-connection and repo-chosen write path removed.
@@ -74,7 +86,6 @@ public static class IdeSafePolicy
 
         if (keepEnvConnection)
         {
-            suppressed.Add(KeptEnvironmentConnectionNote);
             suppressed.Add(LiveShapeRuleDisabledNote);
             if (!string.IsNullOrWhiteSpace(environmentConnection))
             {
@@ -113,7 +124,7 @@ public static class IdeSafePolicy
             config = config with { EncryptConnectionStringAtRest = false };
         }
 
-        return new Result(ClampResourceBounds(config, suppressed), suppressed);
+        return new Result(ClampResourceBounds(config, suppressed), suppressed, keepEnvConnection, RulesConnectionString: null);
     }
 
     /// <summary>Bounds repo-controlled parallelism, queue and timeout values so a hostile config cannot exhaust the host.</summary>
@@ -203,7 +214,7 @@ public static class IdeSafePolicy
     public static string FormatSuppressionLine(IReadOnlyList<string> suppressed)
     {
         ArgumentNullException.ThrowIfNull(suppressed);
-        return "ide-safe: suppressed " + string.Join("; ", suppressed.Where(entry => entry != KeptEnvironmentConnectionNote));
+        return "ide-safe: suppressed " + string.Join("; ", suppressed);
     }
 
     /// <summary>Single stderr line acknowledging that the host-supplied environment credential was kept.</summary>
@@ -214,12 +225,12 @@ public static class IdeSafePolicy
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(result);
-        if (result.Suppressed.Any(entry => entry != KeptEnvironmentConnectionNote))
+        if (result.Suppressed.Count > 0)
         {
             writer.WriteLine(FormatSuppressionLine(result.Suppressed));
         }
 
-        if (result.Suppressed.Contains(KeptEnvironmentConnectionNote))
+        if (result.KeptEnvironmentConnection)
         {
             writer.WriteLine(FormatKeptConnectionLine());
         }

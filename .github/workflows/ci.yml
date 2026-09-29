@@ -33,11 +33,11 @@ jobs:
       # The ubuntu-24.04 runner-image README lists libyaml-dev and yamllint but no python3-yaml /
       # PyYAML, so the fallback cannot be proven dead and stays: pinned, wheel-only (no sdist
       # build), user scope. The image's /etc/pip.conf sets break-system-packages, so pip may install.
-      # The self-test runs first so the policy fixtures cannot rot silently.
+      # The policy unit tests (scripts/tests) run first so the fixtures cannot rot silently.
       - name: Workflow policy check
         run: |
           python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user --only-binary=:all: pyyaml==6.0.2
-          python3 scripts/check-workflow-policy.py --self-test
+          python3 -m unittest discover -s scripts/tests -v
           python3 scripts/check-workflow-policy.py
 
       - name: Setup .NET
@@ -177,7 +177,7 @@ jobs:
           $vsix = Get-ChildItem src/DataGuard.VisualStudio/bin/Release -Filter '*.vsix' -Recurse | Select-Object -First 1
           if ($null -eq $vsix) { throw 'VSSDK build did not produce a VSIX' }
           $sourceVersion = (Select-String -Path src/DataGuard.VisualStudio/ExtensionVersion.cs -Pattern 'Fallback = "([^"]+)"').Matches[0].Groups[1].Value
-          & pwsh -NoProfile -File scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $sourceVersion
+          & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $sourceVersion
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Fork PRs build the VSIX (the gate above still runs) but never publish it: an unsigned

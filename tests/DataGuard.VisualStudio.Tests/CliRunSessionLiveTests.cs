@@ -18,13 +18,8 @@ namespace DataGuard.VisualStudio.Tests;
 public class CliRunSessionLiveTests : IDisposable
 {
     private const string SummaryLine = "{\"Kind\":\"Summary\",\"Phase\":\"Validation complete\",\"Data\":{\"ErrorCount\":0,\"WarningCount\":0}}";
-    private readonly string tempDir = Path.Combine(Path.GetTempPath(), "dg_live_" + Guid.NewGuid().ToString("N"));
+    private readonly string tempDir = TempDirectoryCleaner.CreateRunDirectory();
     private readonly List<string> output = new();
-
-    public CliRunSessionLiveTests()
-    {
-        Directory.CreateDirectory(this.tempDir);
-    }
 
     public void Dispose()
     {

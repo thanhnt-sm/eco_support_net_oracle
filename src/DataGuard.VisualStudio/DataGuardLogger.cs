@@ -159,6 +159,29 @@ public static class DataGuardLogger
     }
 
     /// <summary>
+    /// Logs several informational messages with one file open for the whole batch (used by the
+    /// Output pane's batch writer); each message is redacted and stamped exactly as <see cref="LogInfo"/> does.
+    /// </summary>
+    public static void LogInfoBatch(IEnumerable<string> messages)
+    {
+        if (!loggingEnabled)
+        {
+            return;
+        }
+
+        var text = new StringBuilder();
+        foreach (var message in messages)
+        {
+            text.Append(FormatEntry("INFO", message));
+        }
+
+        if (text.Length > 0)
+        {
+            AppendToLog(text.ToString());
+        }
+    }
+
+    /// <summary>
     /// Logs query discovery details to the active log file.
     /// </summary>
     public static void LogQueryDiscovered(string file, int line, string targetType)
@@ -295,25 +318,30 @@ public static class DataGuardLogger
 
     private static void WriteEntry(string level, string message)
     {
-        var redactedMessage = Redact(message);
-        var formatted = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] [{level}] {redactedMessage}\r\n";
-
         if (loggingEnabled)
         {
-            lock (FileGate)
+            AppendToLog(FormatEntry(level, message));
+        }
+    }
+
+    private static string FormatEntry(string level, string message) =>
+        $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] [{level}] {Redact(message)}\r\n";
+
+    private static void AppendToLog(string formatted)
+    {
+        lock (FileGate)
+        {
+            try
             {
-                try
+                using (var stream = new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                using (var writer = new StreamWriter(stream, Encoding.UTF8))
                 {
-                    using (var stream = new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
-                    using (var writer = new StreamWriter(stream, Encoding.UTF8))
-                    {
-                        writer.Write(formatted);
-                    }
+                    writer.Write(formatted);
                 }
-                catch
-                {
-                    // Non-fatal
-                }
+            }
+            catch
+            {
+                // Non-fatal
             }
         }
     }

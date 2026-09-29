@@ -16,15 +16,12 @@ namespace DataGuard.VisualStudio.Tests;
 /// </summary>
 public class VsixAnalyzerPackagingTests
 {
-    private static readonly string RepoRoot = Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", ".."));
-
     private static string? FindVsixPath()
     {
         var binDirs = new[]
         {
-            Path.Combine(RepoRoot, "src", "DataGuard.VisualStudio", "bin", "Debug"),
-            Path.Combine(RepoRoot, "src", "DataGuard.VisualStudio", "bin", "Release"),
+            Path.Combine(TestPaths.RepoRoot, "src", "DataGuard.VisualStudio", "bin", "Debug"),
+            Path.Combine(TestPaths.RepoRoot, "src", "DataGuard.VisualStudio", "bin", "Release"),
         };
         foreach (var dir in binDirs)
         {
@@ -33,7 +30,8 @@ public class VsixAnalyzerPackagingTests
                 continue;
             }
 
-            var vsix = Directory.GetFiles(dir, "*.vsix", SearchOption.TopDirectoryOnly).FirstOrDefault();
+            // The VSSDK writes the container under bin/<Configuration>/<TargetFramework>/, so search recursively (as CI does).
+            var vsix = Directory.GetFiles(dir, "*.vsix", SearchOption.AllDirectories).FirstOrDefault();
             if (vsix != null)
             {
                 return vsix;

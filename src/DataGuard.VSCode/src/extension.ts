@@ -42,13 +42,11 @@ interface ValidationRun {
 interface ChildExit {
     readonly code: number | null;
     readonly output: string;
-    /** First few non-empty stderr lines, kept separately for the ide-safe handshake check. */
-    readonly stderrHead: readonly string[];
+    /** First non-empty stderr line (trimmed), kept separately for the ide-safe handshake check. */
+    readonly firstStderrLine?: string;
     /** True when the process could not be started; the error was already reported. */
     readonly startFailed: boolean;
 }
-
-const STDERR_HEAD_LINES = 4;
 
 const MAX_CLI_OUTPUT = 1024 * 1024;
 
@@ -500,9 +498,8 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             }
         }
         if (run.timedOut) {
-            channel.appendLine(`\n[DataGuard] ${command} timed out after ${timeoutSeconds} seconds.`);
-            setStatus("error");
-            void vscode.window.showErrorMessage(`DataGuard ${command} timed out after ${timeoutSeconds} seconds.`);
+            const timedOut = `${command} timed out after ${timeoutSeconds} seconds.`;
+            reportRunError(channel, `DataGuard ${timedOut}`, `\n[DataGuard] ${timedOut}`);
             return;
         }
         if (run.cancelled) {
@@ -511,11 +508,9 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         }
         // ide-safe handshake: without the ack the CLI never applied the policy (old CLI, wrapper, or a
         // crash before the policy ran), so its SARIF is not evidence. Never retried without the flag.
-        if (expectsSarif && !hasIdeSafeAck(result.stderrHead)) {
-            const message = buildIdeSafeFailureMessage(result.stderrHead);
-            channel.appendLine(`\n[DataGuard] ${message} (exit code ${exitCode ?? "unknown"})`);
-            setStatus("error");
-            void vscode.window.showErrorMessage(message);
+        if (expectsSarif && !hasIdeSafeAck(result.firstStderrLine)) {
+            const message = buildIdeSafeFailureMessage(result.firstStderrLine);
+            reportRunError(channel, message, `\n[DataGuard] ${message} (exit code ${exitCode ?? "unknown"})`);
             return;
         }
 
@@ -592,8 +587,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             setStatus("warning");
             void vscode.window.showWarningMessage(`DataGuard ${command} found findings. See Problems or the DataGuard output channel.`);
         } else {
-            setStatus("error");
-            void vscode.window.showErrorMessage(`DataGuard could not complete ${command}. See the DataGuard output channel.`);
+            reportRunError(channel, `DataGuard could not complete ${command}. See the DataGuard output channel.`);
         }
     } finally {
         clearTimeout(run.timeout);
@@ -649,8 +643,8 @@ const MAX_PROGRESS_BUFFER = 1024 * 1024;
 
 interface ProgressTextState {
     buffer: string;
-    /** When present, receives the first STDERR_HEAD_LINES non-empty lines (stderr only). */
-    head?: string[];
+    /** First non-empty line seen, trimmed; the stderr one feeds the ide-safe handshake check. */
+    firstLine?: string;
 }
 
 function processProgressText(
@@ -670,9 +664,7 @@ function processProgressText(
         if (!line) {
             continue;
         }
-        if (state.head && state.head.length < STDERR_HEAD_LINES) {
-            state.head.push(line);
-        }
+        state.firstLine ??= line;
         const rendered = formatProgressLine(line);
         if (rendered !== undefined) {
             channel.appendLine(`[DataGuard] ${rendered}`);
@@ -683,7 +675,7 @@ function processProgressText(
 async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<ChildExit> {
     let output = "";
     const stdoutState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
-    const stderrState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", head: [], decoder: new StringDecoder("utf8") };
+    const stderrState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
 
     const handleChunk = (chunk: Buffer | string, state: ProgressTextState & { decoder: StringDecoder }): void => {
         const decoded = typeof chunk === "string" ? chunk : state.decoder.write(chunk);
@@ -726,10 +718,10 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
         if (stderrState.buffer.trim()) {
             processProgressText("\n", stderrState, channel);
         }
-        return { code: code as number | null, output, stderrHead: stderrState.head ?? [], startFailed: false };
+        return { code: code as number | null, output, firstStderrLine: stderrState.firstLine, startFailed: false };
     } catch (error) {
         showStartError(error, channel);
-        return { code: null, output, stderrHead: stderrState.head ?? [], startFailed: true };
+        return { code: null, output, firstStderrLine: stderrState.firstLine, startFailed: true };
     } finally {
         child.stdout?.removeListener("data", onStdoutData);
         child.stderr?.removeListener("data", onStderrData);
@@ -883,6 +875,18 @@ function showStartError(error: unknown, channel: vscode.OutputChannel): void {
         ? "DataGuard CLI was not found. Install the dataguard CLI from GitHub Releases (verify SHA-256) and set dataguard.cliPath in User Settings."
         : `Failed to start DataGuard: ${redactSensitiveText(err.message ?? String(error))}`;
     channel.appendLine(`\n${message}`);
+    void vscode.window.showErrorMessage(message);
+}
+
+/**
+ * Failed-run reporting, always in this order: optional output-channel line, status bar to error,
+ * error notification. `channelLine` is omitted when the caller already wrote the channel line.
+ */
+function reportRunError(channel: vscode.OutputChannel, message: string, channelLine?: string): void {
+    if (channelLine !== undefined) {
+        channel.appendLine(channelLine);
+    }
+    setStatus("error");
     void vscode.window.showErrorMessage(message);
 }
 

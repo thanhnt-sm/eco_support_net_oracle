@@ -114,7 +114,7 @@ public sealed partial class DataGuardPackage
         await output.WriteAsync("[DataGuard] " + command + " completed in " + outcome.ElapsedMs + " ms with exit code " + outcome.ExitCode + ".\r\n");
         if (progress.HasSummary || outcome.ExitCode != 0 || outcome.TerminatedAtTimeout)
         {
-            await output.WriteAsync("[DataGuard] " + ExitCodeExplainer.Explain(command, outcome.ExitCode, progress.HasSummary, progress.WarningCount, sarifExists, outcome.TerminatedAtTimeout) + "\r\n");
+            await output.WriteAsync("[DataGuard] " + ExitCodeExplainer.Explain(command, outcome, sarifExists) + "\r\n");
         }
 
         await output.WriteResultBlockAsync(progress);

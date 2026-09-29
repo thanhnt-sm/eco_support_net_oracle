@@ -19,12 +19,13 @@ public class ProgressPumpTests
     private const string SummaryLine = "{\"Kind\":\"Summary\",\"Phase\":\"Validation complete\",\"Data\":{\"ErrorCount\":1,\"WarningCount\":0}}";
 
     [Fact]
-    public async Task Reader_WithUiFlushDelayedFourSeconds_StillCompletesParseAndKeepsSummary()
+    public async Task Reader_WithUiFlushBlocked_StillCompletesParseAndKeepsSummary()
     {
+        var flushMayFinish = new SemaphoreSlim(0);
         var flushed = new List<string>();
         var pump = new ProgressPump(async batch =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(4));
+            await flushMayFinish.WaitAsync();
             lock (flushed)
             {
                 flushed.AddRange(batch);
@@ -42,6 +43,7 @@ public class ProgressPumpTests
         result.HasSummary.Should().BeTrue();
         result.ErrorCount.Should().Be(1);
 
+        flushMayFinish.Release(100);
         pump.Complete();
         await pump.FlushCompletion;
         flushed.Should().Contain(line => line.Contains("1 errors, 0 warnings"));

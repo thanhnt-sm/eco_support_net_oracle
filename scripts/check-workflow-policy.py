@@ -18,7 +18,7 @@ artifacts are not installable binaries, and stripping them from fork PRs would r
 evidence without a security gain.
 
 Run locally:  python scripts/check-workflow-policy.py   (needs PyYAML; exit 0 = policy holds)
-Self-test:    python scripts/check-workflow-policy.py --self-test   (inline fixtures, one per rule)
+Unit tests:   python -m unittest discover -s scripts/tests -v   (one fixture per rule)
 """
 from __future__ import annotations
 
@@ -189,90 +189,7 @@ def check_release_vs_tests(relative: str, job: dict | None) -> list[str]:
     return []
 
 
-# --- self-test -------------------------------------------------------------------------------
-# Inline fixtures that each violate exactly one rule (or none), so a future relaxation of the
-# checks fails here before it can pass a hostile workflow. `python scripts/check-workflow-policy.py --self-test`.
-
-REAL_GUARD = ("${{ env.ACT != 'true' && (github.event_name != 'pull_request' || "
-              "github.event.pull_request.head.repo.full_name == github.repository) }}")
-
-
-def fixture(triggers: str, assert_extra: str = "", assert_run: str = "pwsh scripts/assert-vsix.ps1",
-            upload_if: str = f"if: {REAL_GUARD}") -> str:
-    return f"""
-on: [{triggers}]
-jobs:
-  vs:
-    steps:
-      - name: Build
-        run: msbuild src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj
-      - name: Assert
-        {assert_extra}
-        run: |
-          {assert_run}
-      - name: Upload VSIX artifact
-        {upload_if}
-        uses: actions/upload-artifact@sha
-        with:
-          name: dataguard-visualstudio-vsix
-          path: '**/*.vsix'
-"""
-
-
-RELEASE_FIXTURE = """
-on: [push]
-jobs:
-  visual-studio-package:
-    steps:
-      - name: Test
-        continue-on-error: true
-        run: dotnet test tests/DataGuard.VisualStudio.Tests --configuration Release
-      - name: Build
-        run: msbuild src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj
-      - name: Assert
-        run: pwsh scripts/assert-vsix.ps1
-"""
-
-# (case name, workflow file name the fixture stands for, YAML text, expected rule prefix or None)
-SELF_TEST_CASES: list[tuple[str, str, str, str | None]] = [
-    ("real shape passes", "ci.yml", fixture("push, pull_request"), None),
-    ("assert with continue-on-error does not count", "ci.yml", fixture("push, pull_request", "continue-on-error: true"), "(a)"),
-    ("assert with if: false does not count", "ci.yml", fixture("push, pull_request", "if: false"), "(a)"),
-    ("assert with if: ${{ false }} does not count", "ci.yml", fixture("push, pull_request", "if: ${{ false }}"), "(a)"),
-    ("assert script only in a run comment does not count", "ci.yml",
-     fixture("push, pull_request", assert_run="# scripts/assert-vsix.ps1 was here"), "(a)"),
-    ("guard OR-ed with true is not a guard", "ci.yml",
-     fixture("push, pull_request", upload_if="if: ${{ true || (github.event_name != 'pull_request' || "
-             "github.event.pull_request.head.repo.full_name == github.repository) }}"), "(b)"),
-    ("same-repo clause alone is not enough", "ci.yml",
-     fixture("push, pull_request", upload_if="if: ${{ github.event.pull_request.head.repo.full_name == github.repository || true }}"), "(b)"),
-    ("event clause alone is not enough", "ci.yml",
-     fixture("push, pull_request", upload_if="if: ${{ github.event_name != 'pull_request' }}"), "(b)"),
-    ("unguarded upload on pull_request_target", "ci.yml", fixture("pull_request_target", upload_if=""), "(b)"),
-    ("pull_request guard does not cover pull_request_target", "ci.yml", fixture("pull_request_target"), "(b)"),
-    ("pull_request_target guard passes", "ci.yml",
-     fixture("pull_request_target", upload_if="if: ${{ (github.event_name != 'pull_request_target' || "
-             "github.event.pull_request.head.repo.full_name == github.repository) }}"), None),
-    ("both PR triggers fail closed", "ci.yml", fixture("pull_request, pull_request_target"), "(b)"),
-    ("unguarded upload without a PR trigger is allowed", "ci.yml", fixture("push", upload_if=""), None),
-    ("release VS test step with continue-on-error does not count", "release.yml", RELEASE_FIXTURE, "(c)"),
-]
-
-
-def self_test() -> int:
-    mismatches = 0
-    for name, relative, text, expected in SELF_TEST_CASES:
-        failures = check_workflow(relative, yaml.safe_load(text))
-        ok = not failures if expected is None else any(f.startswith(expected) for f in failures)
-        print(f"  [{'PASS' if ok else 'FAIL'}] {name}" + ("" if ok else f" -> {failures or 'no failure reported'}"))
-        mismatches += 0 if ok else 1
-    print(f"check-workflow-policy --self-test: {'OK' if mismatches == 0 else f'FAIL ({mismatches} case(s))'}")
-    return 0 if mismatches == 0 else 1
-
-
 def main() -> int:
-    if "--self-test" in sys.argv[1:]:
-        return self_test()
     failures: list[str] = []
     for relative in WORKFLOWS:
         try:

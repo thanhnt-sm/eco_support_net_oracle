@@ -200,6 +200,8 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var config = resolved.Configuration;
     var provider = resolved.Provider;
 
+    // Connection-bound rules share the acquisition credential unless the IDE-safe policy withholds it (review H1).
+    var rulesConnectionString = config.ConnectionString;
     if (ideSafe)
     {
         // Strip code-loading, connection and repo-chosen write paths from whatever the config/env requested.
@@ -209,6 +211,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             allowEnvConnection,
             environmentConnection);
         config = safe.Configuration;
+        rulesConnectionString = safe.RulesConnectionString;
         IdeSafePolicy.WriteReport(Console.Error, safe);
 
         // Downstream credential providers re-read the environment; clear it so they cannot recover a secret.
@@ -395,7 +398,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             "Validating rules",
             "Running enabled validation rules.",
             new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
-        var violations = await ValidateContractsAsync(contracts, config, provider, ct, skipRuleIds, progress, ideSafe);
+        var violations = await ValidateContractsAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress);
         if (normalizedFormat == "text")
         {
             var emitter = new DiagnosticEmitter();
@@ -1024,7 +1027,7 @@ snapshotRefreshCommand.SetAction(
                 throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
             }
 
-            var violations = await ValidateContractsAsync(acquisition.Contracts, config, provider, ct);
+            var violations = await ValidateContractsAsync(acquisition.Contracts, config, provider, config.ConnectionString, ct);
 
             var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
             var baselineManager = new BaselineManager(snapshotPath);
@@ -1269,7 +1272,7 @@ snapshotDiffCommand.SetAction(
                 return;
             }
 
-            var currentViolations = await ValidateContractsAsync(freshContracts, config, provider, ct);
+            var currentViolations = await ValidateContractsAsync(freshContracts, config, provider, config.ConnectionString, ct);
             Console.WriteLine("Warning: --legacy-violation-diff compares violations only; it is not structural schema drift evidence.");
             var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
                 ? BaselineManager.ComputeSchemaHash(baseline.Violations)
@@ -2282,17 +2285,18 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
     return contracts;
 }
 
+// rulesConnectionString: connection for connection-bound rules; null registers their offline variants.
 static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     IReadOnlyList<ContractDescriptor> contracts,
     DataGuardConfiguration config,
     string provider,
+    string? rulesConnectionString,
     CancellationToken cancellationToken = default,
     HashSet<string>? skipRuleIds = null,
-    ProgressEmitter? progress = null,
-    bool ideSafe = false)
+    ProgressEmitter? progress = null)
 {
     var allViolations = new List<ContractViolation>();
-    var rules = GetRulesForProvider(provider, config.ConnectionString, progress, ideSafe)
+    var rules = GetRulesForProvider(provider, rulesConnectionString, progress)
         .Where(r => skipRuleIds is null || !skipRuleIds.Contains(r.RuleId))
         .ToList();
     if (config.EnableConcurrentValidation)
@@ -2395,7 +2399,7 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
         throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
     }
 
-    return await ValidateContractsAsync(acquisition.Contracts, config, provider, cancellationToken, progress: null);
+    return await ValidateContractsAsync(acquisition.Contracts, config, provider, config.ConnectionString, cancellationToken, progress: null);
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
@@ -2447,9 +2451,9 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
     return violations;
 }
 
-static List<IContractRule> GetRulesForProvider(string provider, string? connectionString = null, ProgressEmitter? progress = null, bool ideSafe = false)
+static List<IContractRule> GetRulesForProvider(string provider, string? connectionString, ProgressEmitter? progress = null)
 {
-    return ProviderRuleCatalog.Get(provider, connectionString, progress, ideSafe)
+    return ProviderRuleCatalog.Get(provider, connectionString, progress)
         .Where(registration => registration.Availability == RuleAvailability.Ready)
         .Select(registration => registration.Rule)
         .ToList();

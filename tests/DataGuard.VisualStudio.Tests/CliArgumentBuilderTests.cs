@@ -73,20 +73,20 @@ public class CliArgumentBuilderTests
     [Fact]
     public void ExitCodeExplainer_DistinguishesCrashFromFindings()
     {
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: true).Should().Contain("found errors");
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("failed before producing a validation summary");
-        ExitCodeExplainer.Explain("validate", 3, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("Validation incomplete");
-        ExitCodeExplainer.Explain("validate", 0, hasSummary: true, warningCount: 2, sarifExists: true).Should().Contain("with warnings");
-        ExitCodeExplainer.Explain("assess", 2, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("Invalid arguments for assess");
-        ExitCodeExplainer.Explain("assess", 130, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("[CANCELLED]");
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, hasSummary: true), sarifExists: true).Should().Contain("found errors");
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1), sarifExists: false).Should().Contain("failed before producing a validation summary");
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(3), sarifExists: false).Should().Contain("Validation incomplete");
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(0, hasSummary: true, warningCount: 2), sarifExists: true).Should().Contain("with warnings");
+        ExitCodeExplainer.Explain("assess", CliRunOutcomes.Create(2), sarifExists: false).Should().Contain("Invalid arguments for assess");
+        ExitCodeExplainer.Explain("assess", CliRunOutcomes.Create(130), sarifExists: false).Should().Contain("[CANCELLED]");
     }
 
     [Fact]
     public void ExitCodeExplainer_SummaryWithoutSarif_ReportsWriteFailure()
     {
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: false)
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, hasSummary: true), sarifExists: false)
             .Should().Be("[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)");
-        ExitCodeExplainer.Explain("validate", 3, hasSummary: false, warningCount: 0, sarifExists: false)
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(3), sarifExists: false)
             .Should().Contain("previous Error List items were preserved");
     }
 
@@ -96,23 +96,16 @@ public class CliArgumentBuilderTests
         const string expected = "[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.";
 
         // taskkill /F leaves exit code 1; without the flag that reads as "found errors" or "failed before producing a summary".
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: true, terminatedAtTimeout: true).Should().Be(expected);
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: false, warningCount: 0, sarifExists: true, terminatedAtTimeout: true).Should().Be(expected);
-        ExitCodeExplainer.Explain("assess", 0, hasSummary: true, warningCount: 3, sarifExists: true, terminatedAtTimeout: true).Should().Be(expected);
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: true).Should().Contain("found errors");
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, hasSummary: true, terminatedAtTimeout: true), sarifExists: true).Should().Be(expected);
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, terminatedAtTimeout: true), sarifExists: true).Should().Be(expected);
+        ExitCodeExplainer.Explain("assess", CliRunOutcomes.Create(0, hasSummary: true, warningCount: 3, terminatedAtTimeout: true), sarifExists: true).Should().Be(expected);
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, hasSummary: true), sarifExists: true).Should().Contain("found errors");
     }
 
     [Fact]
     public void NoDotnetToolGuidance_AnywhereInExtensionSources()
     {
-        var repoRoot = new DirectoryInfo(System.AppContext.BaseDirectory);
-        while (repoRoot != null && !File.Exists(Path.Combine(repoRoot.FullName, "DataGuard.sln")))
-        {
-            repoRoot = repoRoot.Parent;
-        }
-
-        repoRoot.Should().NotBeNull();
-        var sourceDir = Path.Combine(repoRoot!.FullName, "src", "DataGuard.VisualStudio");
+        var sourceDir = Path.Combine(TestPaths.RepoRoot, "src", "DataGuard.VisualStudio");
         var pattern = new System.Text.RegularExpressions.Regex(@"dotnet tool (install|update)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         var offenders = new System.Collections.Generic.List<string>();
         foreach (var file in Directory.EnumerateFiles(sourceDir, "*.*", SearchOption.AllDirectories))
@@ -154,14 +147,7 @@ public class CliArgumentBuilderTests
     [Fact]
     public void ExtensionVersion_FallbackMatchesSourceManifest()
     {
-        var repoRoot = new DirectoryInfo(System.AppContext.BaseDirectory);
-        while (repoRoot != null && !File.Exists(Path.Combine(repoRoot.FullName, "DataGuard.sln")))
-        {
-            repoRoot = repoRoot.Parent;
-        }
-
-        repoRoot.Should().NotBeNull();
-        var manifestPath = Path.Combine(repoRoot!.FullName, "src", "DataGuard.VisualStudio", "source.extension.vsixmanifest");
+        var manifestPath = Path.Combine(TestPaths.RepoRoot, "src", "DataGuard.VisualStudio", "source.extension.vsixmanifest");
         ExtensionVersion.ReadManifestVersion(manifestPath).Should().Be(ExtensionVersion.Fallback);
     }
 

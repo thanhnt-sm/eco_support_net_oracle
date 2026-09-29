@@ -6,7 +6,7 @@ namespace DataGuard.VisualStudio;
 
 using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -49,16 +49,10 @@ internal sealed class OutputPaneWriter
             return;
         }
 
-        var text = new StringBuilder();
-        foreach (var line in lines)
-        {
-            DataGuardLogger.LogInfo(line.TrimEnd('\r', '\n'));
-            text.Append(line);
-        }
-
+        DataGuardLogger.LogInfoBatch(lines.Select(line => line.TrimEnd('\r', '\n')));
         await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
         var pane = await this.GetPaneAsync();
-        pane?.OutputStringThreadSafe(text.ToString());
+        pane?.OutputStringThreadSafe(string.Concat(lines));
     }
 
     public async Task SetStatusAsync(string text)

@@ -5,19 +5,14 @@
 namespace DataGuard.VisualStudio;
 
 using System;
-using System.Diagnostics;
-using System.IO;
-using System.Threading.Tasks;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
-using Task = System.Threading.Tasks.Task;
 
 /// <summary>
 /// Follows the solution lifetime: owns the <see cref="IVsSolutionEvents"/> advise cookie and calls the
 /// package back before the solution closes so a running CLI is stopped and stale Error List items are
-/// cleared. The "did the solution change under the run" decision and the non-blocking stop request
-/// are pure helpers.
+/// cleared. The "did the solution change under the run" decision is a pure helper.
 /// </summary>
 internal sealed class SolutionLifetimeWatcher : IVsSolutionEvents, IDisposable
 {
@@ -84,25 +79,6 @@ internal sealed class SolutionLifetimeWatcher : IVsSolutionEvents, IDisposable
         return "[DataGuard] The solution changed or closed while " + command + " was running; its results were discarded.\r\n";
     }
 
-    /// <summary>
-    /// Stops the run on the thread pool and records the cancellation once the stop has finished. The
-    /// returned task is not meant to be awaited by the solution-close handler (that would block the UI
-    /// thread on taskkill for up to 6 s); a result that arrives late is discarded by the publish gate's
-    /// solution re-check.
-    /// </summary>
-    internal static Task<ProcessStopOutcome> RequestStopAsync(
-        Process process,
-        Func<Process, ProcessStopOutcome> stop,
-        Func<Process, ProcessStopOutcome, bool> markCancelled)
-    {
-        return Task.Run(() =>
-        {
-            var outcome = stop(process);
-            markCancelled(process, outcome);
-            return outcome;
-        });
-    }
-
     internal static bool IsSameSolutionDirectory(string capturedDirectory, string? currentDirectory)
     {
         if (string.IsNullOrWhiteSpace(currentDirectory))
@@ -110,19 +86,10 @@ internal sealed class SolutionLifetimeWatcher : IVsSolutionEvents, IDisposable
             return false;
         }
 
-        return string.Equals(NormalizeDirectory(capturedDirectory), NormalizeDirectory(currentDirectory!), StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeDirectory(string path)
-    {
-        try
-        {
-            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
+        return string.Equals(
+            PathNormalization.NormalizeFullPath(capturedDirectory),
+            PathNormalization.NormalizeFullPath(currentDirectory!),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />

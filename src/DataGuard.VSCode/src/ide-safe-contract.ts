@@ -21,10 +21,9 @@ const OLD_CLI_REJECTION = /^Unrecognized command or argument '--(?:ide-safe|allo
 
 const ACK_FAILURE_MESSAGE = "DataGuard CLI did not confirm IDE-safe mode; results were discarded";
 
-/** True only when the first non-empty stderr line is exactly the ack line. */
-export function hasIdeSafeAck(stderrLines: readonly string[]): boolean {
-    const first = stderrLines.map((line) => line.trim()).find((line) => line.length > 0);
-    return first === IDE_SAFE_ACK_LINE;
+/** True only when the given (first non-empty) stderr line is exactly the ack line. */
+export function hasIdeSafeAck(firstLine: string | undefined): boolean {
+    return firstLine !== undefined && firstLine.trim() === IDE_SAFE_ACK_LINE;
 }
 
 /** True when the given (first) stderr line is the unknown-option rejection of an old CLI. */
@@ -33,8 +32,8 @@ export function isOldCliRejection(firstLine: string | undefined): boolean {
 }
 
 /** Error-notification text when a validate/assess run never acknowledged `--ide-safe`. */
-export function buildIdeSafeFailureMessage(stderrLines: readonly string[]): string {
-    if (isOldCliRejection(stderrLines[0])) {
+export function buildIdeSafeFailureMessage(firstLine: string | undefined): string {
+    if (isOldCliRejection(firstLine)) {
         return `${ACK_FAILURE_MESSAGE}. Update the dataguard CLI (${MIN_CLI_VERSION} or later) or set dataguard.cliPath`;
     }
     return ACK_FAILURE_MESSAGE;

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using DataGuard.Cli;
 using FluentAssertions;
 using Xunit;
@@ -36,29 +35,6 @@ public class SafeWritablePathTests : IDisposable
         Directory.Delete(_root, recursive: true);
     }
 
-    /// <summary>NTFS junction on Windows (no privilege needed), symbolic link elsewhere; fails loudly rather than skipping.</summary>
-    private static void CreateDirectoryLink(string link, string target)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            Directory.CreateSymbolicLink(link, target);
-            return;
-        }
-
-        var mklink = Process.Start(new ProcessStartInfo("cmd", $"/c mklink /J \"{link}\" \"{target}\"")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        })!;
-        var error = mklink.StandardError.ReadToEnd();
-        mklink.WaitForExit();
-        if (mklink.ExitCode != 0)
-        {
-            Assert.Fail("mklink /J failed on this machine; link tests cannot run: " + error);
-        }
-    }
-
     [Fact]
     public void PlainNestedPathInsideWorkspace_IsSafe()
     {
@@ -72,7 +48,7 @@ public class SafeWritablePathTests : IDisposable
     {
         // Committed `reports -> <outside>`; the immediate parent `ci` does not exist yet, so only an ancestor walk catches it.
         var link = Path.Combine(_workspace, "reports");
-        CreateDirectoryLink(link, _outside);
+        DirectoryLinkTestHelper.CreateDirectoryLink(link, _outside);
         var path = Path.Combine(link, "ci", "x.sarif");
 
         SafeWritablePath.IsSafe(path, _workspace).Should().BeFalse();
@@ -83,7 +59,7 @@ public class SafeWritablePathTests : IDisposable
     {
         // Host layout: %TEMP% is a junction; output goes to <junction>/sub/x.sarif. Ancestors above the workspace are not walked.
         var link = Path.Combine(_root, "temp-junction");
-        CreateDirectoryLink(link, _outside);
+        DirectoryLinkTestHelper.CreateDirectoryLink(link, _outside);
         var path = Path.Combine(link, "sub", "x.sarif");
 
         SafeWritablePath.IsSafe(path, _workspace).Should().BeTrue();
@@ -93,7 +69,7 @@ public class SafeWritablePathTests : IDisposable
     public void TargetDirectlyUnderLink_IsRejectedEvenOutsideWorkspace()
     {
         var link = Path.Combine(_root, "direct-junction");
-        CreateDirectoryLink(link, _outside);
+        DirectoryLinkTestHelper.CreateDirectoryLink(link, _outside);
         var path = Path.Combine(link, "x.sarif");
 
         SafeWritablePath.IsSafe(path, _workspace).Should().BeFalse();
@@ -106,7 +82,7 @@ public class SafeWritablePathTests : IDisposable
         var sibling = Path.Combine(_root, "ws2");
         Directory.CreateDirectory(sibling);
         var link = Path.Combine(sibling, "link");
-        CreateDirectoryLink(link, _outside);
+        DirectoryLinkTestHelper.CreateDirectoryLink(link, _outside);
         var path = Path.Combine(link, "sub", "x.sarif");
 
         SafeWritablePath.IsSafe(path, _workspace).Should().BeTrue();

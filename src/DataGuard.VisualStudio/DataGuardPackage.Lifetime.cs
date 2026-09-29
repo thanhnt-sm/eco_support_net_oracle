@@ -26,7 +26,7 @@ public sealed partial class DataGuardPackage
         {
             this.JoinableTaskFactory.RunAsync(async () =>
             {
-                await SolutionLifetimeWatcher.RequestStopAsync(process, ProcessTerminator.StopProcess, this.processRegistry.TryMarkCancelled);
+                await this.processRegistry.StopAndMarkCancelledAsync(process, ProcessTerminator.StopProcess);
                 await this.output!.WriteAsync("[DataGuard] The solution is closing; the running DataGuard command was stopped.\r\n");
             }).FileAndForget("DataGuard/SolutionClosing");
         }
@@ -53,8 +53,7 @@ public sealed partial class DataGuardPackage
         var outcome = ProcessStopOutcome.AlreadyExited;
         if (processToStop != null)
         {
-            outcome = await Task.Run(() => ProcessTerminator.StopProcess(processToStop));
-            this.processRegistry.TryMarkCancelled(processToStop, outcome);
+            outcome = await this.processRegistry.StopAndMarkCancelledAsync(processToStop, ProcessTerminator.StopProcess);
         }
 
         switch (outcome)

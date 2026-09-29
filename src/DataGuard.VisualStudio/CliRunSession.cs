@@ -73,7 +73,7 @@ internal sealed class CliRunSession
         if (!await WaitForExitOrTimeoutAsync(exitTask, timeoutSeconds) && !exitTask.IsCompleted)
         {
             var termination = await CliRunTimeoutHandler.HandleAsync(process, exitTask, drains, command, timeoutSeconds, this.ProcessStopper, this.writeOutput, this.setStatus);
-            if (!CliRunTimeoutHandler.ShouldPublishAfterTimeout(termination, HasExited(process), File.Exists(sarifPath)))
+            if (!CliRunTimeoutHandler.ShouldPublishAfterTimeout(termination, ProcessTerminator.HasExited(process), File.Exists(sarifPath)))
             {
                 await FlushPumpAsync(pump);
                 return outcome;
@@ -120,18 +120,6 @@ internal sealed class CliRunSession
         }
 
         return cancellationRequested;
-    }
-
-    private static bool HasExited(Process process)
-    {
-        try
-        {
-            return process.HasExited;
-        }
-        catch (Exception ex) when (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception)
-        {
-            return false;
-        }
     }
 
     private static async Task<bool> WaitForExitOrTimeoutAsync(Task exitTask, int timeoutSeconds)

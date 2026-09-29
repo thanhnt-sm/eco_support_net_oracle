@@ -96,17 +96,20 @@ internal static class ProcessTerminator
             // Kill() throws InvalidOperationException when the process already exited; classified below.
         }
 
-        bool hasExited;
+        return ClassifyAfterKillAttempt(killSucceeded, HasExited(process));
+    }
+
+    /// <summary>The process's exit state; false when it cannot be queried (never started or no longer associated).</summary>
+    internal static bool HasExited(Process process)
+    {
         try
         {
-            hasExited = process.HasExited;
+            return process.HasExited;
         }
         catch (Exception ex) when (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception)
         {
-            hasExited = false;
+            return false;
         }
-
-        return ClassifyAfterKillAttempt(killSucceeded, hasExited);
     }
 
     private static bool TryTaskKill(int processId)

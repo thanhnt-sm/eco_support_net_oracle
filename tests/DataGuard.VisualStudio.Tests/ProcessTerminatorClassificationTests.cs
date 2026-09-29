@@ -40,7 +40,7 @@ public class ProcessTerminatorClassificationTests
         const int taskkillExitCode = 1;
 
         CliRunTimeoutHandler.ShouldPublishAfterTimeout(ProcessStopOutcome.Terminated, hasExited: true, sarifExists: true).Should().BeTrue();
-        ExitCodeExplainer.Explain("validate", taskkillExitCode, hasSummary: false, warningCount: 0, sarifExists: true, terminatedAtTimeout: true)
+        ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(taskkillExitCode, terminatedAtTimeout: true), sarifExists: true)
             .Should().Be("[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.");
     }
 
