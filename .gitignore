@@ -112,6 +112,8 @@ temp/
 # ==================== Harness session artifacts ====================
 .omo/
 .omp/
+# Claude Code kit runtime state (agent memory, routing logs) — never source
+.claude/
 .codex/
 .commandcode/
 
