@@ -10,8 +10,9 @@ using System.Text.Json;
 
 /// <summary>
 /// Parses the line-delimited JSON progress events the CLI writes to stderr with <c>--progress</c>
-/// (Kind ∈ PhaseStarted, PhaseCompleted, ContractDiscovered, RuleExecuted, Summary) into Output pane
-/// text. Non-JSON lines are redacted; JSON that is not a progress event is never echoed.
+/// (Kind ∈ PhaseStarted, PhaseCompleted, ContractDiscovered, RuleExecuted, BaselineApplied, Summary)
+/// into Output pane text. Non-JSON lines (including <c>ide-safe:</c> and <c>baseline:</c> notices) are
+/// echoed after redaction; JSON that is not a progress event is never echoed.
 /// </summary>
 internal static class ProgressLineParser
 {
@@ -44,17 +45,13 @@ internal static class ProgressLineParser
     {
         if (discardedLine)
         {
-            return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null, null);
+            return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null);
         }
 
         if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings, out var inventoryEntry))
         {
-            if (string.IsNullOrEmpty(formatted))
-            {
-                return new ParsedProgress(null, eventErrors, eventWarnings, inventoryEntry);
-            }
-
-            return new ParsedProgress(formatted + "\r\n", eventErrors, eventWarnings, inventoryEntry);
+            var output = string.IsNullOrEmpty(formatted) ? null : formatted + "\r\n";
+            return new ParsedProgress(output, eventErrors, eventWarnings, inventoryEntry, isProgressEvent: true);
         }
 
         if (!string.IsNullOrWhiteSpace(text))
@@ -62,10 +59,10 @@ internal static class ProgressLineParser
             var diagnostic = IsJsonPayload(text)
                 ? "[structured diagnostic redacted]"
                 : DataGuardLogger.Redact(text);
-            return new ParsedProgress("[DataGuard CLI] " + diagnostic + "\r\n", null, null, null);
+            return new ParsedProgress("[DataGuard CLI] " + diagnostic + "\r\n", null, null);
         }
 
-        return new ParsedProgress(null, null, null, null);
+        return new ParsedProgress(null, null, null);
     }
 
     internal static bool IsJsonPayload(string text)
@@ -150,6 +147,10 @@ internal static class ProgressLineParser
                         formatted = "[DataGuard]   " + ruleLabel +
                             (contracts.HasValue ? ": " + contracts.Value + " contracts checked" : string.Empty) +
                             " → " + violations.Value + " violations";
+                        return true;
+                    case "BaselineApplied":
+                        var suppressed = GetProgressCount(data, "SuppressedCount") ?? 0;
+                        formatted = "[DataGuard] [WARN] baseline: " + suppressed + " violations suppressed by " + (string.IsNullOrEmpty(detail) ? "the baseline file" : detail);
                         return true;
                     case "Summary":
                         errorCount = GetProgressCount(data, "ErrorCount");

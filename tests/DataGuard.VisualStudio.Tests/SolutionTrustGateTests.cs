@@ -20,14 +20,18 @@ public class SolutionTrustGateTests
         public bool Contains(string key) => this.Keys.Contains(key);
 
         public void Record(string key) => this.Keys.Add(key);
+
+        public bool Remove(string key) => this.Keys.Remove(key);
     }
+
+    private const string Sln = @"D:\repo\solution\App.sln";
 
     [Fact]
     public void ComputeConsentKey_IsStableForSameSolutionAndConfig()
     {
         var config = Encoding.UTF8.GetBytes("GroundTruthMode: Snapshot\n");
-        var first = SolutionTrustGate.ComputeConsentKey(@"D:\repo\solution", config);
-        var second = SolutionTrustGate.ComputeConsentKey(@"d:\REPO\Solution\", config);
+        var first = SolutionTrustGate.ComputeConsentKey(@"D:\repo\solution", Sln, config);
+        var second = SolutionTrustGate.ComputeConsentKey(@"d:\REPO\Solution\", @"d:\REPO\Solution\app.SLN", config);
 
         first.Should().Be(second, "path casing and trailing separators must not change the key");
         first.Should().HaveLength(64);
@@ -39,15 +43,15 @@ public class SolutionTrustGateTests
         var benign = Encoding.UTF8.GetBytes("GroundTruthMode: Snapshot\n");
         var hostile = Encoding.UTF8.GetBytes("GroundTruthMode: Manual\nManualAssemblyPath: evil.dll\n");
 
-        SolutionTrustGate.ComputeConsentKey(@"D:\repo", benign)
-            .Should().NotBe(SolutionTrustGate.ComputeConsentKey(@"D:\repo", hostile));
+        SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, benign)
+            .Should().NotBe(SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, hostile));
     }
 
     [Fact]
     public void ComputeConsentKey_DistinguishesAbsentConfigFromEmptyConfig()
     {
-        SolutionTrustGate.ComputeConsentKey(@"D:\repo", (byte[]?)null)
-            .Should().NotBe(SolutionTrustGate.ComputeConsentKey(@"D:\repo", new byte[0]));
+        SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, (byte[]?)null)
+            .Should().NotBe(SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, new byte[0]));
     }
 
     [Fact]
@@ -58,11 +62,11 @@ public class SolutionTrustGateTests
         var configPath = Path.Combine(tempDir, ".dataguard.yml");
         try
         {
-            var absentKey = SolutionTrustGate.ComputeConsentKey(tempDir, configPath);
+            var absentKey = SolutionTrustGate.ComputeConsentKey(tempDir, Path.Combine(tempDir, "App.sln"), configPath);
             File.WriteAllText(configPath, "GroundTruthMode: Snapshot\n");
-            var presentKey = SolutionTrustGate.ComputeConsentKey(tempDir, configPath);
+            var presentKey = SolutionTrustGate.ComputeConsentKey(tempDir, Path.Combine(tempDir, "App.sln"), configPath);
             File.WriteAllText(configPath, "GroundTruthMode: Manual\n");
-            var changedKey = SolutionTrustGate.ComputeConsentKey(tempDir, configPath);
+            var changedKey = SolutionTrustGate.ComputeConsentKey(tempDir, Path.Combine(tempDir, "App.sln"), configPath);
 
             absentKey.Should().NotBe(presentKey);
             presentKey.Should().NotBe(changedKey);
@@ -78,12 +82,48 @@ public class SolutionTrustGateTests
     {
         var store = new MemoryConsentStore();
         var gate = new SolutionTrustGate(store);
-        var key = SolutionTrustGate.ComputeConsentKey(@"D:\repo", (byte[]?)null);
+        var key = SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, (byte[]?)null);
 
         gate.IsConsented(key).Should().BeFalse();
         gate.RecordConsent(key);
         gate.IsConsented(key).Should().BeTrue();
         store.Keys.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void ComputeConsentKey_DiffersPerSolutionFileInSameDirectory()
+    {
+        var config = Encoding.UTF8.GetBytes("GroundTruthMode: Snapshot\n");
+
+        SolutionTrustGate.ComputeConsentKey(@"D:\repo", @"D:\repo\A.sln", config)
+            .Should().NotBe(SolutionTrustGate.ComputeConsentKey(@"D:\repo", @"D:\repo\B.sln", config));
+    }
+
+    [Fact]
+    public void ComputeConsentKey_ToleratesMissingSolutionFile()
+    {
+        var withoutFile = SolutionTrustGate.ComputeConsentKey(@"D:\repo", null, (byte[]?)null);
+        SolutionTrustGate.ComputeConsentKey(@"D:\repo", string.Empty, (byte[]?)null).Should().Be(withoutFile);
+        withoutFile.Should().HaveLength(64);
+    }
+
+    [Fact]
+    public void ForgetConsent_RemovesKeyAndReportsWhetherOneExisted()
+    {
+        var store = new MemoryConsentStore();
+        var gate = new SolutionTrustGate(store);
+        var key = SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, (byte[]?)null);
+        gate.RecordConsent(key);
+
+        gate.ForgetConsent(key).Should().BeTrue();
+        gate.IsConsented(key).Should().BeFalse();
+        gate.ForgetConsent(key).Should().BeFalse();
+    }
+
+    [Fact]
+    public void BuildPromptText_SaysConsentIsPerSolutionFile()
+    {
+        SolutionTrustGate.BuildPromptText(@"D:\repo\solution", configExists: true).Should().Contain("this solution file");
     }
 
     [Fact]

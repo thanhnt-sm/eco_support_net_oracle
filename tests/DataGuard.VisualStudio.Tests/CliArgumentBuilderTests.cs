@@ -29,7 +29,8 @@ public class CliArgumentBuilderTests
 
     [Theory]
     [InlineData("Unrecognized command or argument '--ide-safe'.", true)]
-    [InlineData("error: unknown option '--ide-safe'", true)]
+    [InlineData("error: unknown option '--ide-safe'", false)]
+    [InlineData("[DG1290] C:\\x\\Unrecognized command or argument '--ide-safe'.csproj: skipped", false)]
     [InlineData("ide-safe: suppressed ManualAssemblyPath", false)]
     [InlineData("Unrecognized command or argument '--foo'.", false)]
     [InlineData("Unrecognized command or argument '--foo'. (hint: --ide-safe is supported)", false)]
@@ -45,11 +46,7 @@ public class CliArgumentBuilderTests
         var stderr = "Unrecognized command or argument '--ide-safe'.\n" +
             "{\"Kind\":\"Summary\",\"Phase\":\"Validation complete\",\"Data\":{\"ErrorCount\":1,\"WarningCount\":2}}\n";
         var written = new StringBuilder();
-        var reader = new ProgressStreamReader(new RuleInventory(), text =>
-        {
-            written.Append(text);
-            return Task.CompletedTask;
-        });
+        var reader = new ProgressStreamReader(new RuleInventory(), text => written.Append(text));
 
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(stderr));
         using var streamReader = new StreamReader(stream);
@@ -76,12 +73,51 @@ public class CliArgumentBuilderTests
     [Fact]
     public void ExitCodeExplainer_DistinguishesCrashFromFindings()
     {
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0).Should().Contain("found errors");
-        ExitCodeExplainer.Explain("validate", 1, hasSummary: false, warningCount: 0).Should().Contain("failed before producing a validation summary");
-        ExitCodeExplainer.Explain("validate", 3, hasSummary: false, warningCount: 0).Should().Contain("Validation incomplete");
-        ExitCodeExplainer.Explain("validate", 0, hasSummary: true, warningCount: 2).Should().Contain("with warnings");
-        ExitCodeExplainer.Explain("assess", 2, hasSummary: false, warningCount: 0).Should().Contain("Invalid arguments for assess");
-        ExitCodeExplainer.Explain("assess", 130, hasSummary: false, warningCount: 0).Should().Contain("[CANCELLED]");
+        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: true).Should().Contain("found errors");
+        ExitCodeExplainer.Explain("validate", 1, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("failed before producing a validation summary");
+        ExitCodeExplainer.Explain("validate", 3, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("Validation incomplete");
+        ExitCodeExplainer.Explain("validate", 0, hasSummary: true, warningCount: 2, sarifExists: true).Should().Contain("with warnings");
+        ExitCodeExplainer.Explain("assess", 2, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("Invalid arguments for assess");
+        ExitCodeExplainer.Explain("assess", 130, hasSummary: false, warningCount: 0, sarifExists: false).Should().Contain("[CANCELLED]");
+    }
+
+    [Fact]
+    public void ExitCodeExplainer_SummaryWithoutSarif_ReportsWriteFailure()
+    {
+        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: false)
+            .Should().Be("[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)");
+        ExitCodeExplainer.Explain("validate", 3, hasSummary: false, warningCount: 0, sarifExists: false)
+            .Should().Contain("previous Error List items were preserved");
+    }
+
+    [Fact]
+    public void NoDotnetToolGuidance_AnywhereInExtensionSources()
+    {
+        var repoRoot = new DirectoryInfo(System.AppContext.BaseDirectory);
+        while (repoRoot != null && !File.Exists(Path.Combine(repoRoot.FullName, "DataGuard.sln")))
+        {
+            repoRoot = repoRoot.Parent;
+        }
+
+        repoRoot.Should().NotBeNull();
+        var sourceDir = Path.Combine(repoRoot!.FullName, "src", "DataGuard.VisualStudio");
+        var pattern = new System.Text.RegularExpressions.Regex(@"dotnet tool (install|update)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var offenders = new System.Collections.Generic.List<string>();
+        foreach (var file in Directory.EnumerateFiles(sourceDir, "*.*", SearchOption.AllDirectories))
+        {
+            var relative = file.Substring(sourceDir.Length + 1);
+            if (relative.StartsWith("bin", System.StringComparison.OrdinalIgnoreCase) || relative.StartsWith("obj", System.StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if ((file.EndsWith(".cs") || file.EndsWith(".md") || file.EndsWith(".vsct")) && pattern.IsMatch(File.ReadAllText(file)))
+            {
+                offenders.Add(relative);
+            }
+        }
+
+        offenders.Should().BeEmpty("the CLI is bundled; NuGet DataGuard.Cli is not published");
     }
 
     [Fact]

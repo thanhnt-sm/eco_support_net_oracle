@@ -31,8 +31,8 @@ internal sealed class ErrorListPresenter
     }
 
     /// <summary>
-    /// Clears DataGuard's Error List items. Called when a run starts (after consent) so that a run that
-    /// times out, is cancelled or is discarded never leaves stale diagnostics behind. Main thread only.
+    /// Clears DataGuard's Error List items. Called only when the solution closes; a run keeps the
+    /// previous results until <see cref="Publish"/> replaces them with a new SARIF. Main thread only.
     /// </summary>
     public void Clear()
     {

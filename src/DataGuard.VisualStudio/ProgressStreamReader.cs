@@ -10,18 +10,20 @@ using System.Text;
 using System.Threading.Tasks;
 
 /// <summary>
-/// Reads the CLI stderr stream line by line, forwards formatted progress to the Output pane,
-/// records executed rules, and captures the final Summary event.
+/// Reads the CLI stderr stream line by line on the calling (background) thread: records the ide-safe
+/// handshake, executed rules and the final Summary event, and hands formatted Output text to a
+/// synchronous emitter (normally <see cref="ProgressPump.Enqueue"/>) so parsing never waits on the UI.
 /// </summary>
 internal sealed class ProgressStreamReader
 {
     private readonly RuleInventory inventory;
-    private readonly Func<string, Task> writeOutput;
+    private readonly Action<string> emitOutput;
+    private bool sawFirstNonEmptyLine;
 
-    public ProgressStreamReader(RuleInventory inventory, Func<string, Task> writeOutput)
+    public ProgressStreamReader(RuleInventory inventory, Action<string> emitOutput)
     {
-        this.inventory = inventory;
-        this.writeOutput = writeOutput;
+        this.inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
+        this.emitOutput = emitOutput ?? throw new ArgumentNullException(nameof(emitOutput));
     }
 
     public async Task<ProgressReadResult> ReadAsync(StreamReader reader)
@@ -40,7 +42,7 @@ internal sealed class ProgressStreamReader
                 {
                     if (ProgressLineParser.AppendProgressChar(buffer[index], line, ref discardedLine))
                     {
-                        await this.ProcessLineAsync(line, discardedLine, result);
+                        this.ProcessLine(line, discardedLine, result);
                         line.Clear();
                         discardedLine = false;
                     }
@@ -54,21 +56,32 @@ internal sealed class ProgressStreamReader
 
         if (line.Length > 0 || discardedLine)
         {
-            await this.ProcessLineAsync(line, discardedLine, result);
+            this.ProcessLine(line, discardedLine, result);
         }
 
         return result;
     }
 
-    private async Task ProcessLineAsync(StringBuilder line, bool discardedLine, ProgressReadResult result)
+    private void ProcessLine(StringBuilder line, bool discardedLine, ProgressReadResult result)
     {
         var text = line.ToString();
+        if (!discardedLine && !this.sawFirstNonEmptyLine && !string.IsNullOrWhiteSpace(text))
+        {
+            this.sawFirstNonEmptyLine = true;
+            result.IdeSafeAcknowledged = string.Equals(text, CliArgumentBuilder.IdeSafeActiveLine, StringComparison.Ordinal);
+        }
+
         if (!discardedLine && CliArgumentBuilder.IsIdeSafeUnsupportedMessage(text))
         {
             result.IdeSafeUnsupported = true;
         }
 
         var parsed = ProgressLineParser.FormatProgressLine(text, discardedLine);
+        if (parsed.IsProgressEvent)
+        {
+            result.SawAnyProgressEvent = true;
+        }
+
         if (parsed.InventoryEntry.HasValue)
         {
             this.inventory.Add(parsed.InventoryEntry.Value);
@@ -83,7 +96,7 @@ internal sealed class ProgressStreamReader
 
         if (parsed.FormattedOutput != null)
         {
-            await this.writeOutput(parsed.FormattedOutput);
+            this.emitOutput(parsed.FormattedOutput);
         }
 
         if (parsed.IsSummary)
@@ -91,7 +104,7 @@ internal sealed class ProgressStreamReader
             var banner = this.inventory.BuildBanner();
             if (!string.IsNullOrEmpty(banner))
             {
-                await this.writeOutput(banner);
+                this.emitOutput(banner);
             }
         }
     }

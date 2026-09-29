@@ -8,7 +8,6 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.VisualStudio.Settings;
 
 /// <summary>Persists per-solution consent decisions.</summary>
 internal interface ITrustConsentStore
@@ -16,13 +15,17 @@ internal interface ITrustConsentStore
     bool Contains(string key);
 
     void Record(string key);
+
+    /// <summary>Removes a recorded consent; false when none was stored.</summary>
+    bool Remove(string key);
 }
 
 /// <summary>
-/// Visual Studio has no workspace-trust API, so the extension asks once per solution before it runs
-/// the CLI against repository files. Consent is keyed by the solution directory and the SHA-256 of
-/// .dataguard.yml, so a repository update that changes the config re-prompts. Build-triggered runs
-/// never prompt; they skip unconsented solutions.
+/// Visual Studio has no workspace-trust API, so the extension asks once per solution file before it
+/// runs the CLI against repository files. Consent is keyed by the solution directory, the full .sln
+/// path and the SHA-256 of .dataguard.yml, so another solution in the same directory or a repository
+/// update that changes the config re-prompts. Build-triggered runs never prompt; they skip
+/// unconsented solutions.
 /// </summary>
 internal sealed class SolutionTrustGate
 {
@@ -39,8 +42,11 @@ internal sealed class SolutionTrustGate
 
     public void RecordConsent(string consentKey) => this.store.Record(consentKey);
 
-    /// <summary>Consent key for a solution and the current content of its .dataguard.yml (if any).</summary>
-    internal static string ComputeConsentKey(string solutionDirectory, string? configPath)
+    /// <summary>Forgets a recorded consent; false when none was stored for the key.</summary>
+    public bool ForgetConsent(string consentKey) => this.store.Remove(consentKey);
+
+    /// <summary>Consent key for a solution and the current content of its .dataguard.yml (if any). Reads the file; call off the UI thread.</summary>
+    internal static string ComputeConsentKey(string solutionDirectory, string? solutionFilePath, string? configPath)
     {
         byte[]? configBytes = null;
         if (!string.IsNullOrEmpty(configPath) && File.Exists(configPath))
@@ -55,16 +61,15 @@ internal sealed class SolutionTrustGate
             }
         }
 
-        return ComputeConsentKey(solutionDirectory, configBytes);
+        return ComputeConsentKey(solutionDirectory, solutionFilePath, configBytes);
     }
 
-    internal static string ComputeConsentKey(string solutionDirectory, byte[]? configBytes)
+    internal static string ComputeConsentKey(string solutionDirectory, string? solutionFilePath, byte[]? configBytes)
     {
-        var normalizedSolution = Path.GetFullPath(solutionDirectory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .ToUpperInvariant();
+        var normalizedSolution = NormalizePath(solutionDirectory);
+        var normalizedFile = string.IsNullOrWhiteSpace(solutionFilePath) ? string.Empty : NormalizePath(solutionFilePath!);
         var configHash = configBytes == null ? "absent" : Hex(Sha256(configBytes));
-        return Hex(Sha256(Encoding.UTF8.GetBytes(normalizedSolution + "|" + configHash)));
+        return Hex(Sha256(Encoding.UTF8.GetBytes(normalizedSolution + "|" + normalizedFile + "|" + configHash)));
     }
 
     internal static string BuildPromptText(string solutionDirectory, bool configExists)
@@ -81,10 +86,25 @@ internal sealed class SolutionTrustGate
         sb.AppendLine("  • connection strings and write paths from the config or environment are ignored;");
         sb.AppendLine("  • results are written to a private temp folder and shown in the Error List.");
         sb.AppendLine();
-        sb.AppendLine("Only continue if you trust the source of this solution. Your choice is remembered for this solution until its .dataguard.yml changes.");
+        sb.AppendLine("Only continue if you trust the source of this solution. Your choice is remembered for this solution file until its .dataguard.yml changes (Tools > DataGuard > Forget Solution Consent revokes it).");
         sb.AppendLine();
         sb.Append("Run DataGuard for this solution?");
         return sb.ToString();
+    }
+
+    private static string NormalizePath(string path)
+    {
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+        {
+            full = path;
+        }
+
+        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant();
     }
 
     private static byte[] Sha256(byte[] data)
@@ -104,70 +124,5 @@ internal sealed class SolutionTrustGate
         }
 
         return sb.ToString();
-    }
-}
-
-/// <summary>Consent store backed by the Visual Studio user settings store (roaming-safe, per user).</summary>
-internal sealed class SettingsStoreTrustConsentStore : ITrustConsentStore
-{
-    private readonly WritableSettingsStore settings;
-
-    public SettingsStoreTrustConsentStore(WritableSettingsStore settings)
-    {
-        this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
-    }
-
-    public bool Contains(string key)
-    {
-        try
-        {
-            return this.settings.CollectionExists(SolutionTrustGate.CollectionPath)
-                && this.settings.PropertyExists(SolutionTrustGate.CollectionPath, key);
-        }
-        catch (Exception ex)
-        {
-            // Fail closed: an unreadable store means "not consented", which only causes a re-prompt.
-            DataGuardLogger.LogWarning("Could not read solution consent (COM/settings failure): " + DataGuardLogger.Redact(ex.Message));
-            return false;
-        }
-    }
-
-    public void Record(string key)
-    {
-        try
-        {
-            if (!this.settings.CollectionExists(SolutionTrustGate.CollectionPath))
-            {
-                this.settings.CreateCollection(SolutionTrustGate.CollectionPath);
-            }
-
-            this.settings.SetString(SolutionTrustGate.CollectionPath, key, DateTime.UtcNow.ToString("o"));
-        }
-        catch (Exception ex)
-        {
-            DataGuardLogger.LogWarning("Could not persist solution consent: " + DataGuardLogger.Redact(ex.Message));
-        }
-    }
-}
-
-/// <summary>Fallback when the VS settings store is unavailable: consent lasts for the devenv session only.</summary>
-internal sealed class InMemoryTrustConsentStore : ITrustConsentStore
-{
-    private readonly System.Collections.Generic.HashSet<string> keys = new(StringComparer.Ordinal);
-
-    public bool Contains(string key)
-    {
-        lock (this.keys)
-        {
-            return this.keys.Contains(key);
-        }
-    }
-
-    public void Record(string key)
-    {
-        lock (this.keys)
-        {
-            this.keys.Add(key);
-        }
     }
 }

@@ -5,6 +5,8 @@
 namespace DataGuard.VisualStudio;
 
 using System;
+using System.Collections.Generic;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -39,6 +41,26 @@ internal sealed class OutputPaneWriter
         pane?.OutputStringThreadSafe(text);
     }
 
+    /// <summary>Writes a batch of lines with a single main-thread hop (used by <see cref="ProgressPump"/>).</summary>
+    public async Task WriteLinesAsync(IReadOnlyList<string> lines)
+    {
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        var text = new StringBuilder();
+        foreach (var line in lines)
+        {
+            DataGuardLogger.LogInfo(line.TrimEnd('\r', '\n'));
+            text.Append(line);
+        }
+
+        await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var pane = await this.GetPaneAsync();
+        pane?.OutputStringThreadSafe(text.ToString());
+    }
+
     public async Task SetStatusAsync(string text)
     {
         try
@@ -68,6 +90,7 @@ internal sealed class OutputPaneWriter
             "Scope:  " + solutionDirectory + "\r\n" +
             "Config: " + configPath + "\r\n" +
             "Mode:   ide-safe (no assembly loading, no database or network access)\r\n" +
+            "Errors: previous results are kept until new ones load\r\n" +
             (command == "validate"
                 ? "Rules:  " + enabledRuleCount + " enabled, " + disabledRuleCount + " disabled\r\n"
                 : string.Empty) +

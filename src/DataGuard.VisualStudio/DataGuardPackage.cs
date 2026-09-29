@@ -20,7 +20,8 @@ using Task = System.Threading.Tasks.Task;
 /// <summary>
 /// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials
 /// into devenv. Registration, lifetime and command wiring live here; command execution is in
-/// DataGuardPackage.Commands.cs and the single-purpose collaborators next to it.
+/// DataGuardPackage.Commands.cs, consent in DataGuardPackage.Consent.cs, result publishing in
+/// DataGuardPackage.Publishing.cs and run-stop paths in DataGuardPackage.Lifetime.cs.
 /// </summary>
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
@@ -39,6 +40,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private const int AssessCommandId = 0x0102;
     private const int ExportLogsCommandId = 0x0103;
     private const int ViewRulesCommandId = 0x0104;
+    private const int ForgetConsentCommandId = 0x0105;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
     private static readonly Guid CommandSet = new(CommandSetGuidString);
 
@@ -49,6 +51,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private ErrorListPresenter? errorListPresenter;
     private SolutionTrustGate? trustGate;
     private BuildEventsHandler? buildEventsHandler;
+    private SolutionLifetimeWatcher? solutionLifetimeWatcher;
     private uint updateSolutionEventsCookie;
 
     /// <inheritdoc />
@@ -78,12 +81,19 @@ public sealed partial class DataGuardPackage : AsyncPackage
             this.AddCommand(commandService, AssessCommandId, this.RunAssessmentAsync, "DataGuard/Assess");
             this.AddCommand(commandService, ExportLogsCommandId, this.ViewLogsAsync, "DataGuard/ViewLogs");
             this.AddCommand(commandService, ViewRulesCommandId, this.ViewRulesAsync, "DataGuard/ViewRules");
+            this.AddCommand(commandService, ForgetConsentCommandId, this.ForgetSolutionConsentAsync, "DataGuard/ForgetConsent");
         }
 
         if (await this.GetServiceAsync(typeof(SVsSolutionBuildManager)) is IVsSolutionBuildManager buildManager)
         {
             this.buildEventsHandler = new BuildEventsHandler(this.JoinableTaskFactory, this.RunValidationOnBuildAsync);
             buildManager.AdviseUpdateSolutionEvents(this.buildEventsHandler, out this.updateSolutionEventsCookie);
+        }
+
+        if (await this.GetServiceAsync(typeof(SVsSolution)) is IVsSolution solution)
+        {
+            this.solutionLifetimeWatcher = new SolutionLifetimeWatcher(solution, this.OnBeforeCloseSolution);
+            this.solutionLifetimeWatcher.Advise();
         }
     }
 
@@ -98,6 +108,9 @@ public sealed partial class DataGuardPackage : AsyncPackage
                 ProcessTerminator.StopProcess(process);
                 process.Dispose();
             }
+
+            this.solutionLifetimeWatcher?.Dispose();
+            this.solutionLifetimeWatcher = null;
 
             if (this.updateSolutionEventsCookie != 0)
             {
@@ -174,30 +187,5 @@ public sealed partial class DataGuardPackage : AsyncPackage
         await this.output.WriteAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         DataGuardLogger.OpenLog(this);
-    }
-
-    private async Task CancelValidationAsync()
-    {
-        var processToStop = this.processRegistry.Active;
-        var outcome = ProcessStopOutcome.AlreadyExited;
-        if (processToStop != null)
-        {
-            outcome = await Task.Run(() => ProcessTerminator.StopProcess(processToStop));
-            this.processRegistry.TryMarkCancelled(processToStop, outcome);
-        }
-
-        switch (outcome)
-        {
-            case ProcessStopOutcome.Terminated:
-                await this.output!.WriteAsync("[DataGuard] DataGuard command cancelled by user. No further diagnostics will be produced.\r\n");
-                await this.output.SetStatusAsync("DataGuard: Cancelled");
-                break;
-            case ProcessStopOutcome.AlreadyExited:
-                await this.output!.WriteAsync("[DataGuard] The command already completed; processing diagnostics.\r\n");
-                break;
-            default:
-                await this.output!.WriteAsync("[DataGuard] Cancellation requested, but the process tree could not be terminated. Stop it manually.\r\n");
-                break;
-        }
     }
 }

@@ -19,7 +19,9 @@ internal enum ProcessStopOutcome
 
 /// <summary>
 /// Stops CLI process trees (taskkill first, Process.Kill fallback) and drains redirected streams
-/// without retaining potentially sensitive output.
+/// without retaining potentially sensitive output. Only a kill that actually succeeded is reported as
+/// <see cref="ProcessStopOutcome.Terminated"/>; a process that finished on its own in the meantime is
+/// <see cref="ProcessStopOutcome.AlreadyExited"/> so its results are still published.
 /// </summary>
 internal static class ProcessTerminator
 {
@@ -32,40 +34,18 @@ internal static class ProcessTerminator
                 return ProcessStopOutcome.AlreadyExited;
             }
 
-            var taskkillSucceeded = TryTaskKill(process.Id);
-            if (taskkillSucceeded || process.HasExited)
+            if (TryTaskKill(process.Id))
             {
                 return ProcessStopOutcome.Terminated;
             }
 
-            // Fallback: force kill the process directly if taskkill failed or was unavailable.
-            try
+            // taskkill failed or was unavailable: the process may simply have exited while it ran.
+            if (process.HasExited)
             {
-                if (!process.HasExited)
-                {
-                    process.Kill();
-                    try
-                    {
-                        process.WaitForExit(1000);
-                    }
-                    catch
-                    {
-                    }
-                }
+                return ProcessStopOutcome.AlreadyExited;
+            }
 
-                return ProcessStopOutcome.Terminated;
-            }
-            catch
-            {
-                try
-                {
-                    return process.HasExited ? ProcessStopOutcome.Terminated : ProcessStopOutcome.Failed;
-                }
-                catch
-                {
-                    return ProcessStopOutcome.Failed;
-                }
-            }
+            return KillDirectly(process);
         }
         catch (ObjectDisposedException)
         {
@@ -79,6 +59,54 @@ internal static class ProcessTerminator
         {
             return ProcessStopOutcome.Failed;
         }
+    }
+
+    /// <summary>
+    /// Pure classification after a kill attempt: a successful kill is Terminated; otherwise a process
+    /// that has exited did so on its own (AlreadyExited); anything else is Failed.
+    /// </summary>
+    internal static ProcessStopOutcome ClassifyAfterKillAttempt(bool killSucceeded, bool hasExited)
+    {
+        if (killSucceeded)
+        {
+            return ProcessStopOutcome.Terminated;
+        }
+
+        return hasExited ? ProcessStopOutcome.AlreadyExited : ProcessStopOutcome.Failed;
+    }
+
+    private static ProcessStopOutcome KillDirectly(Process process)
+    {
+        var killSucceeded = false;
+        try
+        {
+            process.Kill();
+            killSucceeded = true;
+            try
+            {
+                process.WaitForExit(1000);
+            }
+            catch (SystemException)
+            {
+                // Exit-wait failures do not change the classification: the kill itself succeeded.
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception || ex is NotSupportedException)
+        {
+            // Kill() throws InvalidOperationException when the process already exited; classified below.
+        }
+
+        bool hasExited;
+        try
+        {
+            hasExited = process.HasExited;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception)
+        {
+            hasExited = false;
+        }
+
+        return ClassifyAfterKillAttempt(killSucceeded, hasExited);
     }
 
     private static bool TryTaskKill(int processId)

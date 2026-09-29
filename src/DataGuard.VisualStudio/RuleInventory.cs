@@ -39,6 +39,21 @@ internal sealed class RuleInventory
         }
     }
 
+    /// <summary>
+    /// Reserves the run slot and only then clears the inventory, so a command issued while another run
+    /// is active neither wipes that run's banner data nor starts.
+    /// </summary>
+    internal static bool ClearInventoryIfReserved(CliProcessRegistry registry, RuleInventory inventory)
+    {
+        if (!registry.TryReserve())
+        {
+            return false;
+        }
+
+        inventory.Clear();
+        return true;
+    }
+
     public void Add(RuleInventoryItem item)
     {
         lock (this.gate)

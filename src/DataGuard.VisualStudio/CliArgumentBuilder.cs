@@ -5,6 +5,7 @@
 namespace DataGuard.VisualStudio;
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -16,6 +17,12 @@ internal static class CliArgumentBuilder
 {
     /// <summary>The CLI option that puts the CLI into IDE-safe mode.</summary>
     internal const string IdeSafeOption = "--ide-safe";
+
+    /// <summary>First stderr line the CLI prints under <c>--ide-safe</c>; publishing requires it.</summary>
+    internal const string IdeSafeActiveLine = "ide-safe: active";
+
+    /// <summary>System.CommandLine's rejection of the flag; an old CLI prints only this and exits 1.</summary>
+    internal const string IdeSafeRejectionPrefix = "Unrecognized command or argument '" + IdeSafeOption + "'";
 
     private static readonly Regex RuleIdPattern = new("^[A-Za-z0-9_-]+$", RegexOptions.Compiled);
 
@@ -96,20 +103,34 @@ internal static class CliArgumentBuilder
     }
 
     /// <summary>
-    /// True when a CLI stderr line indicates the executable does not understand <c>--ide-safe</c>
-    /// (an older global install). The extension must stop rather than retry without the flag.
+    /// True when a CLI stderr line <em>starts with</em> System.CommandLine's rejection of
+    /// <c>--ide-safe</c>. Anchoring at the line start means a file name or diagnostic that merely
+    /// contains the same words cannot masquerade as an old CLI. The extension never retries without the flag.
     /// </summary>
     internal static bool IsIdeSafeUnsupportedMessage(string? stderrLine)
     {
-        if (string.IsNullOrEmpty(stderrLine))
-        {
-            return false;
-        }
+        return !string.IsNullOrEmpty(stderrLine)
+            && stderrLine!.StartsWith(IdeSafeRejectionPrefix, System.StringComparison.OrdinalIgnoreCase);
+    }
 
-        // System.CommandLine 2.x wording: "Unrecognized command or argument '--ide-safe'." — anchor on the
-        // quoted flag so a line that merely mentions --ide-safe (e.g. the suppression line) never matches.
-        var quotedFlag = "'" + IdeSafeOption + "'";
-        return stderrLine!.IndexOf("Unrecognized command or argument " + quotedFlag, System.StringComparison.OrdinalIgnoreCase) >= 0
-            || stderrLine.IndexOf("unknown option " + quotedFlag, System.StringComparison.OrdinalIgnoreCase) >= 0;
+    /// <summary>Builds the (not yet started) CLI process with redirected streams and no shell.</summary>
+    internal static Process CreateProcess(string cliPath, string arguments, string workingDirectory)
+    {
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = cliPath,
+                Arguments = arguments,
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            },
+            EnableRaisingEvents = true,
+        };
+        process.StartInfo.EnvironmentVariables["DOTNET_ROLL_FORWARD"] = "LatestMajor";
+        return process;
     }
 }

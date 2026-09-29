@@ -4,11 +4,13 @@
 
 namespace DataGuard.VisualStudio;
 
+using System;
 using System.Diagnostics;
 
 /// <summary>
 /// Single-run guard for CLI processes: at most one command runs per package instance, cancellation
-/// is recorded against the exact process it stopped, and Dispose can detach the live process.
+/// is recorded against the exact process it stopped, a Cancel issued while the run is still waiting
+/// for consent aborts it, and Dispose can detach the live process.
 /// </summary>
 internal sealed class CliProcessRegistry
 {
@@ -16,6 +18,30 @@ internal sealed class CliProcessRegistry
     private Process? activeProcess;
     private Process? cancelledProcess;
     private bool commandReserved;
+    private bool cancelPending;
+
+    /// <summary>True from a successful <see cref="TryReserve"/> until the run completes or is released.</summary>
+    public bool IsReserved
+    {
+        get
+        {
+            lock (this.gate)
+            {
+                return this.commandReserved;
+            }
+        }
+    }
+
+    public Process? Active
+    {
+        get
+        {
+            lock (this.gate)
+            {
+                return this.activeProcess;
+            }
+        }
+    }
 
     /// <summary>Reserves the slot for a new command; false when a command is already running or reserved.</summary>
     public bool TryReserve()
@@ -28,6 +54,7 @@ internal sealed class CliProcessRegistry
             }
 
             this.commandReserved = true;
+            this.cancelPending = false;
             return true;
         }
     }
@@ -37,28 +64,45 @@ internal sealed class CliProcessRegistry
         lock (this.gate)
         {
             this.commandReserved = false;
+            this.cancelPending = false;
+        }
+    }
+
+    /// <summary>Records a Cancel for a reserved run that has no process yet; false when nothing is waiting.</summary>
+    public bool RequestCancelPending()
+    {
+        lock (this.gate)
+        {
+            if (!this.commandReserved || this.activeProcess != null)
+            {
+                return false;
+            }
+
+            this.cancelPending = true;
+            return true;
+        }
+    }
+
+    /// <summary>False when a Cancel arrived while the run was waiting for consent; the run must not start.</summary>
+    public bool ShouldStartAfterConsent()
+    {
+        lock (this.gate)
+        {
+            return !this.cancelPending;
         }
     }
 
     /// <summary>Starts the process and registers it atomically so Cancel cannot observe a half-started run.</summary>
-    public void StartAndRegister(Process process)
+    public void StartAndRegister(Process process) => this.StartAndRegister(process, p => p.Start());
+
+    /// <summary>Same as <see cref="StartAndRegister(Process)"/> with an injected starter (tests assert the calling thread).</summary>
+    public void StartAndRegister(Process process, Action<Process> start)
     {
         lock (this.gate)
         {
-            process.Start();
+            start(process);
             this.activeProcess = process;
             this.cancelledProcess = null;
-        }
-    }
-
-    public Process? Active
-    {
-        get
-        {
-            lock (this.gate)
-            {
-                return this.activeProcess;
-            }
         }
     }
 
@@ -104,6 +148,7 @@ internal sealed class CliProcessRegistry
             }
 
             this.commandReserved = false;
+            this.cancelPending = false;
         }
     }
 

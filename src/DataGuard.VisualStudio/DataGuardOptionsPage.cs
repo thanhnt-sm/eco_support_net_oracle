@@ -41,7 +41,7 @@ public class DataGuardOptionsPage : DialogPage
     /// </summary>
     [Category("CLI Configuration")]
     [DisplayName("Custom CLI Executable Path")]
-    [Description("Absolute path to dataguard.exe. If left empty, the extension looks for DATAGUARD_CLI_PATH, %USERPROFILE%\\.dotnet\\tools\\dataguard.exe, standard install paths, or PATH (restart Visual Studio after installing dotnet tools).")]
+    [Description("Absolute path to a dataguard.exe, for example one downloaded from GitHub Releases (verify its SHA-256). If left empty, the CLI bundled with the extension is used; DATAGUARD_CLI_PATH, standard install paths and PATH are only fallbacks (restart Visual Studio after changing them).")]
     public string CustomCliPath { get; set; } = string.Empty;
 
     /// <summary>

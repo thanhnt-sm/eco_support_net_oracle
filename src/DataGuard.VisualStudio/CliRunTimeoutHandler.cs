@@ -22,17 +22,18 @@ internal static class CliRunTimeoutHandler
     private static readonly TimeSpan FailedTerminationGrace = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan DrainGrace = TimeSpan.FromSeconds(5);
 
-    /// <summary>Returns the termination outcome; the caller publishes results only for <see cref="ProcessStopOutcome.AlreadyExited"/>.</summary>
+    /// <summary>Returns the termination outcome; the caller decides publication with <see cref="ShouldPublishAfterTimeout"/>.</summary>
     internal static async Task<ProcessStopOutcome> HandleAsync(
         Process process,
         Task exitTask,
         Task drains,
         string command,
         int timeoutSeconds,
+        Func<Process, ProcessStopOutcome> stopProcess,
         Func<string, Task> writeOutput,
         Func<string, Task> setStatus)
     {
-        var termination = ProcessTerminator.StopProcess(process);
+        var termination = stopProcess(process);
         await setStatus("DataGuard: Timed out");
         await writeOutput(DescribeTimeout(command, timeoutSeconds, termination));
 
@@ -58,6 +59,24 @@ internal static class CliRunTimeoutHandler
         }
 
         return termination;
+    }
+
+    /// <summary>
+    /// A run that reached the timeout is still published when the CLI finished on its own
+    /// (AlreadyExited), or when it was terminated only after exiting with a normal CLI exit code and
+    /// writing its SARIF output (i.e. it was caught during teardown).
+    /// </summary>
+    internal static bool ShouldPublishAfterTimeout(ProcessStopOutcome termination, bool hasExited, int exitCode, bool sarifExists)
+    {
+        if (termination == ProcessStopOutcome.AlreadyExited)
+        {
+            return true;
+        }
+
+        return termination == ProcessStopOutcome.Terminated
+            && hasExited
+            && ExitCodeExplainer.IsNormalCliExitCode(exitCode)
+            && sarifExists;
     }
 
     internal static string DescribeTimeout(string command, int timeoutSeconds, ProcessStopOutcome termination)
