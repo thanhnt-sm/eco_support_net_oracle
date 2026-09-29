@@ -32,3 +32,29 @@ test("provider validation rejects injection-like or unknown values", () => {
     assert.equal(normalizeProvider("ORACLE"), "oracle");
     assert.throws(() => normalizeProvider("mysql; touch /tmp/pwned"), /provider must be/);
 });
+
+test("validate carries --allow-env-connection only when the host supplies a user credential", () => {
+    const withCredential = buildCliArguments("validate", "/workspace", "sqlserver", "/workspace/.dataguard.yml", "/tmp/out.sarif", { hasUserCredential: true });
+    assert.ok(withCredential.includes("--allow-env-connection"), "validate with a SecretStorage credential must pass --allow-env-connection");
+    assert.ok(withCredential.indexOf("--allow-env-connection") > withCredential.indexOf("--ide-safe"), "the carve-out flag follows --ide-safe");
+
+    const withoutCredential = buildCliArguments("validate", "/workspace", "sqlserver", "/workspace/.dataguard.yml", "/tmp/out.sarif", { hasUserCredential: false });
+    assert.ok(!withoutCredential.includes("--allow-env-connection"), "no credential: the carve-out flag must be absent");
+
+    const defaulted = buildCliArguments("validate", "/workspace", "sqlserver", "/workspace/.dataguard.yml", "/tmp/out.sarif");
+    assert.ok(!defaulted.includes("--allow-env-connection"), "the options parameter defaults to no credential");
+});
+
+test("assess never carries --allow-env-connection even with a user credential", () => {
+    const argv = buildCliArguments("assess", "/workspace", "sqlserver", undefined, "/tmp/out.sarif", { hasUserCredential: true });
+    assert.ok(!argv.includes("--allow-env-connection"));
+    assert.ok(argv.includes("--ide-safe"));
+});
+
+test("snapshot, baseline and verify-shape never carry --ide-safe or --allow-env-connection", () => {
+    for (const command of ["snapshot", "baseline", "verify-shape"] as const) {
+        const argv = buildCliArguments(command, "/workspace", "sqlserver", "/workspace/.dataguard.yml", "/tmp/out.json", { hasUserCredential: true });
+        assert.ok(!argv.includes("--ide-safe"), `${command} is a live-database command and must not claim ide-safe`);
+        assert.ok(!argv.includes("--allow-env-connection"), `${command} must not carry the ide-safe carve-out flag`);
+    }
+});

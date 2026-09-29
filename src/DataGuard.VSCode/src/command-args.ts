@@ -10,6 +10,18 @@ const PROVIDERS = new Set(["sqlserver", "postgresql", "mysql", "oracle"]);
  */
 export const IDE_SAFE_FLAG = "--ide-safe";
 
+/**
+ * Carve-out for the user's own credential: under --ide-safe the CLI keeps ONLY a connection string
+ * supplied through the DATAGUARD_CONNECTION_STRING environment variable (which this extension sets
+ * from VS Code SecretStorage). Repository config credentials stay stripped. Validate only.
+ */
+export const ALLOW_ENV_CONNECTION_FLAG = "--allow-env-connection";
+
+export interface CliArgumentOptions {
+    /** True only when VS Code SecretStorage returned a connection string for this workspace. */
+    readonly hasUserCredential?: boolean;
+}
+
 export function normalizeProvider(value: string): string {
     const provider = value.trim().toLowerCase();
     if (!PROVIDERS.has(provider)) {
@@ -24,6 +36,7 @@ export function buildCliArguments(
     provider: string,
     configPath?: string,
     outputPath?: string,
+    options: CliArgumentOptions = {},
 ): string[] {
     const normalizedProvider = normalizeProvider(provider);
     switch (command) {
@@ -42,6 +55,7 @@ export function buildCliArguments(
                 workspacePath,
                 "--progress",
                 IDE_SAFE_FLAG,
+                ...(options.hasUserCredential === true ? [ALLOW_ENV_CONNECTION_FLAG] : []),
             ];
         case "assess":
             return ["assess", "--workspace", workspacePath, "--provider", normalizedProvider, "--format", "sarif", "--output", outputPath!, IDE_SAFE_FLAG];
