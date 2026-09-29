@@ -22,60 +22,15 @@ using DataGuard.Cli;
 using DataGuard.Cli.Hooks;
 
 // Bound every regex in the process before any type with a static Regex field is touched (red-team F11).
-AppContext.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(1));
+RegexMatchTimeoutStartup.Apply();
 
 var assembly = Assembly.GetExecutingAssembly();
 var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
     ?? assembly.GetName().Version?.ToString() ?? "0.1.0";
 
-// Only the final directory and the target file itself may not be reparse points. Ancestors are not walked:
-// a junctioned %TEMP% is a normal host layout, and the validate SARIF sink applies the same policy.
-static bool IsSafeWritablePath(string path)
-{
-    try
-    {
-        var fullPath = Path.GetFullPath(path);
-        var parent = Path.GetDirectoryName(fullPath);
-        return !string.IsNullOrWhiteSpace(parent) && !IsLink(parent) && !IsLink(fullPath);
-    }
-    catch (Exception)
-    {
-        return false;
-    }
-
-    static bool IsLink(string candidate)
-    {
-        try
-        {
-            var fileInfo = new FileInfo(candidate);
-            if (fileInfo.LinkTarget != null)
-            {
-                return true;
-            }
-
-            var dirInfo = new DirectoryInfo(candidate);
-            if (dirInfo.LinkTarget != null)
-            {
-                return true;
-            }
-
-            if (File.Exists(candidate) || Directory.Exists(candidate))
-            {
-                var attrs = File.GetAttributes(candidate);
-                if (attrs != (FileAttributes)(-1) && attrs.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-}
+// Target and parent may never be links; repository-controlled ancestors (inside the current directory) are
+// walked too, host-chosen ones (a junctioned %TEMP%) are not. See SafeWritablePath.
+static bool IsSafeWritablePath(string path) => SafeWritablePath.IsSafe(path, Directory.GetCurrentDirectory());
 
 static async Task WriteTextAtomicallyAsync(string outputPath, string content, CancellationToken cancellationToken)
 {
@@ -419,7 +374,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             "Validating rules",
             "Running enabled validation rules.",
             new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
-        var violations = await ValidateContractsAsync(contracts, config, provider, ct, skipRuleIds, progress);
+        var violations = await ValidateContractsAsync(contracts, config, provider, ct, skipRuleIds, progress, ideSafe);
         if (normalizedFormat == "text")
         {
             var emitter = new DiagnosticEmitter();
@@ -2300,10 +2255,11 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     string provider,
     CancellationToken cancellationToken = default,
     HashSet<string>? skipRuleIds = null,
-    ProgressEmitter? progress = null)
+    ProgressEmitter? progress = null,
+    bool ideSafe = false)
 {
     var allViolations = new List<ContractViolation>();
-    var rules = GetRulesForProvider(provider, config.ConnectionString, progress)
+    var rules = GetRulesForProvider(provider, config.ConnectionString, progress, ideSafe)
         .Where(r => skipRuleIds is null || !skipRuleIds.Contains(r.RuleId))
         .ToList();
     if (config.EnableConcurrentValidation)
@@ -2458,9 +2414,9 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
     return violations;
 }
 
-static List<IContractRule> GetRulesForProvider(string provider, string? connectionString = null, ProgressEmitter? progress = null)
+static List<IContractRule> GetRulesForProvider(string provider, string? connectionString = null, ProgressEmitter? progress = null, bool ideSafe = false)
 {
-    return ProviderRuleCatalog.Get(provider, connectionString, progress)
+    return ProviderRuleCatalog.Get(provider, connectionString, progress, ideSafe)
         .Where(registration => registration.Availability == RuleAvailability.Ready)
         .Select(registration => registration.Rule)
         .ToList();

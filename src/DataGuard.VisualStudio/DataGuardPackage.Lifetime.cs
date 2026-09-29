@@ -14,8 +14,9 @@ public sealed partial class DataGuardPackage
 {
     /// <summary>
     /// Raised by <see cref="SolutionLifetimeWatcher"/> on the main thread before the solution closes:
-    /// stops the running CLI (its results will be discarded by the publish gate) and clears the Error
-    /// List so no diagnostics survive into the next solution.
+    /// requests a stop of the running CLI on the thread pool without waiting for it (its results will
+    /// be discarded by the publish gate's solution re-check) and clears the Error List synchronously so
+    /// no diagnostics survive into the next solution.
     /// </summary>
     private void OnBeforeCloseSolution()
     {
@@ -23,10 +24,11 @@ public sealed partial class DataGuardPackage
         var process = this.processRegistry.Active;
         if (process != null)
         {
-            var outcome = ProcessTerminator.StopProcess(process);
-            this.processRegistry.TryMarkCancelled(process, outcome);
-            this.JoinableTaskFactory.RunAsync(() => this.output!.WriteAsync("[DataGuard] The solution is closing; the running DataGuard command was stopped.\r\n"))
-                .FileAndForget("DataGuard/SolutionClosing");
+            this.JoinableTaskFactory.RunAsync(async () =>
+            {
+                await SolutionLifetimeWatcher.RequestStopAsync(process, ProcessTerminator.StopProcess, this.processRegistry.TryMarkCancelled);
+                await this.output!.WriteAsync("[DataGuard] The solution is closing; the running DataGuard command was stopped.\r\n");
+            }).FileAndForget("DataGuard/SolutionClosing");
         }
 
         try

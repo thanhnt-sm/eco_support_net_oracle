@@ -112,3 +112,59 @@ Gate:
 2. `docs/USAGE.md` §`--ide-safe` still says the connection string is always ignored; needs the `--allow-env-connection` and `ide-safe: active` contract (Phase 4 scope?).
 3. Should the global relaxation of `IsSafeWritablePath` (ancestor walk dropped for `init`/`config`/`summary.json` too) stay, or be limited to SARIF outputs? I kept it global for parity/DRY.
 4. `dotnet build DataGuard.sln` (parallel) fails intermittently on this machine in the VSIX project before and after this change — worth a `BuildInParallel=false`/dependency fix in the VS csproj, outside this phase.
+
+## Review fixes (CLI/Core)
+
+Source: `plans/reports/code-reviewer-260929-1412-vs-hardening-followup.md` findings H1, M1, M3, L4, L5, L6. Branch `feat/vs-extension-hardening` on top of c37a2ce, uncommitted. Ownership respected: `src/DataGuard.Cli`, `src/DataGuard.Core`, `tests/DataGuard.Core.Tests` only; no docs, no VS/VS Code, no `packages.lock.json` edits (the 9 lock files were already modified in the working tree before this pass).
+
+### RED -> GREEN
+
+RED run (after stubbing only the compile surface: `ideSafe` param, `HasLiveConnection` probe, `LiveShapeRuleDisabledNote` const): `Failed: 11, Passed: 83` (filter over the 9 affected classes).
+
+| Finding | RED test(s) | Result |
+|---|---|---|
+| H1 | `ProviderRuleCatalogTests.Get_IdeSafeWithKeptConnection_RegistersConnectionlessLiveShapeRule`; `IdeSafePolicyTests.Apply_KeptEnvConnection_ReportsLiveShapeRuleDisabled`; `IdeSafeEndToEndTests.Validate_IdeSafeAllowEnvConnection_ReportsKeptEnvironmentConnection` (new fragment assertion) | 3 RED -> GREEN. Companion positives added: `Get_WithConnection_RegistersLiveShapeRuleBoundToConnection`, `Apply_WithoutKeptConnection_DoesNotReportLiveShapeRule`. Gap: the e2e exits 3 at contract acquisition (kept credential is unreachable), so the rule stage is never reached with a real credential; the `ideSafe` threading validate action -> `ValidateContractsAsync` -> `GetRulesForProvider` -> catalog is verified by reading, and the catalog test covers the last hop only. |
+| M1 | `ConcurrentValidationExecutionTests.ValidateAsync_RegexTimeoutInRule_ThrowsNamingTheFailedRule` (was: message `Validation result exceeded the configured violation cap.`); `StreamAsync_RegexTimeoutInRule_PropagatesInsteadOfDroppingSilently` (was: no exception, violations silently dropped) | 2 RED -> GREEN. Plus `RegexMatchTimeoutStartupTests.Apply_RegistersOneSecondDefaultUnderTheRuntimeKey` (new helper, GREEN on first run) |
+| M3 | `SafeWritablePathTests` (5 facts + 2 theory rows): in-workspace link -> rejected; junction outside workspace with plain subdir -> accepted; target directly under a link -> rejected; `ws2` prefix sibling -> not treated as inside; blank -> rejected | Not captured RED: the ancestor walk was written in the same extraction as the helper. Regression guard for the junctioned-%TEMP% case is the pre-existing `Assess_OutputUnderJunction_WritesSarif` (still GREEN). |
+| L4 | `IdeSafePolicyTests.SelectVariablesToClear_ClassifiesNames` +7 rows (`DATAGUARD_DATABASECONNECTION`, `dataguard_db_password`, `PGPASSWORD`, `pgpassword`, `MYSQL_PWD` cleared; `DATAGUARD_CLI_PATH`, `DATAGUARDIAN` kept); `IdeSafeEnvironmentScrubTests` +2 names | 6 RED -> GREEN |
+| L5 | `PhantomIdentifierRuleRegexTests.ValidateAsync_SelectFollowedBy200KSpaces_CompletesWithinFiveSeconds` (renamed from `...UnderOneSecond`) | bound 1 s -> 5 s, reason in comment |
+| L6 | `Validate_IdeSafeAllowEnvConnection_ReportsKeptEnvironmentConnection`: `stderr.Should().NotContain("from-config")` | GREEN |
+
+GREEN: filter run `Passed: 94/94`; full `tests/DataGuard.Core.Tests` -c Release `Passed: 892, Failed: 0, Skipped: 0` (was 871); `tests/DataGuard.GoldenCorpus.Tests` `Passed: 28`; `dotnet build DataGuard.sln -c Release -m:1` 0 warnings / 0 errors; `dotnet format whitespace DataGuard.sln --verify-no-changes` clean; no CRLF in touched files.
+
+### Files changed
+
+- `src/DataGuard.Cli/ProviderRuleCatalog.cs` — `Get(provider, connectionString, progress, bool ideSafe = false)`; under `ideSafe` the core rules receive `null` connection, so `LiveSqlShapeValidationRule` is the connection-less variant (DG018 still registered, never describes).
+- `src/DataGuard.Cli/IdeSafePolicy.cs` — `LiveShapeRuleDisabledNote = "live SQL shape rule disabled (use verify-shape)"`, added to `Suppressed` whenever the env connection is kept (rendered in the `ide-safe: suppressed ...` line).
+- `src/DataGuard.Cli/Program.cs` — startup calls `RegexMatchTimeoutStartup.Apply()` (still the first statement); `IsSafeWritablePath` is a one-line wrapper over `SafeWritablePath.IsSafe(path, Directory.GetCurrentDirectory())`; `ideSafe` threaded validate action -> `ValidateContractsAsync` -> `GetRulesForProvider` -> catalog (other callers default false).
+- `src/DataGuard.Cli/SafeWritablePath.cs` (new) — target + parent never links (unchanged); ancestors walked only while strictly inside the workspace root (prefix compare with trailing separator, case-insensitive on Windows only); root itself and anything above it never inspected.
+- `src/DataGuard.Cli/RegexMatchTimeoutStartup.cs` (new) — `AppContextKey`, `DefaultMatchTimeout` (1 s), `Apply()`, `Configured`.
+- `src/DataGuard.Cli/IdeSafeEnvironment.cs` — fixed list + `PGPASSWORD`, `MYSQL_PWD`; every `DATAGUARD_*` cleared except allowlist `DATAGUARD_PROVIDER`, `DATAGUARD_CLI_PATH` (and `DATAGUARD_CONNECTION_STRING` when `--allow-env-connection`). Rationale: `ZeroTrustCredentialProvider` resolves `DATAGUARD_<CREDENTIAL-NAME>` for any caller-supplied name (only `DatabaseConnection` exists today).
+- `src/DataGuard.Core/Rules/LiveSqlShapeValidationRule.cs` — `internal bool HasLiveConnection` (test probe; `InternalsVisibleTo` already present).
+- `src/DataGuard.Core/Validation/ConcurrentValidationEngine.cs` — `StreamAsync` no longer swallows: rule exception -> `InvalidOperationException("Rule DG016 failed: RegexMatchTimeoutException: ...")` faulting the channel; `ValidateAsync` message now `Validation incomplete: rule execution failed for DG016 (RegexMatchTimeoutException).` when any rule failed (cap wording kept only for pure drops).
+- Tests: `SafeWritablePathTests.cs`, `RegexMatchTimeoutStartupTests.cs` (new); `ProviderRuleCatalogTests.cs`, `IdeSafePolicyTests.cs`, `ConcurrentValidationExecutionTests.cs`, `IdeSafeEndToEndTests.cs`, `PhantomIdentifierRuleRegexTests.cs` (edited).
+
+### M1 exit-code semantics (verbatim for docs)
+
+`RegexMatchTimeoutException` (or any rule exception) during `validate`, both engines:
+
+- Concurrent path (default, `EnableConcurrentValidation: true`): `ConcurrentValidationEngine.ValidateAsync` throws `ValidationIncompleteException` -> Program.cs validate `catch (Exception ex)` -> stderr `Validation failed: Validation incomplete: rule execution failed for DG016 (RegexMatchTimeoutException).` -> **exit 1**. No SARIF / summary.json is written (validation throws before the output stage), so IDE hosts fail closed ("produced no SARIF").
+- Sequential path (`EnableConcurrentValidation: false`): the rule exception propagates unchanged -> stderr `Validation failed: The Regex engine has timed out while trying to match a pattern to an input string. ...` -> **exit 1**, no SARIF.
+- Before this fix the concurrent path already exited 1 but with the misleading text `Validation failed: Validation result exceeded the configured violation cap.`; the silent-drop path (`StreamAsync`) had no callers in `src`. USAGE/CHANGELOG wording "Validation failed ..., exit 1" is therefore accurate; docs may add that the failing rule id and exception type are named and that no SARIF is produced.
+- Regex bound effectiveness: `RegexMatchTimeoutStartupTests` proves the `REGEX_DEFAULT_MATCH_TIMEOUT` AppContext switch is set to 1 s by the helper the CLI calls first; it cannot prove `Regex` honoured it inside the test process (its default is frozen at first use by xunit). A true process-level proof would need a deterministic pathological input against a Compiled regex in the CLI; not added.
+
+### Observed `--ide-safe --allow-env-connection` stderr (hostile fixture, unreachable DB)
+
+```
+ide-safe: active
+ide-safe: suppressed GroundTruthMode=Manual (forced to Snapshot); ManualAssemblyPath (assembly loading disabled); live SQL shape rule disabled (use verify-shape)
+ide-safe: kept environment connection (--allow-env-connection)
+UNEVALUATED: contract acquisition failed: A network-related or instance-specific error ...
+```
+(exit 3 here because the kept credential is unreachable; `from-config` never appears.)
+
+### Concerns
+
+- Files over the 200-line guideline, unchanged in kind: `ConcurrentValidationEngine.cs` (~320), `IdeSafePolicyTests.cs` (~345), `IdeSafeEndToEndTests.cs` (~295), `IdeSafePolicy.cs` (~233). Not refactored in this pass.
+- `SafeWritablePathTests` uses `mklink /J` on Windows (fails loudly, never skips) and `Directory.CreateSymbolicLink` elsewhere; Linux run not exercised here.
+- `packages.lock.json` (9 files) were already dirty at session start; md5 of all lock files is identical to the prior agent's 14:20 baseline (`lock-md5-after-pkg.txt`), so this pass's builds did not change them.

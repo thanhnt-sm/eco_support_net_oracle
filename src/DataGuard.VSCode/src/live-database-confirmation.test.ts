@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildLiveDatabaseConfirmation, isLiveDatabaseCommand, maskConnectionHost } from "./live-database-confirmation";
+import { buildLiveDatabaseConfirmation, countReadQueries, isLiveDatabaseCommand, maskConnectionHost } from "./live-database-confirmation";
+
+test("countReadQueries counts only entries whose operation is 'read' (case-insensitive)", () => {
+    const report = { queries: [{ operation: "read" }, { operation: "READ" }, { operation: "write" }, {}, null, { operation: 3 }, "read"] };
+    assert.equal(countReadQueries(report), 2);
+    assert.equal(countReadQueries({ queries: [] }), 0, "an empty scan is a known count of zero, not unknown");
+});
+
+test("countReadQueries returns undefined for a missing or malformed summary instead of throwing", () => {
+    assert.equal(countReadQueries(undefined), undefined);
+    assert.equal(countReadQueries(null), undefined);
+    assert.equal(countReadQueries({}), undefined, "summary.json without a queries array");
+    assert.equal(countReadQueries({ queries: "SELECT 1" }), undefined, "queries is not an array");
+    assert.equal(countReadQueries({ queries: { length: 3 } }), undefined, "array-like objects are not arrays");
+    assert.equal(countReadQueries("not a report"), undefined);
+    assert.doesNotThrow(() => countReadQueries({ queries: null }));
+});
 
 test("isLiveDatabaseCommand gates exactly snapshot, baseline and verify-shape", () => {
     assert.equal(isLiveDatabaseCommand("snapshot"), true);

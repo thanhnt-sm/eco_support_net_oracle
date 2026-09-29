@@ -50,7 +50,9 @@ interface ProgressEventPayload {
 /**
  * Turns one CLI stdout/stderr line into the text for the DataGuard output channel, or `undefined`
  * when the line must be dropped. `ide-safe:` and `baseline:` lines are policy decisions the user
- * must see, so they are echoed as `[WARN]` regardless of exit code; everything is redacted.
+ * must see, so they are echoed as `[WARN]` regardless of exit code; the exact acknowledgement
+ * `ide-safe: active` is the expected outcome of every run and is echoed as `[INFO]`. Everything
+ * is redacted.
  */
 export function formatProgressLine(rawLine: string): string | undefined {
     const line = rawLine.trim();
@@ -62,6 +64,9 @@ export function formatProgressLine(rawLine: string): string | undefined {
         if (rendered !== null) {
             return rendered;
         }
+    }
+    if (line === IDE_SAFE_ACK_LINE) {
+        return `[INFO] ${line}`;
     }
     if (line.startsWith("ide-safe:") || line.startsWith("baseline:")) {
         return `[WARN] ${redactSensitiveText(line)}`;

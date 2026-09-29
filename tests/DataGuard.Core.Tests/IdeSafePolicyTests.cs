@@ -177,6 +177,30 @@ public class IdeSafePolicyTests
     }
 
     [Fact]
+    public void Apply_KeptEnvConnection_ReportsLiveShapeRuleDisabled()
+    {
+        var merged = new DataGuardConfiguration(ConnectionString: "Server=env", GroundTruthMode: GroundTruthMode.Full);
+
+        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: "Server=env");
+
+        result.Suppressed.Should().Contain(IdeSafePolicy.LiveShapeRuleDisabledNote);
+        IdeSafePolicy.LiveShapeRuleDisabledNote.Should().Be("live SQL shape rule disabled (use verify-shape)");
+        IdeSafePolicy.FormatSuppressionLine(result.Suppressed).Should().Contain("live SQL shape rule disabled (use verify-shape)");
+    }
+
+    [Fact]
+    public void Apply_WithoutKeptConnection_DoesNotReportLiveShapeRule()
+    {
+        var merged = new DataGuardConfiguration(ConnectionString: "Server=env", GroundTruthMode: GroundTruthMode.Full);
+
+        var stripped = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: false);
+        var clean = IdeSafePolicy.Apply(new DataGuardConfiguration(), environmentConnectionPresent: false);
+
+        stripped.Suppressed.Should().NotContain(IdeSafePolicy.LiveShapeRuleDisabledNote);
+        clean.Suppressed.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Apply_AllowEnvConnectionWithoutEnv_StripsConfigConnection()
     {
         var merged = new DataGuardConfiguration(ConnectionString: "Data Source=from-config", GroundTruthMode: GroundTruthMode.Full);
@@ -249,7 +273,14 @@ public class IdeSafePolicyTests
     [InlineData(true, "connectionstrings__x", true)]
     [InlineData(true, "PATH", false)]
     [InlineData(true, "DATAGUARD_PROVIDER", false)]
+    [InlineData(true, "DATAGUARD_CLI_PATH", false)]
+    [InlineData(true, "DATAGUARD_DATABASECONNECTION", true)]
+    [InlineData(true, "dataguard_db_password", true)]
+    [InlineData(true, "PGPASSWORD", true)]
+    [InlineData(true, "pgpassword", true)]
+    [InlineData(true, "MYSQL_PWD", true)]
     [InlineData(true, "AWSOME_APP", false)]
+    [InlineData(true, "DATAGUARDIAN", false)]
     public void SelectVariablesToClear_ClassifiesNames(bool allowEnv, string name, bool expectCleared)
     {
         var cleared = IdeSafeEnvironment.SelectVariablesToClear(allowEnv, new[] { name, "HOME" });
@@ -274,7 +305,7 @@ public class IdeSafeEnvironmentScrubTests
     public void Scrub_ClearsSecretVariablesInProcess_AndKeepsAllowedConnection()
     {
         const string marker = "dg-ide-safe-scrub-test";
-        var names = new[] { "DATAGUARD_CONNECTION_STRING", "VAULT_TOKEN", "ConnectionStrings__DgScrubTest", "AWS_SESSION_TOKEN", "DATAGUARD_PROVIDER" };
+        var names = new[] { "DATAGUARD_CONNECTION_STRING", "VAULT_TOKEN", "ConnectionStrings__DgScrubTest", "AWS_SESSION_TOKEN", "DATAGUARD_PROVIDER", "DATAGUARD_DATABASECONNECTION", "PGPASSWORD" };
         var previous = names.ToDictionary(n => n, Environment.GetEnvironmentVariable);
         try
         {
@@ -290,6 +321,8 @@ public class IdeSafeEnvironmentScrubTests
             Environment.GetEnvironmentVariable("VAULT_TOKEN").Should().BeNull();
             Environment.GetEnvironmentVariable("ConnectionStrings__DgScrubTest").Should().BeNull();
             Environment.GetEnvironmentVariable("AWS_SESSION_TOKEN").Should().BeNull();
+            Environment.GetEnvironmentVariable("DATAGUARD_DATABASECONNECTION").Should().BeNull();
+            Environment.GetEnvironmentVariable("PGPASSWORD").Should().BeNull();
             cleared.Should().Contain("VAULT_TOKEN").And.Contain("ConnectionStrings__DgScrubTest").And.NotContain("DATAGUARD_CONNECTION_STRING");
 
             IdeSafeEnvironment.Scrub(allowEnvConnection: false);

@@ -63,20 +63,18 @@ internal static class CliRunTimeoutHandler
 
     /// <summary>
     /// A run that reached the timeout is still published when the CLI finished on its own
-    /// (AlreadyExited), or when it was terminated only after exiting with a normal CLI exit code and
-    /// writing its SARIF output (i.e. it was caught during teardown).
+    /// (AlreadyExited), or when it was terminated after its SARIF output had already been written
+    /// (i.e. it was caught during teardown). The exit code of a terminated process is taskkill's, not
+    /// the CLI's, so it takes no part in the decision; a Failed termination is never published.
     /// </summary>
-    internal static bool ShouldPublishAfterTimeout(ProcessStopOutcome termination, bool hasExited, int exitCode, bool sarifExists)
+    internal static bool ShouldPublishAfterTimeout(ProcessStopOutcome termination, bool hasExited, bool sarifExists)
     {
         if (termination == ProcessStopOutcome.AlreadyExited)
         {
             return true;
         }
 
-        return termination == ProcessStopOutcome.Terminated
-            && hasExited
-            && ExitCodeExplainer.IsNormalCliExitCode(exitCode)
-            && sarifExists;
+        return termination == ProcessStopOutcome.Terminated && hasExited && sarifExists;
     }
 
     internal static string DescribeTimeout(string command, int timeoutSeconds, ProcessStopOutcome termination)

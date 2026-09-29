@@ -129,10 +129,10 @@ dataguard validate --connection "..." --verbose
 `.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--ef-snapshot`, `--ef-project`, `--ef-context` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`.
 
 - **Handshake**: dòng stderr **đầu tiên** luôn là `ide-safe: active` (in trước cả dòng từ chối option). Host chỉ chấp nhận kết quả khi thấy dòng này; CLI cũ (≤ 0.2.2) không biết cờ, in `Unrecognized command or argument '--ide-safe'` và **exit `1`** — host báo "CLI quá cũ" và không bao giờ chạy lại mà thiếu cờ.
-- **`--allow-env-connection`** (chỉ `validate`, không có tác dụng nếu thiếu `--ide-safe`): giữ lại đúng một credential là `DATAGUARD_CONNECTION_STRING` do host đặt; `ConnectionString` trong file config **luôn** bị xoá. Khi giữ, stderr in `ide-safe: kept environment connection (--allow-env-connection)`; `GroundTruthMode: Manual` bị ép về `Snapshot`. VS Code chỉ truyền cờ này khi có credential trong SecretStorage.
+- **`--allow-env-connection`** (chỉ `validate`, không có tác dụng nếu thiếu `--ide-safe`): giữ lại đúng một credential là `DATAGUARD_CONNECTION_STRING` do host đặt; `ConnectionString` trong file config **luôn** bị xoá. Khi giữ, stderr in `ide-safe: kept environment connection (--allow-env-connection)`; `GroundTruthMode: Manual` bị ép về `Snapshot`. Credential được giữ **chỉ dùng để đọc catalog ground-truth** (schema, định nghĩa stored procedure); `validate` không gửi hay describe SQL trích từ repo lên database — rule live SQL shape (`sp_describe_first_result_set` trên SQL của repo) vẫn tắt dưới `--ide-safe` (stderr liệt kê `live SQL shape rule disabled (use verify-shape)`), chỉ `verify-shape` (có xác nhận) mới thực hiện. VS Code chỉ truyền cờ này khi có credential trong SecretStorage.
 - **Giới hạn tài nguyên**: `MaxDegreeOfParallelism` > số CPU, `MaxViolationQueueSize` > 100000, `ValidationTimeoutSeconds` > 900 bị kẹp về giới hạn và liệt kê dạng `Name=value (clamped to bound)` trong dòng `ide-safe: suppressed ...`.
 - **Baseline**: vẫn được áp dụng, nhưng mọi suppression đều hiển thị: stderr `baseline: <n> violations suppressed by <path>` và progress event `BaselineApplied` (`--progress`); host echo thành `[WARN]`.
-- **Gia cố regex**: mọi regex trong tiến trình CLI có match timeout 1 giây (input bệnh hoạn → `Validation failed: ...`, exit `1` thay vì treo); SQL literal dài hơn 256 KiB bị bỏ qua với `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`.
+- **Gia cố regex**: mọi regex trong tiến trình CLI có match timeout 1 giây; input bệnh hoạn làm regex vượt timeout được **báo là rule failure** (rule đó không bị bỏ qua âm thầm) thay vì treo tiến trình; SQL literal dài hơn 256 KiB bị bỏ qua với `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`.
 
 **Exit Codes**:
 - `0` = Pass (không violation mới)
@@ -442,20 +442,21 @@ END;
 Menu **Tools → DataGuard**: Run Validation, Cancel, Assess Workspace, View Diagnostic Logs, Validation Rules. Kết quả SARIF được nạp vào **Error List** (double-click nhảy đúng dòng/cột), tối đa 2 000 mục mỗi lần chạy.
 
 **Mô hình tin cậy / Trust model**:
-- Lần chạy đầu tiên cho mỗi solution, extension hỏi xác nhận (modal) và lưu đồng ý theo cặp *(thư mục solution, SHA-256 của `.dataguard.yml`)* trong user settings của VS. Khi repo đổi `.dataguard.yml`, extension hỏi lại.
+- Lần chạy đầu tiên cho mỗi solution, extension hỏi xác nhận (modal) và lưu đồng ý theo bộ ba *(thư mục solution, đường dẫn `.sln`, SHA-256 của `.dataguard.yml`)* trong user settings của VS. Khi repo đổi `.dataguard.yml`, extension hỏi lại.
 - "Run Validation on Build" **không bao giờ** hỏi; nếu solution chưa được đồng ý thì bỏ qua và ghi một dòng vào Output pane.
 - `validate`/`assess` luôn chạy với `--ide-safe` (không nạp assembly, không kết nối DB/secret manager/network); extension không có lệnh kết nối database và không truyền `--allow-env-connection`. Kết quả chỉ được nạp vào Error List khi CLI in `ide-safe: active`; thiếu dòng này thì kết quả bị huỷ, và CLI ≤ 0.2.2 (từ chối cờ, exit 1) được báo là quá cũ.
 - Đồng ý được khoá theo *(thư mục solution, đường dẫn `.sln`, SHA-256 của `.dataguard.yml`)*; lệnh **Forget Solution Consent** xoá đồng ý của solution hiện tại.
 - CLI được bundle trong VSIX (`cli\dataguard.exe`); có thể chỉ định đường dẫn tuyệt đối khác tới một `dataguard.exe` tải từ GitHub Releases (kiểm tra SHA-256) trong Tools → Options → DataGuard → General. Extension **không** tự cài và **không** hướng dẫn `dotnet tool install` nữa.
 - Dòng `ide-safe:`/`baseline:` của CLI được hiển thị trong Output pane.
+- Lần chạy chạm giới hạn timeout: process tree của CLI bị dừng; nếu file SARIF đã được ghi xong thì kết quả vẫn được nạp vào Error List và Output pane in `[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.` (exit code của tiến trình bị dừng là của `taskkill`, không được diễn giải), nếu chưa có SARIF thì lần chạy bị huỷ và Output pane nói rõ.
 - Không có `.dataguard.yml` trong solution: CLI chỉ chạy các rule source-only và extension cảnh báo rõ trong Output pane.
 
 ### VS Code Extension (`DataGuard.VSCode`)
 
 - `validate`/`assess` chạy với `--ide-safe`; kết quả bị huỷ nếu dòng stderr đầu tiên không phải `ide-safe: active` (thông báo `DataGuard CLI did not confirm IDE-safe mode; results were discarded`, kèm gợi ý `Update the dataguard CLI (0.3.0 or later) or set dataguard.cliPath` khi CLI cũ).
-- Khi có credential trong VS Code SecretStorage, `validate` truyền thêm `--allow-env-connection`: CLI chỉ giữ credential đó (không bao giờ giữ connection string trong `.dataguard.yml`).
+- Khi có credential trong VS Code SecretStorage, `validate` truyền thêm `--allow-env-connection`: CLI chỉ giữ credential đó (không bao giờ giữ connection string trong `.dataguard.yml`) và chỉ dùng nó để đọc catalog ground-truth (schema, stored procedure); `validate` **không** gửi hay describe SQL của repo lên database — việc đó chỉ xảy ra trong **Verify SQL Shapes Against Database** sau khi bạn xác nhận.
 - **Refresh Snapshot**, **Create Baseline**, **Verify SQL Shapes Against Database** (`snapshot`, `baseline`, `verify-shape`) là lệnh kết nối database thật: dùng credential của bạn (hoặc kết nối trong `.dataguard.yml`/`DATAGUARD_CONNECTION_STRING`) và luôn hỏi xác nhận (modal) nêu host đích đã che trước khi chạy; không truyền `--ide-safe`.
-- Dòng `ide-safe:`/`baseline:` của CLI hiển thị trong DataGuard output channel dưới dạng `[WARN]`.
+- Dòng xác nhận `ide-safe: active` hiển thị trong DataGuard output channel dưới dạng `[INFO]`; các dòng `ide-safe:`/`baseline:` khác của CLI (suppressed, kept, baseline suppression) hiển thị dưới dạng `[WARN]`.
 
 ---
 

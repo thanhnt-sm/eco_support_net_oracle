@@ -28,6 +28,12 @@ public static class IdeSafePolicy
     /// <summary>Suppression entry written when the environment credential is kept.</summary>
     public const string KeptEnvironmentConnectionNote = "kept environment connection (--allow-env-connection)";
 
+    /// <summary>
+    /// Suppression entry written alongside <see cref="KeptEnvironmentConnectionNote"/>: the kept credential is used for
+    /// ground-truth acquisition only; repository-extracted SQL is never described against it during <c>validate</c>.
+    /// </summary>
+    public const string LiveShapeRuleDisabledNote = "live SQL shape rule disabled (use verify-shape)";
+
     /// <summary>Result of applying the policy: the sanitized configuration and what was suppressed.</summary>
     public sealed record Result(DataGuardConfiguration Configuration, IReadOnlyList<string> Suppressed);
 
@@ -69,6 +75,7 @@ public static class IdeSafePolicy
         if (keepEnvConnection)
         {
             suppressed.Add(KeptEnvironmentConnectionNote);
+            suppressed.Add(LiveShapeRuleDisabledNote);
             if (!string.IsNullOrWhiteSpace(environmentConnection))
             {
                 config = config with { ConnectionString = environmentConnection };

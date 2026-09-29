@@ -53,9 +53,12 @@ tùy theo mức độ nghiêm trọng.
 - **IDE hosts (credential của người dùng)**: `--allow-env-connection` (chỉ đi kèm `--ide-safe`, chỉ với
   `validate`) giữ lại credential `DATAGUARD_CONNECTION_STRING` do host cung cấp; connection string trong
   `.dataguard.yml` luôn bị xoá. VS Code chỉ truyền cờ này khi có credential lưu trong SecretStorage.
-  `snapshot`, `baseline` và `verify-shape` là các lệnh kết nối database thật: trong VS Code chúng dùng
-  credential của bạn và luôn hỏi xác nhận (modal) nêu host đích đã che; Visual Studio không có lệnh kết
-  nối database.
+  Dưới `--ide-safe`, `validate` dùng credential đó **chỉ để đọc catalog ground-truth** (schema và định
+  nghĩa stored procedure); không bao giờ gửi hay describe SQL trích từ repository lên database — kiểm tra
+  live SQL shape (`sp_describe_first_result_set` trên SQL của repo) vẫn bị tắt dưới `--ide-safe` và chỉ
+  chạy qua `verify-shape`. `snapshot`, `baseline` và `verify-shape` là các lệnh kết nối database thật:
+  trong VS Code chúng dùng credential của bạn và luôn hỏi xác nhận (modal) nêu host đích đã che; Visual
+  Studio không có lệnh kết nối database.
 - **Cổng tin cậy Visual Studio**: đồng ý một lần cho mỗi solution file (khoá theo thư mục solution, đường
   dẫn `.sln` và hash `.dataguard.yml`) trước lần chạy đầu, không bao giờ hỏi từ build event, không tự cài
   CLI, và chỉ chấp nhận đường dẫn CLI tuyệt đối.

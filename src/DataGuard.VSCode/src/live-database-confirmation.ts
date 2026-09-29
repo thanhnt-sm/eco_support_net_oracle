@@ -63,6 +63,28 @@ function maskHost(host: string): string {
     return labels.length > 1 ? `${head}.${labels[labels.length - 1]}` : head;
 }
 
+/**
+ * Counts the `read` queries in a CLI `summary.json` scan report. The report is external CLI data
+ * that the host casts rather than validates, so every level is checked: a missing report or a
+ * `queries` field that is not an array yields `undefined` (count unknown), never an exception.
+ */
+export function countReadQueries(report: unknown): number | undefined {
+    if (!report || typeof report !== "object") {
+        return undefined;
+    }
+    const queries = (report as { queries?: unknown }).queries;
+    if (!Array.isArray(queries)) {
+        return undefined;
+    }
+    return queries.filter((query: unknown) => {
+        if (!query || typeof query !== "object") {
+            return false;
+        }
+        const operation = (query as { operation?: unknown }).operation;
+        return typeof operation === "string" && operation.toLowerCase() === "read";
+    }).length;
+}
+
 export interface LiveDatabaseConfirmationInput {
     readonly command: LiveDatabaseCommand;
     /** Output of {@link maskConnectionHost}; `undefined` when no SecretStorage credential exists. */

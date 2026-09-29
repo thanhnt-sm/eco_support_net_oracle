@@ -114,6 +114,8 @@ public class IdeSafeEndToEndTests
             lines[0].Should().Be("ide-safe: active");
             stderr.Should().Contain("ide-safe: kept environment connection (--allow-env-connection)");
             stderr.Should().Contain("ManualAssemblyPath");
+            stderr.Should().Contain("live SQL shape rule disabled (use verify-shape)", "H1: validate never describes repo SQL against the kept credential");
+            stderr.Should().NotContain("from-config", "the config-file connection value must never be used or echoed");
             exitCode.Should().NotBe(2, "--allow-env-connection is a valid validate option under --ide-safe");
         }
         finally

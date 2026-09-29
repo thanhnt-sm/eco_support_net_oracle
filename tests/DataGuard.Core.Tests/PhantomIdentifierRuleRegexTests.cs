@@ -34,7 +34,7 @@ public class PhantomIdentifierRuleRegexTests
         new("raw:1", text, Array.Empty<ParameterDescriptor>(), Array.Empty<ColumnDescriptor>());
 
     [Fact]
-    public async Task ValidateAsync_SelectFollowedBy200KSpaces_CompletesUnderOneSecond()
+    public async Task ValidateAsync_SelectFollowedBy200KSpaces_CompletesWithinFiveSeconds()
     {
         var rule = new PhantomIdentifierRule();
         var hostile = "SELECT" + new string(' ', 200_000) + "x";
@@ -43,7 +43,9 @@ public class PhantomIdentifierRuleRegexTests
         var violations = await rule.ValidateAsync(Sql(hostile), new ContractDescriptor[] { Schema() });
         stopwatch.Stop();
 
-        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+        // 5 s, not 1 s: the bound also covers first-use JIT of four Compiled regexes and NonBacktracking DFA
+        // construction on a cold, shared CI runner. The quadratic case took minutes, so the headroom is still ~3 orders.
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
         violations.Should().BeEmpty();
     }
 

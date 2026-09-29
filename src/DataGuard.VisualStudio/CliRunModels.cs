@@ -14,6 +14,9 @@ internal sealed class CliRunOutcome
 
     public bool Cancelled { get; set; }
 
+    /// <summary>True when the run was terminated at the timeout but published anyway (SARIF already written); <see cref="ExitCode"/> is then taskkill's, not the CLI's.</summary>
+    public bool TerminatedAtTimeout { get; set; }
+
     public int ExitCode { get; set; }
 
     public long ElapsedMs { get; set; }

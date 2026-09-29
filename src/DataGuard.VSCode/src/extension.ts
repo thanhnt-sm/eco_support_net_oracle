@@ -11,7 +11,7 @@ import { readConnectionSecret, redactAndBoundSensitiveText, redactSensitiveText,
 import { RunCoordinator } from "./run-coordinator";
 import { buildCliArguments, CliCommand, normalizeProvider } from "./command-args";
 import { buildIdeSafeFailureMessage, formatProgressLine, hasIdeSafeAck } from "./ide-safe-contract";
-import { buildLiveDatabaseConfirmation, isLiveDatabaseCommand, maskConnectionHost } from "./live-database-confirmation";
+import { buildLiveDatabaseConfirmation, countReadQueries, isLiveDatabaseCommand, maskConnectionHost } from "./live-database-confirmation";
 import { DataGuardDashboardPanel } from "./ui/dashboard-panel";
 import { DataGuardFindingsTreeProvider, FindingTreeItem } from "./ui/findings-tree-provider";
 import { DataGuardSqlQueriesTreeProvider, QueryScanItem, ScanConnectionItem, ScanReport } from "./ui/sql-queries-tree-provider";
@@ -327,8 +327,8 @@ async function confirmLiveDatabaseCommand(command: CliCommand, connectionString:
     if (!isLiveDatabaseCommand(command)) {
         return true;
     }
-    // summary.json elements are CLI output and are cast, not validated: guard the field before use.
-    const readQueryCount = latestScanReport?.queries.filter((query) => typeof query?.operation === "string" && query.operation.toLowerCase() === "read").length;
+    // summary.json is CLI output that is cast, not validated: countReadQueries guards `queries` and each entry.
+    const readQueryCount = countReadQueries(latestScanReport);
     const message = buildLiveDatabaseConfirmation({ command, maskedHost: maskConnectionHost(connectionString), readQueryCount });
     const choice = await vscode.window.showWarningMessage(message, { modal: true }, "Continue");
     return choice === "Continue";

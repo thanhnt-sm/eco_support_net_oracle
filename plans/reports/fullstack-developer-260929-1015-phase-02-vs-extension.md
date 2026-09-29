@@ -95,3 +95,48 @@ Gate:
 2. The one-time re-prompt for every existing user after this upgrade (key now includes the .sln path) — acceptable for the release notes, or should Phase 4 call it out explicitly?
 3. `OnBeforeCloseSolution` runs `StopProcess` synchronously on the UI thread (taskkill wait ≤ 5 s worst case). Acceptable, or prefer fire-and-forget with the publish gate as the only guard?
 4. Terminated-after-SARIF publish trusts `taskkill`'s exit code being in 0–4 (observed: normal); if a future CLI ever exits 5+ for a legitimate outcome, extend `IsNormalCliExitCode`.
+
+## Review fixes (VS)
+
+Executor: fullstack-developer · 2026-09-29 · branch `feat/vs-extension-hardening` (HEAD c37a2ce, uncommitted). Scope: M2 and M4 (close path) from `plans/reports/code-reviewer-260929-1412-vs-hardening-followup.md`. Ownership respected: `src/DataGuard.VisualStudio/`, `tests/DataGuard.VisualStudio.Tests/` only; no docs, no lock files, no commit.
+
+### RED
+
+Tests written first; the RED state was a compile break on the new contracts (9 errors: CS1739/CS1061/CS7036/CS0117), plus one theory row whose expectation flips: `Terminated, hasExited, exitCode -1, sarif` was `false` (exit code outside 0-4) and is now `true` (the exit code no longer participates).
+
+- `CliArgumentBuilderTests.ExitCodeExplainer_TerminatedAtTimeout_DoesNotInterpretTaskkillExitCode` - exit code 1 (taskkill), with and without a summary, and `assess`/0/warnings: all yield the exact new string; without the flag exit 1 still reads "found errors".
+- `ProcessTerminatorClassificationTests.ShouldPublishAfterTimeout_PublishesAlreadyExitedOrTerminatedWithSarif` - rewritten to the 3-parameter decision (`termination, hasExited, sarifExists`); `Failed` rows stay `false` even with SARIF and exit.
+- `ProcessTerminatorClassificationTests.TerminatedWithSarif_PublishesAndExplainsTerminationInsteadOfExitCode` - exit code 1 + SARIF present -> publish, and `Explain(..., terminatedAtTimeout: true)` equals the new wording.
+- `CliRunSessionLiveTests.Timeout_TerminatedAfterSarifWasWritten_StillPublishes` - line 92 swapped one-for-one: `IsNormalCliExitCode(exitCode)` -> `outcome.TerminatedAtTimeout.Should().BeTrue(...)` (real `taskkill /T /F`; file stays exactly 200 lines).
+- `SolutionLifetimeWatcherTests.RequestStopAsync_ReturnsBeforeTheStopCompletes_ThenRecordsCancellation` - injected stopper blocks on a `ManualResetEventSlim`; the returned task is asserted **not completed** while the stopper blocks (a synchronous implementation fails this after 5 s), then the event is released and `registry.WasCancelled(process)` becomes true. Registry populated with the injected no-op starter (`StartAndRegister(process, _ => { })`).
+- `SolutionLifetimeWatcherTests.RequestStopAsync_AlreadyExited_DoesNotRecordCancellation` - an `AlreadyExited` stop must not mark the run cancelled (its results still publish).
+
+### GREEN - files
+
+- `src/DataGuard.VisualStudio/CliRunTimeoutHandler.cs` - `ShouldPublishAfterTimeout(termination, hasExited, sarifExists)` = `AlreadyExited || (Terminated && hasExited && sarifExists)`. `hasExited` is kept because `TryTaskKill` returns on taskkill's own exit, not the target's, and `RunAsync` reads `process.ExitCode` afterwards. `Failed` remains a discard (unchanged; the lead's "OR sarif exists" was applied to the Terminated branch only). Doc comment no longer states the false "normal exit code" premise.
+- `src/DataGuard.VisualStudio/ExitCodeExplainer.cs` - new `TerminatedAtTimeoutExplanation` const; `Explain(..., bool terminatedAtTimeout = false)` returns it first, before every exit-code branch. `IsNormalCliExitCode` removed (dead after the clause drop; the live test was its only other caller).
+- `src/DataGuard.VisualStudio/CliRunModels.cs` - `CliRunOutcome.TerminatedAtTimeout` (documented: the exit code is then taskkill's).
+- `src/DataGuard.VisualStudio/CliRunSession.cs` - sets the flag right after the timeout publish decision (`termination == Terminated`); `TryGetExitCode` removed (unused). 181 lines.
+- `src/DataGuard.VisualStudio/DataGuardPackage.Publishing.cs` - passes the flag to `Explain`, always prints the explanation for a terminated run, and logs `TimedOutExitCode` (-1) instead of taskkill's code for that run.
+- `src/DataGuard.VisualStudio/SolutionLifetimeWatcher.cs` - pure `RequestStopAsync(process, stop, markCancelled)`: `Task.Run` -> stop -> mark -> outcome. Added `using Task = System.Threading.Tasks.Task;` (the `Microsoft.VisualStudio.Shell` import otherwise makes `Task.Run` ambiguous). 169 lines.
+- `src/DataGuard.VisualStudio/DataGuardPackage.Lifetime.cs` - `OnBeforeCloseSolution` keeps `ThrowIfNotOnUIThread` and the synchronous `errorListPresenter.Clear()`; the stop is now `JoinableTaskFactory.RunAsync(async () => { await SolutionLifetimeWatcher.RequestStopAsync(process, ProcessTerminator.StopProcess, this.processRegistry.TryMarkCancelled); await output.WriteAsync(...); }).FileAndForget("DataGuard/SolutionClosing")` - the first await is the pool task, so the UI thread returns immediately; a late result is discarded by the publish gate's solution re-check.
+
+### Exact new explainer string (for docs)
+
+```
+[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.
+```
+
+Emitted as `[DataGuard] [WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.` in the Output pane, after the existing `[DataGuard] validate timed out after N seconds and its process tree was terminated.` line and the `completed in N ms with exit code 1` line. The CHANGELOG sentence "terminated only after exiting with a normal CLI exit code" must be reworded to "terminated after its SARIF output had already been written" (docs agent).
+
+### Gate
+
+- `dotnet test tests/DataGuard.VisualStudio.Tests -c Release` -> **Passed 155, Failed 0, Skipped 1** (was 152/0/1), ~5 s; the live taskkill test passes with the new flag.
+- `dotnet build src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj -c Release` (full, including the bundled-CLI publish) -> 0 Warning(s), 0 Error(s). Note: a first attempt failed on another agent's in-flight `src/DataGuard.Cli/SafeWritablePath.cs` (CS1734, not owned here); the retry after their fix is the recorded result. The extension-only compile (`-p:CreateVsixContainer=false`) was 0/0 throughout.
+- MSBuild VSIX packaging (`MSBuild.exe ... -p:Configuration=Release -p:CreateVsixContainer=true -p:DeployExtension=false -restore -m:1`) -> exit 0, `src/DataGuard.VisualStudio/bin/Release/net472/DataGuard.VisualStudio.vsix` (50,483,090 bytes).
+- `dotnet format whitespace DataGuard.sln --verify-no-changes` -> exit 0. All touched files LF; every touched code file <= 200 lines (largest: live test 200, session 181). No `record`/`ValueTuple`/`TextManager.Interop` introduced.
+
+### Out of scope, recorded
+
+- M4 second half (`Process.Start` inside the registry lock, `CliProcessRegistry.StartAndRegister`): **not touched**. It is not a two-line change - it needs start outside the lock, register inside, then a re-check of `cancelPending` with a conditional stop, plus a registry test for the Cancel-during-start race. Follow-up for the lead.
+- `ReportOutcomeAsync` still prints `completed in N ms with exit code 1` before the new explanation for a terminated run; the explanation immediately disclaims the code. Left as is to keep the change minimal.

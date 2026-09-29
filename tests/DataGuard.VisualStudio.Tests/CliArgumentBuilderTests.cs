@@ -91,6 +91,18 @@ public class CliArgumentBuilderTests
     }
 
     [Fact]
+    public void ExitCodeExplainer_TerminatedAtTimeout_DoesNotInterpretTaskkillExitCode()
+    {
+        const string expected = "[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.";
+
+        // taskkill /F leaves exit code 1; without the flag that reads as "found errors" or "failed before producing a summary".
+        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: true, terminatedAtTimeout: true).Should().Be(expected);
+        ExitCodeExplainer.Explain("validate", 1, hasSummary: false, warningCount: 0, sarifExists: true, terminatedAtTimeout: true).Should().Be(expected);
+        ExitCodeExplainer.Explain("assess", 0, hasSummary: true, warningCount: 3, sarifExists: true, terminatedAtTimeout: true).Should().Be(expected);
+        ExitCodeExplainer.Explain("validate", 1, hasSummary: true, warningCount: 0, sarifExists: true).Should().Contain("found errors");
+    }
+
+    [Fact]
     public void NoDotnetToolGuidance_AnywhereInExtensionSources()
     {
         var repoRoot = new DirectoryInfo(System.AppContext.BaseDirectory);

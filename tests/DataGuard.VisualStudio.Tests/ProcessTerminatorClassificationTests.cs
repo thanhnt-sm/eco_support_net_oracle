@@ -21,17 +21,27 @@ public class ProcessTerminatorClassificationTests
     }
 
     [Theory]
-    [InlineData((int)ProcessStopOutcome.AlreadyExited, true, 1, false, true)]
-    [InlineData((int)ProcessStopOutcome.AlreadyExited, true, 0, true, true)]
-    [InlineData((int)ProcessStopOutcome.Terminated, true, 1, true, true)]
-    [InlineData((int)ProcessStopOutcome.Terminated, true, 0, true, true)]
-    [InlineData((int)ProcessStopOutcome.Terminated, true, 1, false, false)]
-    [InlineData((int)ProcessStopOutcome.Terminated, false, 1, true, false)]
-    [InlineData((int)ProcessStopOutcome.Terminated, true, -1, true, false)]
-    [InlineData((int)ProcessStopOutcome.Failed, false, 0, true, false)]
-    public void ShouldPublishAfterTimeout_PublishesAlreadyExitedOrNormalExitWithSarif(int termination, bool hasExited, int exitCode, bool sarifExists, bool expected)
+    [InlineData((int)ProcessStopOutcome.AlreadyExited, true, false, true)]
+    [InlineData((int)ProcessStopOutcome.AlreadyExited, true, true, true)]
+    [InlineData((int)ProcessStopOutcome.Terminated, true, true, true)]
+    [InlineData((int)ProcessStopOutcome.Terminated, true, false, false)]
+    [InlineData((int)ProcessStopOutcome.Terminated, false, true, false)]
+    [InlineData((int)ProcessStopOutcome.Failed, false, true, false)]
+    [InlineData((int)ProcessStopOutcome.Failed, true, true, false)]
+    public void ShouldPublishAfterTimeout_PublishesAlreadyExitedOrTerminatedWithSarif(int termination, bool hasExited, bool sarifExists, bool expected)
     {
-        CliRunTimeoutHandler.ShouldPublishAfterTimeout((ProcessStopOutcome)termination, hasExited, exitCode, sarifExists).Should().Be(expected);
+        CliRunTimeoutHandler.ShouldPublishAfterTimeout((ProcessStopOutcome)termination, hasExited, sarifExists).Should().Be(expected);
+    }
+
+    /// <summary>taskkill /F leaves exit code 1, so the exit code takes no part in the decision or the explanation.</summary>
+    [Fact]
+    public void TerminatedWithSarif_PublishesAndExplainsTerminationInsteadOfExitCode()
+    {
+        const int taskkillExitCode = 1;
+
+        CliRunTimeoutHandler.ShouldPublishAfterTimeout(ProcessStopOutcome.Terminated, hasExited: true, sarifExists: true).Should().BeTrue();
+        ExitCodeExplainer.Explain("validate", taskkillExitCode, hasSummary: false, warningCount: 0, sarifExists: true, terminatedAtTimeout: true)
+            .Should().Be("[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.");
     }
 
     [Fact]

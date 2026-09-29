@@ -89,7 +89,7 @@ public class CliRunSessionLiveTests : IDisposable
         var outcome = await session.RunAsync("validate", process, timeoutSeconds: 1, this.SarifPath);
 
         outcome.ProceedToPublish.Should().BeTrue("the CLI had written its SARIF and reported a normal exit code (" + outcome.ExitCode + ") when terminated");
-        ExitCodeExplainer.IsNormalCliExitCode(outcome.ExitCode).Should().BeTrue("taskkill leaves exit code " + outcome.ExitCode);
+        outcome.TerminatedAtTimeout.Should().BeTrue("taskkill leaves exit code " + outcome.ExitCode + ", which must not be read as a CLI verdict");
         outcome.Progress.HasSummary.Should().BeTrue();
         this.output.Should().Contain(line => line.Contains("process tree was terminated"));
     }

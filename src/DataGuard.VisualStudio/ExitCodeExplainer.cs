@@ -10,11 +10,18 @@ internal static class ExitCodeExplainer
     /// <summary>Exit code the extension records when the user cancelled a run.</summary>
     internal const int CancelledExitCode = 130;
 
-    /// <summary>True for the documented dataguard exit codes (0 ok, 1 findings, 2 usage, 3 incomplete, 4 tool errors).</summary>
-    internal static bool IsNormalCliExitCode(int exitCode) => exitCode >= 0 && exitCode <= 4;
+    /// <summary>Explanation for a run stopped by the timeout after its SARIF was written; the exit code is taskkill's.</summary>
+    internal const string TerminatedAtTimeoutExplanation =
+        "[WARN] Terminated at the timeout after results were written; the exit code is not meaningful. See Error List.";
 
-    internal static string Explain(string command, int exitCode, bool hasSummary, int warningCount, bool sarifExists)
+    /// <summary>One-line explanation of the run; <paramref name="terminatedAtTimeout"/> means the extension killed the process at the timeout, so the exit code is not the CLI's verdict.</summary>
+    internal static string Explain(string command, int exitCode, bool hasSummary, int warningCount, bool sarifExists, bool terminatedAtTimeout = false)
     {
+        if (terminatedAtTimeout)
+        {
+            return TerminatedAtTimeoutExplanation;
+        }
+
         if (hasSummary && !sarifExists && (exitCode == 0 || exitCode == 1))
         {
             return "[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)";

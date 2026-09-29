@@ -1,5 +1,6 @@
 using DataGuard.Cli;
 using DataGuard.Core.Models;
+using DataGuard.Core.Rules;
 using DataGuard.Core.Validation;
 using FluentAssertions;
 using Xunit;
@@ -41,6 +42,27 @@ public class ProviderRuleCatalogTests
         outcome.State.Should().Be(RuleExecutionState.Unavailable);
         outcome.PrerequisiteReason.Should().Contain("analyzer");
         outcome.MakesValidationIncomplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Get_WithConnection_RegistersLiveShapeRuleBoundToConnection()
+    {
+        var live = ProviderRuleCatalog.Get("sqlserver", "Server=127.0.0.1,1;Connect Timeout=1")
+            .Select(registration => registration.Rule).OfType<LiveSqlShapeValidationRule>().Single();
+
+        live.HasLiveConnection.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Get_IdeSafeWithKeptConnection_RegistersConnectionlessLiveShapeRule()
+    {
+        // H1: the kept --allow-env-connection credential is for ground-truth acquisition only; repo-extracted SQL
+        // must never be described against it during validate (that is verify-shape, behind a host confirmation).
+        var registrations = ProviderRuleCatalog.Get("sqlserver", "Server=127.0.0.1,1;Connect Timeout=1", progress: null, ideSafe: true);
+
+        var live = registrations.Select(registration => registration.Rule).OfType<LiveSqlShapeValidationRule>().Single();
+        live.HasLiveConnection.Should().BeFalse();
+        registrations.Select(registration => registration.Rule.RuleId).Should().Contain("DG018");
     }
 
     [Fact]

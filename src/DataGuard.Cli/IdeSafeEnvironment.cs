@@ -19,6 +19,18 @@ public static class IdeSafeEnvironment
         "AWS_SECRET_ACCESS_KEY",
         "AWS_SESSION_TOKEN",
         "AWS_PROFILE",
+        "PGPASSWORD",
+        "MYSQL_PWD",
+    };
+
+    /// <summary>
+    /// Non-secret <c>DATAGUARD_*</c> names that survive scrubbing. Every other <c>DATAGUARD_</c> variable is treated as a
+    /// credential because <c>ZeroTrustCredentialProvider</c> resolves <c>DATAGUARD_&lt;CREDENTIAL-NAME&gt;</c> for any caller-supplied name.
+    /// </summary>
+    private static readonly string[] NonSecretDataGuardVariables =
+    {
+        "DATAGUARD_PROVIDER",
+        "DATAGUARD_CLI_PATH",
     };
 
     /// <summary>
@@ -48,7 +60,8 @@ public static class IdeSafeEnvironment
             if (isConnection
                 || FixedSecretVariables.Contains(name, StringComparer.OrdinalIgnoreCase)
                 || name.StartsWith("AWS_", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("ConnectionStrings__", StringComparison.OrdinalIgnoreCase))
+                || name.StartsWith("ConnectionStrings__", StringComparison.OrdinalIgnoreCase)
+                || IsDataGuardCredentialVariable(name))
             {
                 toClear.Add(name);
             }
@@ -56,6 +69,10 @@ public static class IdeSafeEnvironment
 
         return toClear;
     }
+
+    private static bool IsDataGuardCredentialVariable(string name) =>
+        name.StartsWith("DATAGUARD_", StringComparison.OrdinalIgnoreCase)
+        && !NonSecretDataGuardVariables.Contains(name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Clears every credential-bearing variable from the current process environment and returns the names cleared.

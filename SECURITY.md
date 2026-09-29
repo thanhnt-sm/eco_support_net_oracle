@@ -52,9 +52,13 @@ We aim to acknowledge reports within 5 business days and to ship fixes as fast a
 - **IDE hosts (user credential)**: `--allow-env-connection` (only with `--ide-safe`, `validate` only)
   keeps the `DATAGUARD_CONNECTION_STRING` credential the host supplies; connection strings from
   `.dataguard.yml` are always stripped. VS Code passes it only when a credential is stored in its
-  SecretStorage. `snapshot`, `baseline` and `verify-shape` are live-database commands: in VS Code
-  they use your credential and always ask for a modal confirmation that names the masked target
-  host; Visual Studio exposes no live-database command.
+  SecretStorage. Under `--ide-safe`, `validate` uses that credential **only to read the
+  ground-truth catalog** (schema and stored-procedure definitions); it never sends or describes
+  repository-extracted SQL against the database — the live SQL-shape check
+  (`sp_describe_first_result_set` over repository SQL) stays disabled under `--ide-safe` and runs
+  only through `verify-shape`. `snapshot`, `baseline` and `verify-shape` are live-database
+  commands: in VS Code they use your credential and always ask for a modal confirmation that names
+  the masked target host; Visual Studio exposes no live-database command.
 - **Visual Studio trust gate**: one-time consent per solution file (keyed by the solution directory,
   the `.sln` path and the `.dataguard.yml` hash) before the first run, never prompts from build
   events, never auto-installs the CLI, and only accepts an absolute custom CLI path.

@@ -63,7 +63,7 @@ public sealed partial class DataGuardPackage
             await output.WriteAsync("[DataGuard] " + context.Command + " produced no SARIF file; previous Error List results were kept.\r\n");
         }
 
-        this.LogRun(context, outcome.ExitCode, outcome.ElapsedMs, diagnosticCount);
+        this.LogRun(context, outcome.TerminatedAtTimeout ? TimedOutExitCode : outcome.ExitCode, outcome.ElapsedMs, diagnosticCount);
         await this.ReportOutcomeAsync(context.Command, outcome, sarifExists);
     }
 
@@ -112,9 +112,9 @@ public sealed partial class DataGuardPackage
         var output = this.output!;
         var progress = outcome.Progress;
         await output.WriteAsync("[DataGuard] " + command + " completed in " + outcome.ElapsedMs + " ms with exit code " + outcome.ExitCode + ".\r\n");
-        if (progress.HasSummary || outcome.ExitCode != 0)
+        if (progress.HasSummary || outcome.ExitCode != 0 || outcome.TerminatedAtTimeout)
         {
-            await output.WriteAsync("[DataGuard] " + ExitCodeExplainer.Explain(command, outcome.ExitCode, progress.HasSummary, progress.WarningCount, sarifExists) + "\r\n");
+            await output.WriteAsync("[DataGuard] " + ExitCodeExplainer.Explain(command, outcome.ExitCode, progress.HasSummary, progress.WarningCount, sarifExists, outcome.TerminatedAtTimeout) + "\r\n");
         }
 
         await output.WriteResultBlockAsync(progress);

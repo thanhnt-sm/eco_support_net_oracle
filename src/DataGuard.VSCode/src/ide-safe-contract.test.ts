@@ -42,12 +42,15 @@ test("buildIdeSafeFailureMessage adds the update hint only for an old-CLI reject
     assert.ok(!buildIdeSafeFailureMessage(["", OLD_CLI_LINE]).includes("Update"), "only the first line is consulted for the hint");
 });
 
-test("formatProgressLine surfaces ide-safe: and baseline: lines as [WARN] channel lines", () => {
+test("formatProgressLine renders the exact ide-safe ack as [INFO] and every other ide-safe:/baseline: line as [WARN]", () => {
     assert.equal(
         formatProgressLine("ide-safe: suppressed ConnectionString from config (database access disabled)"),
         "[WARN] ide-safe: suppressed ConnectionString from config (database access disabled)",
     );
-    assert.equal(formatProgressLine("ide-safe: active"), "[WARN] ide-safe: active");
+    assert.equal(formatProgressLine("ide-safe: active"), "[INFO] ide-safe: active", "the acknowledgement is not a warning");
+    assert.equal(formatProgressLine("  ide-safe: active\r"), "[INFO] ide-safe: active", "trimmed before the exact comparison");
+    assert.equal(formatProgressLine("ide-safe: active!"), "[WARN] ide-safe: active!", "only the exact ack line is [INFO]");
+    assert.equal(formatProgressLine("ide-safe: kept environment connection (--allow-env-connection)"), "[WARN] ide-safe: kept environment connection (--allow-env-connection)");
     assert.equal(
         formatProgressLine("baseline: 3 violations suppressed by .dataguard-baseline.json"),
         "[WARN] baseline: 3 violations suppressed by .dataguard-baseline.json",

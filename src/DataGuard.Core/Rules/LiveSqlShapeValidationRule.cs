@@ -106,6 +106,9 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
     {
     }
 
+    /// <summary>True when this instance can open a database connection (connection string or schema provider present).</summary>
+    internal bool HasLiveConnection => !string.IsNullOrWhiteSpace(_connectionString) || _schemaProvider is not null;
+
     public LiveSqlShapeValidationRule(
         string? connectionString = null,
         string provider = "sqlserver",

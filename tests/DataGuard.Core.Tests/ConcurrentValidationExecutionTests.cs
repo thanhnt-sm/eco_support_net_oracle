@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using DataGuard;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Baseline;
@@ -215,6 +216,42 @@ public class ConcurrentValidationExecutionTests
         var failed = result.RuleOutcomes.Single(outcome => outcome.RuleId == "DG778");
         failed.State.Should().Be(RuleExecutionState.Failed);
         failed.FailureReason.Should().Be(nameof(InvalidOperationException));
+    }
+
+    [Fact]
+    public async Task ValidateAsync_RegexTimeoutInRule_ThrowsNamingTheFailedRule()
+    {
+        // M1: the CLI's default path calls ValidateAsync; a timed-out rule must surface as that rule's failure,
+        // not as a misleading "violation cap" message and never as a silent "0 issues".
+        var timingOut = new TestRule("DG016", (_, _) => throw new RegexMatchTimeoutException("QualifiedColumnRegex", "x", TimeSpan.FromSeconds(1)));
+        var healthy = new TestRule("DG017", (_, _) => Task.FromResult(Violations("DG017", "still runs")));
+
+        var act = () => new ConcurrentValidationEngine(maxDegreeOfParallelism: 2)
+            .ValidateAsync(Contracts(2), new IContractRule[] { timingOut, healthy });
+
+        var thrown = (await act.Should().ThrowAsync<ValidationIncompleteException>()).Which;
+        thrown.Message.Should().Contain("DG016").And.Contain(nameof(RegexMatchTimeoutException));
+        thrown.Message.Should().NotContain("violation cap");
+        thrown.Result.RuleOutcomes.Single(outcome => outcome.RuleId == "DG016").State.Should().Be(RuleExecutionState.Failed);
+        thrown.Result.Violations.Should().HaveCount(2).And.OnlyContain(violation => violation.RuleId == "DG017");
+    }
+
+    [Fact]
+    public async Task StreamAsync_RegexTimeoutInRule_PropagatesInsteadOfDroppingSilently()
+    {
+        var timingOut = new TestRule("DG016", (_, _) => throw new RegexMatchTimeoutException("QualifiedColumnRegex", "x", TimeSpan.FromSeconds(1)));
+        var engine = new ConcurrentValidationEngine(maxDegreeOfParallelism: 1);
+
+        var act = async () =>
+        {
+            await foreach (var streamed in engine.StreamAsync(Contracts(1), new IContractRule[] { timingOut }))
+            {
+                streamed.Should().NotBeNull();
+            }
+        };
+
+        var thrown = (await act.Should().ThrowAsync<Exception>()).Which;
+        thrown.Message.Should().Contain("DG016").And.Contain(nameof(RegexMatchTimeoutException));
     }
 
     [Fact]
