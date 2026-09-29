@@ -58,7 +58,7 @@ public class RuleInventoryTests
             "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Scan\",\"Data\":{\"RuleId\":\"DG010\",\"RuleTitle\":\"Title 10\",\"ViolationCount\":0,\"ContractCount\":5}}"
         };
 
-        var inventory = new List<(string? RuleId, string? RuleTitle, int ViolationCount)>();
+        var inventory = new List<DataGuardPackage.RuleInventoryItem>();
         foreach (var ruleJson in rules)
         {
             var success = DataGuardPackage.TryFormatProgress(
