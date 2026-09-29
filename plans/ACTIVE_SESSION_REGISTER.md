@@ -378,3 +378,11 @@ Plan: `plans/260929-0835-vs-extension-hardening/plan.md` · Predict: `plans/repo
 - [ ] Chạy lại 4 red-team lens khi quota Fable reset (2026-10-01 07:00 Asia/Bangkok).
 - [ ] Push branch + PR; kiểm tra job `visual-studio-vsix-package` trên windows-latest.
 - [ ] Deferred: VS findings tree/status bar parity, Init command, ký VSIX, assess SARIF sanitizer, Oracle/PG exit 3, tách `Program.cs`.
+7. ✅ **Push + PR**: `.claude/` vào `.gitignore` + allowlist `scripts/preflight_agent_check.sh` + `rules/workspace_governance.md`; pre-push `verify_local_gates.sh` pass; PR #24 mở (https://github.com/thanhnt-sm/eco_support_net_oracle/pull/24), 10 checks pending — theo dõi job `Visual Studio VSIX Packaging Gate`.
+8. ✅ **`/ck:plan red-team validate --tdd`** trên plan 260929-0835: 3 lens (Security Adversary, Assumption Destroyer, Failure Mode) → 14 finding (5 High) chấp nhận toàn bộ; 7 câu hỏi validate đã chốt (`--allow-env-connection`, baseline warn, `.sln` trong consent key, upload artifact chỉ same-repo, modal cho verify-shape, bỏ hướng dẫn `dotnet tool` vì `DataGuard.Cli` chưa có trên nuget.org). Plan follow-up TDD 5 phase: `plans/260929-0952-vs-hardening-redteam-tdd-followup/` (chưa thực thi theo yêu cầu owner).
+
+## 🎯 VIỆC CẦN LÀM TIẾP THEO
+
+- [ ] `/ck:cook D:\100.Software\Github\eco_support_net_oracle\plans\260929-0952-vs-hardening-redteam-tdd-followup\plan.md --tdd` (sau `/clear`).
+- [ ] Owner: reserve/publish `DataGuard.Cli` trên nuget.org; quyết định ký VSIX.
+- [ ] Theo dõi PR #24 checks; re-run 2 red-team lens bị rate-limit (supply chain, Core/adapters) sau 2026-10-01 07:00.
