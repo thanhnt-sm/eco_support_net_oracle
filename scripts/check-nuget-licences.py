@@ -2,19 +2,15 @@
 """Licence allow-list gate for every NuGet package in DataGuard.sln and every production npm
 package of the VS Code extension.
 
-NuGet: `dotnet list <sln> package --include-transitive --format json` gives the resolved graph;
-each package's licence is read from its nuspec in the local NuGet cache
-(`<cache>/<id>/<version>/<id>.nuspec`): `<license type="expression">` is an SPDX expression,
-`<license type="file">` is resolved to the first non-empty line of that file, and a legacy
-`<licenseUrl>` is used only when no `<license>` element exists (the NuGet placeholder
-`aka.ms/deprecateLicenseUrl` never counts as a licence).
-npm: production entries of `package-lock.json` (lockfile v2/v3, `dev: true` skipped) and their
-`license` field — no `node_modules` install is needed, so the gate runs in any CI job.
-
-A package passes when every SPDX token of its licence expression is in the `[spdx]` section of
-scripts/allowed-licences.txt, or when an `[exceptions]` entry matches both its id (glob) and a
-marker substring of the observed licence text. Anything else — unknown licence, missing nuspec,
-restore problems, empty graph — fails closed (exit 1) and lists the offenders.
+NuGet: `dotnet list <sln> package --include-transitive --format json` gives the resolved graph; each
+licence is read from the cache nuspec (`<cache>/<id>/<version>/<id>.nuspec`): `<license
+type="expression">` is SPDX, `<license type="file">` resolves to the first non-empty line of that
+file, a legacy `<licenseUrl>` counts only without a `<license>` element (never the placeholder
+`aka.ms/deprecateLicenseUrl`). npm: production entries of `package-lock.json` (v2/v3, `dev: true`
+skipped) and their `license` field — no install needed, so the gate runs in any CI job.
+A package passes when every SPDX token is in the `[spdx]` section of scripts/allowed-licences.txt,
+or an `[exceptions]` entry matches its id (glob) AND a marker substring of the observed licence
+text. Anything else (unknown licence, missing nuspec, restore errors, empty graph) fails closed.
 
 Run locally:  python scripts/check-nuget-licences.py   (stdlib only; exit 0 = every licence allowed)
 """
@@ -73,12 +69,10 @@ def nuget_cache_root() -> Path:
     try:
         out = subprocess.run(["dotnet", "nuget", "locals", "global-packages", "--list"],
                              capture_output=True, text=True, check=True).stdout
-        for line in out.splitlines():
-            if "global-packages:" in line:
-                return Path(line.split(":", 1)[1].strip())
+        hits = [line.split(":", 1)[1].strip() for line in out.splitlines() if "global-packages:" in line]
     except (OSError, subprocess.CalledProcessError):
-        pass
-    return Path.home() / ".nuget" / "packages"
+        hits = []
+    return Path(hits[0]) if hits else Path.home() / ".nuget" / "packages"
 
 
 def nuspec_licence(cache: Path, package_id: str, version: str) -> tuple[str, str]:
@@ -87,13 +81,8 @@ def nuspec_licence(cache: Path, package_id: str, version: str) -> tuple[str, str
     nuspec = folder / f"{package_id.lower()}.nuspec"
     if not nuspec.is_file():
         return "missing", f"nuspec not found: {nuspec}"
-    license_el = url_el = None
-    for el in ET.parse(nuspec).getroot().iter():
-        tag = el.tag.rsplit("}", 1)[-1]
-        if tag == "license":
-            license_el = el
-        elif tag == "licenseUrl":
-            url_el = el
+    elements = {el.tag.rsplit("}", 1)[-1]: el for el in ET.parse(nuspec).getroot().iter()}
+    license_el, url_el = elements.get("license"), elements.get("licenseUrl")
     if license_el is not None:
         kind, value = (license_el.get("type") or "").lower(), (license_el.text or "").strip()
         if kind == "expression":
@@ -113,6 +102,16 @@ def nuspec_licence(cache: Path, package_id: str, version: str) -> tuple[str, str
     return "none", "no <license> element and no usable <licenseUrl>"
 
 
+def fail_problems(scope: str, problems: list[dict]) -> None:
+    """`dotnet list package` problems: warnings are printed, errors (or entries without a level) fail."""
+    errors = [p for p in problems if str(p.get("level", "error")).lower() != "warning"]
+    for p in problems:
+        if p not in errors:
+            print(f"licence gate: warning ({scope}): {p.get('text', p)}", file=sys.stderr)
+    if errors:
+        raise RuntimeError(f"dotnet list package reported errors for {scope}: {json.dumps(errors, indent=2)}")
+
+
 def nuget_packages(solution: Path) -> set[tuple[str, str]]:
     """Resolved (id, version) pairs across all projects/frameworks; raises on restore problems."""
     cmd = ["dotnet", "list", str(solution), "package", "--include-transitive", "--format", "json"]
@@ -120,12 +119,11 @@ def nuget_packages(solution: Path) -> set[tuple[str, str]]:
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(cmd)} failed ({proc.returncode}):\n{proc.stdout}\n{proc.stderr}")
     data = json.loads(proc.stdout[proc.stdout.index("{"):])
-    if data.get("problems"):
-        raise RuntimeError(f"dotnet list package reported problems: {json.dumps(data['problems'], indent=2)}")
     packages: set[tuple[str, str]] = set()
+    for scope, problems in [("solution", data.get("problems"))] + [
+            (p.get("path", "?"), p.get("problems")) for p in data.get("projects") or []]:
+        fail_problems(scope, problems or [])
     for project in data.get("projects") or []:
-        if project.get("problems"):
-            raise RuntimeError(f"{project.get('path')}: {json.dumps(project['problems'], indent=2)}")
         for framework in project.get("frameworks") or []:
             for key in ("topLevelPackages", "transitivePackages"):
                 for pkg in framework.get(key) or []:

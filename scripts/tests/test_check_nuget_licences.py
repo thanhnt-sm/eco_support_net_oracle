@@ -88,6 +88,15 @@ class NuspecLicenceTests(unittest.TestCase):
             self.assertEqual(gate.nuspec_licence(cache, "Absent.Pkg", "9.9.9")[0], "missing")
 
 
+class ListPackageProblemsTests(unittest.TestCase):
+    def test_warnings_pass_but_errors_and_unlevelled_entries_fail(self):
+        gate.fail_problems("solution", [{"level": "warning", "text": "NU1603 approximate best match"}])
+        with self.assertRaises(RuntimeError):
+            gate.fail_problems("solution", [{"level": "error", "text": "NU1101 not found"}])
+        with self.assertRaises(RuntimeError):
+            gate.fail_problems("solution", [{"text": "no level"}])
+
+
 class NpmLockfileTests(unittest.TestCase):
     def test_skips_root_and_dev_entries_and_keeps_scoped_names(self):
         lock = {"lockfileVersion": 3, "packages": {
