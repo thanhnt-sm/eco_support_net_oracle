@@ -4,34 +4,37 @@
 
 using Microsoft.VisualStudio.Shell;
 
+// The 10.0.0.x redirects below must equal the assembly version shipped by the System.Text.Json
+// PackageReference in DataGuard.VisualStudio.csproj (package 10.0.N -> assembly 10.0.0.N); CreatePkgDef
+// (Microsoft.VSSDK.BuildTools) rejects a NewVersion that does not match the built DLL.
 [assembly: ProvideBindingRedirection(
     AssemblyName = "System.Text.Json",
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.11",
-    NewVersion = "10.0.0.11")]
+    OldVersionUpperBound = "10.0.0.12",
+    NewVersion = "10.0.0.12")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "System.Text.Encodings.Web",
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.11",
-    NewVersion = "10.0.0.11")]
+    OldVersionUpperBound = "10.0.0.12",
+    NewVersion = "10.0.0.12")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "Microsoft.Bcl.AsyncInterfaces",
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.11",
-    NewVersion = "10.0.0.11")]
+    OldVersionUpperBound = "10.0.0.12",
+    NewVersion = "10.0.0.12")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "System.IO.Pipelines",
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.11",
-    NewVersion = "10.0.0.11")]
+    OldVersionUpperBound = "10.0.0.12",
+    NewVersion = "10.0.0.12")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "System.Memory",
     PublicKeyToken = "cc7b13ffcd2ddd51",

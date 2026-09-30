@@ -24,6 +24,12 @@ updates:
     ignore:
       - dependency-name: "Microsoft.Build.*"
         update-types: ["version-update:semver-major"]
+      # FluentAssertions 8.x moved to a commercial (Xceed) licence; this MIT project stays on 6.x.
+      - dependency-name: "FluentAssertions"
+        update-types: ["version-update:semver-major"]
+      # MessagePack is a CVE pin for the VS SDK's transitive 2.5.x; VS 17.x ships 2.5.x, so stay in the 2.x line.
+      - dependency-name: "MessagePack"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
