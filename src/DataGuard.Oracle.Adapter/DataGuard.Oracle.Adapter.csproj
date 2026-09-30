@@ -2,9 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.Oracle.Adapter</PackageId>
-    <Authors>DataGuard Contributors</Authors>
     <Description>Oracle adapter for DataGuard contract validation. Requires Oracle.ManagedDataAccess.Core (Oracle Distribution License).</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>efcore;stored-procedure;contract-validation;oracle</PackageTags>
   </PropertyGroup>
 

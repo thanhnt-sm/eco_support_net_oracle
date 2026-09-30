@@ -3,9 +3,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <PackageId>DataGuard.Cli</PackageId>
-    <Authors>DataGuard Contributors</Authors>
     <Description>DataGuard CLI tool for contract validation.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dataguard</ToolCommandName>
     <PackageOutputPath>./nupkg</PackageOutputPath>
@@ -23,5 +21,17 @@
     <ProjectReference Include="..\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj" />
     <ProjectReference Include="..\DataGuard.Analyzers\DataGuard.Analyzers.csproj" />
     <PackageReference Include="System.CommandLine" Version="2.0.12" />
-      </ItemGroup>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Licence and third-party notices travel with every channel that carries the CLI: publish output
+         (RID archives, container image), the tool package root (Pack) and, via the publish copy, the
+         tool payload. Oracle ODP.NET and Microsoft SNI require their licence text to accompany each
+         copy. Sources live in docs/legal; Link flattens them next to the executable. -->
+    <None Include="$(MSBuildThisFileDirectory)../../LICENSE;$(MSBuildThisFileDirectory)../../docs/legal/THIRD-PARTY-NOTICES.md;$(MSBuildThisFileDirectory)../../docs/legal/ADDITIONAL-PERMISSIONS.md"
+          CopyToPublishDirectory="PreserveNewest"
+          Pack="true"
+          PackagePath=""
+          Link="%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

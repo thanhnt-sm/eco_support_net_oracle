@@ -3,15 +3,17 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.Analyzers</PackageId>
-    <Authors>DataGuard Contributors</Authors>
     <Description>Roslyn analyzers and quick fixes for DataGuard contract validation (IDE light layer).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;analyzers;roslyn</PackageTags>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>
-    <IncludeBuildOutput>true</IncludeBuildOutput>
-    <!-- Not a DevelopmentDependency: consumers need DataGuard.Contracts as a
-         compile reference so quick-fix attributes ([SkipContractCheck], ...)
-         actually compile. -->
+    <!-- D4 (licence migration): build-time only. No lib/ assets, so the analyzer DLLs never flow into a
+         consumer's bin/; they load from analyzers/dotnet/cs inside the compiler. Consumers that use the
+         attributes ([SkipContractCheck], ...) install DataGuard.Contracts (MIT) for the compile
+         reference; that package is also a normal nuspec dependency of this one (see the Contracts
+         ProjectReference below), so it is restored transitively. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <DevelopmentDependency>true</DevelopmentDependency>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!-- NU5128: assemblies in generators/dotnet/cs are intentional (Roslyn analyzer
          packages host them outside lib); not a packaging defect. -->
@@ -26,7 +28,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataGuard.Contracts\DataGuard.Contracts.csproj" />
-    <ProjectReference Include="..\DataGuard.SqlClassification\DataGuard.SqlClassification.csproj" />
+    <!-- SqlClassification is IsPackable=false and is embedded in analyzers/dotnet/cs via the None items
+         below; PrivateAssets keeps it out of the nuspec so the package does not depend on an unpublished id. -->
+    <ProjectReference Include="..\DataGuard.SqlClassification\DataGuard.SqlClassification.csproj" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

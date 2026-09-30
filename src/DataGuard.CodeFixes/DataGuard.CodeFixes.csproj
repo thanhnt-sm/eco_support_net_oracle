@@ -3,7 +3,6 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.CodeFixes</PackageId>
-    <Authors>DataGuard Contributors</Authors>
     <Description>Roslyn code fixes for DataGuard contract validation.</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;codefix;roslyn</PackageTags>
     <IsRoslynComponent>true</IsRoslynComponent>

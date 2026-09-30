@@ -36,6 +36,14 @@
     <Content Include="LICENSE.txt">
       <IncludeInVSIX>true</IncludeInVSIX>
     </Content>
+    <!-- Oracle ODP.NET and Microsoft SNI ship inside the bundled CLI; their licence texts must accompany
+         every copy. Byte-identical with docs/legal (guarded by scripts/check-license-consistency.py). -->
+    <Content Include="THIRD-PARTY-NOTICES.md">
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
+    <Content Include="ADDITIONAL-PERMISSIONS.md">
+      <IncludeInVSIX>true</IncludeInVSIX>
+    </Content>
     <AdditionalFiles Include="stylecop.json" />
     <VSCTCompile Include="Commands\Menus.vsct">
       <ResourceName>Menus.ctmenu</ResourceName>

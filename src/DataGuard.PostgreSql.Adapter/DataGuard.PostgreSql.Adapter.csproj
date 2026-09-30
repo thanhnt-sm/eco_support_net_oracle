@@ -2,9 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.PostgreSql.Adapter</PackageId>
-    <Authors>DataGuard Contributors</Authors>
     <Description>PostgreSQL adapter for DataGuard contract validation. Requires Npgsql (PostgreSQL License).</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>efcore;stored-procedure;contract-validation;postgresql</PackageTags>
   </PropertyGroup>
 

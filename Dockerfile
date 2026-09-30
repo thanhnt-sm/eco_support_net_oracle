@@ -63,5 +63,11 @@ COPY --link --from=build /app/publish .
 ARG ORG_SOURCE="thanhnt-sm/eco_support_net_oracle"
 LABEL org.opencontainers.image.source="https://github.com/${ORG_SOURCE}"
 LABEL org.opencontainers.image.description="DataGuard CLI — contract validation for Entity to Stored Procedure/Raw SQL"
+# Licence surface for local builds. Published images take org.opencontainers.image.* from
+# docker/metadata-action in release.yml, which overrides these; release.yml must set the same value.
+LABEL org.opencontainers.image.licenses="GPL-3.0-only"
+# Custom key: metadata-action overwrites image.description, so the pointer to the section 7 permission
+# and third-party notices (both also copied into /app) cannot live there.
+LABEL io.dataguard.licence-notices="/app/ADDITIONAL-PERMISSIONS.md /app/THIRD-PARTY-NOTICES.md (Oracle ODP.NET and Microsoft SNI keep their own terms)"
 
 ENTRYPOINT ["dotnet", "DataGuard.Cli.dll"]
