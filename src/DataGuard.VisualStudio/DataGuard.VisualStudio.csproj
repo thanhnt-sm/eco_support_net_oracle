@@ -9,7 +9,9 @@
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
     <IncludeDebugSymbolsInVSIXContainer>true</IncludeDebugSymbolsInVSIXContainer>
     <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>
-    <VSSDKBuildToolsAutoSetup>true</VSSDKBuildToolsAutoSetup>
+    <!-- Windows-only: Microsoft.VSSDK.BuildTools imports tools/vssdk/Microsoft.VSSDK.targets but ships
+         Microsoft.VsSDK.targets, so a Linux evaluation (Dependabot) fails with MSB4019 if this is unconditional. -->
+    <VSSDKBuildToolsAutoSetup Condition="'$(OS)' == 'Windows_NT'">true</VSSDKBuildToolsAutoSetup>
     <VsixDeployOnDebug>true</VsixDeployOnDebug>
     <DeployExtension Condition="'$(DeployExtension)' == ''">false</DeployExtension>
   </PropertyGroup>

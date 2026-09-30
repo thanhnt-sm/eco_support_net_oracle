@@ -1,5 +1,6 @@
 # Dependabot — keep GitHub Actions and NuGet dependencies up to date.
 # https://docs.github.com/en/code-security/dependabot/working-with-dependabot
+# NuGet: the VSIX csproj gates VSSDKBuildToolsAutoSetup to Windows so the Linux updater can evaluate DataGuard.sln (see CHANGELOG 2026-09-30).
 version: 2
 updates:
   - package-ecosystem: "github-actions"

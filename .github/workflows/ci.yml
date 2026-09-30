@@ -56,6 +56,14 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
 
+      # Dependabot expands the full DataGuard.sln on Linux (it ignores the slnf) and evaluates the
+      # VSIX project post-restore through this ProjectReference; no other Linux job does. A Windows-only
+      # import in the VSIX csproj (MSB4019, e.g. the mis-cased VSSDK targets) must fail here, not a week
+      # later in the Dependabot job. Evaluation only (BuildProjectReferences=false: the referenced project
+      # is evaluated, not compiled); locked mode keeps the committed lock files intact.
+      - name: Linux evaluation parity (Dependabot)
+        run: dotnet msbuild tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj -restore -t:ResolveProjectReferences -p:Configuration=Release -p:RestoreLockedMode=true -p:BuildProjectReferences=false -nologo -v:minimal
+
       - name: Build solution
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
