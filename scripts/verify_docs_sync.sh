@@ -41,6 +41,8 @@ REQUIRED_DOCS=(
     "rules/git_workflow.md"
     "rules/doc_sync_enforcement.md"
     "rules/small_model_operational_protocol.md"
+    "docs/legal/THIRD-PARTY-NOTICES.md"
+    "docs/legal/ADDITIONAL-PERMISSIONS.md"
     "grants/written_explanation.md"
     "grants/ecosystem_impact_matrix.md"
     "grants/grant_pitch.md"
@@ -60,10 +62,15 @@ for doc in "${REQUIRED_DOCS[@]}"; do
     fi
 done
 
-if [ "$MISSING" -eq 0 ]; then
+# Licence surfaces (README, docs, grants, package metadata, shipped notice copies) must agree on
+# GPL-3.0-only + Commercial. CI runs the same script in the build-and-test job (ci.yml).
+LICENSE_GATE=0
+python3 scripts/check-license-consistency.py || LICENSE_GATE=1
+
+if [ "$MISSING" -eq 0 ] && [ "$LICENSE_GATE" -eq 0 ]; then
     echo -e "\n${GREEN}✅ All bilingual documentation & rule artifacts are synchronized and present!${NC}"
     exit 0
 else
-    echo -e "\n${RED}❌ Documentation synchronization check failed: $MISSING files missing.${NC}"
+    echo -e "\n${RED}❌ Documentation synchronization check failed: $MISSING files missing, licence gate exit $LICENSE_GATE.${NC}"
     exit 1
 fi

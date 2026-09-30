@@ -73,6 +73,11 @@ jobs:
       - name: NuGet/npm licence allow-list
         run: python3 scripts/check-nuget-licences.py
 
+      # DataGuard's own licence surfaces (GPL-3.0-only + Commercial; Contracts stays MIT): no stale MIT in
+      # README/docs/grants, central package metadata, GPL LICENSE text, byte-identical shipped notice copies.
+      - name: DataGuard licence consistency
+        run: python3 scripts/check-license-consistency.py
+
       - name: Build solution
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
