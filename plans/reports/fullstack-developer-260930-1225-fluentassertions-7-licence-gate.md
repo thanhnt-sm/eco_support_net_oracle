@@ -55,6 +55,8 @@ exit=0
 | `dotnet format whitespace DataGuard.sln --verify-no-changes` | exit 0 |
 | LF endings (`git ls-files --eol -m`, `file` on new files) | all LF |
 
+CI (PR #34, run 36675759759, ubuntu / SDK 9.0.x, head `8e4d8ae` after rebase onto `1eecf0d` = PR #33 merge): all 8 jobs green; the **NuGet/npm licence allow-list** step printed `licence gate: checked 281 NuGet packages (DataGuard.sln) and 8 production npm packages (DataGuard.VSCode) against allowed-licences.txt` / `licence gate: OK` — the Linux run is the authoritative GREEN. Note: while the PR was `CONFLICTING` (CHANGELOG `### Changed` line from #33) GitHub created no `pull_request` runs at all; the rebase resolved that.
+
 Local SDK is 10.0.401 (CI: 9.0.x, no `global.json`); the lock files produced here differ from a 9.0.x restore only by CRLF (normalised), no SDK-specific entries were introduced (src lock files came back byte-identical after normalisation).
 
 ### Issues Encountered
