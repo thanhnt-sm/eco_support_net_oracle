@@ -48,6 +48,21 @@ Every push to `main` (and a manual run of the **Build Installers** workflow) bui
 the VS Code VSIX and the Visual Studio VSIX and publishes them to the rolling **`nightly`**
 pre-release. Nightly builds are unsigned; versioned `v*` releases stay the official channel.
 
+Chạy tay workflow **Release** (`workflow_dispatch`, input `tag`) mặc định là **dry run**: build, test,
+ký, SBOM và đóng gói đầy đủ rồi upload artifact của run, nhưng **không** tạo GitHub Release, không
+đẩy NuGet/Docker, không publish attestation; job `dry-run-summary` cuối run liệt kê artifact và xác
+nhận chưa publish gì. Đặt `dry_run=false` để publish thật từ run tay; push tag `v*` vẫn publish như
+trước. Version pre-release (có dấu `-`, ví dụ `0.3.0-rc.1`) được đánh dấu pre-release trên GitHub
+Release và không nhận Docker tag `latest`.
+
+A manual run of the **Release** workflow (`workflow_dispatch`, input `tag`) is a **dry run** by
+default: it builds, tests, signs, generates SBOMs and packages everything, uploads the run
+artifacts, but does **not** create the GitHub Release, push NuGet/Docker or publish attestations;
+the final `dry-run-summary` job lists the artifacts and confirms nothing was published. Set
+`dry_run=false` to publish from a manual run; `v*` tag pushes publish as before. A pre-release
+version (hyphen, e.g. `0.3.0-rc.1`) is marked pre-release on GitHub and never gets the `latest`
+Docker tag.
+
 ```bash
 # Kiểm tra checksum trước khi cài / verify before installing (mọi file đều có .sha256 đi kèm)
 sha256sum -c dataguard-0.3.0-nightly.<yyyyMMdd>.<run>-linux-x64.zip.sha256                          # Linux/macOS
