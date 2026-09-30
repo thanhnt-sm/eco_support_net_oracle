@@ -612,11 +612,18 @@ jobs:
               exit 1
             fi
           fi
-          # sbom-tool writes manifests three levels deep; bash does not enable
-          # globstar by default, so collect files explicitly.
-          mapfile -t sbom_assets < <(find ./sbom -name '*.json' -type f)
-          if [ "${#sbom_assets[@]}" -eq 0 ]; then
-            echo "::warning::No SBOM assets found to attach."
+          # sbom-tool writes one manifest.spdx.json per project three levels deep and GitHub
+          # requires unique asset names, so all SBOMs ship as a single zip (+ SHA-256).
+          # The zip lives outside ./artifacts so the dataguard-*.zip glob below cannot pick it up twice.
+          sbom_assets=()
+          if [ -n "$(find ./sbom -name '*.json' -type f -print -quit)" ]; then
+            mkdir -p ./release-sbom
+            sbom_zip="./release-sbom/dataguard-${RELEASE_TAG#v}-sbom.zip"
+            (cd ./sbom && zip -qr "../$sbom_zip" .)
+            (cd ./release-sbom && sha256sum "$(basename "$sbom_zip")" > "$(basename "$sbom_zip").sha256")
+            sbom_assets=("$sbom_zip" "$sbom_zip.sha256")
+          else
+            echo "::warning::No SBOM files found to attach."
           fi
           gh release create "$RELEASE_TAG" \
             --target "${{ github.sha }}" \
