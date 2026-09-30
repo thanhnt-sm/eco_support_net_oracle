@@ -21,7 +21,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.12" />
     <PackageReference Include="System.Text.Json" Version="10.0.12" />
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.3" />
-    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.107.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.117.0" />
   </ItemGroup>
 </Project>
