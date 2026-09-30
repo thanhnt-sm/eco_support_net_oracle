@@ -47,6 +47,7 @@ All notable changes to DataGuard are documented here. Format based on
 - SqlServerIntegrationTests: Testcontainers MsSql, auto-skip when Docker unavailable.
 
 ### Changed
+- **CI (2026-09-30)**: the `Workflow policy check` PyYAML fallback install is now pinned by hash (`pip install --require-hashes --only-binary=:all: -r scripts/requirements-ci.txt`; the file carries the SHA-256 of every PyYAML 6.0.2 manylinux x86_64/aarch64 wheel for CPython 3.10-3.13, the win_amd64 wheels and the sdist). Closes OSSF Scorecard code-scanning alert #109 (`PinnedDependenciesID`: pipCommand not pinned by hash).
 - **Docs (2026-09-29)**: `SECURITY.md`, `SECURITY.vi.md`, `docs/USAGE.md`, `README.md` scope the ide-safe claim to `validate`/`assess`, list `snapshot`/`baseline`/`verify-shape` as live-database commands (VS Code asks for confirmation), document `--allow-env-connection`, the handshake, the baseline warning and the resource clamps, and replace `dotnet tool install -g DataGuard.Cli` with GitHub Releases + SHA-256 guidance.
 - **Visual Studio Extension (2026-09-29)**: `DataGuardPackage.cs` (1 629 lines) split into single-purpose units (`CliArgumentBuilder`, `CliRunSession`, `ProcessTerminator`, `ProgressLineParser`, `RuleInventory`, `SarifErrorListPublisher`, `SolutionTrustGate`, `TempDirectoryCleaner`, `ExitCodeExplainer`, `ExtensionVersion`); behaviour-preserving except where listed under Security/Fixed.
 - `DataGuard.Analyzers` retargeted to netstandard2.0 and decoupled from DataGuard.Core (loads in Visual Studio); bundles `DataGuard.Contracts.dll`.
