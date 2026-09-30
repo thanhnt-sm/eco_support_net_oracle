@@ -34,6 +34,10 @@ We aim to acknowledge reports within 5 business days and to ship fixes as fast a
   disabled by default (`AllowPlaintextConfigFallback=false`).
 - **Supply chain**: NuGet packages are signed (Sigstore keyless), published via Trusted Publishing
   (OIDC), and carry SBOM + provenance attestation; GitHub Actions are SHA-pinned.
+- **Licence allow-list**: CI fails when any NuGet package resolved by `DataGuard.sln` (including
+  transitive ones) or any production npm package of the VS Code extension carries a licence outside
+  `scripts/allowed-licences.txt` (permissive SPDX ids plus justified, marker-pinned per-package
+  exceptions such as the Visual Studio SDK and the Oracle driver); see `scripts/check-nuget-licences.py`.
 - **CI gates**: vulnerability scan (fail on vulnerable packages), TruffleHog secret scan, and CodeQL
   run on every branch/PR and tag release.
 - **Audit**: credential access is written to an append-only tamper-evident hash-chain log with

@@ -65,6 +65,14 @@ jobs:
       - name: Linux evaluation parity (Dependabot)
         run: dotnet msbuild tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj -restore -t:ResolveProjectReferences -p:Configuration=Release -p:RestoreLockedMode=true -p:BuildProjectReferences=false -nologo -v:minimal
 
+      # Every resolved NuGet package of DataGuard.sln (nuspec licence in the local cache) and every
+      # production npm package of the VS Code extension (package-lock.json `license`) must be on
+      # scripts/allowed-licences.txt (SPDX allow-list + justified per-package exceptions). Runs after
+      # the parity step so the VSIX projects already have assets; fails closed on an unknown licence
+      # (e.g. the Xceed community licence of FluentAssertions 8+, see CHANGELOG 2026-09-30).
+      - name: NuGet/npm licence allow-list
+        run: python3 scripts/check-nuget-licences.py
+
       - name: Build solution
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 

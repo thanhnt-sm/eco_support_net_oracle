@@ -35,6 +35,10 @@ tùy theo mức độ nghiêm trọng.
   xác thực plaintext trong file cấu hình bị tắt theo mặc định (`AllowPlaintextConfigFallback=false`).
 - **Chuỗi cung ứng**: package NuGet được ký (Sigstore keyless), publish qua Trusted Publishing
   (OIDC), kèm SBOM + provenance attestation; GitHub Actions được pin theo SHA.
+- **Allow-list giấy phép**: CI fail khi bất kỳ package NuGet nào được resolve bởi `DataGuard.sln`
+  (kể cả transitive) hoặc package npm production nào của extension VS Code mang giấy phép ngoài
+  `scripts/allowed-licences.txt` (các SPDX id permissive cộng với ngoại lệ từng package có lý do và
+  được neo theo marker, ví dụ Visual Studio SDK và driver Oracle); xem `scripts/check-nuget-licences.py`.
 - **CI gates**: quét lỗ hổng (fail khi có package vulnerable), quét secret bằng TruffleHog, và CodeQL
   chạy trên mọi branch/PR và tag release.
 - **Audit**: việc truy cập credential được ghi vào log hash-chain chỉ-ghi-thêm chống giả mạo với khả

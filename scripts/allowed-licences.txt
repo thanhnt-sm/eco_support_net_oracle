@@ -1,0 +1,49 @@
+# Licence allow-list consumed by scripts/check-nuget-licences.py (CI step "NuGet/npm licence allow-list").
+#
+# [spdx]        one SPDX identifier per line; a package passes when every id in its licence
+#               expression is listed here (npm `license` fields and NuGet <license type="expression">).
+# [exceptions]  `<package id glob> | <marker> | <justification>` for packages whose nuspec carries
+#               only a licence file or a legacy licenseUrl. An entry matches when the id matches the
+#               glob (case-insensitive) AND the marker is a substring of the observed licence text
+#               (first non-empty line of the licence file, or the licenseUrl). A glob is therefore
+#               pinned by its marker: if a vendor swaps the licence text, the gate flips RED again.
+#               Decision recorded 2026-09-30: FluentAssertions 8+ (Xceed community/commercial
+#               licence, `<license type="file">`) is deliberately NOT listed here.
+
+[spdx]
+MIT
+Apache-2.0
+BSD-2-Clause
+BSD-3-Clause
+MS-PL
+0BSD
+ISC
+Unlicense
+PostgreSQL
+MPL-2.0
+
+[exceptions]
+# --- Visual Studio SDK (VSIX project only; closed-source, free for extension development, nothing is redistributed by DataGuard NuGet packages)
+Microsoft.VisualStudio.*                       | MICROSOFT SOFTWARE LICENSE TERMS         | VS SDK assemblies shipped with Visual Studio; Microsoft Software License Terms in the package LICENSE file
+Microsoft.VSSDK.BuildTools                     | MICROSOFT SOFTWARE LICENSE TERMS         | VSIX packaging build tools (build-time only)
+Microsoft.VsSDK.CompatibilityAnalyzer          | MICROSOFT SOFTWARE LICENSE TERMS         | VS SDK analyzer (build-time only)
+Microsoft.ServiceHub.Resources                 | MICROSOFT SOFTWARE LICENSE TERMS         | VS SDK transitive dependency
+VSLangProj*                                    | MICROSOFT SOFTWARE LICENSE TERMS         | VS automation interop assemblies (VS SDK)
+envdte*                                        | MICROSOFT SOFTWARE LICENSE TERMS         | VS automation interop assemblies (VS SDK)
+stdole                                         | MICROSOFT SOFTWARE LICENSE TERMS         | OLE automation interop assembly (VS SDK)
+Microsoft.VisualStudio.RemoteControl           | support/legal/mt736442                   | VS SDK legacy nuspec; licenseUrl is the Visual Studio SDK licence
+Microsoft.VisualStudio.Telemetry               | support/legal/mt736442                   | VS SDK legacy nuspec; licenseUrl is the Visual Studio SDK licence
+Microsoft.VisualStudio.Utilities.Internal      | support/legal/mt736439                   | VS SDK legacy nuspec; licenseUrl is the Visual Studio SDK licence
+Microsoft.VisualStudio.Setup.Configuration.Interop | go.microsoft.com/fwlink/?linkid=831109 | VS setup configuration interop; legacy nuspec, licenseUrl is the VS SDK licence
+Microsoft.VisualStudio.TaskRunnerExplorer.14.0 | webpi/eula/net_library_eula_enu.htm      | Legacy nuspec; licenseUrl is the Microsoft .NET Library EULA
+Microsoft.VisualStudio.Web.BrowserLink.12.0    | webpi/eula/net_library_eula_enu.htm      | Legacy nuspec; licenseUrl is the Microsoft .NET Library EULA
+# --- Microsoft .NET packages with pre-SPDX nuspecs (source is MIT on GitHub; the nuspec only carries a licence URL or the MS .NET Library licence file)
+Microsoft.Data.SqlClient.SNI.runtime           | MICROSOFT SOFTWARE LICENSE TERMS         | Native SNI runtime of Microsoft.Data.SqlClient (MIT); free redistributable, Microsoft Software License Terms in LICENSE.txt
+Microsoft.NETCore.Platforms                    | go.microsoft.com/fwlink/?linkid=329770   | Legacy nuspec; licenseUrl is the Microsoft .NET Library licence (dotnet/runtime is MIT)
+Microsoft.NETCore.Targets                      | go.microsoft.com/fwlink/?linkid=329770   | Legacy nuspec; licenseUrl is the Microsoft .NET Library licence (dotnet/runtime is MIT)
+System.Private.Uri                             | go.microsoft.com/fwlink/?linkid=329770   | Legacy nuspec; licenseUrl is the Microsoft .NET Library licence (dotnet/runtime is MIT)
+Microsoft.NETFramework.ReferenceAssemblies*    | github.com/microsoft/dotnet/blob/master/license | Legacy nuspec; licenseUrl points at the MIT LICENSE of microsoft/dotnet
+NETStandard.Library                            | github.com/dotnet/standard/blob/master/license.txt | Legacy nuspec; licenseUrl points at the MIT LICENSE.TXT of dotnet/standard
+# --- Other vendors
+Oracle.ManagedDataAccess.Core                  | Oracle Free Distribution, Hosting, and Use | Oracle ODP.NET Core driver under the Oracle Free Distribution, Hosting, and Use Terms (free redistribution); required by DataGuard.Oracle.Adapter
+xunit.abstractions                             | githubusercontent.com/xunit/xunit/master/license.txt | Legacy nuspec; licenseUrl points at the Apache-2.0 licence of xunit/xunit (test-only)
