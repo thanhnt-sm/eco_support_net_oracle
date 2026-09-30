@@ -589,6 +589,7 @@ jobs:
       - name: Create draft release and attach assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}  # no checkout in this job; gh cannot infer the repo from git
           RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
           RELEASE_VERSION: ${{ needs.build-and-test.outputs.release_version }}
         run: |
@@ -633,6 +634,7 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}  # no checkout in this job; gh cannot infer the repo from git
           RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
         run: gh release edit "$RELEASE_TAG" --draft=false
 
