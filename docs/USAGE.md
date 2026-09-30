@@ -36,6 +36,27 @@ sha256sum -c dataguard-0.3.0-linux-x64.zip.sha256                               
 IDE hosts (Visual Studio, VS Code) yêu cầu CLI **0.3.0 trở lên** cho `validate`/`assess`; CLI 0.2.2 trở
 xuống bị từ chối (xem `--ide-safe`). VSIX Visual Studio đã bundle sẵn `cli\dataguard.exe`.
 
+#### Nightly installers / Bản build nightly
+
+Mỗi push lên `main` (và khi chạy tay workflow **Build Installers**) tự động build CLI zip cho 3 RID,
+VSIX VS Code và VSIX Visual Studio, rồi đăng lên pre-release **`nightly`** (rolling, luôn trỏ tới
+commit mới nhất): <https://github.com/thanhnt-sm/eco_support_net_oracle/releases/tag/nightly>.
+Bản nightly **chưa ký** và có version dạng `<version>-nightly.<yyyyMMdd>.<run>`; dùng release `v*`
+khi cần bản chính thức.
+
+Every push to `main` (and a manual run of the **Build Installers** workflow) builds the CLI zips,
+the VS Code VSIX and the Visual Studio VSIX and publishes them to the rolling **`nightly`**
+pre-release. Nightly builds are unsigned; versioned `v*` releases stay the official channel.
+
+```bash
+# Kiểm tra checksum trước khi cài / verify before installing (mọi file đều có .sha256 đi kèm)
+sha256sum -c dataguard-0.2.3-nightly.20260929.12-linux-x64.zip.sha256                          # Linux/macOS
+(Get-FileHash DataGuard.VisualStudio-0.2.3-nightly.20260929.12.vsix).Hash -ieq (Get-Content DataGuard.VisualStudio-0.2.3-nightly.20260929.12.vsix.sha256).Split(' ')[0]   # Windows
+# VS Code: code --install-extension dataguard-vscode-<version>.vsix --force
+# Visual Studio: double-click VSIX. Manifest VSIX nightly giữ version đã commit (VSIX không nhận
+#   prerelease), nên gỡ extension DataGuard đang cài trước khi cài bản nightly.
+```
+
 ### 3. Khởi Tạo Cấu Hình / Initialize Config
 
 ```bash

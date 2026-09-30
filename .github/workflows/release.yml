@@ -356,18 +356,28 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
 
+      # prepare-lsp publishes DataGuard.LanguageServer into server/ with dotnet.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
       - name: Install and test
         working-directory: ${{ env.VSCODE_DIR }}
         run: |
           npm ci
           npm test
 
+      # prepare-lsp must run before vsce so the VSIX carries server/DataGuard.LanguageServer.dll
+      # (loaded by extension.ts); `npm run package` does the same but has no --out control here.
       - name: Package VSIX
         working-directory: ${{ env.VSCODE_DIR }}
         env:
           VERSION: ${{ needs.build-and-test.outputs.release_version }}
         run: |
+          set -euo pipefail
           npm pkg set version="$VERSION"
+          npm run prepare-lsp
           npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
           sha256sum "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix" > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
 
@@ -382,7 +392,8 @@ jobs:
   # Standalone CLI assets for users and IDE custom-CLI paths (DataGuard.Cli is not on nuget.org).
   # Framework-dependent (.NET 9 runtime required on the target); the RID-specific restore writes
   # its own lock file so the committed packages.lock.json files stay untouched (same pattern as
-  # the VSIX's bundled-CLI publish).
+  # the VSIX's bundled-CLI publish). MinVer recomputes Version from git history at build time and
+  # wins over -p:Version alone, so MinVerVersionOverride is what actually stamps the assembly.
   cli-package:
     name: Package CLI (${{ matrix.rid }})
     runs-on: ubuntu-latest
@@ -416,6 +427,7 @@ jobs:
             --self-contained false \
             --output "./publish/$RID" \
             -p:PublishBundledCli=true \
+            -p:MinVerVersionOverride="$RELEASE_VERSION" \
             -p:Version="$RELEASE_VERSION" \
             -p:NuGetLockFilePath="obj/cli-publish-$RID.packages.lock.json" \
             -p:RestoreLockedMode=false
@@ -476,8 +488,10 @@ jobs:
           # Keep the compiled fallback (Help -> About, log banner, CI equality assert) in step with the manifest.
           $versionSource = "$env:VISUAL_STUDIO_DIR/ExtensionVersion.cs"
           $content = Get-Content $versionSource -Raw
+          # Presence is checked separately: when the release version equals the committed Fallback
+          # the replacement is a no-op, which must not be mistaken for a missing constant.
+          if ($content -notmatch 'Fallback = "[^"]+"') { throw "ExtensionVersion.Fallback constant not found in $versionSource" }
           $updated = $content -replace 'Fallback = "[^"]+"', ('Fallback = "' + $env:VERSION + '"')
-          if ($updated -eq $content) { throw "ExtensionVersion.Fallback constant not found in $versionSource" }
           Set-Content -Path $versionSource -Value $updated -NoNewline
 
       - name: Locate MSBuild

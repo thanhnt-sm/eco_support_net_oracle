@@ -89,7 +89,10 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
+          set -euo pipefail
           npm pkg set version="$VERSION"
+          # prepare-lsp publishes server/DataGuard.LanguageServer.dll (loaded by extension.ts) before vsce.
+          npm run prepare-lsp
           npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
           sha256sum "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix" > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
 
@@ -108,7 +111,10 @@ jobs:
             -ps "$RUNNER_TEMP" \
             -m "$RUNNER_TEMP/dataguard-vscode-sbom"
 
+      # Fork PRs build the VSIX (the tests above still run) but never publish it: an unsigned
+      # installable built from untrusted code must not be hosted under this repository.
       - name: Upload VS Code VSIX
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dataguard-vscode-vsix
@@ -183,13 +189,30 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($msbuild)) { throw "MSBuild was not found" }
           "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+      # Same packaging command as ci.yml's Visual Studio VSIX Packaging Gate.
       - name: Restore and package VSIX
         shell: pwsh
         env:
           MSBUILD: ${{ steps.msbuild.outputs.path }}
         run: |
-          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /m
+          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m /nologo /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Shared gate with ci.yml/release.yml/installers.yml (scripts/assert-vsix.ps1): required
+      # entries + manifest version equal to the version patched in above.
+      - name: Assert VSIX contents
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
+          & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage VSIX and checksum
+        shell: pwsh
+        run: |
           $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
           if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
           Copy-Item $vsix.FullName "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix"
@@ -214,7 +237,9 @@ jobs:
             -m "$env:RUNNER_TEMP\dataguard-visualstudio-sbom"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Same fork-PR guard as the VS Code upload above (scripts/check-workflow-policy.py rule b).
       - name: Upload Visual Studio VSIX
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dataguard-visualstudio-vsix
