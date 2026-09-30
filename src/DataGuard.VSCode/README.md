@@ -46,7 +46,7 @@ Commit a `.dataguard.yml` in the trusted workspace. Use snapshot/manual mode for
 - `validate`/`assess` results are discarded unless the CLI's first stderr line is `ide-safe: active`; the extension never retries without `--ide-safe`. The acknowledgement itself is echoed to the DataGuard output channel as `[INFO]`; every other `ide-safe:` and `baseline:` policy line from the CLI is echoed as `[WARN]`.
 - **Refresh Snapshot**, **Create Baseline** and **Verify SQL Shapes Against Database** are live-database commands: they use your credential (or the connection configured in `.dataguard.yml`/`DATAGUARD_CONNECTION_STRING`) and always ask for a modal confirmation that names the masked target host first.
 - Raw CLI output is never displayed. Generated SARIF is deleted after diagnostics load.
-- DataGuard source is [MIT licensed](LICENSE). These controls help operate in regulated environments but are not a compliance certification.
+- DataGuard is licensed under GPL-3.0-only ([LICENSE](LICENSE); releases up to v0.3.0 were MIT), with a commercial licence available. `ADDITIONAL-PERMISSIONS.md` and `THIRD-PARTY-NOTICES.md` ship with this extension and are not lawyer-reviewed. These controls help operate in regulated environments but are not a compliance certification.
 
 ## Development
 

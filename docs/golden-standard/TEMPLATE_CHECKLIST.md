@@ -8,7 +8,7 @@
 | File | Chuẩn | Verify |
 |---|---|---|
 | `README.md` | Landing page sản phẩm, quickstart, badges | đọc thấy quickstart + ≥3 badge |
-| `LICENSE` | MIT đơn nhất (không multi-license conflict) | `head LICENSE` |
+| `LICENSE` | GPL-3.0 nguyên văn từ gnu.org (GitHub nhận diện); dual-license thương mại nêu ở README | `head LICENSE` |
 | `CONTRIBUTING.md` (+ `.vi.md` nếu bilingual) | workflow dev, commit convention | tồn tại |
 | `CODE_OF_CONDUCT.md` | Contributor Covenant v2.1 | tồn tại |
 | `SUPPORT.md` | kênh hỗ trợ: issues, discussions, security advisory | tồn tại |
@@ -61,7 +61,7 @@
 |---|---|---|
 | Trusted Publishing (OIDC) | `[OWNER]` secret `NUGET_USER`; hạn migrate API key 01/11/2026 | release run xanh |
 | snupkg symbol packages | `-p:IncludeSymbols=true -p:SymbolPackageFormat=snupkg` | nupkg kèm snupkg trên nuget.org |
-| Package metadata | RepositoryUrl, License MIT, tags, readme, icon từng csproj | `dotnet pack` + kiểm nuspec |
+| Package metadata | RepositoryUrl, PackageLicenseExpression (GPL-3.0-only, Contracts riêng), tags, readme, icon từng csproj | `dotnet pack` + kiểm nuspec |
 | SBOM | CycloneDX cho NuGet package | artifact release |
 | Provenance | `actions/attest@v4` | attestation trên GHCR/nuget |
 | Vulnerability gate | `dotnet restore -p:NuGetAuditMode=all` với `WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905` | restore toàn solution thành công |

@@ -7,6 +7,6 @@
 | **Adoption surface** | NuGet (8 packages), `dotnet tool install -g DataGuard.Cli`, Roslyn analyzers for any C# IDE, VS Code extension. |
 | **Providers** | SQL Server, Oracle, MySQL, PostgreSQL — one engine, four adapters. |
 | **AI-hallucination defense** | DG015/DG016 phantom table/column detection catches invented SQL identifiers — a growing AI-codegen failure mode. |
-| **Security posture** | MIT license; credentials via secret managers/env only (plaintext fallback disabled); supply chain: Sigstore signing, SBOM, provenance, SHA-pinned CI actions, vulnerability gate. |
+| **Security posture** | GPL-3.0-only + commercial licence option (from v0.4.0); credentials via secret managers/env only (plaintext fallback disabled); supply chain: Sigstore signing, SBOM, provenance, SHA-pinned CI actions, vulnerability gate. |
 | **Verification** | 65 automated tests (analyzer execution, golden corpus strict-mode, per-rule coverage); offline demo in `scripts/demo_scan.sh` + `samples/`; real-DB Testcontainers suite planned with grant support. |
 | **Grant leverage** | Funding → container-based DB integration tests, NuGet Trusted Publishing rollout (deadline 2026-11-01), companion Claude skill, documentation. |

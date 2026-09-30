@@ -35,6 +35,6 @@ Consequences in practice:
   failure class there.
 - AI-assisted coding increases hallucinated-SQL risk; phantom-identifier detection (DG015/DG016)
   targets exactly that.
-- MIT license, 8 NuGet packages, four database providers, no vendor lock-in — a strong base for an
+- GPL-3.0-only (OSI-approved, from v0.4.0; releases up to v0.3.0 were MIT) with a commercial licence option, 8 NuGet packages, four database providers, no vendor lock-in — a strong base for an
   ecosystem-impact grant: the funding enables real-DB integration tests (Testcontainers), NuGet
   Trusted Publishing, and the companion Claude skill.

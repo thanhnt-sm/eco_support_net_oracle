@@ -106,7 +106,7 @@ graph TB
 
 **Design decision:** Each provider lives in its **own adapter project**. `DataGuard.Core` has zero vendor driver dependencies; the CLI composition root references all four. Consumers embedding only one database stack take only that adapter.
 
-**Oracle licensing note:** `Oracle.ManagedDataAccess.Core` ships under the Oracle Distribution License, not MIT — documented in the adapter csproj description so consumers make informed choices.
+**Oracle licensing note:** `Oracle.ManagedDataAccess.Core` ships under the Oracle Free Distribution, Hosting, and Use Terms and Conditions, not under DataGuard's own licence. The licence text ships in `docs/legal/THIRD-PARTY-NOTICES.md` (copied into every download) and DataGuard's GPL section 7 additional permission covers it (`docs/legal/ADDITIONAL-PERMISSIONS.md`, not lawyer-reviewed).
 
 ### Oracle specifics
 

@@ -1,6 +1,6 @@
 # DataGuard — Contract Validation for Entity ↔ Stored Procedure / Raw SQL
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions)
 [![OSS Scorecard](https://api.scorecard.dev/repos/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
@@ -51,7 +51,8 @@ The IDE layer (`DataGuard.Analyzers`) marks unvalidated SQL calls on every keyst
 | `DataGuard.SqlServer.Adapter` | SQL Server catalog reader + ScriptDOM parsing |
 | `DataGuard.Oracle.Adapter` | Oracle ALL_ARGUMENTS/ALL_TAB_COLUMNS/NLS readers |
 | `DataGuard.MySql.Adapter` / `DataGuard.PostgreSql.Adapter` | MySQL / PostgreSQL support |
-| `DataGuard.Analyzers` | Roslyn IDE analyzers + quick fixes |
+| `DataGuard.Analyzers` | Roslyn IDE analyzers + quick fixes (build-time only; see FAQ) |
+| `DataGuard.Contracts` | Contract attributes (`[SkipContractCheck]`, `[ExpectedColumn]`, ...). Licensed MIT on purpose. Install it in projects that use the attributes |
 | `DataGuard.Cli` | `dataguard` dotnet tool |
 
 ## CLI commands
@@ -87,6 +88,48 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 
 - [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/system_architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
 
-## License
+## Dual licence & FAQ
 
-[MIT](LICENSE)
+From **v0.4.0** DataGuard is offered under two licences:
+
+1. **GNU GPL version 3 only** (`GPL-3.0-only`, see [`LICENSE`](LICENSE)), plus an additional permission for
+   the database drivers and IDE hosts it runs with ([`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md)).
+2. **A commercial licence** for companies that want to embed DataGuard in a closed-source product they distribute.
+   Contact `<contact email placeholder>`. Terms are agreed per licensee; there is no public price list or form.
+
+> **Legal status:** the additional-permission text and the commercial-licence terms have **not been reviewed by a
+> lawyer**. Nothing here is legal advice. If a licensing question matters to you, ask your own counsel.
+
+**Does GPL-3.0 stop companies from using DataGuard commercially?** No. GPL-3.0 allows commercial use, copying and
+modification. Running `dataguard validate` in your CI, or using the analyzers while you build your own product, needs
+no commercial licence by itself.
+
+**When does the copyleft apply?** When you *distribute* a work based on DataGuard, for example by shipping DataGuard
+code or binaries inside your product. You then have to offer that work under GPL-3.0, or take the commercial licence
+instead. Using a tool internally does not distribute it.
+
+**Can the repository be made non-copyable?** No. It is public, and GitHub's terms let others fork it. Releases up to
+and including v0.3.0 were published under the MIT licence and **stay MIT permanently**; the change is not retroactive.
+
+**Which parts are not GPL?**
+
+- `DataGuard.Contracts` is licensed under the MIT licence on purpose. It ends up inside your application and is read by
+  DataGuard through reflection, so it must not pull your code into the GPL.
+- `Oracle.ManagedDataAccess.Core` and `Microsoft.Data.SqlClient.SNI.runtime` ship with the CLI, RID archives, container
+  image and IDE extensions under their own vendor terms. Their licence texts are in
+  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), which travels with every DataGuard download.
+
+**What does the analyzer package leave in my output?** `DataGuard.Analyzers` is a build-time development dependency:
+its analyzer assemblies load inside the compiler from `analyzers/dotnet/cs`, and the package has no `lib/` assets, so
+`DataGuard.Analyzers.dll` and `DataGuard.SqlClassification.dll` do not appear in your build output (checked by
+`scripts/verify-analyzer-packaging.sh`). This statement is about the Analyzers package only. `DataGuard.Contracts` (MIT)
+is copied to your output when you use its attributes, and other packages such as `DataGuard.Build` or `DataGuard.Core`
+place their own DLLs there and follow their own licence.
+
+**Is the AI-generated part of the code protected?** Some commits were co-authored with an AI assistant. Copyright
+protection for AI-assisted work is limited and unsettled; this is a risk to be aware of, not a claim either way.
+
+**Full texts:** [`LICENSE`](LICENSE) (GPL-3.0),
+[`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md),
+[`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md) and the MIT text of v0.1.0-v0.3.0
+([`docs/legal/MIT-v0.1.0-v0.3.0.txt`](docs/legal/MIT-v0.1.0-v0.3.0.txt)).

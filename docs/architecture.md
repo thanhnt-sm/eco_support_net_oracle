@@ -78,12 +78,12 @@ graph TB
 
 ```mermaid
 graph LR
-    Core[DataGuard.Core<br/>MIT, zero vendor deps]
+    Core[DataGuard.Core<br/>GPL-3.0-only, zero vendor deps]
     
-    Core --> SqlServer[DataGuard.SqlServer.Adapter<br/>MIT + ScriptDOM]
-    Core --> Oracle[DataGuard.Oracle.Adapter<br/>MIT + Oracle License]
-    Core --> Analyzers[DataGuard.Analyzers<br/>MIT + Roslyn]
-    Core --> CLI[DataGuard.Cli<br/>MIT + Core + Adapters]
+    Core --> SqlServer[DataGuard.SqlServer.Adapter<br/>GPL-3.0-only + ScriptDOM]
+    Core --> Oracle[DataGuard.Oracle.Adapter<br/>GPL-3.0-only + Oracle License]
+    Core --> Analyzers[DataGuard.Analyzers<br/>GPL-3.0-only + Roslyn]
+    Core --> CLI[DataGuard.Cli<br/>GPL-3.0-only + Core + Adapters]
 
     style Core fill:#e1f5fe
     style SqlServer fill:#f3e5f5
@@ -510,11 +510,12 @@ graph LR
 
 | Package / Gói | License / Giấy Phép | Vendor Deps / Phụ Thuộc Vendor |
 |---------|---------|-------------|
-| DataGuard.Core | MIT | None |
-| DataGuard.SqlServer.Adapter | MIT | ScriptDOM (MIT) |
-| DataGuard.Oracle.Adapter | MIT + Oracle License | Oracle.ManagedDataAccess.Core |
-| DataGuard.Analyzers | MIT | Roslyn (MIT) |
-| DataGuard.Cli | MIT | Core + Adapters |
+| DataGuard.Contracts | MIT | None |
+| DataGuard.Core | GPL-3.0-only | None |
+| DataGuard.SqlServer.Adapter | GPL-3.0-only | ScriptDOM (MIT) |
+| DataGuard.Oracle.Adapter | GPL-3.0-only + Oracle License | Oracle.ManagedDataAccess.Core |
+| DataGuard.Analyzers | GPL-3.0-only | Roslyn (MIT) |
+| DataGuard.Cli | GPL-3.0-only | Core + Adapters |
 
 ---
 

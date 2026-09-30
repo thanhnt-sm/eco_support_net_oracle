@@ -110,7 +110,7 @@ Tài liệu này phân tích toàn diện các rủi ro, khoảng trống (gaps)
 
 | Risk ID | Description | Likelihood | Impact | Mitigation Status |
 |---------|-------------|------------|--------|-------------------|
-| **SC-001** | Oracle.ManagedDataAccess.Core license không OSI-approved | Certain | High | ⚠️ Mitigated (separate package) |
+| **SC-001** | Oracle.ManagedDataAccess.Core license không OSI-approved | Certain | High | ⚠️ Mitigated (separate package; licence text in every channel + GPL §7 permission, `docs/legal/`, chưa qua luật sư) |
 | **SC-002** | Dependency trust check chỉ check prefix/vendor list | Medium | High | ⚠️ Partial (whitelist approach) |
 | **SC-003** | Không verify SLSA provenance của dependencies | High | High | ❌ Not Implemented |
 | **SC-004** | Package signing chỉ cosign keyless (no hardware key) | Medium | Medium | ✅ Implemented |
@@ -187,7 +187,7 @@ Tài liệu này phân tích toàn diện các rủi ro, khoảng trống (gaps)
 
 | ID | Category | Risk Description | Likelihood | Impact | Risk Score | Status | Owner | Target Date |
 |----|----------|------------------|----------|--------|------------|--------|-------|-------------|
-| R-001 | Security | Oracle License Compliance | Certain | Critical | **Critical** | ⚠️ Mitigated | Team | v1.1 |
+| R-001 | Security | Oracle License Compliance | Certain | Critical | **Critical** | ⚠️ Mitigated (`docs/legal/THIRD-PARTY-NOTICES.md` trong mọi kênh; chưa qua luật sư) | Team | v1.1 |
 | R-002 | Security | KeyVault/AWS/Vault Integration Missing | High | High | **High** | ❌ Open | Team | v1.1 |
 | R-003 | Security | Audit Log Tamper-proof Missing | Medium | High | **High** | ❌ Open | Team | v1.2 |
 | R-004 | Functional | EF Model Source Not Implemented | High | High | **High** | ❌ Open | Team | v1.0.1 |

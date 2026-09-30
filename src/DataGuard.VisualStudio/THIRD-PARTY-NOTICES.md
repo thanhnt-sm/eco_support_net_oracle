@@ -6,10 +6,10 @@
 DataGuard is Copyright (c) 2026 Than Nguyen and DataGuard contributors.
 
 - Releases from **v0.4.0**: GNU General Public License version 3 only (`GPL-3.0-only`), with the additional
-  permission in [`ADDITIONAL-PERMISSIONS.md`](ADDITIONAL-PERMISSIONS.md), or a separate commercial licence.
+  permission in `ADDITIONAL-PERMISSIONS.md` (shipped next to this file), or a separate commercial licence.
   The package `DataGuard.Contracts` is licensed under the MIT licence.
-- Releases up to and including **v0.3.0**: MIT licence, permanently
-  ([`MIT-v0.1.0-v0.3.0.txt`](MIT-v0.1.0-v0.3.0.txt)).
+- Releases up to and including **v0.3.0**: MIT licence, permanently (text: `docs/legal/MIT-v0.1.0-v0.3.0.txt`
+  in https://github.com/thanhnt-sm/eco_support_net_oracle).
 
 DataGuard's command-line tool, RID archives, container image, NuGet tool package and IDE extensions bundle
 the two components below. They are **separately licensed**: the GPL does not apply to them, and their terms

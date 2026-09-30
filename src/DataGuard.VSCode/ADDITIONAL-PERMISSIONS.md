@@ -5,9 +5,10 @@
 > The DataGuard owner accepted the risk of publishing it without legal review. It is not legal advice.
 > If you rely on it for a product or a redistribution, have your own counsel read it.
 
-DataGuard releases from **v0.4.0** are licensed under **GPL-3.0-only** (see [`LICENSE`](../../LICENSE)) or,
-separately, under a commercial licence (contact `<contact email placeholder>`). Releases up to and including
-**v0.3.0** stay under the MIT licence permanently ([`MIT-v0.1.0-v0.3.0.txt`](MIT-v0.1.0-v0.3.0.txt)).
+DataGuard releases from **v0.4.0** are licensed under **GPL-3.0-only** (see the `LICENSE` file that accompanies
+this one) or, separately, under a commercial licence (contact `<contact email placeholder>`). Releases up to and
+including **v0.3.0** stay under the MIT licence permanently (text: `docs/legal/MIT-v0.1.0-v0.3.0.txt` in
+https://github.com/thanhnt-sm/eco_support_net_oracle).
 
 Copyright (c) 2026 Than Nguyen and DataGuard contributors.
 
@@ -36,7 +37,7 @@ the licensors of this Program grant you additional permission to convey the resu
 ## What this does not do
 
 - It does not relicense, and gives you no rights in, the libraries and programs named above. They remain
-  under their own terms, reproduced in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). You must comply
+  under their own terms, reproduced in `THIRD-PARTY-NOTICES.md`, shipped next to this file. You must comply
   with those terms yourself, including Oracle's condition that a copy of its licence accompany every
   distribution and Microsoft's pass-through and indemnity requirements for the SNI library.
 - It does not change the licence of DataGuard's own code: everything else in GPL-3.0 still applies, and

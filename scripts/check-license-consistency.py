@@ -46,7 +46,8 @@ ALLOWED_MENTIONS: list[tuple[str, str, str]] = [
     ("docs/architecture.md", "ScriptDOM (MIT)", "third-party dependency licence"),
     ("docs/PRODUCT.md", "Roslyn (MIT)", "third-party dependency licence"),
     ("docs/PRODUCT.md", "ScriptDOM (MIT)", "third-party dependency licence"),
-    ("docs/02-architecture/tech-stack.md", "not MIT", "Oracle driver licence contrast, not a DataGuard claim"),
+    ("docs/PRODUCT.md", "**License** |", "comparison table: MIT is the competitors' licence, DataGuard's own cell says GPL-3.0-only"),
+    ("docs/architecture.md", "DataGuard.Contracts", "D3: Contracts package row"),
     ("**/*.md", "v0.3.0", "historical: releases up to v0.3.0 stay MIT permanently"),
 ]
 
