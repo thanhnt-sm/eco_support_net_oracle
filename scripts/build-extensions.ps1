@@ -23,7 +23,7 @@ $originalLocation = Get-Location
 Write-Host "Starting DataGuard Extension Build Process..." -ForegroundColor Cyan
 
 # Resolve package version safely for artifact naming
-$version = "0.2.3"
+$version = "0.3.0"
 $vscodePkgJson = Join-Path $repoRoot "src/DataGuard.VSCode/package.json"
 if (Test-Path -LiteralPath $vscodePkgJson) {
     try {

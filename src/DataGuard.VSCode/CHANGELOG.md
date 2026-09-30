@@ -14,6 +14,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `markdown-it` 14.3.0 → 14.3.2 (GHSA-253c-mchw-3w2r). No runtime behaviour change.
 
 ### Changed
+- Version constants moved to 0.3.0 ahead of the v0.3.0 tag; the empty v0.2.3 GitHub release (workflow failed before publishing any asset) is superseded.
 - **CLI 0.3.0 or later is required for `validate` and `assess`.** Both commands now require the CLI's
   `ide-safe: active` handshake (first stderr line). Output from CLI 0.2.2 and older, which does not
   understand `--ide-safe`, is rejected instead of loaded as findings: the extension shows

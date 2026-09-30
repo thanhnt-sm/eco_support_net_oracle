@@ -16,7 +16,7 @@ using System.Xml;
 internal static class ExtensionVersion
 {
     /// <summary>Fallback version; must match source.extension.vsixmanifest Identity/@Version.</summary>
-    internal const string Fallback = "0.2.3";
+    internal const string Fallback = "0.3.0";
 
     private static string? current;
 

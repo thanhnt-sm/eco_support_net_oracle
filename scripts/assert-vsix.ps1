@@ -9,7 +9,7 @@
   unreadable zip, missing entry, missing/mismatched manifest version).
 
 .EXAMPLE
-  pwsh -File scripts/assert-vsix.ps1 -VsixPath src/DataGuard.VisualStudio/bin/Release/DataGuard.VisualStudio.vsix -ExpectedVersion 0.2.3
+  pwsh -File scripts/assert-vsix.ps1 -VsixPath src/DataGuard.VisualStudio/bin/Release/DataGuard.VisualStudio.vsix -ExpectedVersion 0.3.0
 #>
 [CmdletBinding()]
 param(
