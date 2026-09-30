@@ -50,8 +50,8 @@ pre-release. Nightly builds are unsigned; versioned `v*` releases stay the offic
 
 ```bash
 # Kiểm tra checksum trước khi cài / verify before installing (mọi file đều có .sha256 đi kèm)
-sha256sum -c dataguard-0.2.3-nightly.20260929.12-linux-x64.zip.sha256                          # Linux/macOS
-(Get-FileHash DataGuard.VisualStudio-0.2.3-nightly.20260929.12.vsix).Hash -ieq (Get-Content DataGuard.VisualStudio-0.2.3-nightly.20260929.12.vsix.sha256).Split(' ')[0]   # Windows
+sha256sum -c dataguard-0.3.0-nightly.<yyyyMMdd>.<run>-linux-x64.zip.sha256                          # Linux/macOS
+(Get-FileHash DataGuard.VisualStudio-0.3.0-nightly.<yyyyMMdd>.<run>.vsix).Hash -ieq (Get-Content DataGuard.VisualStudio-0.3.0-nightly.<yyyyMMdd>.<run>.vsix.sha256).Split(' ')[0]   # Windows
 # VS Code: code --install-extension dataguard-vscode-<version>.vsix --force
 # Visual Studio: double-click VSIX. Manifest VSIX nightly giữ version đã commit (VSIX không nhận
 #   prerelease), nên gỡ extension DataGuard đang cài trước khi cài bản nightly.
