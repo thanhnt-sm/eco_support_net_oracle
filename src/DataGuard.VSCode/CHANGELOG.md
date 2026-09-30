@@ -5,6 +5,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+- Closed 17 OSV advisories flagged by OSSF Scorecard in `package-lock.json` (transitive dependencies):
+  `undici` 7.29.0 → 7.30.0 (10 advisories, build-time only via `@vscode/vsce`), `brace-expansion`
+  5.0.9 → 5.0.12 (build-time) and 2.1.4 → 2.1.7 (bundled in the VSIX via `vscode-languageclient`;
+  GHSA-6j4f-fj2g-mc7p, GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7), `fast-uri` 3.1.6 → 3.1.8
+  (`overrides` pin raised; GHSA-58mr-gqgx-xq4g, GHSA-hrr3-gc8f-f4qj, GHSA-qw65-cvwx-89v3) and
+  `markdown-it` 14.3.0 → 14.3.2 (GHSA-253c-mchw-3w2r). No runtime behaviour change.
+
 ### Changed
 - **CLI 0.3.0 or later is required for `validate` and `assess`.** Both commands now require the CLI's
   `ide-safe: active` handshake (first stderr line). Output from CLI 0.2.2 and older, which does not
