@@ -22,7 +22,7 @@
     <!-- Direct pin: Microsoft.VisualStudio.SDK transitively pulls MessagePack
          2.5.192, which is affected by 11 OSV advisories (fixed in 2.5.301).
          The direct reference wins the version conflict within the 2.x line. -->
-    <PackageReference Include="MessagePack" Version="3.1.10" />
+    <PackageReference Include="MessagePack" Version="2.5.305" />
     <PackageReference Include="System.Text.Json" Version="10.0.12" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>

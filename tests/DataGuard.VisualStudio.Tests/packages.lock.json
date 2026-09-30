@@ -4,11 +4,11 @@
     ".NETFramework,Version=v4.7.2": {
       "FluentAssertions": {
         "type": "Direct",
-        "requested": "[8.11.0, )",
-        "resolved": "8.11.0",
-        "contentHash": "dZqOxys9uY/0vO5BAwFtDECkFNSr9vWGwHa1fwZyuM1xAMbI4wiPTUBR2nH5e6R2/bQkXegxFY1B/oU1yqNNOw==",
+        "requested": "[6.12.2, )",
+        "resolved": "6.12.2",
+        "contentHash": "8YE+xJmT8wgzEpFuzJ4S62oFhEL/AKouMz1RWPEMEUhy9H11aRQlGIWcHurH5BEy7tbF6gb0CJrs0wOw/AtDcQ==",
         "dependencies": {
-          "System.Threading.Tasks.Extensions": "4.5.4"
+          "System.Threading.Tasks.Extensions": "4.5.0"
         }
       },
       "Microsoft.CodeAnalysis.NetAnalyzers": {
@@ -120,14 +120,13 @@
       },
       "MessagePack": {
         "type": "Transitive",
-        "resolved": "3.1.10",
-        "contentHash": "IvYiuLIGLbklU8qZFp0krv1f+0d0kkWbyb+I4Qmk8p5o+JxQsKUp2L5SBHV4vVmBh+DAj3bWDukGAl+87GMwrQ==",
+        "resolved": "2.5.305",
+        "contentHash": "oDs+yCq8oQmIIExX22lSuSYrT4peQcoZEAfsS/lxFAzk4vP+oqNZ5c4JY7TyiB9LIBu3TfC2NQyC60InRXJz7A==",
         "dependencies": {
-          "MessagePack.Annotations": "3.1.10",
-          "MessagePackAnalyzer": "3.1.10",
-          "Microsoft.Bcl.AsyncInterfaces": "8.0.0",
-          "Microsoft.NET.StringTools": "17.11.4",
-          "System.Collections.Immutable": "8.0.0",
+          "MessagePack.Annotations": "2.5.305",
+          "Microsoft.Bcl.AsyncInterfaces": "6.0.0",
+          "Microsoft.NET.StringTools": "17.6.3",
+          "System.Collections.Immutable": "6.0.0",
           "System.Memory": "4.5.5",
           "System.Runtime.CompilerServices.Unsafe": "6.0.0",
           "System.Threading.Tasks.Extensions": "4.5.4"
@@ -135,13 +134,8 @@
       },
       "MessagePack.Annotations": {
         "type": "Transitive",
-        "resolved": "3.1.10",
-        "contentHash": "3XvSeRdiR9ujCcTuijFwn2DRO8+a2S4fkNvwMaMwnXvdUJRaWAVc37scCiFME0AYLXGtnWF+GHMZT/a+i5Vv7g=="
-      },
-      "MessagePackAnalyzer": {
-        "type": "Transitive",
-        "resolved": "3.1.10",
-        "contentHash": "t0sPByiRt2ipKUg64M1foAt5uDnJOiOGimE0rKXZ5CdiQw0Sf4TfELiWNjowcCHO0M6gRePrI90kXPc7rN2llw=="
+        "resolved": "2.5.305",
+        "contentHash": "hNIdrxc3BFjI7UYKLTOryKsG2Z7b8yk33pZUpgs8haWebuiVHX+jxjy5/+r5a7TscD964rqtQbABQjeMd53Pig=="
       },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
@@ -1680,7 +1674,7 @@
       "dataguard.visualstudio": {
         "type": "Project",
         "dependencies": {
-          "MessagePack": "[3.1.10, )",
+          "MessagePack": "[2.5.305, )",
           "Microsoft.VisualStudio.SDK": "[17.14.40265, )",
           "System.Text.Json": "[10.0.12, )"
         }
