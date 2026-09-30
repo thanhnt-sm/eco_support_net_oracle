@@ -10,6 +10,11 @@ on:
         description: "Release tag (e.g. v0.2.2 or v1.0.0). The 'v' prefix is added automatically when missing. Required when running manually."
         required: true
         type: string
+      dry_run:
+        description: "Build, test, package and upload artifacts only; skip creating the GitHub release, pushing NuGet/Docker and attestations. Set to false to publish from a manual run."
+        required: false
+        type: boolean
+        default: true
 
 # Top-level permissions are conservative; individual jobs request what they need.
 permissions:
@@ -543,6 +548,9 @@ jobs:
   create-github-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    # Manual runs are a dry run unless dry_run=false: every build/package job
+    # above still runs and uploads artifacts, but nothing is published.
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
     needs: [build-and-test, sign-packages, generate-sbom, cli-package, vscode-package, visual-studio-package]
     permissions:
       contents: write
@@ -582,8 +590,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.build-and-test.outputs.release_version }}
         run: |
           set -euo pipefail
+          # A SemVer pre-release (0.3.0-rc.1) is published as a GitHub
+          # pre-release so it never becomes the "latest" release.
+          release_flags=(--draft)
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            echo "Pre-release version $RELEASE_VERSION: marking the GitHub release as pre-release."
+            release_flags+=(--prerelease)
+          fi
           # A previous failed run may have left a draft behind; a published
           # release must never be silently overwritten.
           if gh release view "$RELEASE_TAG" --json isDraft -q .isDraft >/dev/null 2>&1; then
@@ -603,7 +619,7 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" \
             --target "${{ github.sha }}" \
-            --draft \
+            "${release_flags[@]}" \
             --title "$RELEASE_TAG" \
             --notes "Release $RELEASE_TAG of DataGuard (NuGet packages, CLI packages per RID with SHA-256, Visual Studio Extension, and VS Code Extension)." \
             ./artifacts/*.nupkg \
@@ -623,6 +639,7 @@ jobs:
   publish-nuget:
     name: Publish to NuGet.org (Optional)
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
     needs: [create-github-release]
     continue-on-error: true
     permissions:
@@ -674,6 +691,7 @@ jobs:
   publish-attestations:
     name: Publish Build Provenance Attestations
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
     needs: [create-github-release]
     permissions:
       contents: read
@@ -716,6 +734,7 @@ jobs:
   docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
     needs: [build-and-test, security-scan, create-github-release]
     permissions:
       contents: read
@@ -747,12 +766,14 @@ jobs:
           # On tag pushes, semver patterns derive from the tag (v1.2.3 -> 1.2.3)
           # and metadata-action's default flavor adds a `latest` marker. On
           # manual dispatch there is no tag ref, so the resolved version and a
-          # `latest` marker are added explicitly.
+          # `latest` marker are added explicitly; `latest` is withheld for a
+          # SemVer pre-release (hyphen in the version), matching the tag-push
+          # behaviour of metadata-action.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=${{ needs.build-and-test.outputs.release_version }},enable=${{ github.event_name == 'workflow_dispatch' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && !contains(needs.build-and-test.outputs.release_version, '-') }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -767,3 +788,37 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  dry-run-summary:
+    name: Dry Run Summary (nothing published)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+    needs: [build-and-test, sign-packages, generate-sbom, cli-package, vscode-package, visual-studio-package]
+    permissions:
+      actions: read # list this run's artifacts
+      contents: read
+    steps:
+      - name: List uploaded artifacts and confirm nothing was published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t artifacts < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" -q '.artifacts[].name' | sort -u)
+          if [ "${#artifacts[@]}" -eq 0 ]; then
+            echo "::error::Dry run finished but no artifacts were uploaded." >&2
+            exit 1
+          fi
+          {
+            echo "## Release dry run for ${RELEASE_TAG} — nothing was published"
+            echo
+            echo "Skipped: GitHub release, NuGet push, build provenance attestations, Docker push (ghcr.io)."
+            echo "Re-run with \`dry_run=false\` to publish."
+            echo
+            echo "Artifacts uploaded by this run:"
+            for name in "${artifacts[@]}"; do
+              echo "- \`${name}\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "DRY RUN: ${RELEASE_TAG} — built, tested and packaged; nothing was published. Artifacts: ${artifacts[*]}"
+          echo "::notice title=Release dry run::${RELEASE_TAG}: nothing was published (GitHub release, NuGet, attestations and Docker were skipped). ${#artifacts[@]} artifact(s) uploaded."
