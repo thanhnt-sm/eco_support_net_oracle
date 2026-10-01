@@ -21,7 +21,7 @@ Cleanup di sản EcoSupport đã hoàn tất theo manifest được owner phê d
 - TypeScript (`packages/{cli,core,mcp}`, root manifests) → BACKUP ngoài repo rồi REMOVE.
 - Python chết + test mồ côi (`pyproject.toml`, `tests/test_*.py`, `tests/test_rust_*.rs`) → REMOVE; `research/python_prototype/` GIỮ làm research độc lập.
 - `.tmp_new_models` → REMOVE.
-- License canonical: `LICENSE` (MIT) — `LICENSE.md` trùng lặp đã không còn.
+- License canonical: `LICENSE` (GPL-3.0-only từ v0.4.0; v0.3.0 trở về trước là MIT, lưu ở `docs/legal/MIT-v0.1.0-v0.3.0.txt`); quyền bổ sung §7 và notice bên thứ ba ở `docs/legal/` — `LICENSE.md` trùng lặp đã không còn.
 
 ## Quy tắc cleanup
 

@@ -28,7 +28,7 @@ the .NET stored-procedure world, where it did not exist:
 - Stored-procedure-heavy .NET codebases are the most fragile, least-tooled part of the ecosystem;
   AI-generated SQL (a growing failure mode) makes phantom-table/column detection
   (DG015/DG016) more valuable every day.
-- MIT-licensed, NuGet-distributed, SQL Server + Oracle + MySQL + PostgreSQL, no vendor lock-in.
+- GPL-3.0-only (OSI-approved, from v0.4.0; releases up to v0.3.0 were MIT) with a commercial licence option, NuGet-distributed, SQL Server + Oracle + MySQL + PostgreSQL, no vendor lock-in.
 - The grant would fund real-DB integration testing (Testcontainers), NuGet publishing, and docs —
   the exact parts a solo maintainer cannot do alone.
 

@@ -188,8 +188,8 @@ CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")"
 if [[ -n "$REMOTE_NAME" ]]; then
     echo -e "${CYAN}Target remote: '${REMOTE_NAME}', branch: '${CURRENT_BRANCH}'${NC}"
 
-    echo -e "${CYAN}Executing git fetch --all --prune --tags...${NC}"
-    git fetch --all --prune --tags || {
+    echo -e "${CYAN}Executing git fetch --all --prune --tags --force...${NC}"
+    git fetch --all --prune --tags --force || {
         log_error "Cannot fetch from remote. Check network connectivity."
         exit 1
     }
@@ -273,7 +273,12 @@ if [[ -z "$STAGED_CHANGES" ]]; then
     git add -A
     STAGED_CHANGES="$(git diff --cached --name-only 2>/dev/null || true)"
     if [[ -z "$STAGED_CHANGES" ]]; then
-        AHEAD_COUNT="$(git rev-list --count "${REMOTE_BRANCH:-@{u}}..HEAD" 2>/dev/null || git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
+        if git show-ref --verify --quiet "refs/remotes/$REMOTE_BRANCH"; then
+            AHEAD_COUNT="$(git rev-list --count "$REMOTE_BRANCH..HEAD" 2>/dev/null || echo 0)"
+        else
+            DEFAULT_MAIN="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE_NAME/HEAD" 2>/dev/null || echo "$REMOTE_NAME/main")"
+            AHEAD_COUNT="$(git rev-list --count "$DEFAULT_MAIN..HEAD" 2>/dev/null || git rev-list --count HEAD 2>/dev/null || echo 1)"
+        fi
         if [[ "$DO_PUSH" == "true" && "$AHEAD_COUNT" -gt 0 ]]; then
             echo -e "${CYAN}ℹ️  Working tree clean, but local branch is ahead by ${AHEAD_COUNT} commit(s). Proceeding to push...${NC}"
         elif [[ "$AHEAD_COUNT" -gt 0 ]]; then

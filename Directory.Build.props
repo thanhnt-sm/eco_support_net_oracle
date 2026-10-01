@@ -25,6 +25,11 @@
   <PropertyGroup>
     <RepositoryUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</RepositoryUrl>
     <PackageProjectUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</PackageProjectUrl>
+    <!-- Licence surface (GPL-3.0-only + Commercial from v0.4.0). One value here; DataGuard.Contracts
+         overrides it with MIT (D3). Third-party notices ship as files, see docs/legal/. -->
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Authors>DataGuard Contributors</Authors>
+    <Copyright>Copyright (c) 2026 Than Nguyen</Copyright>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageOutputPath>$(MSBuildThisFileDirectory)nupkg</PackageOutputPath>

@@ -19,7 +19,8 @@
 | **`.cursorrules`** | Cursor IDE AI rules and coding standards. | Governance | Markdown |
 | **`.windsurfrules`** | Windsurf IDE Cascade rules. | Governance | Markdown |
 | **`.geminirules`** | Google Gemini Code Assist rules. | Governance | Markdown |
-| **`LICENSE.md`** | PolyForm Noncommercial 1.0.0 license with anti-AI training covenant. | Legal / IP | Markdown |
+| **`LICENSE`** | GNU GPL v3 text (GPL-3.0-only from v0.4.0). | Legal / IP | Text |
+| **`docs/legal/`** | Section 7 additional permission, third-party notices (Oracle, Microsoft SNI) and the MIT text of v0.1.0-v0.3.0. | Legal / IP | Markdown |
 | **`README.md`** / **`README.vi.md`** | Master project landing overview, architecture & quickstart (Bilingual EN/VI). | Documentation | Markdown |
 | **`CONTRIBUTING.md`** / **`CONTRIBUTING.vi.md`** | Contributor guide & maintainer-first principles (Bilingual EN/VI). | Documentation | Markdown |
 | **`SECURITY.md`** / **`SECURITY.vi.md`** | Security disclosure policy and response SLAs (Bilingual EN/VI). | Security | Markdown |

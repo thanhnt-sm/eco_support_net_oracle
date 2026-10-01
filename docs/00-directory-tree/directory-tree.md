@@ -78,7 +78,7 @@ graph TD
 | `SUPPORT.md` | Support channels and community resources | Documentation | Markdown |
 | `CODE_OF_CONDUCT.md` | Community code of conduct | Documentation | Markdown |
 | `AI_AGENT_AUDIT.md` | Audit trail for AI agent operations on the repository | Meta | Markdown |
-| `LICENSE` | MIT License | Legal | Text |
+| `LICENSE` | GNU GPL v3 (GPL-3.0-only from v0.4.0) | Legal | Text |
 | `DataGuard.sln` | .NET solution file binding all 13 projects | Build | MSBuild XML |
 | `Directory.Build.props` | Shared MSBuild properties across all projects | Build | MSBuild XML |
 | `.editorconfig` | Code style and formatting rules | Config | INI |

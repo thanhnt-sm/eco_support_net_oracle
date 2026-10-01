@@ -3,6 +3,41 @@
 All notable changes to DataGuard are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), semantic versioning via git tags (MinVer).
 
+## [Unreleased] — v0.4.0: licence changes from MIT to GPL-3.0-only + Commercial
+
+> **Licence change from v0.4.0.** Releases up to and including v0.3.0 (and every binary already published) stay
+> under the MIT licence permanently. From v0.4.0 DataGuard is offered under `GPL-3.0-only` or a separate commercial
+> licence (terms agreed per licensee; contact `<contact email placeholder>`). The additional-permission text
+> (`docs/legal/ADDITIONAL-PERMISSIONS.md`) and the commercial terms have **not been reviewed by a lawyer**.
+> Owner review of the diff before the first `git push`: pending (record the date here or in the PR body).
+
+### Changed
+- **Licence (v0.4.0)**: `LICENSE` is the verbatim GPL v3 text; the MIT text of v0.1.0-v0.3.0 is kept in `docs/legal/MIT-v0.1.0-v0.3.0.txt`. Why: the PolyForm Noncommercial licence tried earlier (see the "License unified to MIT" entry below) is not OSI-approved, Anthropic's "Claude for Open Source" terms (section 2.3) require an OSI-approved licence, and nuget.org accepts only OSI/FSF SPDX expressions. GPL-3.0 does not stop commercial use or copying, and a public repository cannot stop forks; the copyleft applies when a work based on DataGuard is distributed. No claim is made that the programme's quantitative eligibility thresholds are met.
+- **NuGet metadata (D6)**: `Directory.Build.props` now sets `PackageLicenseExpression=GPL-3.0-only`, `Authors` and `Copyright` for every package; the six per-project MIT expressions and nine per-project `<Authors>` lines are gone. **`DataGuard.Contracts` stays MIT (D3)** because it lands in a consumer's own output and is read by Core through reflection. 13 packages are produced by `dotnet pack DataGuard.CrossPlatform.slnf` (was 15).
+- **Analyzer package is build-time only (D4)**: `DataGuard.Analyzers` sets `IncludeBuildOutput=false` and `DevelopmentDependency=true`. No `lib/` assets, so `DataGuard.Analyzers.dll` and `DataGuard.SqlClassification.dll` no longer reach a consumer's `bin/`; the analyzers load from `analyzers/dotnet/cs`. `DataGuard.Contracts` (MIT) stays a normal nuspec dependency, so consumers that use the attributes install/restore it. `DataGuard.SqlClassification` and `DataGuard.LanguageServer` are no longer packages (`IsPackable=false`). Checked by `scripts/verify-analyzer-packaging.sh` against a real consumer build. `DataGuard.Build` still places `DataGuard.Build.dll` in the consumer output.
+- **Bundled Oracle ODP.NET and Microsoft SNI (D2)**: their licence texts are reproduced verbatim in `docs/legal/THIRD-PARTY-NOTICES.md`, and `docs/legal/ADDITIONAL-PERMISSIONS.md` adds a GPL section 7 permission (FSF "GPLIncompatibleLibs" template). Both files, plus `LICENSE`, now ship in the CLI publish output (RID archives, container image), the `DataGuard.Cli` tool package, the Visual Studio VSIX and the VS Code VSIX. The Dockerfile carries `org.opencontainers.image.licenses=GPL-3.0-only` for local builds; the published image label is set by `release.yml` (separate change).
+- **README (EN/VI)**: "Dual licence & FAQ" replaces the one-line MIT notice. Docs, grants and rules wording updated to match.
+
+### Added
+- **CI (v0.4.0)**: `scripts/check-license-consistency.py` (+ 17 unit tests in `scripts/tests/test_check_license_consistency.py`) fails on stale MIT mentions in the documentation surface, non-central package licence declarations, a non-GPL `LICENSE`, and drift between `LICENSE` / `docs/legal/*` and their six shipped copies. Run by `scripts/verify_docs_sync.sh` and the `build-and-test` job.
+
+### Last MIT nightly (snapshot before the first GPL nightly)
+The `nightly` GitHub release was published 2026-09-30T07:09:25Z and holds the last MIT-licensed development builds
+(0.3.0-nightly.20260930.11). The next merge to `main` publishes a GPL-3.0-only nightly over it. Assets and SHA-256:
+
+```text
+  dataguard-0.3.0-nightly.20260930.11-linux-x64.zip sha256:4c29d09df9c5dffa4ed224117f224a5f41fe8c19db85e8205682086bef169b02
+  dataguard-0.3.0-nightly.20260930.11-linux-x64.zip.sha256 sha256:9d76f353caec04f474c6efbd9f2c796cfb30fc6acdc8f2b9ce30012c8b95ce6b
+  dataguard-0.3.0-nightly.20260930.11-osx-arm64.zip sha256:c0f12180cec74bebd93e9827124d809201af5ca4b804ee6bb9a811190b3ee9f2
+  dataguard-0.3.0-nightly.20260930.11-osx-arm64.zip.sha256 sha256:2458a48bffb9edd2584103c891a53b3fe6f4b0b62df9e0bb1f5f4594212f25c3
+  dataguard-0.3.0-nightly.20260930.11-win-x64.zip sha256:e508be757ec037ac159b9a6fd4da1c6abc9bf9cd769353015943b798d3fcaaee
+  dataguard-0.3.0-nightly.20260930.11-win-x64.zip.sha256 sha256:46c4b17619f5aca408271d10d5658cbe90735648166338927219fa94513c4a68
+  dataguard-vscode-0.3.0-nightly.20260930.11.vsix sha256:5f6bdab24d4344542135cf0b0b863d35720b70bc63f7d6f95d3aeece4adce544
+  dataguard-vscode-0.3.0-nightly.20260930.11.vsix.sha256 sha256:05c371c5f9f4201615611f48f70fe336b16b1684dd15ea90f591e183637a5685
+  DataGuard.VisualStudio-0.3.0-nightly.20260930.11.vsix sha256:505681ee079129c9eb04b77b8138b2f769403f47bfa9712fe0cac04a4e18f789
+  DataGuard.VisualStudio-0.3.0-nightly.20260930.11.vsix.sha256 sha256:795599efb567e91ea70d3db45f379cccd9e6c562452f251a03c499793bbc8fbb
+```
+
 ## [Unreleased] — next release must be tagged `v0.3.0`
 
 > The IDE hosts below reject CLI 0.2.2 and older for `validate`/`assess` (no `ide-safe: active`

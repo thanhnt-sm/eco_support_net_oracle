@@ -255,7 +255,7 @@ DataGuard is an **active, production-ready** project with:
 - **3 test projects** with 291+ tests including golden corpus validation
 - **CI/CD pipeline** with automated build, test, and release workflows
 - **Bilingual documentation** (English and Vietnamese)
-- **MIT License** — open source and free to use
+- **GPL-3.0-only + Commercial licence** — open source under GPL-3.0-only from v0.4.0 (v0.3.0 and earlier stay MIT); a commercial licence is available for closed-source distribution
 
 ## Quick Links
 

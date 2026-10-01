@@ -18,7 +18,9 @@
 
 ## Commercial / enterprise support
 
-This repository is MIT-licensed open source. Enterprise and banking
+DataGuard is open source under GPL-3.0-only (from v0.4.0), with a commercial
+licence available for closed-source distribution (`<contact email placeholder>`;
+see the README licence FAQ). Enterprise and banking
 deployments should read `docs/marketplace-publishing.md` and the banking
 profile notes in `plans/2026-08-21-review-handoff.md` (offline-first, zero
 telemetry, credential zero-trust).

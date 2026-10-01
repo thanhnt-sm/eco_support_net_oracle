@@ -30,14 +30,14 @@
 | Package | Mô Tả / Description | License |
 |---------|-------------|---------|
 | `DataGuard.Contracts` | Attribute contracts dùng chung (netstandard2.0) | MIT |
-| `DataGuard.Core` | Động cơ xác thực cốt lõi | MIT |
-| `DataGuard.SqlServer.Adapter` | Adapter SQL Server (ScriptDOM) | MIT |
-| `DataGuard.Oracle.Adapter` | Adapter Oracle (Catalog-based) | MIT + Oracle License |
-| `DataGuard.MySql.Adapter` | Adapter MySQL | MIT |
-| `DataGuard.PostgreSql.Adapter` | Adapter PostgreSQL | MIT |
-| `DataGuard.Analyzers` | Roslyn analyzer + generator | MIT |
-| `DataGuard.CodeFixes` | Roslyn code fixes (quick actions) | MIT |
-| `DataGuard.Cli` | dotnet tool CLI | MIT |
+| `DataGuard.Core` | Động cơ xác thực cốt lõi | GPL-3.0-only |
+| `DataGuard.SqlServer.Adapter` | Adapter SQL Server (ScriptDOM) | GPL-3.0-only |
+| `DataGuard.Oracle.Adapter` | Adapter Oracle (Catalog-based) | GPL-3.0-only + Oracle License |
+| `DataGuard.MySql.Adapter` | Adapter MySQL | GPL-3.0-only |
+| `DataGuard.PostgreSql.Adapter` | Adapter PostgreSQL | GPL-3.0-only |
+| `DataGuard.Analyzers` | Roslyn analyzer + generator | GPL-3.0-only |
+| `DataGuard.CodeFixes` | Roslyn code fixes (quick actions) | GPL-3.0-only |
+| `DataGuard.Cli` | dotnet tool CLI | GPL-3.0-only |
 
 ### 2. CLI Tool / Công Cụ CLI
 
@@ -163,7 +163,7 @@ dataguard hook install  # Auto-detect: Husky, lefthook, native git
 | **IDE integration** | ✅ Roslyn + Fixes | VS Extension only | ❌ | ❌ | ❌ |
 | **Oracle support** | ✅ Catalog-based | ⚠️ SET FMTONLY | ❌ | ❌ | Manual |
 | **Credential security** | ✅ Zero-trust | N/A | N/A | N/A | Manual |
-| **License** | MIT (Core) | MIT | MIT | MIT | - |
+| **License** | GPL-3.0-only + Commercial | MIT | MIT | MIT | - |
 
 ---
 
@@ -263,13 +263,14 @@ their matching benchmark corpus and baseline exist.
 
 | Package | License | Vendor Dependencies |
 |---------|---------|-------------------|
-| `DataGuard.Core` | MIT | None |
-| `DataGuard.SqlServer.Adapter` | MIT | ScriptDOM (MIT) |
-| `DataGuard.Oracle.Adapter` | MIT + Oracle License | Oracle.ManagedDataAccess.Core |
-| `DataGuard.Analyzers` | MIT | Roslyn (MIT) |
-| `DataGuard.Cli` | MIT | Core + Adapters |
+| `DataGuard.Contracts` | MIT | None |
+| `DataGuard.Core` | GPL-3.0-only | None |
+| `DataGuard.SqlServer.Adapter` | GPL-3.0-only | ScriptDOM (MIT) |
+| `DataGuard.Oracle.Adapter` | GPL-3.0-only + Oracle License | Oracle.ManagedDataAccess.Core |
+| `DataGuard.Analyzers` | GPL-3.0-only | Roslyn (MIT) |
+| `DataGuard.Cli` | GPL-3.0-only | Core + Adapters |
 
-**Core = MIT thuần** → Eligible for Anthropic Grant / OSI-approved
+**GPL-3.0-only (OSI-approved) từ v0.4.0, kèm giấy phép thương mại; `DataGuard.Contracts` giữ MIT.** Quyền bổ sung (§7) và điều khoản thương mại chưa qua luật sư, xem [README](../README.md#dual-licence--faq) và `docs/legal/`.
 
 ---
 

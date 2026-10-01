@@ -255,7 +255,7 @@ DataGuard là dự án **hoạt động, sẵn sàng cho production** với:
 - **3 dự án kiểm thử** với 291+ tests bao gồm validation golden corpus
 - **Pipeline CI/CD** với workflow build, test và phát hành tự động
 - **Tài liệu song ngữ** (tiếng Anh và tiếng Việt)
-- **Giấy phép MIT** — mã nguồn mở và miễn phí sử dụng
+- **Giấy phép GPL-3.0-only + thương mại** — mã nguồn mở theo GPL-3.0-only từ v0.4.0 (v0.3.0 trở về trước giữ MIT); có giấy phép thương mại cho phân phối mã đóng
 
 ## Liên Kết Nhanh
 

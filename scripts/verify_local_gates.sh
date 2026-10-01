@@ -64,7 +64,7 @@ printf '[verify-local-gates] Checking workspace preflight invariants.\n'
 ./scripts/preflight_agent_check.sh
 
 printf '[verify-local-gates] Checking documentation inventory.\n'
-./scripts/verify_docs_sync.sh
+PYTHON_BIN="$PYTHON_BIN" ./scripts/verify_docs_sync.sh
 
 printf '[verify-local-gates] Validating all workflows.\n'
 actionlint .github/workflows/*.yml

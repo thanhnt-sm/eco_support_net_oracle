@@ -3,6 +3,15 @@
 
 set -euo pipefail
 
+if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
+    export PATH="$HOME/.dotnet:$PATH"
+fi
+for py_dir in /c/Users/*/AppData/Local/Programs/Python/Python*; do
+    if [[ -d "$py_dir" ]]; then
+        export PATH="$PATH:$py_dir"
+        break
+    fi
+done
 if ! command -v dotnet >/dev/null 2>&1; then
     printf 'dotnet SDK is required for this DataGuard workspace.\n' >&2
     exit 1

@@ -186,7 +186,7 @@ cmd_push() {
     [[ $behind -gt 0 && $ahead -gt 0 ]] && { log_error "Diverged ($ahead ahead, $behind behind)"; log_info "Run 'dg-git sync'"; exit 1; }
     [[ $behind -gt 0 ]] && log_warn "$behind behind"
     [[ "$dry_run" == true ]] && { log_info "Dry run: would push to $remote"; exit 0; }
-    git push "$remote" "$branch"${set_upstream:+ -u "$remote"}
+    git push ${set_upstream:+-u} "$remote" "$branch"
     log_success "Pushed to $remote"
 }
 
@@ -239,6 +239,7 @@ run_local_github_workflows() {
         log_error "Không tìm thấy canonical local gate verifier."
         return 1
     fi
+    export SKIP_ACT="${SKIP_ACT:-1}"
     "$DG_GIT_DIR/scripts/verify_local_gates.sh"
 }
 
@@ -280,7 +281,7 @@ cmd_sync() {
     fi
     # Download remote state before making any local integration decision.
     log_info "📥 [2/7] Luôn tải code mới nhất từ GitHub về máy trước (Fetch All)..."
-    git fetch --all --prune --tags || {
+    git fetch --all --prune --tags --force || {
         log_error "Không thể kết nối hoặc tải code từ GitHub (kiểm tra lại internet hoặc quyền truy cập)."
         return 1
     }

@@ -4,7 +4,10 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <PackageId>DataGuard.Contracts</PackageId>
-    <Authors>DataGuard Contributors</Authors>
+    <!-- D3: the only first-party package that stays permissive. Contracts.dll lands in a consumer's
+         (possibly closed-source) output and is read by DataGuard.Core through reflection, so it must not
+         carry the GPL-3.0-only value set centrally in Directory.Build.props. -->
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>Shared contract attributes for DataGuard analyzers (netstandard2.0, IDE-host compatible).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;analyzers</PackageTags>
     <IsPackable>true</IsPackable>

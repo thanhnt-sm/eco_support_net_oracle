@@ -28,4 +28,4 @@ Place `.dataguard.yml` at the solution root. Snapshot/manual mode is appropriate
 
 ## Security
 
-DataGuard is MIT licensed. It provides controls useful in regulated environments but is not a compliance certification.
+DataGuard is licensed under GPL-3.0-only (releases up to v0.3.0 were MIT), with a commercial licence available. The extension ships `LICENSE`, `ADDITIONAL-PERMISSIONS.md` and `THIRD-PARTY-NOTICES.md` (Oracle and Microsoft SNI components keep their own terms). These texts are not lawyer-reviewed. It provides controls useful in regulated environments but is not a compliance certification.

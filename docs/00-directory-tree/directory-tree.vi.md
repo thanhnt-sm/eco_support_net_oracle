@@ -78,7 +78,7 @@ graph TD
 | `SUPPORT.md` | Kênh hỗ trợ và tài nguyên cộng đồng | Tài liệu | Markdown |
 | `CODE_OF_CONDUCT.md` | Quy tắc ứng xử cộng đồng | Tài liệu | Markdown |
 | `AI_AGENT_AUDIT.md` | Nhật ký kiểm toán cho các hoạt động của AI agent | Meta | Markdown |
-| `LICENSE` | Giấy phép MIT | Pháp lý | Text |
+| `LICENSE` | GNU GPL v3 (GPL-3.0-only từ v0.4.0) | Pháp lý | Text |
 | `DataGuard.sln` | File giải pháp .NET liên kết tất cả 13 dự án | Build | MSBuild XML |
 | `Directory.Build.props` | Thuộc tính MSBuild dùng chung cho tất cả dự án | Build | MSBuild XML |
 | `.editorconfig` | Quy tắc định dạng và style code | Cấu hình | INI |

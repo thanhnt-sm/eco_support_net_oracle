@@ -19,7 +19,8 @@
 | **`.cursorrules`** | Quy tắc AI và chuẩn mã nguồn cho Cursor IDE. | Quản trị | Markdown |
 | **`.windsurfrules`** | Quy tắc Cascade cho Windsurf IDE. | Quản trị | Markdown |
 | **`.geminirules`** | Quy tắc cho trợ lý Google Gemini Code Assist. | Quản trị | Markdown |
-| **`LICENSE.md`** | Giấy phép PolyForm Noncommercial 1.0.0 kèm điều khoản cấm train AI độc hại. | Pháp lý / IP | Markdown |
+| **`LICENSE`** | Văn bản GNU GPL v3 (GPL-3.0-only từ v0.4.0). | Pháp lý / IP | Text |
+| **`docs/legal/`** | Quyền bổ sung §7, notice bên thứ ba (Oracle, Microsoft SNI) và văn bản MIT của v0.1.0-v0.3.0. | Pháp lý / IP | Markdown |
 | **`README.md`** / **`README.vi.md`** | Tài liệu tổng quan dự án, kiến trúc hệ thống và hướng dẫn bắt đầu nhanh (Song ngữ EN/VI). | Tài liệu | Markdown |
 | **`CONTRIBUTING.md`** / **`CONTRIBUTING.vi.md`** | Hướng dẫn đóng góp & nguyên tắc ưu tiên maintainer (Song ngữ EN/VI). | Tài liệu | Markdown |
 | **`SECURITY.md`** / **`SECURITY.vi.md`** | Chính sách công bố lỗ hổng bảo mật và cam kết SLA phản hồi (Song ngữ EN/VI). | An ninh | Markdown |
