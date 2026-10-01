@@ -281,7 +281,7 @@ cmd_sync() {
     fi
     # Download remote state before making any local integration decision.
     log_info "📥 [2/7] Luôn tải code mới nhất từ GitHub về máy trước (Fetch All)..."
-    git fetch --all --prune --tags || {
+    git fetch --all --prune --tags --force || {
         log_error "Không thể kết nối hoặc tải code từ GitHub (kiểm tra lại internet hoặc quyền truy cập)."
         return 1
     }

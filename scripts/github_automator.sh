@@ -188,8 +188,8 @@ CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")"
 if [[ -n "$REMOTE_NAME" ]]; then
     echo -e "${CYAN}Target remote: '${REMOTE_NAME}', branch: '${CURRENT_BRANCH}'${NC}"
 
-    echo -e "${CYAN}Executing git fetch --all --prune --tags...${NC}"
-    git fetch --all --prune --tags || {
+    echo -e "${CYAN}Executing git fetch --all --prune --tags --force...${NC}"
+    git fetch --all --prune --tags --force || {
         log_error "Cannot fetch from remote. Check network connectivity."
         exit 1
     }

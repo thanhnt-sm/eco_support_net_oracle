@@ -354,7 +354,7 @@ CURRENT_BRANCH=$(git branch --show-current)
 
 log_info "Kiểm tra đồng bộ với GitHub ($REPOSITORY)..."
 if [[ "${DG_RELEASE_SKIP_FETCH:-false}" != "true" ]]; then
-    git fetch origin --tags --prune >/dev/null 2>&1 || fail "Không thể kết nối đến GitHub để nạp tags mới nhất. Kiểm tra mạng hoặc quyền truy cập."
+    git fetch origin --tags --prune --force >/dev/null 2>&1 || fail "Không thể kết nối đến GitHub để nạp tags mới nhất. Kiểm tra mạng hoặc quyền truy cập."
 fi
 
 LOCAL_HEAD=$(git rev-parse HEAD)
