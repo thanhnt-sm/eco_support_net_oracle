@@ -59,6 +59,8 @@ dataguard validate [options]
 | `--skip-rules` | — | Comma-separated rule IDs to skip (for example `DG002,DG017,MY001`) |
 | `--project` | — | Path to C# project (`.csproj`), solution (`.sln`), or directory to extract inline SQL queries and C# models |
 | `--progress` | `false` | Stream safe line-delimited JSON progress events to stderr |
+| `--ide-safe` | `false` | Run under IDE-safe execution policy: suppresses assembly loading, secret-manager connections, and arbitrary file writes |
+| `--allow-env-connection` | `false` | With `--ide-safe`: retain host-supplied `DATAGUARD_CONNECTION_STRING` while still ignoring config-file connection strings |
 
 **Behavior:**
 - Without `--connection`: validates against committed snapshot (Snapshot mode)
@@ -74,6 +76,8 @@ dataguard validate [options]
 - `--ef-snapshot` and `--ef-project` are mutually exclusive; `--ef-context` requires `--ef-project`
 - `--skip-rules`: excludes the listed rule IDs before validation; matching is case-insensitive and surrounding whitespace is ignored
 - `--format typescript`: exports TypeScript DTOs from entity descriptors
+- `--ide-safe`: activates strict process isolation for IDE host environments (Visual Studio, VS Code). Suppresses assembly execution, secret managers, and repo-directed file writes. Prints positive acknowledgement `ide-safe: active` to `stderr`.
+- `--allow-env-connection`: used with `--ide-safe` to allow host-injected environment connection strings while strictly ignoring repo-supplied `.dataguard.yml` connection strings.
 
 #### Progress Event Stream (`--progress`)
 

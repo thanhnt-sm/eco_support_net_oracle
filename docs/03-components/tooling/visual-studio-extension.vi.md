@@ -289,6 +289,70 @@ Tiện ích đọc cấu hình từ:
 ### Tùy chọn Validation Rules
 
 `Tools → Options → DataGuard → Validation Rules` cung cấp một toggle cho mỗi nhóm rule. `GetDisabledRuleIds()` ánh xạ mỗi toggle bị tắt sang các rule ID cụ thể (ví dụ tắt dialect leakage loại trừ `DG010-DG013,MY001-MY003,PG001-PG002`). `Run Validation` chuyển tiếp danh sách đó thành `validate --skip-rules <ids>`.
+### Tin cậy Solution & Hộp thoại xác nhận (`SolutionTrustGate`)
+
+Do Visual Studio không có cơ chế workspace-trust tích hợp sẵn cho tiện ích mở rộng, DataGuard hiện thực `SolutionTrustGate` nhằm bảo vệ nhà phát triển khỏi việc thực thi các tệp chưa được xác thực trong repository:
+
+1. **Xác nhận người dùng lần đầu:** Trong lần chạy đầu tiên của `Run Validation` hoặc `Run Assessment`, tiện ích sẽ hiển thị hộp thoại xác nhận native của VS:
+   > *"DataGuard — run validation for this solution file? This will invoke the DataGuard CLI to inspect contracts and queries."*
+2. **Khóa xác nhận bằng mật mã (Consent Keying):** Quyết định đồng ý được lưu vào kho cài đặt nội bộ của Visual Studio, định danh theo:
+   - Thư mục Solution
+   - Đường dẫn tệp `.sln`
+   - Mã băm SHA-256 của tệp `.dataguard.yml`
+   Nếu mã nguồn cập nhật làm thay đổi nội dung `.dataguard.yml` hoặc mở một solution khác trong cùng thư mục, DataGuard sẽ hiển thị lại hộp thoại để người dùng cấp phép.
+3. **An toàn khi build ngầm:** Các lần xác thực được kích hoạt bởi sự kiện build solution không bao giờ hiển thị hộp thoại pop-up. Các solution chưa được cấp phép sẽ tự động được bỏ qua.
+4. **Hủy bỏ quyền tin cậy:** Nhà phát triển có thể hủy bỏ quyền đã cấp bất kỳ lúc nào qua menu `Tools → Forget Solution Consent`.
+
+### Chế độ thực thi an toàn cho IDE (IDE-Safe Mode)
+
+Mỗi khi tiện ích Visual Studio khởi chạy tiến trình CLI, chế độ `--ide-safe` luôn được bật tự động:
+- **Cô lập tiến trình (Process Containment):** CLI chạy dưới các quy tắc sandbox zero-trust nghiêm ngặt.
+- **Ngăn nạp Assembly:** Không cho phép nạp các binary/assembly hoặc plugin ngoài từ repository vào không gian tiến trình.
+- **Chặn Database & Secrets:** Chặn việc mở kết nối cơ sở dữ liệu ngầm hoặc kết nối đến các trình quản lý secret được cấu hình trong repo.
+- **Bảo vệ ghi tệp:** CLI không thể ghi tệp tùy ý ra bên ngoài đường dẫn tệp tạm (temporary artifact) do tiện ích chỉ định.
+- **Bắt tay xác nhận:** Tiện ích kiểm tra dòng thông điệp xác nhận `ide-safe: active` từ stderr trước khi tiếp nhận và công bố kết quả chẩn đoán.
+
+### Ghi nhật ký thực thi & Chẩn đoán (`DataGuardLogger`)
+
+Tiện ích duy trì tệp nhật ký ghi nối tiếp phục vụ chẩn đoán:
+- **Vị trí tệp Log:** `%APPDATA%\DataGuard\logs\dataguard-vs.log` (hoặc thư mục do người dùng thiết lập trong Tools → Options → DataGuard). Tự động fallback về `%TEMP%\DataGuard\logs\dataguard-vs.log` nếu quyền truy cập thư mục AppData bị hạn chế.
+- **Xoay vòng Log:** Duy trì hoạt động phiên hiện tại và thông tin môi trường khởi động (phiên bản VS, CLR runtime, đường dẫn CLI phát hiện).
+- **Khử trùng dữ liệu nhạy cảm (Redaction):** `DataGuardLogger.Redact()` tự động che giấu mật khẩu chuỗi kết nối, token JWT, header Bearer authorization, và API key khớp với các mẫu regex entropy cao trước khi ghi vào đĩa hoặc cửa sổ Output.
+- **Mã thoát tiến trình (Exit Codes):**
+  - `0`: Thành công (không có lỗi hoặc cảnh báo nằm trong ngưỡng cho phép).
+  - `1`: Vi phạm contract / vượt ngưỡng cảnh báo cho phép.
+  - `2`: Lỗi nội bộ trong quá trình CLI thực thi.
+  - `137` / Process Termination: Bị hủy bởi người dùng qua token hủy hoặc timeout ép buộc tắt tiến trình.
+
+### Schema cấu hình `.dataguard.yml`
+
+DataGuard tự động nhận diện `.dataguard.yml` ở thư mục gốc của solution:
+
+```yaml
+version: "1.0"
+provider: sqlserver # hoặc oracle, postgresql, mysql
+
+rules:
+  DG017: # Tránh SELECT *
+    enabled: true
+    severity: warning
+  DG016: # Phát hiện query N+1
+    enabled: true
+    severity: warning
+  DG001: # Lệch kiểu dữ liệu/cột
+    enabled: true
+    severity: error
+
+thresholds:
+  maxWarnings: 50
+  failOnError: true
+
+offline:
+  csharpProject: "src/MyApp/MyApp.csproj"
+```
+
+Các quy tắc như `DG017` ("Avoid SELECT *") chỉ phân tích các câu lệnh truy vấn cơ sở dữ liệu thực sự, bỏ qua khai báo constructor hoặc property của các lớp Entity.
+
 
 ## Giới hạn
 

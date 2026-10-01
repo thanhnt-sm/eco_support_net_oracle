@@ -21,7 +21,7 @@ internal static class SarifErrorListPublisher
 
     internal static SarifPosition ConvertSarifPosition(int startLine, int startColumn)
     {
-        return new SarifPosition(Math.Max(0, startLine - 1), Math.Max(0, startColumn - 1));
+        return new SarifPosition(Math.Max(0, startLine), Math.Max(0, startColumn));
     }
 
     internal static string? ResolveSarifArtifactUri(string? uri, string? uriBaseId, string solutionDirectory)

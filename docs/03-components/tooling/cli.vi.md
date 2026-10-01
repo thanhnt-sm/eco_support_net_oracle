@@ -59,6 +59,8 @@ dataguard validate [options]
 | `--skip-rules` | — | Danh sách ID rule bỏ qua, phân tách bằng dấu phẩy (ví dụ `DG002,DG017,MY001`) |
 | `--project` | — | Đường dẫn project C# (`.csproj`), solution (`.sln`), hoặc thư mục để trích xuất query SQL inline và model C# |
 | `--progress` | `false` | Xuất luồng sự kiện tiến trình JSON an toàn từng dòng qua stderr |
+| `--ide-safe` | `false` | Chạy theo chính sách an toàn IDE: ngăn load assembly, kết nối secret manager, và ghi file tùy ý |
+| `--allow-env-connection` | `false` | Khi dùng `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp nhưng vẫn bỏ qua chuỗi kết nối từ file config |
 
 **Hành vi:**
 - Không có `--connection`: xác thực với snapshot đã commit (chế độ Snapshot)
@@ -74,6 +76,8 @@ dataguard validate [options]
 - `--ef-snapshot` và `--ef-project` loại trừ nhau; `--ef-context` cần `--ef-project`
 - `--skip-rules`: loại trừ các rule ID đã liệt kê trước khi validate; so khớp không phân biệt hoa/thường và bỏ qua khoảng trắng thừa
 - `--format typescript`: xuất TypeScript DTO từ entity descriptor
+- `--ide-safe`: kích hoạt chính sách cô lập an toàn cho môi trường IDE (Visual Studio, VS Code). Ngăn chặn nạp binary/assembly không tin cậy, ngăn kết nối secret manager, và chặn ghi file do repo yêu cầu. In thông báo xác nhận `ide-safe: active` ra `stderr`.
+- `--allow-env-connection`: sử dụng cùng `--ide-safe` để cho phép chuỗi kết nối do IDE host truyền qua biến môi trường trong khi vẫn tuyệt đối bỏ qua chuỗi kết nối trong `.dataguard.yml` của repo.
 
 #### Luồng sự kiện tiến trình (`--progress`)
 

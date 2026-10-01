@@ -70,8 +70,14 @@ public sealed partial class DataGuardPackage : AsyncPackage
             TempDirectoryCleaner.CleanStaleTempDirectories();
         }).FileAndForget("DataGuard/StartupTempClean");
 
+        var solution = await this.GetServiceAsync(typeof(SVsSolution)) as IVsSolution;
         this.errorListProvider = new ErrorListProvider(this);
-        this.errorListPresenter = new ErrorListPresenter(this.errorListProvider, this.JoinableTaskFactory, this.output.WriteAsync);
+        this.errorListPresenter = new ErrorListPresenter(
+            this.errorListProvider,
+            this.JoinableTaskFactory,
+            this.output.WriteAsync,
+            serviceProvider: this,
+            solution: solution);
         this.trustGate = new SolutionTrustGate(this.CreateConsentStore());
 
         if (await this.GetServiceAsync(typeof(IMenuCommandService)) is OleMenuCommandService commandService)
@@ -90,7 +96,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
             buildManager.AdviseUpdateSolutionEvents(this.buildEventsHandler, out this.updateSolutionEventsCookie);
         }
 
-        if (await this.GetServiceAsync(typeof(SVsSolution)) is IVsSolution solution)
+        if (solution != null)
         {
             this.solutionLifetimeWatcher = new SolutionLifetimeWatcher(solution, this.OnBeforeCloseSolution);
             this.solutionLifetimeWatcher.Advise();

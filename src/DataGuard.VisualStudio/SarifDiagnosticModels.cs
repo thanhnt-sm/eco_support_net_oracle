@@ -6,7 +6,7 @@ namespace DataGuard.VisualStudio;
 
 using System.Collections.Generic;
 
-/// <summary>Zero-based editor position derived from a 1-based SARIF region.</summary>
+/// <summary>One-based position derived from a 1-based SARIF region for Error List display.</summary>
 internal readonly struct SarifPosition
 {
     public SarifPosition(int line, int column)

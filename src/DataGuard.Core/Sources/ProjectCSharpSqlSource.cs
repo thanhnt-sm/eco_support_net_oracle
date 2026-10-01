@@ -37,6 +37,11 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         TimeSpan.FromSeconds(1));
 
+    private static readonly Regex StandaloneSqlStatementRegex = new(
+        @"^\s*(SELECT\s+.*?\s+FROM\s+\S+|SELECT\s+[\d@:]|INSERT\s+INTO\s+\S+|UPDATE\s+.*?\s+SET\s+\S+|DELETE\s+FROM\s+\S+|MERGE\s+INTO\s+\S+|WITH\s+.*?\bSELECT\b|BEGIN\s+.+\s+END;?|EXEC\s+\w+|EXECUTE\s+\w+)",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled,
+        TimeSpan.FromSeconds(1));
+
     private static readonly Regex ParameterRegex = new(
         @"(?:@([A-Za-z_][\w]*)|:([A-Za-z_][\w]*)|\$(\d+))",
         RegexOptions.Compiled,
@@ -518,6 +523,12 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     continue;
                 }
 
+                var classDecl = init.Ancestors().OfType<ClassDeclarationSyntax>().FirstOrDefault();
+                if (classDecl == null || !IsRepositoryClass(classDecl))
+                {
+                    continue;
+                }
+
                 var arg0 = init.ArgumentList.Arguments[0].Expression;
                 var resolved = TryResolveString(arg0, semanticModel, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(resolved) && !resolved.Contains(' ') && resolved.Length > 1 &&
@@ -548,6 +559,12 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     continue;
                 }
 
+                var classDecl = field.Ancestors().OfType<ClassDeclarationSyntax>().FirstOrDefault();
+                if (classDecl != null && IsEntityClass(classDecl))
+                {
+                    continue;
+                }
+
                 foreach (var variable in field.Declaration.Variables)
                 {
                     if (variable.Initializer == null)
@@ -556,7 +573,7 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     }
 
                     var sqlText = TryResolveString(variable.Initializer.Value, semanticModel, cancellationToken);
-                    if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
+                    if (string.IsNullOrWhiteSpace(sqlText) || !IsStandaloneSqlConstant(sqlText))
                     {
                         continue;
                     }
@@ -987,6 +1004,87 @@ public sealed class ProjectCSharpSqlSource : IContractSource
         }
 
         return false;
+    }
+
+    private static bool IsRepositoryClass(ClassDeclarationSyntax classDecl)
+    {
+        var name = classDecl.Identifier.ValueText;
+        if (name.EndsWith("Repository", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("Repo", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("Store", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("Dao", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (classDecl.BaseList != null)
+        {
+            foreach (var baseType in classDecl.BaseList.Types)
+            {
+                var typeName = baseType.Type.ToString();
+                if (typeName.EndsWith("Repository", StringComparison.OrdinalIgnoreCase) ||
+                    typeName.EndsWith("Repo", StringComparison.OrdinalIgnoreCase) ||
+                    typeName.EndsWith("Store", StringComparison.OrdinalIgnoreCase) ||
+                    typeName.EndsWith("Dao", StringComparison.OrdinalIgnoreCase) ||
+                    typeName.StartsWith("IRepository", StringComparison.OrdinalIgnoreCase) ||
+                    typeName.StartsWith("IRepo", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsEntityClass(ClassDeclarationSyntax classDecl)
+    {
+        if (IsRepositoryClass(classDecl))
+        {
+            return false;
+        }
+
+        var name = classDecl.Identifier.ValueText;
+        if (name.EndsWith("Entity", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("Model", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("Dto", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("Status", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("Record", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (classDecl.BaseList != null)
+        {
+            foreach (var baseType in classDecl.BaseList.Types)
+            {
+                var typeName = baseType.Type.ToString();
+                if (typeName.EndsWith("Entity", StringComparison.OrdinalIgnoreCase) ||
+                    typeName.EndsWith("Model", StringComparison.OrdinalIgnoreCase) ||
+                    typeName.EndsWith("Dto", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool IsStandaloneSqlConstant(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || !IsSqlString(text))
+        {
+            return false;
+        }
+
+        var trimmed = text.Trim();
+        if (!trimmed.Contains(' ') && !trimmed.Contains('\n') && !trimmed.Contains('\r'))
+        {
+            return false;
+        }
+
+        return StandaloneSqlStatementRegex.IsMatch(trimmed);
     }
 
     private static string ConvertInterpolatedStringToSql(

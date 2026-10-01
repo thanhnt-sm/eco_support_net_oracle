@@ -289,6 +289,70 @@ The extension reads configuration from:
 
 `Tools → Options → DataGuard → Validation Rules` exposes one toggle per rule group. `GetDisabledRuleIds()` maps each disabled toggle to its concrete rule IDs (for example disabling dialect leakage excludes `DG010-DG013,MY001-MY003,PG001-PG002`). `Run Validation` forwards that list as `validate --skip-rules <ids>`.
 
+### Solution Trust & Consent Prompts (`SolutionTrustGate`)
+
+Because Visual Studio has no built-in workspace-trust dialog for extensions, DataGuard implements `SolutionTrustGate` to protect developers from executing untrusted repository files:
+
+1. **First-Run Interactive Consent:** On the first execution of `Run Validation` or `Run Assessment`, the extension prompts the user via a native VS query dialog:
+   > *"DataGuard — run validation for this solution file? This will invoke the DataGuard CLI to inspect contracts and queries."*
+2. **Cryptographic Consent Keying:** The consent decision is persisted in Visual Studio's private settings store, keyed by:
+   - Solution Directory
+   - Solution `.sln` file path
+   - SHA-256 hash of `.dataguard.yml`
+   If a repository update alters `.dataguard.yml` or if another solution in the same directory is loaded, DataGuard re-prompts for consent.
+3. **Background Build Safety:** Build-triggered validation runs never display modal dialogs. Unconsented solutions are silently skipped.
+4. **Consent Revocation:** Developers can revoke solution consent at any time via `Tools → Forget Solution Consent`.
+
+### IDE-Safe Execution Mode
+
+Whenever the Visual Studio extension shells out to the CLI, it enforces containment via `--ide-safe`:
+- **Process Containment:** The CLI runs under strict zero-trust sandbox rules.
+- **Assembly Loading Suppressed:** No external compiled assemblies or plugins from the repository are loaded into process.
+- **Database & Secret Suppression:** Arbitrary database connections or secret manager calls defined in repo configs are prevented.
+- **Write Protection:** The CLI cannot write output or mutate files outside the specified temporary output artifact path.
+- **Active Handshake:** Downstream listeners verify the positive confirmation line `ide-safe: active` on stderr before processing any diagnostic results.
+
+### Execution Logging & Diagnostics (`DataGuardLogger`)
+
+The extension maintains an append-only rolling diagnostic log file:
+- **Log File Location:** `%APPDATA%\DataGuard\logs\dataguard-vs.log` (or user-defined directory from Tools → Options → DataGuard). Falls back to `%TEMP%\DataGuard\logs\dataguard-vs.log` if permissions are restricted.
+- **Log Rotation:** Maintains current session activities and startup environment banners (VS version, CLR runtime, detected CLI path).
+- **Secret Redaction:** `DataGuardLogger.Redact()` scrubs connection string passwords, JWT tokens, Bearer authorization headers, and API keys matching high-entropy regex patterns before writing to disk or Output panes.
+- **Exit Code Auditing:**
+  - `0`: Success (validation clean or warnings within threshold).
+  - `1`: Contract violations / error threshold exceeded.
+  - `2`: Internal CLI execution failure.
+  - `137` / Process Termination: Cancelled by user via cancellation token or process kill timeout.
+
+### `.dataguard.yml` Configuration Schema
+
+DataGuard detects `.dataguard.yml` at the solution root. Key settings include:
+
+```yaml
+version: "1.0"
+provider: sqlserver # or oracle, postgresql, mysql
+
+rules:
+  DG017: # Avoid SELECT *
+    enabled: true
+    severity: warning
+  DG016: # N+1 query patterns
+    enabled: true
+    severity: warning
+  DG001: # Column mismatch
+    enabled: true
+    severity: error
+
+thresholds:
+  maxWarnings: 50
+  failOnError: true
+
+offline:
+  csharpProject: "src/MyApp/MyApp.csproj"
+```
+
+Rules like `DG017` ("Avoid SELECT *") inspect genuine database queries, ignoring entity constructors and property definitions.
+
 ## Limitations
 
 - Requires the `dataguard` CLI installed and on PATH for full project-wide batch validation

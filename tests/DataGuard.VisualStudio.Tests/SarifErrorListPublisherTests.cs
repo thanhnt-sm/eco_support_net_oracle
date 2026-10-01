@@ -27,7 +27,7 @@ public class SarifErrorListPublisherTests
     }
 
     [Fact]
-    public void Load_ValidResult_ProducesZeroBasedDiagnosticWithRulePrefix()
+    public void Load_ValidResult_ProducesOneBasedDiagnosticWithRulePrefix()
     {
         var loaded = SarifErrorListPublisher.Load(Wrap(Result("src/Model.cs")), SolutionDir);
 
@@ -35,8 +35,8 @@ public class SarifErrorListPublisherTests
         loaded.Diagnostics.Should().ContainSingle();
         var diagnostic = loaded.Diagnostics[0];
         diagnostic.Document.Should().Be(Path.Combine(SolutionDir, "src", "Model.cs"));
-        diagnostic.Line.Should().Be(4);
-        diagnostic.Column.Should().Be(2);
+        diagnostic.Line.Should().Be(5);
+        diagnostic.Column.Should().Be(3);
         diagnostic.Message.Should().Be("[DG004] Column mismatch");
         diagnostic.Level.Should().Be("error");
     }

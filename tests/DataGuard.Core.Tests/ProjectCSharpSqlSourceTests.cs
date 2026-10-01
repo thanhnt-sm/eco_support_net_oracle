@@ -512,4 +512,86 @@ public class NestedRepo
         rawSql!.ExpectedProperties.Select(p => p.Name).Should().Contain("ItemId");
         rawSql.ExpectedProperties.Select(p => p.Name).Should().Contain("ItemTitle");
     }
+
+    [Fact]
+    public async Task ExtractContractsAsync_WhenEntityCallsBaseConstructor_DoesNotEmitSelectStarDescriptor()
+    {
+        var file = @"namespace MyApp.Models;
+public class BaseEntity
+{
+    public BaseEntity(string name) {}
+}
+
+public class User : BaseEntity
+{
+    public User() : base(""Users"") {}
+    public int Id { get; set; }
+    public string Name { get; set; } = """";
+}";
+        await File.WriteAllTextAsync(Path.Combine(_tempDirectory, "User.cs"), file);
+
+        var source = new ProjectCSharpSqlSource(_tempDirectory);
+        var contracts = await source.ExtractContractsAsync();
+
+        contracts.OfType<RawSqlDescriptor>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExtractContractsAsync_WhenRepositoryCallsBaseConstructor_EmitsSelectStarDescriptor()
+    {
+        var file = @"namespace MyApp.Repositories;
+public class BaseRepository
+{
+    public BaseRepository(string tableName) {}
+}
+
+public class CustomerRepository : BaseRepository
+{
+    public CustomerRepository() : base(""CUSTOMERS"") {}
+}";
+        await File.WriteAllTextAsync(Path.Combine(_tempDirectory, "CustomerRepository.cs"), file);
+
+        var source = new ProjectCSharpSqlSource(_tempDirectory);
+        var contracts = await source.ExtractContractsAsync();
+
+        contracts.OfType<RawSqlDescriptor>()
+            .Should().ContainSingle(d => d.SqlText == "SELECT * FROM CUSTOMERS");
+    }
+
+    [Fact]
+    public async Task ExtractContractsAsync_WhenClassHasPropertiesAndConstants_DoesNotEmitFalsePositives()
+    {
+        var file = @"namespace MyApp.Models;
+public class OrderStatus
+{
+    public const string DefaultStatus = ""BEGIN"";
+    public const string AltStatus = ""SELECT"";
+    public int StatusId { get; set; }
+    public string Description { get; set; } = """";
+}";
+        await File.WriteAllTextAsync(Path.Combine(_tempDirectory, "OrderStatus.cs"), file);
+
+        var source = new ProjectCSharpSqlSource(_tempDirectory);
+        var contracts = await source.ExtractContractsAsync();
+
+        contracts.OfType<RawSqlDescriptor>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ExtractContractsAsync_WhenRepositoryClassHasPropertiesAndSqlConstant_ExtractsSqlDescriptor()
+    {
+        var file = @"namespace MyApp.Repositories;
+public class OrderRepository
+{
+    public int TimeoutSeconds { get; set; } = 30;
+    public const string QueryOrders = ""SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS"";
+}";
+        await File.WriteAllTextAsync(Path.Combine(_tempDirectory, "OrderRepository.cs"), file);
+
+        var source = new ProjectCSharpSqlSource(_tempDirectory);
+        var contracts = await source.ExtractContractsAsync();
+
+        contracts.OfType<RawSqlDescriptor>()
+            .Should().ContainSingle(d => d.SqlText == "SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS");
+    }
 }
