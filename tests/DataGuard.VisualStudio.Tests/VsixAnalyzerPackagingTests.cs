@@ -99,4 +99,20 @@ public class VsixAnalyzerPackagingTests
             1,
             "vsixmanifest must declare at least one Microsoft.VisualStudio.Analyzer asset");
     }
+
+    [Fact]
+    public void VsixPackage_WhenBuilt_ContainsLegalNotices()
+    {
+        var vsixPath = FindVsixPath();
+        if (vsixPath == null)
+        {
+            return;
+        }
+
+        using var zip = ZipFile.OpenRead(vsixPath);
+        var entries = zip.Entries.Select(e => e.Name).ToList();
+        entries.Should().Contain("LICENSE.txt", "VSIX must bundle LICENSE.txt (GPL-3.0-only)");
+        entries.Should().Contain("THIRD-PARTY-NOTICES.md", "VSIX must bundle THIRD-PARTY-NOTICES.md");
+        entries.Should().Contain("ADDITIONAL-PERMISSIONS.md", "VSIX must bundle ADDITIONAL-PERMISSIONS.md");
+    }
 }

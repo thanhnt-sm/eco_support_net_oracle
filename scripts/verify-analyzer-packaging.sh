@@ -23,6 +23,7 @@ set -euo pipefail
 
 NUPKG_DIR="${1:?usage: $0 <dir-with-nupkgs>}"
 [ -d "$NUPKG_DIR" ] || { echo "not a directory: $NUPKG_DIR" >&2; exit 2; }
+NUPKG_DIR="$(cd "$NUPKG_DIR" && pwd)"
 
 native_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 
