@@ -6,6 +6,35 @@
 
 set -e
 
+find_python() {
+    if [[ -n "${PYTHON_BIN:-}" ]] && "$PYTHON_BIN" -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+        printf "%s\n" "$PYTHON_BIN"
+        return 0
+    fi
+    for cmd in python3 python py; do
+        while IFS= read -r candidate; do
+            [[ -n "$candidate" ]] || continue
+            if "$candidate" -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+                printf "%s\n" "$candidate"
+                return 0
+            fi
+        done < <(which -a "$cmd" 2>/dev/null || true)
+    done
+    for candidate in \
+        /c/Users/*/AppData/Local/Programs/Python/Python*/python.exe \
+        "${LOCALAPPDATA:-}/Programs/Python/Python"*/python.exe \
+        "${USERPROFILE:-}/AppData/Local/Programs/Python/Python"*/python.exe \
+        "C:/Users/"*/AppData/Local/Programs/Python/Python*/python.exe \
+        /c/Python*/python.exe \
+        "C:/Python"*/python.exe; do
+        if [[ -f "$candidate" ]] && "$candidate" -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+            printf "%s\n" "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+PYTHON_BIN="$(find_python || echo "python3")"
 GREEN="\033[0;32m"
 CYAN="\033[0;36m"
 RED="\033[0;31m"
@@ -65,7 +94,7 @@ done
 # Licence surfaces (README, docs, grants, package metadata, shipped notice copies) must agree on
 # GPL-3.0-only + Commercial. CI runs the same script in the build-and-test job (ci.yml).
 LICENSE_GATE=0
-python3 scripts/check-license-consistency.py || LICENSE_GATE=1
+"$PYTHON_BIN" scripts/check-license-consistency.py || LICENSE_GATE=1
 
 if [ "$MISSING" -eq 0 ] && [ "$LICENSE_GATE" -eq 0 ]; then
     echo -e "\n${GREEN}✅ All bilingual documentation & rule artifacts are synchronized and present!${NC}"

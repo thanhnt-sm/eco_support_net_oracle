@@ -3,6 +3,15 @@
 
 set -euo pipefail
 
+if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
+    export PATH="$HOME/.dotnet:$PATH"
+fi
+for py_dir in /c/Users/*/AppData/Local/Programs/Python/Python*; do
+    if [[ -d "$py_dir" ]]; then
+        export PATH="$PATH:$py_dir"
+        break
+    fi
+done
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 printf '[pre-push] Running canonical blocking local gates.\n'
