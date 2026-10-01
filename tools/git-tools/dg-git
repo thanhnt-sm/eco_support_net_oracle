@@ -239,6 +239,7 @@ run_local_github_workflows() {
         log_error "Không tìm thấy canonical local gate verifier."
         return 1
     fi
+    export SKIP_ACT="${SKIP_ACT:-1}"
     "$DG_GIT_DIR/scripts/verify_local_gates.sh"
 }
 
