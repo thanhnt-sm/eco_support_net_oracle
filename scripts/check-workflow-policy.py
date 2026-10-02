@@ -178,6 +178,7 @@ def check_workflow(relative: str, doc: dict) -> list[str]:
                     failures.append(f"(b) {label}: VSIX upload `if:` must AND in `github.event_name != '{pr_events[0]}' || {SAME_REPO_GUARD}`")
     if relative.endswith("release.yml"):
         failures.extend(check_release_vs_tests(relative, doc["jobs"].get("visual-studio-package")))
+    failures.extend(check_supply_chain_policies(relative, doc))
     return failures
 
 
@@ -193,6 +194,58 @@ def check_release_vs_tests(relative: str, job: dict | None) -> list[str]:
         return [f"(c) {relative} job 'visual-studio-package': VS unit tests run after packaging, not before"]
     return []
 
+def check_supply_chain_policies(relative: str, doc: dict) -> list[str]:
+    failures: list[str] = []
+    if relative.endswith("installers.yml"):
+        publish = doc.get("jobs", {}).get("publish")
+        if publish is not None:
+            perms = publish.get("permissions", {})
+            if perms.get("id-token") != "write":
+                failures.append(f"(d) {relative} job 'publish': permissions.id-token must be 'write'")
+            if perms.get("attestations") != "write":
+                failures.append(f"(d) {relative} job 'publish': permissions.attestations must be 'write'")
+            steps = publish.get("steps", [])
+            if not any("cosign sign-blob" in str(s.get("run", "")) for s in steps):
+                failures.append(f"(d) {relative} job 'publish': missing cosign sign-blob step")
+            if not any("actions/attest-build-provenance" in str(s.get("uses", "")) for s in steps):
+                failures.append(f"(d) {relative} job 'publish': missing actions/attest-build-provenance step")
+    elif relative.endswith("release.yml"):
+        sign_job = doc.get("jobs", {}).get("sign-packages")
+        if sign_job is not None:
+            perms = sign_job.get("permissions", {})
+            if perms.get("id-token") != "write":
+                failures.append(f"(d) {relative} job 'sign-packages': permissions.id-token must be 'write'")
+            steps = sign_job.get("steps", [])
+            if not any("cosign sign-blob" in str(s.get("run", "")) for s in steps):
+                failures.append(f"(d) {relative} job 'sign-packages': missing cosign sign-blob step")
+        attest_job = doc.get("jobs", {}).get("publish-attestations")
+        if attest_job is not None:
+            perms = attest_job.get("permissions", {})
+            if perms.get("attestations") != "write":
+                failures.append(f"(d) {relative} job 'publish-attestations': permissions.attestations must be 'write'")
+            steps = attest_job.get("steps", [])
+            if not any("actions/attest-build-provenance" in str(s.get("uses", "")) for s in steps):
+                failures.append(f"(d) {relative} job 'publish-attestations': missing actions/attest-build-provenance step")
+    return failures
+
+
+def check_dockerfile(path: Path | None = None) -> list[str]:
+    target = path or (REPO_ROOT / "Dockerfile")
+    if not target.exists():
+        return [f"Dockerfile not found: {target}"]
+    failures = []
+    lines = target.read_text(encoding="utf-8").splitlines()
+    found_restore = False
+    for idx, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if "dotnet restore" in stripped and not stripped.startswith("#"):
+            found_restore = True
+            if "--locked-mode" not in stripped:
+                failures.append(f"(e) Dockerfile:{idx}: dotnet restore invocation missing '--locked-mode'")
+    if not found_restore:
+        failures.append("(e) Dockerfile: no dotnet restore step found")
+    return failures
+
 
 def main() -> int:
     failures: list[str] = []
@@ -201,12 +254,13 @@ def main() -> int:
             failures.extend(check_workflow(relative, load_workflow(relative)))
         except (OSError, ValueError, yaml.YAMLError) as error:
             failures.append(f"{relative}: cannot load workflow: {error}")
+    failures.extend(check_dockerfile())
     if failures:
         print("check-workflow-policy: FAIL")
         for failure in failures:
             print(f"  - {failure}")
         return 1
-    print("check-workflow-policy: OK (VSIX assert, fork-PR upload guard, release VS tests)")
+    print("check-workflow-policy: OK (VSIX assert, fork-PR upload guard, release VS tests, supply-chain signing & Dockerfile lock)")
     return 0
 
 

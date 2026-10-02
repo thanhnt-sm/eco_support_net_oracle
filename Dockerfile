@@ -8,8 +8,7 @@
 # without emulation.
 
 # ---------- Build stage ----------
-FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:35048e3a81e6a07c316e7bbbd80d80d2ba705fe5f23a8ed42b6638c8f4c20d30 AS build
-
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0@sha256:35048e3a81e6a07c316e7bbbd80d80d2ba705fe5f23a8ed42b6638c8f4c20d30 AS build
 # BuildKit platform args are only visible to RUN when re-declared in the stage.
 ARG TARGETARCH
 # Release version to bake into the binary (e.g. 1.2.3); the csproj files
@@ -17,19 +16,19 @@ ARG TARGETARCH
 ARG VERSION=0.1.0-ci
 WORKDIR /source
 
-# Copy only project files first for optimal layer caching on restore.
+# Copy project files and lockfiles for optimal layer caching on deterministic restore.
 # Directory.Build.props is auto-imported by MSBuild — it MUST be present
 # during restore so the restore graph matches the publish graph.
 COPY --link Directory.Build.props .
-COPY --link src/DataGuard.Core/DataGuard.Core.csproj src/DataGuard.Core/
-COPY --link src/DataGuard.Contracts/DataGuard.Contracts.csproj src/DataGuard.Contracts/
-COPY --link src/DataGuard.SqlClassification/DataGuard.SqlClassification.csproj src/DataGuard.SqlClassification/
-COPY --link src/DataGuard.Analyzers/DataGuard.Analyzers.csproj src/DataGuard.Analyzers/
-COPY --link src/DataGuard.SqlServer.Adapter/DataGuard.SqlServer.Adapter.csproj src/DataGuard.SqlServer.Adapter/
-COPY --link src/DataGuard.Oracle.Adapter/DataGuard.Oracle.Adapter.csproj src/DataGuard.Oracle.Adapter/
-COPY --link src/DataGuard.MySql.Adapter/DataGuard.MySql.Adapter.csproj src/DataGuard.MySql.Adapter/
-COPY --link src/DataGuard.PostgreSql.Adapter/DataGuard.PostgreSql.Adapter.csproj src/DataGuard.PostgreSql.Adapter/
-COPY --link src/DataGuard.Cli/DataGuard.Cli.csproj src/DataGuard.Cli/
+COPY --link src/DataGuard.Core/DataGuard.Core.csproj src/DataGuard.Core/packages.lock.json src/DataGuard.Core/
+COPY --link src/DataGuard.Contracts/DataGuard.Contracts.csproj src/DataGuard.Contracts/packages.lock.json src/DataGuard.Contracts/
+COPY --link src/DataGuard.SqlClassification/DataGuard.SqlClassification.csproj src/DataGuard.SqlClassification/packages.lock.json src/DataGuard.SqlClassification/
+COPY --link src/DataGuard.Analyzers/DataGuard.Analyzers.csproj src/DataGuard.Analyzers/packages.lock.json src/DataGuard.Analyzers/
+COPY --link src/DataGuard.SqlServer.Adapter/DataGuard.SqlServer.Adapter.csproj src/DataGuard.SqlServer.Adapter/packages.lock.json src/DataGuard.SqlServer.Adapter/
+COPY --link src/DataGuard.Oracle.Adapter/DataGuard.Oracle.Adapter.csproj src/DataGuard.Oracle.Adapter/packages.lock.json src/DataGuard.Oracle.Adapter/
+COPY --link src/DataGuard.MySql.Adapter/DataGuard.MySql.Adapter.csproj src/DataGuard.MySql.Adapter/packages.lock.json src/DataGuard.MySql.Adapter/
+COPY --link src/DataGuard.PostgreSql.Adapter/DataGuard.PostgreSql.Adapter.csproj src/DataGuard.PostgreSql.Adapter/packages.lock.json src/DataGuard.PostgreSql.Adapter/
+COPY --link src/DataGuard.Cli/DataGuard.Cli.csproj src/DataGuard.Cli/packages.lock.json src/DataGuard.Cli/
 
 # Restore the CLI project, not the whole solution: DataGuard.sln also lists
 # the test projects, which are intentionally not part of the image build and
@@ -37,7 +36,7 @@ COPY --link src/DataGuard.Cli/DataGuard.Cli.csproj src/DataGuard.Cli/
 # ProjectReferences (Core, adapters, analyzers) transitively.
 # Restore must target the same RID that publish --arch resolves to, otherwise
 # NETSDK1047 (assets file missing 'net9.0/linux-x64').
-RUN arch="$TARGETARCH"; [ "$arch" = "amd64" ] && arch="x64"; dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj -r "linux-$arch"
+RUN arch="$TARGETARCH"; [ "$arch" = "amd64" ] && arch="x64"; dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj -r "linux-$arch" --locked-mode
 
 # Copy the rest of the source and publish the CLI.
 # Note: --arch $TARGETARCH relies on the SDK normalizing "amd64" -> "x64"
