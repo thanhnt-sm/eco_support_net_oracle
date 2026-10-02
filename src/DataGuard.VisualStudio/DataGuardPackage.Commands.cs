@@ -47,7 +47,13 @@ public sealed partial class DataGuardPackage
         }
 
         // Reserve first, clear second: a command issued during another run must not wipe its inventory.
-        if (!RuleInventory.ClearInventoryIfReserved(this.processRegistry, this.ruleInventory))
+        bool reserved;
+        lock (this.ruleInventoryLock)
+        {
+            reserved = RuleInventory.ClearInventoryIfReserved(this.processRegistry, this.ruleInventory);
+        }
+
+        if (!reserved)
         {
             await output.WriteAsync("[DataGuard] A DataGuard command is already running for this solution.\r\n");
             return;

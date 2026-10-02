@@ -295,6 +295,43 @@ public class ConcurrentValidationExecutionTests
         result.Violations.Should().ContainSingle(violation => violation.RuleId == "DG814");
     }
 
+    [Fact]
+    public async Task StreamAsync_UnderHeavyParallelism_RespectsQueueBoundsAndPropagatesFailures()
+    {
+        // 1. High volume outputs with bounded queue size: verify backpressure, no deadlock, and all violations delivered
+        var engine = new ConcurrentValidationEngine(maxDegreeOfParallelism: 8, maxViolationQueueSize: 10);
+        var contracts = Contracts(20);
+        var highVolumeRule = new TestRule("DG_HIGH_VOL", (c, _) =>
+        {
+            var list = new List<ContractViolation>();
+            for (var i = 0; i < 5; i++)
+            {
+                list.Add(new ContractViolation("DG_HIGH_VOL", $"Violation {c.Id} item {i}", DiagnosticSeverity.Warning));
+            }
+            return Task.FromResult<IReadOnlyList<ContractViolation>>(list);
+        });
+
+        var streamedViolations = new List<ContractViolation>();
+        await foreach (var v in engine.StreamAsync(contracts, new[] { highVolumeRule }))
+        {
+            streamedViolations.Add(v);
+        }
+
+        streamedViolations.Should().HaveCount(100);
+
+        // 2. Failure propagation: when a rule throws, channel writer completes with exception and consumer observes it
+        var failingRule = new TestRule("DG_FAULT", (_, _) => throw new InvalidOperationException("Simulation rule faulted"));
+        var streamAction = async () =>
+        {
+            await foreach (var item in engine.StreamAsync(contracts, new[] { failingRule }))
+            {
+            }
+        };
+
+        await streamAction.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Simulation rule faulted*");
+    }
+
     private static IReadOnlyList<ContractDescriptor> Contracts(int count) =>
         Enumerable.Range(0, count)
             .Select(index => (ContractDescriptor)new RawSqlDescriptor($"raw:{index}", "EXEC p", Array.Empty<ParameterDescriptor>(), Array.Empty<ColumnDescriptor>()))

@@ -239,6 +239,94 @@ public class RedTeamRegressionTests : IDisposable
             d => d.SqlText.Contains("SELECT") && !d.IsStoredProcedure);
     }
 
+    [Fact]
+    public async Task SqlSource_DapperPositionalCommandType_DetectsStoredProcedure()
+    {
+        const string Code = """
+            using System.Data;
+
+            class Repository
+            {
+                void CallSp(System.Data.IDbConnection conn)
+                {
+                    Execute(conn, "GET_USER_RECORDS", null, null, null, CommandType.StoredProcedure);
+                }
+
+                static void Execute(System.Data.IDbConnection cnn, string sql, object param = null, IDbTransaction transaction = null, int? commandTimeout = null, CommandType? commandType = null) { }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(Code);
+        contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(
+            d => d.IsStoredProcedure == true && d.ProcedureName == "GET_USER_RECORDS");
+    }
+
+    [Fact]
+    public async Task SqlSource_DbCommandInitializer_DetectsStoredProcedure()
+    {
+        const string Code = """
+            using System.Data;
+            using System.Data.SqlClient;
+
+            class Repository
+            {
+                void CallSp(SqlConnection conn)
+                {
+                    var cmd = new SqlCommand
+                    {
+                        CommandText = "GET_CUSTOMER_BY_ID",
+                        CommandType = CommandType.StoredProcedure
+                    };
+                }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(Code);
+        contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(
+            d => d.IsStoredProcedure == true && d.ProcedureName == "GET_CUSTOMER_BY_ID");
+    }
+
+    [Fact]
+    public async Task SqlSource_TargetTypedNewCommandInitializer_DetectsStoredProcedure()
+    {
+        const string Code = """
+            using System.Data;
+            using System.Data.SqlClient;
+
+            class Repository
+            {
+                void CallSp(SqlConnection conn)
+                {
+                    SqlCommand cmd = new()
+                    {
+                        CommandText = "GET_CUSTOMER_TARGET_TYPED",
+                        CommandType = CommandType.StoredProcedure
+                    };
+                }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(Code);
+        contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(
+            d => d.IsStoredProcedure == true && d.ProcedureName == "GET_CUSTOMER_TARGET_TYPED");
+    }
+
+    [Fact]
+    public async Task SqlSource_ArbitraryIdentifierEndingWithStoredProcedure_IsNotDetectedAsStoredProcedure()
+    {
+        const string Code = """
+            class Repository
+            {
+                void Call(System.Data.IDbConnection conn)
+                {
+                    var myStoredProcedure = true;
+                    Execute(conn, "SELECT Id FROM Users", myStoredProcedure);
+                }
+
+                static void Execute(System.Data.IDbConnection cnn, string sql, bool flag) { }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(Code);
+        contracts.OfType<RawSqlDescriptor>().Should().NotContain(d => d.IsStoredProcedure);
+    }
+
     private async Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(string csharpCode)
     {
         var file = Path.Combine(_tempDir, $"Test_{Guid.NewGuid():N}.cs");

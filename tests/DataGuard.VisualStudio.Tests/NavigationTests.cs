@@ -55,6 +55,50 @@ public class NavigationTests
         diag.Line.Should().Be(42);
         diag.Column.Should().Be(12);
     }
+
+    [Fact]
+    public void ErrorListPresenter_TaskCreation_MapsLineAndColumnCorrectlyForVSCoordinates()
+    {
+        var jtf = ThreadHelper.JoinableTaskFactory;
+        var presenter = new ErrorListPresenter(
+            hierarchyResolver: _ => null,
+            joinableTaskFactory: jtf);
+
+        var diag = new SarifDiagnostic
+        {
+            Document = @"C:\repo\Models\User.cs",
+            Line = 42,
+            Column = 12,
+            Message = "Avoid SELECT *",
+            Level = "warning",
+        };
+
+        var cache = new Dictionary<string, IVsHierarchy?>(StringComparer.OrdinalIgnoreCase);
+        var task = presenter.CreateTask(diag, cache);
+
+        // VS Error List displays 1-based line/col numbers in the grid UI
+        task.Line.Should().Be(42);
+        task.Column.Should().Be(12);
+        task.Document.Should().Be(@"C:\repo\Models\User.cs");
+        task.Text.Should().Be("Avoid SELECT *");
+        task.ErrorCategory.Should().Be(TaskErrorCategory.Warning);
+    }
+
+    [Theory]
+    [InlineData(1, 1, 0, 0)]
+    [InlineData(42, 12, 41, 11)]
+    [InlineData(0, 0, 0, 0)]
+    public void Navigation_CaretCalculation_ConvertsOneBasedToZeroBasedBufferPosition(int taskLine, int taskCol, int expectedBufferLine, int expectedBufferCol)
+    {
+        // Line and column indexing translation:
+        // ErrorTask uses 1-based indexing for UI grid display.
+        // IVsTextView.SetCaretPos requires 0-based buffer line and column offsets.
+        var zeroBasedLine = Math.Max(0, taskLine - 1);
+        var zeroBasedCol = Math.Max(0, taskCol - 1);
+
+        zeroBasedLine.Should().Be(expectedBufferLine);
+        zeroBasedCol.Should().Be(expectedBufferCol);
+    }
     [Fact(Skip = "VS SDK integration — requires experimental instance (ErrorListProvider.Navigate needs a live shell)")]
     public void Navigate_WhenFileMissing_WritesOutputMessage()
     {

@@ -229,11 +229,13 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                 for (var argIdx = 0; argIdx < invocation.ArgumentList.Arguments.Count; argIdx++)
                 {
                     var arg = invocation.ArgumentList.Arguments[argIdx];
+                    var argText = arg.Expression.ToString().Trim();
                     if (arg.NameColon?.Name.Identifier.ValueText == "commandType" ||
-                        (arg.NameColon == null && argIdx >= 4))
+                        argText == "StoredProcedure" ||
+                        argText.EndsWith(".StoredProcedure", StringComparison.Ordinal))
                     {
-                        var argText = arg.Expression.ToString();
-                        if (argText.EndsWith("StoredProcedure", StringComparison.Ordinal))
+                        if (argText == "StoredProcedure" ||
+                            argText.EndsWith(".StoredProcedure", StringComparison.Ordinal))
                         {
                             isDapperSp = true;
                             break;
@@ -358,9 +360,9 @@ public sealed class ProjectCSharpSqlSource : IContractSource
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Only interested in assignments whose right-hand side ends with StoredProcedure
-                var rightText = assignment.Right.ToString();
-                if (!rightText.EndsWith("StoredProcedure", StringComparison.Ordinal))
+                // Only interested in assignments whose right-hand side is CommandType.StoredProcedure or StoredProcedure
+                var rightText = assignment.Right.ToString().Trim();
+                if (rightText != "StoredProcedure" && !rightText.EndsWith(".StoredProcedure", StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -382,62 +384,114 @@ public sealed class ProjectCSharpSqlSource : IContractSource
                     ? (maLeft.Expression as IdentifierNameSyntax)?.Identifier.ValueText
                     : null;
 
-                // Search the enclosing block for a CommandText assignment or ctor arg on the same variable.
-                var enclosingBlock = assignment.Ancestors().OfType<BlockSyntax>().FirstOrDefault();
-                if (enclosingBlock == null)
-                {
-                    continue;
-                }
-
                 string? procName = null;
                 Location? procLocation = null;
                 string? providerHintSp = null;
 
-                // Case A: cmd.CommandText = "PROC_NAME" assignment in same block
-                foreach (var sibling in enclosingBlock.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+                // Check if this assignment is inside an object initializer
+                // (e.g. new SqlCommand { CommandText = "GET_CUSTOMER_BY_ID", CommandType = CommandType.StoredProcedure })
+                if (assignment.Parent is InitializerExpressionSyntax initExpr)
                 {
-                    var sibLeft = sibling.Left switch
+                    foreach (var expr in initExpr.Expressions.OfType<AssignmentExpressionSyntax>())
                     {
-                        MemberAccessExpressionSyntax ma => (receiver: (ma.Expression as IdentifierNameSyntax)?.Identifier.ValueText, name: ma.Name.Identifier.ValueText),
-                        _ => (receiver: null, name: null),
-                    };
-                    if (sibLeft.name != "CommandText")
-                    {
-                        continue;
+                        var exprLeft = expr.Left switch
+                        {
+                            IdentifierNameSyntax id => id.Identifier.ValueText,
+                            MemberAccessExpressionSyntax ma => ma.Name.Identifier.ValueText,
+                            _ => null,
+                        };
+                        if (exprLeft == "CommandText")
+                        {
+                            var resolved = TryResolveString(expr.Right, semanticModel, cancellationToken);
+                            if (!string.IsNullOrWhiteSpace(resolved))
+                            {
+                                procName = resolved;
+                                procLocation = expr.GetLocation();
+                                if (initExpr.Parent is ObjectCreationExpressionSyntax objCreate)
+                                {
+                                    providerHintSp = InferProviderHint(objCreate.Type.ToString());
+                                }
+                                else if (initExpr.Parent is BaseObjectCreationExpressionSyntax baseCreate)
+                                {
+                                    var typeInfo = semanticModel.GetTypeInfo(baseCreate, cancellationToken).Type?.Name;
+                                    providerHintSp = InferProviderHint(typeInfo);
+                                }
+                                break;
+                            }
+                        }
                     }
 
-                    // Require receiver consistency: if we know the receiver var (cmd), only match cmd.CommandText.
-                    // If receiverName is null (no receiver on CommandType=... side), only match receiver-less CommandText.
-                    // This prevents associating unrelated variables' CommandText assignments.
-                    if (receiverName != null)
+                    if (procName == null && initExpr.Parent is BaseObjectCreationExpressionSyntax baseCreateWithArgs && baseCreateWithArgs.ArgumentList?.Arguments.Count > 0)
                     {
-                        if (sibLeft.receiver != null && sibLeft.receiver != receiverName)
+                        var firstArg = baseCreateWithArgs.ArgumentList.Arguments[0].Expression;
+                        var resolved = TryResolveString(firstArg, semanticModel, cancellationToken);
+                        if (!string.IsNullOrWhiteSpace(resolved))
+                        {
+                            procName = resolved;
+                            procLocation = baseCreateWithArgs.GetLocation();
+                            var typeStr = (baseCreateWithArgs as ObjectCreationExpressionSyntax)?.Type.ToString()
+                                ?? semanticModel.GetTypeInfo(baseCreateWithArgs, cancellationToken).Type?.Name;
+                            providerHintSp = InferProviderHint(typeStr);
+                        }
+                    }
+                }
+
+                // Search the enclosing block for a CommandText assignment or ctor arg on the same variable.
+                var enclosingBlock = assignment.Ancestors().OfType<BlockSyntax>().FirstOrDefault();
+                if (procName == null && enclosingBlock == null)
+                {
+                    continue;
+                }
+
+                // Case A: cmd.CommandText = "PROC_NAME" assignment in same block
+                if (procName == null && enclosingBlock != null)
+                {
+                    foreach (var sibling in enclosingBlock.DescendantNodes().OfType<AssignmentExpressionSyntax>())
+                    {
+                        var sibLeft = sibling.Left switch
+                        {
+                            MemberAccessExpressionSyntax ma => (receiver: (ma.Expression as IdentifierNameSyntax)?.Identifier.ValueText, name: ma.Name.Identifier.ValueText),
+                            _ => (receiver: null, name: null),
+                        };
+                        if (sibLeft.name != "CommandText")
                         {
                             continue;
                         }
-                    }
-                    else if (sibLeft.receiver != null)
-                    {
-                        // receiverName is null → CommandType was set without qualifier; skip qualified sibling.
-                        continue;
-                    }
-                    var resolved = TryResolveString(sibling.Right, semanticModel, cancellationToken);
-                    if (!string.IsNullOrWhiteSpace(resolved))
-                    {
-                        procName = resolved;
-                        procLocation = sibling.GetLocation();
-                        if (sibling.Left is MemberAccessExpressionSyntax ma2)
+
+                        // Require receiver consistency: if we know the receiver var (cmd), only match cmd.CommandText.
+                        // If receiverName is null (no receiver on CommandType=... side), only match receiver-less CommandText.
+                        // This prevents associating unrelated variables' CommandText assignments.
+                        if (receiverName != null)
                         {
-                            var rType = semanticModel.GetTypeInfo(ma2.Expression, cancellationToken).Type?.Name
-                                ?? (ma2.Expression as IdentifierNameSyntax)?.Identifier.ValueText;
-                            providerHintSp = InferProviderHint(rType);
+                            if (sibLeft.receiver != null && sibLeft.receiver != receiverName)
+                            {
+                                continue;
+                            }
                         }
-                        break;
+                        else if (sibLeft.receiver != null)
+                        {
+                            // receiverName is null → CommandType was set without qualifier; skip qualified sibling.
+                            continue;
+                        }
+
+                        var resolved = TryResolveString(sibling.Right, semanticModel, cancellationToken);
+                        if (!string.IsNullOrWhiteSpace(resolved))
+                        {
+                            procName = resolved;
+                            procLocation = sibling.GetLocation();
+                            if (sibling.Left is MemberAccessExpressionSyntax ma2)
+                            {
+                                var rType = semanticModel.GetTypeInfo(ma2.Expression, cancellationToken).Type?.Name
+                                    ?? (ma2.Expression as IdentifierNameSyntax)?.Identifier.ValueText;
+                                providerHintSp = InferProviderHint(rType);
+                            }
+                            break;
+                        }
                     }
                 }
 
                 // Case B: new SqlCommand("PROC_NAME", conn) object creation on the same variable
-                if (procName == null && receiverName != null)
+                if (procName == null && receiverName != null && enclosingBlock != null)
                 {
                     foreach (var decl in enclosingBlock.DescendantNodes().OfType<VariableDeclaratorSyntax>())
                     {

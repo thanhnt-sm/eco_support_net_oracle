@@ -19,6 +19,8 @@ using DataGuard.SqlClassification;
 using Microsoft.CodeAnalysis.Operations;
 using DataGuard.Contracts;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataGuard.Analyzers.Tests")]
+
 namespace DataGuard.Analyzers;
 
 /// <summary>
@@ -331,7 +333,7 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static bool IsPotentialSqlCall(SyntaxNode node)
+    internal static bool IsPotentialSqlCall(SyntaxNode node)
     {
         if (node is not InvocationExpressionSyntax invocation)
             return false;
@@ -352,6 +354,18 @@ public sealed class UnvalidatedSqlCallGenerator : IIncrementalGenerator
         if (methodName.StartsWith("Query", StringComparison.Ordinal) ||
             methodName.StartsWith("Execute", StringComparison.Ordinal))
             return true;
+
+        // Check for CommandType.StoredProcedure argument (Dapper or ADO.NET helper invocation)
+        foreach (var arg in invocation.ArgumentList.Arguments)
+        {
+            var argText = arg.Expression.ToString().Trim();
+            if (arg.NameColon?.Name.Identifier.ValueText == "commandType" ||
+                argText == "StoredProcedure" ||
+                argText.EndsWith(".StoredProcedure", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
 
         // Raw SQL detection - only if first arg is string literal
         var firstArg = invocation.ArgumentList.Arguments.FirstOrDefault();

@@ -45,6 +45,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private static readonly Guid CommandSet = new(CommandSetGuidString);
 
     private readonly CliProcessRegistry processRegistry = new();
+    private readonly object ruleInventoryLock = new();
     private readonly RuleInventory ruleInventory = new();
     private OutputPaneWriter? output;
     private ErrorListProvider? errorListProvider;
@@ -193,5 +194,29 @@ public sealed partial class DataGuardPackage : AsyncPackage
         await this.output.WriteAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         DataGuardLogger.OpenLog(this);
+    }
+
+    internal void AddRuleInventoryItem(RuleInventoryItem item)
+    {
+        lock (this.ruleInventoryLock)
+        {
+            this.ruleInventory.Add(item);
+        }
+    }
+
+    internal void ClearRuleInventory()
+    {
+        lock (this.ruleInventoryLock)
+        {
+            this.ruleInventory.Clear();
+        }
+    }
+
+    internal IReadOnlyList<RuleInventoryItem> EnumerateRuleInventory()
+    {
+        lock (this.ruleInventoryLock)
+        {
+            return this.ruleInventory.Snapshot();
+        }
     }
 }
