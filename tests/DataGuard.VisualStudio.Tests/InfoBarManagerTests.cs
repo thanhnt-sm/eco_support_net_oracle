@@ -111,6 +111,12 @@ public class InfoBarManagerTests : IDisposable
 
         try
         {
+            var dispatcherField = typeof(ThreadHelper).GetField("uiThreadDispatcher", BindingFlags.Static | BindingFlags.NonPublic);
+            if (dispatcherField != null)
+            {
+                dispatcherField.SetValue(null, System.Windows.Threading.Dispatcher.CurrentDispatcher);
+            }
+
             var jtc = new JoinableTaskContext(Thread.CurrentThread, SynchronizationContext.Current);
             var field = typeof(ThreadHelper).GetField("_joinableTaskContextCache", BindingFlags.Static | BindingFlags.NonPublic)
                         ?? typeof(ThreadHelper).GetField("joinableTaskContext", BindingFlags.Static | BindingFlags.NonPublic)
