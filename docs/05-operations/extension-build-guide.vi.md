@@ -92,6 +92,44 @@ Set-Content -LiteralPath "$destination.sha256" -Value "$hash  $(Split-Path -Leaf
 
 Cài trong Visual Studio qua **Extensions > Manage Extensions > Install from VSIX**, sau đó restart Visual Studio.
 
+### Ký số VSIX cho Visual Studio (Tùy chọn)
+
+Mặc định, gói VSIX được build ở chế độ chưa ký số (`Digital Signature: None`).
+Khi release owner hoặc lập trình viên có chứng chỉ Code Signing (`.pfx`) hoặc chứng chỉ trong Windows Certificate Store, có thể kích hoạt ký số tự động:
+
+#### 1. Ký tự động qua Batch / CMD
+```cmd
+rem Cách 1: Sử dụng file PFX và biến môi trường chứa password (khuyến nghị để tránh lộ mật khẩu vào lịch sử shell):
+set DATAGUARD_VSIX_CERT_PASSWORD=mat_khau_cert
+scripts\build-extensions.bat -CertificatePath "C:\path\to\cert.pfx"
+
+rem Cách 2: Sử dụng SHA-1 thumbprint trong Windows Certificate Store (CurrentUser\My hoặc LocalMachine\My):
+scripts\build-extensions.bat -CertificateThumbprint "THUMBPRINT_HEX"
+```
+
+#### 2. Ký tự động qua PowerShell
+```powershell
+# Sử dụng PFX:
+$env:DATAGUARD_VSIX_CERT_PASSWORD = 'mat_khau_cert'
+.\scripts\build-extensions.ps1 -CertificatePath 'C:\path\to\cert.pfx'
+
+# Sử dụng Certificate Store:
+.\scripts\build-extensions.ps1 -CertificateThumbprint 'THUMBPRINT_HEX'
+```
+
+#### 3. Ký độc lập gói VSIX đã build
+```powershell
+.\scripts\sign-vsix.ps1 -VsixPath "artifacts\visualstudio\dataguard-visualstudio-0.3.0.vsix" -CertificatePath "C:\path\to\cert.pfx" -CertificatePasswordEnv DATAGUARD_VSIX_CERT_PASSWORD
+```
+
+#### 4. Xác minh chữ ký số VSIX
+```powershell
+.\scripts\verify-vsix-signature.ps1 -VsixPath "artifacts\visualstudio\dataguard-visualstudio-0.3.0.vsix" -ExpectedThumbprint "THUMBPRINT_HEX"
+```
+
+> [!NOTE]
+> **Bảo toàn tính toàn vẹn (Integrity Invariant)**: Khi tùy chọn ký số được kích hoạt, mã SHA-256 (`.sha256`) luôn được tính toán và ghi đè sau khi bước ký số hoàn tất, đảm bảo checksum khớp 100% với gói VSIX thực tế trên đĩa.
+
 ## Output mong đợi
 
 ```text

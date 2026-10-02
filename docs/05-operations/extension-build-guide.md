@@ -81,6 +81,44 @@ Set-Content -LiteralPath "$destination.sha256" -Value "$hash  $(Split-Path -Leaf
 
 Install with **Extensions > Manage Extensions > Install from VSIX**, then restart Visual Studio.
 
+### Optional VSIX Digital Signing (Visual Studio)
+
+By default, the Visual Studio VSIX is built unsigned (`Digital Signature: None`).
+When a release owner or developer has a Code Signing certificate (`.pfx`) or a certificate in the Windows Certificate Store, automated VSIX digital signing can be enabled:
+
+#### 1. Automated Signing via Batch / CMD
+```cmd
+rem Option 1: Using a PFX file and an environment variable for the password (recommended to prevent password leaks in shell history):
+set DATAGUARD_VSIX_CERT_PASSWORD=your_cert_password
+scripts\build-extensions.bat -CertificatePath "C:\path\to\cert.pfx"
+
+rem Option 2: Using a SHA-1 thumbprint from the Windows Certificate Store (CurrentUser\My or LocalMachine\My):
+scripts\build-extensions.bat -CertificateThumbprint "THUMBPRINT_HEX"
+```
+
+#### 2. Automated Signing via PowerShell
+```powershell
+# Using a PFX file:
+$env:DATAGUARD_VSIX_CERT_PASSWORD = 'your_cert_password'
+.\scripts\build-extensions.ps1 -CertificatePath 'C:\path\to\cert.pfx'
+
+# Using Windows Certificate Store:
+.\scripts\build-extensions.ps1 -CertificateThumbprint 'THUMBPRINT_HEX'
+```
+
+#### 3. Standalone Signing of an Existing VSIX
+```powershell
+.\scripts\sign-vsix.ps1 -VsixPath "artifacts\visualstudio\dataguard-visualstudio-0.3.0.vsix" -CertificatePath "C:\path\to\cert.pfx" -CertificatePasswordEnv DATAGUARD_VSIX_CERT_PASSWORD
+```
+
+#### 4. Verifying VSIX Digital Signatures
+```powershell
+.\scripts\verify-vsix-signature.ps1 -VsixPath "artifacts\visualstudio\dataguard-visualstudio-0.3.0.vsix" -ExpectedThumbprint "THUMBPRINT_HEX"
+```
+
+> [!NOTE]
+> **Integrity Invariant**: When signing is enabled, the SHA-256 checksum (`.sha256`) is always recalculated and written after the signing step completes, ensuring the checksum matches the signed VSIX package on disk.
+
 ## Expected Outputs
 
 ```text

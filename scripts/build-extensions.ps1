@@ -4,7 +4,16 @@ param (
     [Alias("skip-vscode")]
     [switch]$SkipVSCode,
     [Alias("skip-visualstudio")]
-    [switch]$SkipVisualStudio
+    [switch]$SkipVisualStudio,
+
+    # VSIX Signing parameters
+    [string]$CertificatePath,
+    [string]$CertificatePasswordEnv = 'DATAGUARD_VSIX_CERT_PASSWORD',
+    [string]$CertificatePassword,
+    [string]$CertificateThumbprint,
+    [string]$TimestampServer = 'http://timestamp.digicert.com',
+    [switch]$NoTimestamp,
+    [switch]$SignVsix
 )
 
 <#
@@ -97,7 +106,18 @@ Set-Content -LiteralPath "$vscodeDest.sha256" -Value "$hashVscode  $(Split-Path 
     # 2. Build Visual Studio Extension
     if (-not $SkipVisualStudio) {
         Write-Host "`n[2/2] Building Visual Studio Extension..." -ForegroundColor Yellow
-$msbuild = $env:MSBUILD
+
+        $shouldSign = $SignVsix -or (-not [string]::IsNullOrWhiteSpace($CertificatePath)) -or (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) -or ($env:DATAGUARD_VSIX_SIGN -eq "1" -or $env:DATAGUARD_VSIX_SIGN -eq "true")
+        if ($shouldSign) {
+            if (-not [string]::IsNullOrWhiteSpace($CertificatePath) -and -not (Test-Path -LiteralPath $CertificatePath)) {
+                throw "Certificate file specified for VSIX signing does not exist: $CertificatePath"
+            }
+            if ([string]::IsNullOrWhiteSpace($CertificatePath) -and [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+                throw "VSIX signing was requested (-SignVsix or env:DATAGUARD_VSIX_SIGN), but neither -CertificatePath nor -CertificateThumbprint was provided."
+            }
+        }
+
+        $msbuild = $env:MSBUILD
 if ([string]::IsNullOrWhiteSpace($msbuild) -or -not (Test-Path -LiteralPath $msbuild)) {
     $vswherePaths = @()
     if ($null -ne ${env:ProgramFiles(x86)}) {
@@ -153,6 +173,32 @@ if (-not (Test-Path -LiteralPath $vsSource)) {
 New-Item -ItemType Directory -Force $vsDestDir | Out-Null
 Copy-Item -LiteralPath $vsSource -Destination $vsDest -Force
 Remove-Item -LiteralPath $vsSource -Force -ErrorAction SilentlyContinue
+        if ($shouldSign) {
+            Write-Host "Signing Visual Studio VSIX package..." -ForegroundColor Cyan
+            $signArgs = @{
+                VsixPath               = $vsDest
+                TimestampServer        = $TimestampServer
+                CertificatePasswordEnv = $CertificatePasswordEnv
+            }
+            if (-not [string]::IsNullOrWhiteSpace($CertificatePath)) {
+                $signArgs['CertificatePath'] = $CertificatePath
+            }
+            if (-not [string]::IsNullOrWhiteSpace($CertificatePassword)) {
+                $signArgs['CertificatePassword'] = $CertificatePassword
+            }
+            if (-not [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+                $signArgs['CertificateThumbprint'] = $CertificateThumbprint
+            }
+            if ($NoTimestamp) {
+                $signArgs['NoTimestamp'] = $true
+            }
+
+            & "$PSScriptRoot\sign-vsix.ps1" @signArgs
+            if ($LASTEXITCODE -ne 0) {
+                throw "VSIX signing failed with exit code $LASTEXITCODE"
+            }
+        }
+
 $hashVs = (Get-FileHash -LiteralPath $vsDest -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$vsDest.sha256" -Value "$hashVs  $(Split-Path -Leaf $vsDest)" -NoNewline
 
