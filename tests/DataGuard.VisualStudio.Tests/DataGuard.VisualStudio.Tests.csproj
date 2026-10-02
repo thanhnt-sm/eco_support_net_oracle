@@ -5,6 +5,7 @@
     <LangVersion>12</LangVersion>
     <CreateVsixContainer>false</CreateVsixContainer>
     <DeployExtension>false</DeployExtension>
+    <RuntimeIdentifiers />
   </PropertyGroup>
 
   <ItemGroup>
