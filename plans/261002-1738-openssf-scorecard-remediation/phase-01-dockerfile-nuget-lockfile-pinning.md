@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Dockerfile NuGet Lockfile Pinning"
-status: pending
+status: completed
 priority: P1
 effort: "1h"
 dependencies: []
@@ -97,10 +97,10 @@ dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj --locked-mode -r linux-x64
 **Expected Outcome**: Zero NU1004 errors. Clean restore.
 
 ## Success Criteria
-- [ ] `scripts/tests/test_dockerfile_pinning.py` passes 100%.
-- [ ] `Dockerfile` contains `--locked-mode` on `dotnet restore`.
-- [ ] All 9 project `packages.lock.json` are copied into the Docker build layer.
-- [ ] Local deterministic restore passes without lockfile mismatches.
+- [x] `scripts/tests/test_dockerfile_pinning.py` passes 100%.
+- [x] `Dockerfile` contains `--locked-mode` on `dotnet restore`.
+- [x] All 9 project `packages.lock.json` are copied into the Docker build layer.
+- [x] Local deterministic restore passes without lockfile mismatches.
 
 ## Risk Assessment
 - **Risk**: A developer updates a `<PackageReference>` in `.csproj` without updating `packages.lock.json`, causing the Docker build to fail with `NU1004: The build failed because restore was run with --locked-mode and the lock file was out of sync`.

@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Nightly Installer Sigstore Signing and Provenance"
-status: pending
+status: completed
 priority: P1
 effort: "2.5h"
 dependencies: [1]
@@ -134,11 +134,11 @@ python3 scripts/check-workflow-policy.py
 **Expected Outcome**: `OK: all workflows conform to security policies.`
 
 ## Success Criteria
-- [ ] `scripts/tests/test_check_workflow_policy.py` passes all test cases.
-- [ ] `installers.yml` has `id-token: write` and `attestations: write`.
-- [ ] Nightly release includes `*.sigstore.json` for all payloads.
-- [ ] Nightly release includes `dataguard-nightly.intoto.jsonl`.
-- [ ] Scorecard `Signed-Releases` warning on `nightly` is remediated.
+- [x] `scripts/tests/test_check_workflow_policy.py` passes all test cases.
+- [x] `installers.yml` has `id-token: write` and `attestations: write`.
+- [x] Nightly release includes `*.sigstore.json` for all payloads.
+- [x] Nightly release includes `dataguard-nightly.intoto.jsonl`.
+- [x] Scorecard `Signed-Releases` warning on `nightly` is remediated.
 
 ## Risk Assessment
 - **Risk**: Cosign OIDC token request failure during high GitHub Actions load.

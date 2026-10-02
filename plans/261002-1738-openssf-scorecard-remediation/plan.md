@@ -1,7 +1,7 @@
 ---
 title: "OpenSSF Scorecard Hardening and Remediation"
 description: "Remediation plan to elevate OpenSSF Scorecard from 7.5 to 9.5+ by addressing Dockerfile dependency pinning, nightly and release artifact Sigstore signing with in-toto SLSA provenance, and GitHub rulesets governance."
-status: pending
+status: completed
 priority: P1
 effort: 8h
 branch: feat/scorecard-remediation
@@ -47,11 +47,10 @@ flowchart TD
 ## Phases
 
 | Phase | Name | Status |
-|-------|------|--------|
-| 1 | [Dockerfile NuGet Lockfile Pinning](./phase-01-dockerfile-nuget-lockfile-pinning.md) | Pending |
-| 2 | [Nightly Installer Sigstore Signing and Provenance](./phase-02-nightly-installer-sigstore-signing-and-provenance.md) | Pending |
-| 3 | [Release Workflow Signing and In-Toto Attestations](./phase-03-release-workflow-signing-and-in-toto-attestations.md) | Pending |
-| 4 | [Policy Gates and Scorecard Governance](./phase-04-policy-gates-and-scorecard-governance.md) | Pending |
+| 1 | [Dockerfile NuGet Lockfile Pinning](./phase-01-dockerfile-nuget-lockfile-pinning.md) | Completed |
+| 2 | [Nightly Installer Sigstore Signing and Provenance](./phase-02-nightly-installer-sigstore-signing-and-provenance.md) | Completed |
+| 3 | [Release Workflow Signing and In-Toto Attestations](./phase-03-release-workflow-signing-and-in-toto-attestations.md) | Completed |
+| 4 | [Policy Gates and Scorecard Governance](./phase-04-policy-gates-and-scorecard-governance.md) | Completed |
 
 ---
 
@@ -112,8 +111,8 @@ Conducted red-team review with 3 hostile personas:
 
 ## Post-Plan Validation (Critical Verification Checklist)
 
-- [ ] **Lockfile Completeness**: Do all 9 projects have committed `packages.lock.json`? (Verified: Yes, all present).
-- [ ] **Cosign Pinned Version**: Is `sigstore/cosign-installer` pinned by commit SHA? (Verified: `6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2`).
-- [ ] **In-Toto Action Pinned Version**: Is `actions/attest-build-provenance` pinned by commit SHA? (Verified: `1e69f48acb82d1966a394da916b4c1698aa569d6 # v2`).
-- [ ] **GitHub Rulesets Compatibility**: Does standard `GITHUB_TOKEN` have read access to Repository Rulesets without extra secrets? (Verified: Yes, GitHub Rulesets API is readable by default Actions token).
-- [ ] **Backwards Compatibility**: Does `release.yml` dry run continue to work? (Verified: `dry_run=true` skips signing and attestation gracefully).
+- [x] **Lockfile Completeness**: Do all 9 projects have committed `packages.lock.json`? (Verified: Yes, all present).
+- [x] **Cosign Pinned Version**: Is `sigstore/cosign-installer` pinned by commit SHA? (Verified: `6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2`).
+- [x] **In-Toto Action Pinned Version**: Is `actions/attest-build-provenance` pinned by commit SHA? (Verified: `1e69f48acb82d1966a394da916b4c1698aa569d6 # v2`).
+- [x] **GitHub Rulesets Compatibility**: Does standard `GITHUB_TOKEN` have read access to Repository Rulesets without extra secrets? (Verified: Yes, GitHub Rulesets API is readable by default Actions token).
+- [x] **Backwards Compatibility**: Does `release.yml` dry run continue to work? (Verified: `dry_run=true` skips signing and attestation gracefully).

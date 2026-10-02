@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Release Workflow Signing and In-Toto Attestations"
-status: pending
+status: completed
 priority: P1
 effort: "2.5h"
 dependencies: [1, 2]
@@ -116,10 +116,10 @@ python3 scripts/check-workflow-policy.py
 **Expected Outcome**: All gates green, zero syntax or policy errors.
 
 ## Success Criteria
-- [ ] `scripts/tests/test_check_workflow_policy.py` passes all release signing assertions.
-- [ ] `release.yml` signs nupkgs, CLI zips, and VSIXs with Cosign.
-- [ ] `release.yml` creates and attaches `dataguard-${tag}.intoto.jsonl` to release assets.
-- [ ] Scorecard `Signed-Releases` check achieves 10/10 for versioned releases.
+- [x] `scripts/tests/test_check_workflow_policy.py` passes all release signing assertions.
+- [x] `release.yml` signs nupkgs, CLI zips, and VSIXs with Cosign.
+- [x] `release.yml` creates and attaches `dataguard-${tag}.intoto.jsonl` to release assets.
+- [x] Scorecard `Signed-Releases` check achieves 10/10 for versioned releases.
 
 ## Risk Assessment
 - **Risk**: `gh release upload` fails if the release is not yet in published state or permissions are insufficient.
