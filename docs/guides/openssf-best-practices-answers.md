@@ -2,7 +2,7 @@
 
 > **Target Repository**: `thanhnt-sm/eco_support_net_oracle`  
 > **Self-Certification Portal**: [https://bestpractices.dev](https://bestpractices.dev)  
-> **Target Tier**: Passing (100% compliant)  
+> **Target Tier**: Silver (Path to 100% compliant)  
 > **Historical License Note**: Dual-licensed under GNU GPL v3.0-only and Commercial since release v0.3.0; earlier pre-v0.3.0 commits historically MIT (see `docs/legal/MIT-v0.1.0-v0.3.0.txt`).
 
 ---
@@ -684,4 +684,48 @@ When submitting this questionnaire on [bestpractices.dev](https://bestpractices.
 - **Justification**:
   ```text
   Release assets and binaries are distributed exclusively over HTTPS via GitHub Releases; each release includes verifiable SHA-256 checksums.
+  ```
+
+---
+
+## 8. OpenSSF Silver Tier Criteria & Evidence
+
+### `silver_coding_standards` — Coding Standards Enforced
+- **Selection**: `Met`
+- **URL/Evidence**: `https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.editorconfig`
+- **Justification**:
+  ```text
+  Strict C# coding standards, naming conventions, and Roslyn analyzer rule severities are codified in .editorconfig and enforced as compiler build errors via TreatWarningsAsErrors in Directory.Build.props.
+  ```
+
+### `silver_dynamic_analysis` — Dynamic Analysis (DAST/Fuzzing)
+- **Selection**: `Met`
+- **URL/Evidence**: `https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/tests/DataGuard.Core.Tests/SqlClassifierPropertyTests.cs`
+- **Justification**:
+  ```text
+  DataGuard integrates property-based fuzzing with FsCheck/CsCheck in SqlClassifierPropertyTests to validate input parser resilience against malicious and pathological inputs.
+  ```
+
+### `silver_security_review` — Security Review
+- **Selection**: `Met`
+- **URL/Evidence**: `https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/security/scorecard-optimization-guide.md`
+- **Justification**:
+  ```text
+  The project undergoes continuous static security analysis via CodeQL SAST, Dependabot dependency scanning, and secret detection via Gitleaks on every commit to main.
+  ```
+
+### `silver_slsa_provenance` — SLSA Provenance and Cryptographic Signing
+- **Selection**: `Met`
+- **URL/Evidence**: `https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/workflows/release.yml`
+- **Justification**:
+  ```text
+  Artifacts are signed with Sigstore keyless cosign and include in-toto SLSA build provenance attestations generated via actions/attest-build-provenance.
+  ```
+
+### `silver_vulnerability_remediation` — Rapid Vulnerability Remediation Policy
+- **Selection**: `Met`
+- **URL/Evidence**: `https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/SECURITY.md`
+- **Justification**:
+  ```text
+  SECURITY.md stipulates strict SLAs: critical vulnerabilities acknowledged within 48 hours and security hotfix releases published within 14 calendar days.
   ```
