@@ -33,3 +33,4 @@
 - [SECURITY](../SECURITY.md) · [SECURITY.vi](../SECURITY.vi.md)
 - [Tham Chiếu CLI](03-components/tooling/cli.md)
 - [Hướng Dẫn Cấu Hình](05-operations/configuration-guide.md)
+- [Bảng Tra Cứu OpenSSF Best Practices (CII)](guides/openssf-best-practices-answers.md)

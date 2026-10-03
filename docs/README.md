@@ -33,3 +33,4 @@
 - [SECURITY](../SECURITY.md) · [SECURITY.vi](../SECURITY.vi.md)
 - [CLI Reference](03-components/tooling/cli.md)
 - [Configuration Guide](05-operations/configuration-guide.md)
+- [OpenSSF Best Practices Cheat Sheet](guides/openssf-best-practices-answers.md)
