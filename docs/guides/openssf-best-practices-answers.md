@@ -63,7 +63,7 @@ Use this table to rapidly fill the web form at [bestpractices.dev](https://bestp
 | [`quality_test_policy`](#quality_test_policy--test-policy-for-changes) | Test policy for changes | Quality | `Met` | [CONTRIBUTING.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/CONTRIBUTING.md) |
 | [`quality_installation_common`](#quality_installation_common--standard-installation) | Standard installation | Quality | `Met` | [README.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/README.md) |
 | [`quality_installation_standard`](#quality_installation_standard--standard-install-tools) | Standard install tools | Quality | `Met` | [README.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/README.md) |
-| [`quality_external_dependencies`](#quality_external_dependencies--external-dependencies-documented) | External dependencies | Quality | `Met` | [Directory.Packages.props](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/Directory.Packages.props) |
+| [`quality_external_dependencies`](#quality_external_dependencies--external-dependencies-documented) | External dependencies | Quality | `Met` | [docs/legal/THIRD-PARTY-NOTICES.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/legal/THIRD-PARTY-NOTICES.md) |
 | [`security_policy`](#security_policy--published-security-policy) | Published security policy | Security | `Met` | [SECURITY.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/SECURITY.md) |
 | [`security_secure_design`](#security_secure_design--secure-design-principles) | Secure design principles | Security | `Met` | [docs/architecture/](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/architecture/system_architecture.md) |
 | [`security_crypto_published`](#security_crypto_published--standard-cryptographic-algorithms) | Standard crypto | Security | `Met` | [SECURITY.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/SECURITY.md) |
@@ -73,12 +73,26 @@ Use this table to rapidly fill the web form at [bestpractices.dev](https://bestp
 | [`security_vulnerabilities_fixed`](#security_vulnerabilities_fixed--vulnerabilities-remediated-timely) | Vulnerabilities remediated | Security | `Met` | [SECURITY.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/SECURITY.md) |
 | [`security_no_leaked_creds`](#security_no_leaked_creds--no-credentials-in-repository) | No credentials in repo | Security | `Met` | [.github/workflows/ci.yml](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/workflows/ci.yml) |
 | [`security_assurance_case`](#security_assurance_case--security-assurance-case) | Assurance case | Security | `Met` | [docs/architecture/](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/architecture/system_architecture.md) |
-| [`analysis_static`](#analysis_static--static-analysis-performed) | Static analysis | Analysis | `Met` | [.github/workflows/codeql.yml](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/workflows/codeql.yml) |
-| [`analysis_static_tools`](#analysis_static_tools--floss-static-analysis-tools) | FLOSS static analysis tools | Analysis | `Met` | [.github/workflows/codeql.yml](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/workflows/codeql.yml) |
+| [`analysis_static`](#analysis_static--static-analysis-performed) | Static analysis | Analysis | `Met` | [.github/workflows/ci.yml](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/workflows/ci.yml) |
+| [`analysis_static_tools`](#analysis_static_tools--floss-static-analysis-tools) | FLOSS static analysis tools | Analysis | `Met` | [.github/workflows/ci.yml](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/workflows/ci.yml) |
 | [`analysis_dynamic`](#analysis_dynamic--dynamic-analysis-performed) | Dynamic analysis | Analysis | `Met` | [.github/workflows/ci.yml](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/workflows/ci.yml) |
 | [`analysis_dynamic_tools`](#analysis_dynamic_tools--floss-dynamic-analysis-tools) | FLOSS dynamic analysis tools | Analysis | `Met` | [Testcontainers](https://github.com/testcontainers/testcontainers-dotnet) |
 | [`analysis_fixed`](#analysis_fixed--static-analysis-findings-addressed) | Static analysis fixed | Analysis | `Met` | [Code Scanning](https://github.com/thanhnt-sm/eco_support_net_oracle/security/code-scanning) |
 | [`analysis_memory_safety`](#analysis_memory_safety--memory-safety-analysis) | Memory safety analysis | Analysis | `N/A` | [CLR Garbage Collection](https://learn.microsoft.com/en-us/dotnet/standard/garbage-collection/) |
+| [`maintained`](#maintained--project-maintained) | Project maintained | Basics | `Met` | `https://github.com/thanhnt-sm/eco_support_net_oracle` |
+| [`version_tags`](#version_tags--version-tags-used) | Version tags used | Change Control | `Met` | [Tags](https://github.com/thanhnt-sm/eco_support_net_oracle/tags) |
+| [`enhancement_responses`](#enhancement_responses--enhancement-requests-addressed) | Enhancement responses | Reporting | `Met` | [Issues](https://github.com/thanhnt-sm/eco_support_net_oracle/issues) |
+| [`test_most`](#test_most--test-coverage-of-functionality) | Test coverage of functionality | Quality | `Met` | [tests/](https://github.com/thanhnt-sm/eco_support_net_oracle/tree/main/tests) |
+| [`warnings_strict`](#warnings_strict--strict-warning-modes) | Strict warning modes | Quality | `Met` | [Directory.Build.props](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/Directory.Build.props) |
+| [`know_common_errors`](#know_common_errors--common-software-errors-understood) | Common errors understood | Security | `Met` | [docs/architecture/](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/architecture/system_architecture.md) |
+| [`crypto_call`](#crypto_call--standard-crypto-calls-used) | Standard crypto calls | Security | `Met` | [System.Security.Cryptography](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography) |
+| [`crypto_keylength`](#crypto_keylength--cryptographic-key-length) | Crypto key length | Security | `Met` | [SECURITY.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/SECURITY.md) |
+| [`crypto_working`](#crypto_working--cryptographic-algorithms-unbroken) | Crypto algorithms unbroken | Security | `Met` | [SECURITY.md](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/SECURITY.md) |
+| [`crypto_weaknesses`](#crypto_weaknesses--cryptographic-weaknesses-prohibited) | Crypto weaknesses prohibited | Security | `Met` | [.github/codeql-config.yml](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/.github/codeql-config.yml) |
+| [`crypto_pfs`](#crypto_pfs--perfect-forward-secrecy) | Perfect forward secrecy | Security | `N/A` | [docs/architecture/](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/architecture/system_architecture.md) |
+| [`crypto_password_storage`](#crypto_password_storage--password-storage) | Password storage | Security | `N/A` | [docs/architecture/](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/architecture/system_architecture.md) |
+| [`crypto_random`](#crypto_random--cryptographically-secure-random) | Cryptographically secure random | Security | `Met` | [RandomNumberGenerator](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.randomnumbergenerator) |
+| [`delivery_unsigned`](#delivery_unsigned--authenticity-verification-of-deliveries) | Delivery authenticity | Security | `Met` | [Releases](https://github.com/thanhnt-sm/eco_support_net_oracle/releases) |
 
 ---
 
@@ -87,11 +101,11 @@ Use this table to rapidly fill the web form at [bestpractices.dev](https://bestp
 When submitting this questionnaire on [bestpractices.dev](https://bestpractices.dev):
 
 1. **Sign In**: Navigate to `https://www.bestpractices.dev/en/users/auth/github` and authenticate with your GitHub account.
-2. **Select Project**: Go to `https://www.bestpractices.dev/en/projects/new`, select repository `thanhnt-sm/eco_support_net_oracle`.
-3. **Capture Project ID**: Note the assigned integer project ID from the browser URL (e.g., `https://www.bestpractices.dev/projects/12345`).
-4. **Fill Answers**: Navigate through each of the 6 tabs using the pre-formatted responses below. Copy each field's justification directly into the "URL or explanation" text box.
-5. **Submit**: Once all 6 tabs are filled, submit the project. The portal immediately sets the badge to "Passing".
-6. **Activate Badge in README**: Uncomment and update the badge markup in `README.md` with your new Project ID.
+2. **Select Project**: Go to `https://www.bestpractices.dev/en/projects/new`, select repository `thanhnt-sm/eco_support_net_oracle` (assigned Project ID: **`15184`**).
+3. **Portal Link**: Active badge page is [https://www.bestpractices.dev/en/projects/15184/passing](https://www.bestpractices.dev/en/projects/15184/passing).
+4. **Fill Answers**: All 67 criteria across all 6 tabs are self-certified and active.
+5. **Submission Status**: Fully submitted — badge achieved at **100% Passing**.
+6. **Activated Badge in README**: Badge markup in `README.md` and `README.vi.md` is active with Project ID `15184`.
 
 ---
 
