@@ -85,7 +85,7 @@ Three real bugs found by the code-reviewer subagent after implementation:
 
 **Modified:**
 - `src/DataGuard.Core/Abstractions/Contracts.cs`
-- `src/DataGuard.Core/Rules/ContractRules.cs`
+- `src/DataGuard.Core/Rules/ (one file per rule; `ContractRuleBase.cs`, `ParameterCountRule.cs`, …)`
 - `src/DataGuard.Core/Sources/ProjectCSharpSqlSource.cs`
 - `src/DataGuard.Oracle.Adapter/OracleDialectChecker.cs`
 - `src/DataGuard.VSCode/src/ui/redaction.ts`

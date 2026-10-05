@@ -98,8 +98,8 @@ public class CliFollowUpEndToEndTests
         var dir = Directory.CreateTempSubdirectory("dg-v3-no-provider").FullName;
         try
         {
-            var snapshot = await new BaselineManager(Path.Combine(dir, SnapshotFileName)).CreateBaselineAsync(
-                Array.Empty<ContractViolation>(), "1.0", "Snapshot", "16.0", schema: Tables);
+            // CreateBaselineAsync writes format 4 since Phase 5C; a tables-only v3 file is what older releases produced.
+            var snapshot = await LegacySnapshotFiles.WriteV3Async(Path.Combine(dir, SnapshotFileName), Tables, provider: null);
             snapshot.Version.Should().Be(3);
             snapshot.Provider.Should().BeNull();
 

@@ -31,7 +31,7 @@ Six agents per wave in isolated git worktrees, each with a disjoint file scope, 
 
 ## 4. Phase 5B/5C (filled on merge)
 
-_Pending at the time of writing: `Program.cs`/`ContractRules.cs` splits, typed YAML binding, verify-shape MySQL, snapshot `Provider` required; Core follow-ups (type registry, v4 baselines in the API, keyed audit in the API, PG002 dedupe, own-dialect false positives, SQL Server `HasDefault`, `ArgumentsKnown`, MY003 bytes)._
+_Pending at the time of writing: `Program.cs`/`Rules/*Rule.cs` (one file per rule) splits, typed YAML binding, verify-shape MySQL, snapshot `Provider` required; Core follow-ups (type registry, v4 baselines in the API, keyed audit in the API, PG002 dedupe, own-dialect false positives, SQL Server `HasDefault`, `ArgumentsKnown`, MY003 bytes)._
 
 ## 5. Final verification (filled at the end)
 

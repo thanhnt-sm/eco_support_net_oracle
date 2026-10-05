@@ -106,7 +106,7 @@ The core library containing all domain logic, validation rules, and abstractions
 | **Abstractions/** | | | |
 | `Abstractions/Contracts.cs` | Core domain model: `IContractSource`, `IContractRule`, `ContractViolation`, `EntityDescriptor`, `StoredProcedureDescriptor`, `RawSqlDescriptor`, `ColumnDescriptor`, `ParameterDescriptor`, `DatabaseSchemaDescriptor` | Domain | C# |
 | **Rules/** | | | |
-| `Rules/ContractRules.cs` | Built-in validation rules: `ParameterCountRule` (DG101), `ParameterTypeMatchRule` (DG002), `ParameterDirectionRule` (DG003), `ColumnShapeMatchRule` (DG004), `NullableMismatchRule` (DG005), `NamingConventionRule` (DG006) | Domain | C# |
+| `Rules/Rules/*.cs (one file per rule)` | Built-in validation rules: `ParameterCountRule` (DG101), `ParameterTypeMatchRule` (DG002), `ParameterDirectionRule` (DG003), `ColumnShapeMatchRule` (DG004), `NullableMismatchRule` (DG005), `NamingConventionRule` (DG006) | Domain | C# |
 | `Rules/PhantomTableRule.cs`, `Rules/PhantomColumnRule.cs` | Phantom table (DG015) and phantom column (DG016) detection — validate SQL references against database schema | Domain | C# |
 | `Rules/Sql/` | `SchemaObjectName` (`SqlIdentifier.cs`), `SqlTokenizer`, `SchemaTableIndex`, `PhantomSqlAnalyzer` shared by DG015/DG016 and DG005; adapter seams `IPhantomReferenceAnalyzer` and `ISqlStatementParser` (DG019; no-op default) | Domain | C# |
 | `Rules/TypeCompatibility/` | `ITypeCompatibility`, `MappedTypeCompatibility`, `DbTypeInfo`, `ClrTypeNames`, `TypeCompatibilityRegistry` and the provider-neutral `UnknownTypeCompatibility` fallback; provider tables live in the adapters | Domain | C# |
