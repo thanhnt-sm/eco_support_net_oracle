@@ -163,6 +163,10 @@ public class TypeCompatibilityTests
         TypeCompatibilityRegistry.Register(SqlServerTypeCompatibility.Instance);
         TypeCompatibilityRegistry.Resolve(null).Should().BeSameAs(SqlServerTypeCompatibility.Instance);
         ParameterTypeMatchRule.IsTypeCompatible("Guid", "uniqueidentifier", isOracle: false).Should().BeTrue();
+
+        // Oracle has no Core fallback either; the Oracle adapter table is registered like any other provider's.
+        TypeCompatibilityRegistry.Register(OracleTypeCompatibility.Instance);
+        TypeCompatibilityRegistry.Resolve("oracle").Should().BeSameAs(OracleTypeCompatibility.Instance);
         ParameterTypeMatchRule.IsTypeCompatible("int", "NUMBER(10)", isOracle: true).Should().BeTrue();
         ParameterTypeMatchRule.IsTypeCompatible("MyEnum", "int", isOracle: false).Should().BeFalse();
     }

@@ -136,6 +136,7 @@ foreach (var property in entity.Properties)
 | **Severity** | Warning |
 | **Trigger** | MySQL keywords (`ON DUPLICATE KEY`, backticks, etc.) in non-MySQL SQL |
 | **Message** | MySQL-specific syntax '{syntax}' used in non-MySQL context |
+| **Context** | The descriptor's `ConnectionProviderHint`, or the catalog provider when there is no hint. The rule is a no-op when the context is `mysql`, so MySQL's own syntax is never reported under `--provider mysql`. Without a provider and a hint the context counts as non-MySQL. |
 
 ### MY002 — Non-MySQL Syntax in MySQL Context
 
@@ -152,6 +153,8 @@ foreach (var property in entity.Properties)
 | **Severity** | Error |
 | **Trigger** | `property.MaxLength > column.MaxLength` |
 | **Message** | Entity property '{name}' MaxLength={n} exceeds column '{col}' length={m} |
+
+The `MySqlVarcharByteLimitRule` form of MY003 also checks TEXT family columns. Those limits are bytes, so the entity length is converted the same way MY006 does it: `MaxLength × bytes per UTF-16 unit` (utf8mb4/utf8mb3/utf8 3, ucs2/utf16 2, single-byte sets 1, `byte[]` 1). A `string` with `MaxLength = 30000` on a utf8mb4 `TEXT` column (90,000 bytes) is reported: `may need 90000 bytes (3 per character in utf8mb4) but MySQL TEXT holds at most 65535 bytes`.
 
 ## Usage in CLI
 

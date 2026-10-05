@@ -243,6 +243,14 @@ public record RawSqlDescriptor(
 
     /// <summary>Package qualifier of the procedure at the call site (Oracle), when written explicitly.</summary>
     public string? ProcedurePackage { get; init; } = null;
+
+    /// <summary>
+    /// False when the call's argument list could not be observed: the extractor synthesized <c>EXEC name</c> for a
+    /// <c>CommandType.StoredProcedure</c> call whose parameters it cannot see (no <c>Parameters</c> collection use on the
+    /// command, or a Dapper <c>param</c> object it cannot expand). Stored-procedure rules then still resolve the procedure
+    /// (and report an unknown one) but never report missing or extra arguments. Default true.
+    /// </summary>
+    public bool ArgumentsKnown { get; init; } = true;
 }
 
 public enum RawSqlParseStatus

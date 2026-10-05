@@ -300,13 +300,19 @@ public sealed partial class ProjectCSharpSqlSource
                 }
 
                 var bindings = new List<CallBinding>();
+                var argumentsKnown = true;
                 if (IsEfSqlMethod(methodName))
                 {
                     bindings.AddRange(CollectExtraArgumentBindings(invocation, sqlArgIndex, _model, _ct));
                 }
                 else if (FindDapperParamArgument(args, sqlArgIndex) is { } paramArg)
                 {
-                    bindings.AddRange(ExpandDapperParameter(paramArg, _model, GetScope(invocation), invocation.SpanStart, 0, _ct));
+                    var expanded = ExpandDapperParameter(paramArg, _model, GetScope(invocation), invocation.SpanStart, 0, _ct);
+                    bindings.AddRange(expanded);
+
+                    // A synthesized "EXEC name" call whose param object yields nothing (a method result, an object-typed
+                    // value, DynamicParameters filled elsewhere) has an argument list the extractor cannot see.
+                    argumentsKnown = !isStoredProcedure || expanded.Count > 0 || IsVisiblyEmptyDapperParameter(paramArg);
                 }
 
                 bindings.AddRange(BindingsFromHoles(holes));
@@ -324,8 +330,16 @@ public sealed partial class ProjectCSharpSqlSource
                     IsStoredProcedure = isStoredProcedure,
                     ProcedureRawName = procedureName,
                     Bindings = bindings,
+                    ArgumentsKnown = argumentsKnown,
                 });
             }
+        }
+
+        // null/default or an anonymous object without members: Dapper sends no parameters, and that is visible.
+        private static bool IsVisiblyEmptyDapperParameter(ExpressionSyntax paramArg)
+        {
+            var inner = UnwrapValueExpression(paramArg);
+            return inner is LiteralExpressionSyntax || inner.IsKind(SyntaxKind.DefaultLiteralExpression) || inner is AnonymousObjectCreationExpressionSyntax;
         }
 
         private static ExpressionSyntax? FindDapperParamArgument(SeparatedSyntaxList<ArgumentSyntax> args, int sqlArgIndex)
@@ -424,6 +438,10 @@ public sealed partial class ProjectCSharpSqlSource
                     ? new List<CallBinding>()
                     : CollectCommandBindings(receiverName, scope, executeAnchor ?? int.MaxValue, _model, _ct);
 
+                // Without a command variable, or with no use of its Parameters collection in scope (parameters added by a
+                // helper, or none at all), the argument list is not visible: DG101 must not report missing arguments.
+                var argumentsKnown = receiverName is not null && UsesParametersCollection(receiverName, scope);
+
                 candidates.Add(new SqlCandidate
                 {
                     // Synthesized text for the engine; IsStoredProcedure tells dialect rules it is not literal SQL.
@@ -436,6 +454,7 @@ public sealed partial class ProjectCSharpSqlSource
                     IsStoredProcedure = true,
                     ProcedureRawName = procedureName,
                     Bindings = bindings,
+                    ArgumentsKnown = argumentsKnown,
                 });
             }
         }

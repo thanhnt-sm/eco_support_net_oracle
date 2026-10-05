@@ -317,6 +317,7 @@ Detects cross-dialect SQL syntax issues. Uses word-boundary regex matching to av
 | **Trigger** | Oracle keywords/operators in non-Oracle SQL |
 | **Message** | `[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)` |
 | **Properties Bag** | `keyword`, `migration`, `targetProvider` |
+| **Context / target** | The descriptor's `ConnectionProviderHint`, or the catalog provider the rule was built with (`ProviderRuleCatalog` passes it). The rule is a no-op when the context is `oracle`. Otherwise `{targetProvider}` is that context (`Oracle -> postgresql` under PostgreSQL, `Oracle -> mysql` under MySQL); `sqlserver` when neither is known. |
 
 #### Migration Dictionary
 
@@ -336,6 +337,8 @@ Rather than a simple detection set, `DG010` is backed by a comprehensive migrati
 | `REGEXP_LIKE` / `REGEXP_REPLACE` | `LIKE`, `PATINDEX`, `REPLACE`, or CLR-based regex functions |
 | `(+)` | Replace outer-join `(+)` with ANSI `LEFT JOIN` / `RIGHT JOIN` |
 | `**` | `POWER(base, exponent) (ANSI SQL)` |
+
+For a `postgresql` or `mysql` target, the hints that name a SQL Server construct are replaced by the target's own (for example `SYSDATE` ⇒ `Use CURRENT_TIMESTAMP or NOW() (PostgreSQL)`, `LISTAGG` ⇒ `Use GROUP_CONCAT(col ORDER BY col SEPARATOR ',') (MySQL)`).
 
 These hints are ingested by the VS Code extension (surfaced directly in editor tooltips via `DataGuardHoverProvider`) and the Visual Studio 2022 extension (displayed directly in the Error List message text).
 ### DG011 — Non-Oracle Function in Oracle Context

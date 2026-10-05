@@ -26,19 +26,14 @@
   "expectedDiagnostics": [
     {
       "ruleId": "PG002",
-      "messageContains": "Oracle-specific keyword 'NVL'",
-      "severity": "Warning"
-    },
-    {
-      "ruleId": "PG002",
-      "messageContains": "Use COALESCE()",
+      "messageContains": "Oracle NVL() used in PostgreSQL context. Use COALESCE()",
       "severity": "Warning"
     },
     {
       "ruleId": "DG010",
-      "messageContains": "Keyword 'NVL' is unsupported",
+      "messageContains": "[Migration: Oracle -> postgresql] Keyword 'NVL' is unsupported",
       "severity": "Warning"
     }
   ],
-  "notes": "Both the PostgreSQL adapter (PG002, twice) and the shared Oracle-leak rule (DG010) fire. DG010's message currently names 'sqlserver' as the migration target in a PostgreSQL context; messageContains avoids pinning that wording."
+  "notes": "The PostgreSQL adapter reports NVL once (PG002; the dedicated NVL() pattern supersedes the keyword list) and the shared Oracle-leak rule (DG010) names PostgreSQL, the context provider, as the migration target."
 }

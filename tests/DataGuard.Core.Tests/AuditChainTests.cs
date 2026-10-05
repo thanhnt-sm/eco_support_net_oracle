@@ -239,6 +239,33 @@ public sealed class AuditChainTests : IDisposable
     }
 
     [Fact]
+    public async Task LibraryHost_WithOnlyAuditKeyFile_WritesKeyedChainThatVerifiesValid()
+    {
+        // The library resolves the key the same way as the CLI (AuditHashing.ResolveKey: DATAGUARD_AUDIT_KEY first, then
+        // AuditKeyFile); this host configures only the key file, so the process environment must not provide a key.
+        Environment.GetEnvironmentVariable(AuditHashing.AuditKeyEnvironmentVariable).Should().BeNullOrEmpty();
+        var keyFile = Path.Combine(_directory, "library.key");
+        await File.WriteAllTextAsync(keyFile, "library-host-audit-key-0123456789\n");
+        var config = AuditConfig(keyFile) with { EnableSmartDefaults = false };
+
+        using (var pipeline = DataGuard.DataGuardApi.CreatePipeline(config))
+        {
+            var logger = pipeline.AuditLogger.Should().BeOfType<FileAuditLogger>().Subject;
+            logger.IsKeyed.Should().BeTrue();
+            await logger.LogSecurityEventAsync("library-host", "test", "{}");
+        }
+
+        var factoryLogger = DataGuard.DataGuardFactory.CreateAuditLogger(config).Should().BeOfType<FileAuditLogger>().Subject;
+        factoryLogger.IsKeyed.Should().BeTrue();
+        await factoryLogger.LogCredentialAccessAsync("factory", "test", factoryLogger.HashSensitiveValue("Server=x"));
+
+        var verified = await FileAuditLogger.Create(config, _ => null).VerifyIntegrityAsync();
+        verified.Status.Should().Be(AuditIntegrityStatus.Valid, verified.Reason);
+        verified.EntryCount.Should().Be(2);
+        (await new FileAuditLogger(LogPath, hmacKey: null).VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.KeyRequired);
+    }
+
+    [Fact]
     public void FileAuditLoggerCreate_UsesAuditKeyFile()
     {
         var keyFile = Path.Combine(_directory, "create.key");

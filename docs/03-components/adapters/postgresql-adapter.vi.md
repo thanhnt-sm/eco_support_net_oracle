@@ -138,6 +138,7 @@ foreach (var property in entity.Properties)
 | **Mức độ** | Warning |
 | **Kích hoạt** | Từ khóa PostgreSQL (`SERIAL`, `ILIKE`, `::`, etc.) trong SQL không phải PostgreSQL |
 | **Thông báo** | PostgreSQL-specific syntax '{syntax}' used in non-PostgreSQL context |
+| **Ngữ cảnh** | `ConnectionProviderHint` của descriptor, hoặc provider của catalog khi không có hint. Rule không làm gì khi ngữ cảnh là `postgresql`, nên cú pháp của chính PostgreSQL không bao giờ bị báo dưới `--provider postgresql`. Khi không có cả provider lẫn hint, ngữ cảnh được coi là không phải PostgreSQL. |
 
 ### PG002 — Cú pháp không phải PostgreSQL trong ngữ cảnh PostgreSQL
 
@@ -146,6 +147,8 @@ foreach (var property in entity.Properties)
 | **Mức độ** | Warning |
 | **Kích hoạt** | Từ khóa Oracle/SQL Server (`NVL`, `TOP`, `GETDATE`, `CONVERT`, etc.) trong SQL PostgreSQL |
 | **Thông báo** | Non-PostgreSQL syntax '{syntax}' used in PostgreSQL context |
+
+Mỗi cấu trúc chỉ bị báo một lần. Các mẫu chuyên biệt (`TOP n`, `EXEC schema.proc`, `LIMIT offset, count`, `NVL(`, `DECODE(`, `ISNULL(`, `GETDATE()`, `IDENTITY(`) chạy trước và có `suggestion`; từ khóa đã được chúng báo thì danh sách từ khóa bỏ qua. Cú pháp của chính PostgreSQL không bị báo: `LIMIT n` thông thường, `GENERATED ... AS IDENTITY`, và `COALESCE` (ANSI SQL, không dialect checker nào coi là đặc thù Oracle).
 
 ### PG003 — Độ dài entity vượt độ dài cột PostgreSQL
 

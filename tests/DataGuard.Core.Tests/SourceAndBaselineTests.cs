@@ -102,15 +102,16 @@ public class BaselineMigrationTests
                 violations: Array.Empty<Abstractions.ContractViolation>(),
                 schemaVersion: "1.0",
                 groundTruthMode: "Snapshot",
-                schemaHash: BaselineManager.ComputeSchemaHash(schema),
                 schema: schema);
 
             var reloaded = await manager.LoadAsync();
             reloaded!.Schema.Should().NotBeNull();
             reloaded.Schema.Should().ContainSingle(t => t.Name == "CUSTOMERS");
-            reloaded.Version.Should().Be(3);
-            reloaded.SchemaHashKind.Should().Be("canonical-schema-v1");
-            reloaded.SchemaHash.Should().Be(BaselineManager.ComputeSchemaHash(schema));
+            reloaded.Version.Should().Be(SnapshotFormat.WithStoredProceduresVersion);
+            reloaded.StoredProcedures.Should().NotBeNull().And.BeEmpty();
+            reloaded.SchemaHashKind.Should().Be(SnapshotFormat.CanonicalSchemaV2HashKind);
+            reloaded.SchemaHash.Should().Be(baseline.SchemaHash);
+            BaselineManager.VerifySnapshotIntegrity(reloaded).Status.Should().Be(SnapshotIntegrityStatus.Verified);
         }
         finally
         {
@@ -133,7 +134,7 @@ public class BaselineMigrationTests
     }
 
     [Fact]
-    public async Task CreateBaselineAsync_SchemaWithoutExplicitHashUsesCanonicalSchemaHash()
+    public async Task CreateBaselineAsync_SchemaIgnoresExplicitLegacyHash_AndUsesCanonicalSchemaV2Hash()
     {
         var path = Path.GetTempFileName();
         try
@@ -141,10 +142,13 @@ public class BaselineMigrationTests
             var schema = new[] { new SnapshotTable("CUSTOMERS", Array.Empty<SnapshotColumn>()) };
             var baseline = await new BaselineManager(path).CreateBaselineAsync(
                 Array.Empty<Abstractions.ContractViolation>(), "1.0", "Snapshot", schema: schema,
+                schemaHash: BaselineManager.ComputeSchemaHash(schema, "sqlserver", "dbo", "v1"),
+                schemaHashKind: SnapshotFormat.CanonicalSchemaV1HashKind,
                 provider: "sqlserver", schemaScope: "dbo");
 
-            baseline.SchemaHash.Should().Be(BaselineManager.ComputeSchemaHash(schema, "sqlserver", "dbo", "v1"));
-            baseline.SchemaHashKind.Should().Be("canonical-schema-v1");
+            baseline.SchemaHash.Should().Be(BaselineManager.ComputeSnapshotHash(schema, null, "sqlserver", "dbo", null, null));
+            baseline.SchemaHashKind.Should().Be(SnapshotFormat.CanonicalSchemaV2HashKind);
+            BaselineManager.VerifySnapshotIntegrity(baseline).Status.Should().Be(SnapshotIntegrityStatus.Verified);
         }
         finally
         {

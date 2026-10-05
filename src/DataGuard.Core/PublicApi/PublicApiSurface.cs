@@ -77,9 +77,20 @@ public sealed class ValidationPipeline : IDisposable
                 IncludeEventDetails = config.IncludeTelemetryEventDetails,
             })
             : null;
-        _credentialManager = new CredentialManager(config);
-        _auditLogger = config.EnableAuditLogging ? new FileAuditLogger(config.AuditLogPath) : new NullAuditLogger();
+
+        // Same construction as the CLI (CliConfigurationResolver): the key comes from DATAGUARD_AUDIT_KEY or AuditKeyFile
+        // through AuditHashing.ResolveKey, and the credential manager writes through the same logger (one hash chain).
+        _auditLogger = config.EnableAuditLogging ? FileAuditLogger.Create(config) : new NullAuditLogger();
+        _credentialManager = new CredentialManager(config, auditLogger: _auditLogger);
     }
+
+    /// <summary>
+    /// The audit sink of this pipeline: a <see cref="FileAuditLogger"/> at <see cref="DataGuardConfiguration.AuditLogPath"/>,
+    /// HMAC-keyed from <c>DATAGUARD_AUDIT_KEY</c> or <see cref="DataGuardConfiguration.AuditKeyFile"/> exactly as the CLI
+    /// builds it, or a <see cref="NullAuditLogger"/> when <see cref="DataGuardConfiguration.EnableAuditLogging"/> is false.
+    /// Library hosts write their own audit events through it so they share the pipeline's chain.
+    /// </summary>
+    public IAuditLogger AuditLogger => _auditLogger;
 
     /// <summary>
     /// The composed rules in execution order: the base set (built-in defaults, or the list passed to
@@ -494,6 +505,8 @@ public sealed class ValidationPipeline : IDisposable
 
     // Version 4: verify the stored canonical-schema-v2 hash, then hash the current state with the same canonical form.
     // The provider and scope were matched above, so the persisted values are reused (no false drift on letter case).
+    // Both writers (CreateBaselineAsync with a schema here and BaselineManager.CreateBaselineAsync / CreateSnapshotAsync)
+    // produce version 4, so every schema-bearing file written by this build is compared here.
     private static DriftReport CheckSnapshotV4Drift(
         BaselineFile baseline,
         DatabaseSchemaDescriptor currentSchema,
@@ -512,13 +525,18 @@ public sealed class ValidationPipeline : IDisposable
         var procedures = currentProcedures is null
             ? baseline.StoredProcedures
             : currentProcedures.Select(SnapshotConversion.FromProcedure).ToList();
+
+        // A tables-only baseline written by BaselineManager.CreateBaselineAsync records no length semantics or charset;
+        // what the baseline did not record is not compared (otherwise every such baseline would report drift).
+        var lengthSemantics = string.IsNullOrWhiteSpace(baseline.LengthSemantics) ? null : currentSchema.LengthSemantics;
+        var charset = string.IsNullOrWhiteSpace(baseline.Charset) ? null : SnapshotConversion.ResolveUniformCharset(currentSchema);
         var currentHash = BaselineManager.ComputeSnapshotHash(
             SnapshotConversion.FromSchema(currentSchema),
             procedures,
             baseline.Provider,
             baseline.SchemaScope,
-            currentSchema.LengthSemantics,
-            SnapshotConversion.ResolveUniformCharset(currentSchema));
+            lengthSemantics,
+            charset);
         var message = currentProcedures is null && baseline.StoredProcedures is { Count: > 0 }
             ? "Stored procedures were not compared: no current procedures were supplied."
             : string.Empty;
@@ -637,13 +655,15 @@ public static class DataGuardFactory
     }
 
     /// <summary>
-    /// Creates an audit logger.
+    /// Creates an audit logger: keyed from <c>DATAGUARD_AUDIT_KEY</c> or <see cref="DataGuardConfiguration.AuditKeyFile"/>
+    /// (see <see cref="FileAuditLogger.Create"/>) when audit logging is enabled.
     /// </summary>
     /// <returns></returns>
     public static IAuditLogger CreateAuditLogger(DataGuardConfiguration config)
     {
+        ArgumentNullException.ThrowIfNull(config);
         return config.EnableAuditLogging
-            ? new FileAuditLogger(config.AuditLogPath)
+            ? FileAuditLogger.Create(config)
             : new NullAuditLogger();
     }
 

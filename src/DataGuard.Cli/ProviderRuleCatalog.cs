@@ -70,27 +70,27 @@ public static class ProviderRuleCatalog
         }
         else if (provider.Equals("mysql", StringComparison.OrdinalIgnoreCase))
         {
-            Add(rules, new MySqlSyntaxInNonMySqlContextRule());
+            Add(rules, new MySqlSyntaxInNonMySqlContextRule(provider));
             Add(rules, new NonMySqlSyntaxInMySqlContextRule());
             Add(rules, new MySqlVarcharByteLimitRule());
             Add(rules, new MySqlLengthExceedsColumnRule());
             Add(rules, new MySqlUtf8mb4ByteOverflowRule());
             Add(rules, new MySqlTextOverflowRule());
             Add(rules, new MySqlInferredSizeFallbackRule());
-            Add(rules, new OracleSyntaxInNonOracleContextRule());
+            Add(rules, new OracleSyntaxInNonOracleContextRule(provider));
         }
         else if (provider.Equals("postgresql", StringComparison.OrdinalIgnoreCase) || provider.Equals("postgres", StringComparison.OrdinalIgnoreCase))
         {
-            Add(rules, new PostgreSqlSyntaxInNonPostgreSqlContextRule());
+            Add(rules, new PostgreSqlSyntaxInNonPostgreSqlContextRule(provider));
             Add(rules, new NonPostgreSqlSyntaxInPostgreSqlContextRule());
             Add(rules, new PostgreSqlLengthExceedsColumnRule());
             Add(rules, new PostgreSqlProviderOptionMismatchRule(), RuleAvailability.Unavailable, "Requires analyzer DbContext provider-registration metadata.");
             Add(rules, new PostgreSqlRawSqlUnmappedTypeUsageRule());
-            Add(rules, new OracleSyntaxInNonOracleContextRule());
+            Add(rules, new OracleSyntaxInNonOracleContextRule(provider));
         }
         else if (provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
         {
-            Add(rules, new OracleSyntaxInNonOracleContextRule());
+            Add(rules, new OracleSyntaxInNonOracleContextRule(provider));
         }
         return rules;
     }

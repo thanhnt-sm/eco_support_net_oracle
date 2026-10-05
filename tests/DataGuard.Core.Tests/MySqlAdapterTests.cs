@@ -288,14 +288,34 @@ public class MySqlDialectCheckerTests
     [Fact]
     public void CheckMySqlLengthLimits_LongTextColumn_EntityWithinMax_NoViolation()
     {
-        // LONGTEXT max = 4294967295, int.MaxValue = 2147483647 < max → no violation
+        // LONGTEXT max = 4294967295 bytes; 1,000,000,000 chars × 3 bytes (utf8mb4 per UTF-16 unit) = 3e9 bytes < max
         var entity = new EntityDescriptor("e1", "User", "User", "Users",
-            new[] { new PropertyDescriptor("Content", "string", "content", "longtext", true, 2147483647, false, false, null) });
+            new[] { new PropertyDescriptor("Content", "string", "content", "longtext", true, 1_000_000_000, false, false, null) });
         var columns = new[] { new ColumnDescriptor("content", "LONGTEXT", null, null, null, true, null) };
 
         var violations = _checker.CheckMySqlLengthLimits(entity, columns);
 
         violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckMySqlLengthLimits_TextLimitsAreBytes_ConsistentWithMy006()
+    {
+        // 30,000 characters fit TEXT's 65,535 when counted as characters, but need 90,000 bytes in utf8mb4: MY003 and
+        // MY006 (MySqlLengthMismatchDetector) must agree that this overflows.
+        var entity = new EntityDescriptor("e1", "User", "User", "Users",
+            new[] { new PropertyDescriptor("Body", "string", "body", "text", true, 30_000, false, false, null) });
+        var utf8 = new[] { new ColumnDescriptor("body", "TEXT", null, null, null, true, null, Charset: "utf8mb4") };
+        var latin1 = new[] { new ColumnDescriptor("body", "TEXT", null, null, null, true, null, Charset: "latin1") };
+
+        var my003 = _checker.CheckMySqlLengthLimits(entity, utf8).Should().ContainSingle(v => v.RuleId == "MY003").Subject;
+        my003.Message.Should().Contain("90000 bytes").And.Contain("65535 bytes");
+        my003.Properties!["entityMaxBytes"].Should().Be(90_000L);
+        new MySqlLengthMismatchDetector().Detect(entity, utf8).Should().Contain(v => v.RuleId == "MY006");
+
+        // latin1: 1 byte per character, 30,000 bytes fit.
+        _checker.CheckMySqlLengthLimits(entity, latin1).Should().BeEmpty();
+        new MySqlLengthMismatchDetector().Detect(entity, latin1).Should().NotContain(v => v.RuleId == "MY006");
     }
 
     [Fact]

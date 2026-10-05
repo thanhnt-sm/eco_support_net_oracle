@@ -280,9 +280,7 @@ public class PublicApiAndPipelineTests
         {
             var emptySchema = Array.Empty<SnapshotTable>();
             await new BaselineManager(baselinePath).CreateBaselineAsync(
-                Array.Empty<ContractViolation>(), "1.0", "Snapshot",
-                schemaHash: BaselineManager.ComputeSchemaHash(emptySchema, null, null, "v1"),
-                schema: emptySchema);
+                Array.Empty<ContractViolation>(), "1.0", "Snapshot", schema: emptySchema);
             using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration { BaselineFilePath = baselinePath, EnableSmartDefaults = false });
             var report = await pipeline.CheckDriftAsync(new DatabaseSchemaDescriptor("current", Array.Empty<DatabaseTableDescriptor>(), "CHAR"));
             report.Status.Should().Be(DriftEvaluationStatus.Complete);
@@ -931,6 +929,46 @@ public class PipelineUnifiedTests
 
             report.Status.Should().Be(DriftEvaluationStatus.Corrupt);
             report.DriftDetected.Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CheckDriftAsync_BaselineManagerSchemaBaseline_AndLegacyV3_AreBothEvaluated(bool legacyV3)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-schema-baseline-{Guid.NewGuid():N}.json");
+        try
+        {
+            var schema = Schema(new ColumnDescriptor("ID", "int", null, 10, 0, false, null, null));
+            var tables = SnapshotConversion.FromSchema(schema);
+            if (legacyV3)
+            {
+                await LegacySnapshotFiles.WriteV3Async(path, tables, "sqlserver", "dbo");
+            }
+            else
+            {
+                var written = await new BaselineManager(path).CreateBaselineAsync(
+                    Array.Empty<ContractViolation>(), "1.0", "Snapshot", schema: tables, provider: "sqlserver", schemaScope: "dbo");
+                written.Version.Should().Be(SnapshotFormat.WithStoredProceduresVersion);
+            }
+
+            using var pipeline = DataGuardApi.CreatePipeline(Config(baselinePath: path) with { DefaultProvider = "sqlserver", DefaultSchema = "dbo" });
+
+            var same = await pipeline.CheckDriftAsync(schema);
+            same.Status.Should().Be(DriftEvaluationStatus.Complete, same.Message);
+            same.DriftDetected.Should().BeFalse();
+            same.CurrentHash.Should().Be(same.BaselineHash);
+
+            var widened = await pipeline.CheckDriftAsync(Schema(
+                new ColumnDescriptor("ID", "int", null, 10, 0, false, null, null),
+                new ColumnDescriptor("NAME", "nvarchar", 100, null, null, true, null, 100)));
+            widened.Status.Should().Be(DriftEvaluationStatus.Complete);
+            widened.DriftDetected.Should().BeTrue();
         }
         finally
         {

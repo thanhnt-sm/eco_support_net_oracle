@@ -204,15 +204,33 @@ public class SnapshotV3Tests : IDisposable
     public async Task LoadAsync_V3TablesOnly_StillWorks_AndHasNoProcedures()
     {
         var path = Path.Combine(_dir, "v3.json");
-        var v3 = await new BaselineManager(path).CreateBaselineAsync(
+        await LegacySnapshotFiles.WriteV3Async(path, Tables(), "oracle", "APP");
+
+        var loaded = (await new BaselineManager(path).LoadAsync())!;
+
+        loaded.Version.Should().Be(SnapshotFormat.TablesOnlyVersion);
+        loaded.SchemaHashKind.Should().Be(SnapshotFormat.CanonicalSchemaV1HashKind);
+        loaded.StoredProcedures.Should().BeNull();
+        SnapshotConversion.ToProcedures(loaded).Should().BeEmpty();
+        SnapshotConversion.ToSchemaDescriptor(loaded)!.LengthSemantics.Should().Be(SnapshotConversion.LegacyLengthSemantics);
+        BaselineManager.VerifySnapshotIntegrity(loaded).Status.Should().Be(SnapshotIntegrityStatus.Verified);
+    }
+
+    [Fact]
+    public async Task CreateBaselineAsync_WithSchema_WritesV4WithEmptyProcedures_AndVerifies()
+    {
+        var path = Path.Combine(_dir, "schema-baseline.json");
+        var written = await new BaselineManager(path).CreateBaselineAsync(
             Array.Empty<ContractViolation>(), "1.0", "Snapshot", "19.0", schema: Tables(), provider: "oracle", schemaScope: "APP");
 
         var loaded = (await new BaselineManager(path).LoadAsync())!;
 
-        v3.Version.Should().Be(SnapshotFormat.TablesOnlyVersion);
-        loaded.StoredProcedures.Should().BeNull();
-        SnapshotConversion.ToProcedures(loaded).Should().BeEmpty();
-        SnapshotConversion.ToSchemaDescriptor(loaded)!.LengthSemantics.Should().Be(SnapshotConversion.LegacyLengthSemantics);
+        written.Version.Should().Be(SnapshotFormat.WithStoredProceduresVersion);
+        loaded.Version.Should().Be(SnapshotFormat.WithStoredProceduresVersion);
+        loaded.SchemaHashKind.Should().Be(SnapshotFormat.CanonicalSchemaV2HashKind);
+        loaded.SchemaCanonicalizationVersion.Should().Be(SnapshotFormat.CanonicalizationV2);
+        loaded.StoredProcedures.Should().NotBeNull().And.BeEmpty();
+        loaded.SchemaHash.Should().Be(BaselineManager.ComputeSnapshotHash(Tables(), null, "oracle", "APP", null, null));
         BaselineManager.VerifySnapshotIntegrity(loaded).Status.Should().Be(SnapshotIntegrityStatus.Verified);
     }
 
@@ -290,5 +308,43 @@ public class SnapshotV3Tests : IDisposable
         SnapshotConversion.ResolveUniformCharset(Schema("AL32UTF8", null, "al32utf8")).Should().Be("AL32UTF8");
         SnapshotConversion.ResolveUniformCharset(Schema("AL32UTF8", "AL16UTF16")).Should().BeNull();
         SnapshotConversion.ResolveUniformCharset(Schema(null, null)).Should().BeNull();
+    }
+}
+
+/// <summary>
+/// Writes snapshot files in the format earlier releases produced, so load/verify/validate keep covering them now that
+/// every writer in this build emits format version 4.
+/// </summary>
+internal static class LegacySnapshotFiles
+{
+    private static readonly System.Text.Json.JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+    };
+
+    /// <summary>Writes a version 3 (tables only, <c>canonical-schema-v1</c>) snapshot, as releases before format 4 did.</summary>
+    public static async Task<BaselineFile> WriteV3Async(
+        string path,
+        IReadOnlyList<SnapshotTable> schema,
+        string? provider,
+        string? schemaScope = null,
+        string databaseVersion = "19.0")
+    {
+        var file = new BaselineFile(
+            SnapshotFormat.TablesOnlyVersion,
+            DateTimeOffset.UtcNow,
+            "1.0",
+            "Snapshot",
+            databaseVersion,
+            BaselineManager.ComputeSchemaHash(schema, provider, schemaScope, SnapshotFormat.CanonicalizationV1),
+            Array.Empty<BaselineViolation>(),
+            schema,
+            SnapshotFormat.CanonicalSchemaV1HashKind,
+            provider,
+            schemaScope,
+            SnapshotFormat.CanonicalizationV1);
+        await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(file, Options));
+        return file;
     }
 }

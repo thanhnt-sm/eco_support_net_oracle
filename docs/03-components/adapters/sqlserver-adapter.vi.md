@@ -101,9 +101,10 @@ sequenceDiagram
 Truy vấn `sys.procedures` kết hợp với `sys.schemas` để lấy tất cả stored procedure do người dùng định nghĩa:
 
 ```sql
-SELECT p.object_id, p.name, s.name AS schema_name
+SELECT p.object_id, p.name, s.name AS schema_name, m.definition
 FROM sys.procedures p
 INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+LEFT JOIN sys.sql_modules m ON m.object_id = p.object_id
 WHERE p.is_ms_shipped = 0
 ```
 
@@ -113,7 +114,8 @@ Cho mỗi procedure, đọc tham số từ `sys.parameters` kết hợp với `s
 
 ```sql
 SELECT p.name, t.name AS DataType, p.max_length, p.precision,
-       p.scale, p.is_nullable, p.parameter_id, p.is_output
+       p.scale, p.is_nullable, p.parameter_id, p.is_output,
+       t.system_type_id, p.has_default_value
 FROM sys.parameters p
 INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
 WHERE p.object_id = @ObjectId
@@ -123,6 +125,7 @@ ORDER BY p.parameter_id
 **Chi tiết quan trọng:**
 - `max_length = -1` biểu thị kiểu `MAX` (ví dụ: `varchar(max)`) — chuẩn hóa thành `null`
 - `is_output = true` ánh xạ thành `ParameterDirection.InputOutput` (SQL Server dùng từ khóa `OUTPUT`)
+- **Giá trị mặc định** (`ParameterDescriptor.HasDefault`): `sys.parameters.has_default_value` chỉ được điền cho procedure CLR, nên định nghĩa procedure trong `sys.sql_modules` được parse bằng ScriptDOM (`TSql160Parser`) và mọi tham số `@name type = <default>` (`ProcedureParameter.Value != null`) có `HasDefault = true` (`SqlServerStoredProcedureParser.ParseDefaultedParameters`). Vì vậy DG101 không báo tham số có mặc định bị bỏ qua là thiếu. Định nghĩa bị mã hóa hoặc không parse được thì không có mặc định T-SQL.
 - Direction được đơn giản hóa: SQL Server chỉ có `INPUT` và `OUTPUT` (không có `IN OUT` như Oracle)
 
 ### Khám phá cột bộ kết quả

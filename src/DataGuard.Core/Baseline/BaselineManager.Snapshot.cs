@@ -38,15 +38,42 @@ public partial class BaselineManager
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(violations);
-        var procedures = storedProcedures ?? Array.Empty<SnapshotStoredProcedure>();
-        var snapshot = new BaselineFile(
+        var snapshot = BuildSnapshotFile(
+            ToBaselineViolations(violations),
+            schemaVersion,
+            "Snapshot",
+            databaseVersion ?? "unknown",
+            schema,
+            storedProcedures ?? Array.Empty<SnapshotStoredProcedure>(),
+            provider,
+            schemaScope,
+            lengthSemantics,
+            charset);
+
+        await SaveAsync(snapshot, cancellationToken);
+        return snapshot;
+    }
+
+    // Single version 4 writer shape shared by CreateSnapshotAsync and the schema overload of CreateBaselineAsync.
+    private static BaselineFile BuildSnapshotFile(
+        IReadOnlyList<BaselineViolation> violations,
+        string schemaVersion,
+        string groundTruthMode,
+        string databaseVersion,
+        IReadOnlyList<SnapshotTable>? schema,
+        IReadOnlyList<SnapshotStoredProcedure> procedures,
+        string? provider,
+        string? schemaScope,
+        string? lengthSemantics,
+        string? charset) =>
+        new(
             Version: SnapshotFormat.WithStoredProceduresVersion,
             CreatedAt: DateTimeOffset.UtcNow,
             SchemaVersion: schemaVersion,
-            GroundTruthMode: "Snapshot",
-            DatabaseVersion: databaseVersion ?? "unknown",
+            GroundTruthMode: groundTruthMode,
+            DatabaseVersion: databaseVersion,
             SchemaHash: ComputeSnapshotHash(schema, procedures, provider, schemaScope, lengthSemantics, charset),
-            Violations: ToBaselineViolations(violations),
+            Violations: violations,
             Schema: schema,
             SchemaHashKind: SnapshotFormat.CanonicalSchemaV2HashKind,
             Provider: provider,
@@ -55,10 +82,6 @@ public partial class BaselineManager
             LengthSemantics: lengthSemantics,
             Charset: charset,
             StoredProcedures: procedures);
-
-        await SaveAsync(snapshot, cancellationToken);
-        return snapshot;
-    }
 
     /// <summary>
     /// Computes the <see cref="SnapshotFormat.CanonicalSchemaV2HashKind"/> hash: uppercase SHA-256 hex over a canonical

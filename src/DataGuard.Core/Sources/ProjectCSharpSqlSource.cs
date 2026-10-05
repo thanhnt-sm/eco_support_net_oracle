@@ -220,6 +220,12 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
         public string? ProcedureRawName { get; init; }
 
         public IReadOnlyList<CallBinding> Bindings { get; init; } = Array.Empty<CallBinding>();
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="Bindings"/> is the whole argument list. False for a
+        /// <c>CommandType.StoredProcedure</c> call whose parameters the extractor cannot see.
+        /// </summary>
+        public bool ArgumentsKnown { get; init; } = true;
     }
 
     /// <summary>Per-run state: descriptors, deduplication sets and diagnostics.</summary>
@@ -371,6 +377,7 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
                 ProcedureName = procedureName,
                 ProcedureSchema = procedureSchema,
                 ProcedurePackage = procedurePackage,
+                ArgumentsKnown = candidate.ArgumentsKnown,
             };
 
             SeenSqlTexts.Add(sqlText.Trim());

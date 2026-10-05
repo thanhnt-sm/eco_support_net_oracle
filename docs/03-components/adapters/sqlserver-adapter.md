@@ -103,9 +103,10 @@ sequenceDiagram
 Queries `sys.procedures` joined with `sys.schemas` to get all user-defined stored procedures:
 
 ```sql
-SELECT p.object_id, p.name, s.name AS schema_name
+SELECT p.object_id, p.name, s.name AS schema_name, m.definition
 FROM sys.procedures p
 INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+LEFT JOIN sys.sql_modules m ON m.object_id = p.object_id
 WHERE p.is_ms_shipped = 0
 ```
 
@@ -115,7 +116,8 @@ For each procedure, reads parameters from `sys.parameters` joined with `sys.type
 
 ```sql
 SELECT p.name, t.name AS DataType, p.max_length, p.precision,
-       p.scale, p.is_nullable, p.parameter_id, p.is_output
+       p.scale, p.is_nullable, p.parameter_id, p.is_output,
+       t.system_type_id, p.has_default_value
 FROM sys.parameters p
 INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
 WHERE p.object_id = @ObjectId
@@ -126,6 +128,7 @@ ORDER BY p.parameter_id
 - `max_length = -1` indicates `MAX` types (e.g., `varchar(max)`) — normalized to `null`
 - `max_length` is in bytes; `nchar`/`nvarchar` (system type 239/231, including `sysname`) are divided by 2 so `nvarchar(50)` ⇒ `MaxLength = 50` (characters, like `INFORMATION_SCHEMA`). The same normalization applies to `sp_describe_first_result_set` result columns (`SqlServerStoredProcedureParser.NormalizeMaxLength`).
 - `is_output = true` maps to `ParameterDirection.InputOutput` (SQL Server uses `OUTPUT` keyword)
+- **Defaults** (`ParameterDescriptor.HasDefault`): `sys.parameters.has_default_value` is set only for CLR procedures, so the procedure definition from `sys.sql_modules` is parsed with ScriptDOM (`TSql160Parser`) and every `@name type = <default>` parameter (`ProcedureParameter.Value != null`) gets `HasDefault = true` (`SqlServerStoredProcedureParser.ParseDefaultedParameters`). DG101 therefore does not report an omitted defaulted parameter as missing. An encrypted or unparsable definition yields no T-SQL defaults.
 - Direction is simplified: SQL Server only has `INPUT` and `OUTPUT` (no `IN OUT` like Oracle)
 
 ### Result Column Discovery

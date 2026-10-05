@@ -88,7 +88,7 @@ public static class StoredProcedureCallParser
             var arguments = written
                 .Select((arg, index) => Enrich(arg, index, parsed.Syntax, parameters))
                 .ToList();
-            return new StoredProcedureCallSite(nameParts, schema, package, parsed.Syntax, arguments, ArgumentsKnown: true);
+            return new StoredProcedureCallSite(nameParts, schema, package, parsed.Syntax, arguments, ArgumentsKnown: descriptor.ArgumentsKnown);
         }
 
         if (parameters.Count > 0)
@@ -97,12 +97,14 @@ public static class StoredProcedureCallParser
                 .OrderBy(p => p.OrdinalPosition)
                 .Select((p, index) => FromParameter(p, index))
                 .ToList();
-            return new StoredProcedureCallSite(nameParts, schema, package, parsed?.Syntax ?? StoredProcedureCallSyntax.NameOnly, arguments, ArgumentsKnown: true);
+
+            // Parameters the extractor saw; RawSqlDescriptor.ArgumentsKnown says whether they are the whole argument list.
+            return new StoredProcedureCallSite(nameParts, schema, package, parsed?.Syntax ?? StoredProcedureCallSyntax.NameOnly, arguments, ArgumentsKnown: descriptor.ArgumentsKnown);
         }
 
         // "EXEC p" / "CALL p" / "BEGIN p; END;" written as SQL text is a real zero-argument call. A name-only call
         // (CommandType.StoredProcedure, synthesized "EXEC name") without extracted parameters has an unknown argument list.
-        var argumentsKnown = parsed is not null && !descriptor.IsStoredProcedure;
+        var argumentsKnown = parsed is not null && !descriptor.IsStoredProcedure && descriptor.ArgumentsKnown;
         return new StoredProcedureCallSite(
             nameParts,
             schema,

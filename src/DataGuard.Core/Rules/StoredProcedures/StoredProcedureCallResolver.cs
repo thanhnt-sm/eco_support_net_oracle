@@ -232,12 +232,14 @@ public static class StoredProcedureCallResolver
             var candidates = overloads.Select(e => e.Procedure).ToList();
             if (!site.ArgumentsKnown)
             {
+                // The argument list was not (fully) observed: resolve the procedure and bind whatever arguments were seen
+                // (DG002/DG003 still check them), but never report missing or extra arguments (DG101).
                 return overloads.Count == 1
                     ? new StoredProcedureResolution(
                         StoredProcedureResolutionStatus.Resolved,
                         site,
                         overloads[0].Procedure,
-                        Array.Empty<StoredProcedureArgumentBinding>(),
+                        site.Arguments.Count == 0 ? Array.Empty<StoredProcedureArgumentBinding>() : Bind(overloads[0], site).Bindings,
                         Array.Empty<ParameterDescriptor>(),
                         Array.Empty<StoredProcedureCallArgument>(),
                         null,

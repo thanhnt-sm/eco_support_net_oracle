@@ -117,6 +117,16 @@ public sealed class MySqlLengthMismatchDetector
         { "LONGBLOB", 4_294_967_295L },
     };
 
+    /// <summary>Returns the byte limit of a TEXT family type (TINYTEXT, TEXT, MEDIUMTEXT, LONGTEXT).</summary>
+    /// <param name="dataType">Column data type.</param>
+    /// <param name="maxBytes">The limit in bytes.</param>
+    /// <returns>True for a TEXT family type.</returns>
+    internal static bool TryGetTextTypeMaxBytes(string? dataType, out long maxBytes)
+    {
+        maxBytes = 0;
+        return !string.IsNullOrWhiteSpace(dataType) && TextTypeMaxBytes.TryGetValue(dataType.Trim(), out maxBytes);
+    }
+
     /// <summary>
     /// Worst-case bytes one UTF-16 code unit (one <c>char</c> of a .NET string) needs in <paramref name="charset"/>:
     /// utf8mb4/utf8mb3/utf8 = 3 (a supplementary character is 2 units / 4 bytes), ucs2/utf16/utf16le = 2, utf32 = 4,
@@ -366,7 +376,7 @@ public sealed class MySqlLengthMismatchDetector
     /// Column charset: <see cref="ColumnDescriptor.Charset"/>; snapshots written before it existed carried the charset in
     /// <see cref="ColumnDescriptor.CharUsed"/>, which is honored when it is not an Oracle B/C marker; default utf8mb4.
     /// </summary>
-    private static string ResolveCharset(ColumnDescriptor column)
+    internal static string ResolveCharset(ColumnDescriptor column)
     {
         if (!string.IsNullOrWhiteSpace(column.Charset))
         {
@@ -376,7 +386,7 @@ public sealed class MySqlLengthMismatchDetector
         return column.CharUsed is { Length: > 1 } legacy ? legacy : "utf8mb4";
     }
 
-    private static bool IsStringType(string? clrTypeName)
+    internal static bool IsStringType(string? clrTypeName)
     {
         return clrTypeName switch
         {
