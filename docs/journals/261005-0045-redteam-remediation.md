@@ -33,9 +33,23 @@ Six agents per wave in isolated git worktrees, each with a disjoint file scope, 
 
 _Pending at the time of writing: `Program.cs`/`Rules/*Rule.cs` (one file per rule) splits, typed YAML binding, verify-shape MySQL, snapshot `Provider` required; Core follow-ups (type registry, v4 baselines in the API, keyed audit in the API, PG002 dedupe, own-dialect false positives, SQL Server `HasDefault`, `ArgumentsKnown`, MY003 bytes)._
 
-## 5. Final verification (filled at the end)
+## 5. Final verification (HEAD `95a5120`)
 
-_Pending._
+| Check | Result |
+|---|---|
+| `dotnet build DataGuard.CrossPlatform.slnf -c Release -p:RunAnalyzers=true` | 0 warnings, 0 errors |
+| `dotnet format --verify-no-changes` | clean |
+| `dotnet test DataGuard.CrossPlatform.slnf` | 1997 passed / 15 skipped / 0 failed (Core 1764, Analyzers 97, GoldenCorpus 61, Observability 38, CodeFixes 37); the 15 skips are 5 Windows-only junction tests and 10 LiveDb tests |
+| LiveDb (`DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 --filter Category=LiveDb`) | 10 passed / 0 failed against real Oracle 23 Free, SQL Server 2022, MySQL 8.4 and PostgreSQL 16 containers (package overloads, 0-argument subprograms, REF CURSOR describe, SQL Server defaulted parameter, MySQL functions and live describe) |
+| Line coverage (CI gate method, ≥ 60 %) | 70.99 % (14 635 / 20 615 lines, deduplicated across the five reports) |
+| `tests/DataGuard.BinaryCompatibilityFixture` against current Core | builds, 0 warnings |
+| E2E `validate` in snapshot mode (v4 snapshot with one table and one procedure per provider; clean repo) | sqlserver / oracle / postgresql / mysql: exit 0, `Using snapshot .dataguard-snapshot.json`, 0 findings |
+| E2E seeded phantom table + call missing a required parameter | all four providers: `DG015` Error (exit 1) and `DG101` Warning naming the missing parameter |
+| Mutation spot checks | AL32UTF8 factor 3→4: 4 tests fail; DG101 `EXECUTE` prefix removed: 2 tests fail; schema-keyed table index disabled: 1 test fails (the last two guards were added in `95a5120` after the first run survived) |
+| `scripts/check-workflow-policy.py`, `scripts/tests` (92), `verify_docs_sync.sh` (rule table + CLI flag content checks), `check-license-consistency.py` | all pass |
+| Not run here | `docker build` of the Dockerfile (proxy CA not trusted inside the build container); `DataGuard.sln` Windows projects (VS extension) — covered by the Windows CI jobs |
+
+Totals: 59 commits on top of `046f91d`, 402 files changed, golden corpus 8 → 34 cases, `DataGuard.Core.csproj` has no SqlClient, ScriptDom or AWSSDK reference.
 
 ## 6. Deferred (owner decisions)
 
