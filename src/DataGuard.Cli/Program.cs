@@ -288,6 +288,13 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         Console.WriteLine($"Using snapshot {RelativizeToWorkspace(Directory.GetCurrentDirectory(), defaultSnapshot)}");
     }
 
+    // Snapshot checks (red-team H4): a provider mismatch or a tampered snapshot is UNEVALUATED (exit 3); age and a
+    // tables-only snapshot only warn.
+    if (!await CheckSnapshotForValidateAsync(config, provider, ct))
+    {
+        return;
+    }
+
     progress?.Emit(new ProgressEvent(
         ProgressEventKind.PhaseStarted,
         "Acquiring contracts",
@@ -1029,15 +1036,30 @@ baselineCommand.SetAction(
         config = config with
         {
             DefaultSchema = schema ?? config.DefaultSchema,
-            DefaultPackage = package ?? config.DefaultPackage
+            DefaultPackage = package ?? config.DefaultPackage,
+
+            // The baseline being (re)written must see every current finding, not only those the old baseline lets through.
+            EnableBaseline = false,
         };
 
         try
         {
+            var outputPath = output ?? config.BaselineFilePath ?? ".dataguard-baseline.json";
+            if (string.IsNullOrWhiteSpace(config.ConnectionString) && config.GroundTruthMode != GroundTruthMode.Manual)
+            {
+                // Same offline source validate uses, so baseline fingerprints are computed over the same findings.
+                config = config with { GroundTruthMode = GroundTruthMode.Snapshot };
+                if (string.IsNullOrWhiteSpace(config.SnapshotFilePath)
+                    && CliConfigurationResolver.FindDefaultSnapshot(configPath, Directory.GetCurrentDirectory()) is { } defaultSnapshot)
+                {
+                    config = config with { SnapshotFilePath = defaultSnapshot };
+                }
+            }
+
             var violations = await RunValidationAsync(config, provider, verbose, ct);
 
-            var outputPath = output ?? config.BaselineFilePath ?? ".dataguard-baseline.json";
             var baselineManager = new BaselineManager(outputPath);
+            var previous = File.Exists(outputPath) ? await baselineManager.LoadAsync(ct) : null;
 
             var dbVersion = await GetDatabaseVersionAsync(config, provider, ct);
             var schemaHash = ComputeSchemaHash(violations);
@@ -1050,7 +1072,12 @@ baselineCommand.SetAction(
                 schemaHash,
                 cancellationToken: ct);
 
-            Console.WriteLine($"Baseline created with {baseline.Violations.Count} violations at {outputPath}");
+            Console.WriteLine($"Baseline created with {violations.Count} violations ({baseline.Violations.Count} fingerprints) at {outputPath}");
+            if (previous is not null && BaselineManager.CountLegacyEntries(previous) is > 0 and var upgraded)
+            {
+                Console.WriteLine($"Upgraded {upgraded} legacy entries to fingerprint {BaselineManager.FingerprintKey}");
+            }
+
             Console.WriteLine($"Database version: {dbVersion}");
             Console.WriteLine($"Schema hash: {schemaHash}");
         }
@@ -1120,57 +1147,28 @@ snapshotRefreshCommand.SetAction(
             var baselineManager = new BaselineManager(snapshotPath);
 
             var dbVersion = await GetDatabaseVersionAsync(config, provider, ct);
-            var schemaHash = ComputeSchemaHash(violations);
 
-            // Persist ground-truth schema so Snapshot mode can validate offline.
-            IReadOnlyList<SnapshotTable>? snapshotSchema = acquisition.Contracts
-                .OfType<DatabaseSchemaDescriptor>()
-                .FirstOrDefault() is { } liveSchema
-                ? liveSchema.Tables
-                    .Select(table => new SnapshotTable(
-                        table.Name,
-                        table.Columns.Select(column => new SnapshotColumn(
-                            column.Name,
-                            column.DataType,
-                            column.MaxLength,
-                            column.CharLength,
-                            column.Precision,
-                            column.Scale,
-                            column.IsNullable,
-                            column.CharUsed,
-                            column.DataDefault,
-                            column.ColumnId)).ToList()))
-                    .ToList()
-                : null;
-
-            // Hash the schema itself when available: schema changes that produce no
-            // violations must still change the hash. Fall back to violation hashing
-            // only when no schema could be captured (non-Oracle / no connection).
-            if (snapshotSchema is not null)
-            {
-                schemaHash = BaselineManager.ComputeSchemaHash(
-                    snapshotSchema,
-                    provider,
-                    GetSchemaScope(config, provider),
-                    "v1");
-            }
-
-            var baseline = await baselineManager.CreateBaselineAsync(
+            // Snapshot v4 (red-team H4): tables with schema and charset, stored procedures (parameters, overloads,
+            // result columns), length semantics and charset, all covered by the canonical-schema-v2 hash.
+            var liveSchema = acquisition.Contracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault();
+            var snapshotSchema = liveSchema is null ? null : SnapshotConversion.FromSchema(liveSchema);
+            var snapshotProcedures = SnapshotConversion.FromProcedures(acquisition.Contracts);
+            var baseline = await baselineManager.CreateSnapshotAsync(
                 violations,
                 GetSchemaVersion(),
-                GroundTruthMode.Snapshot.ToString(),
                 dbVersion,
-                schemaHash,
                 snapshotSchema,
-                schemaHashKind: snapshotSchema is null ? "violation-sha256-prefix" : "canonical-schema-v1",
-                provider: provider,
-                schemaScope: GetSchemaScope(config, provider),
-                schemaCanonicalizationVersion: snapshotSchema is null ? null : "v1",
-                cancellationToken: ct);
+                snapshotProcedures,
+                provider,
+                GetSchemaScope(config, provider),
+                liveSchema?.LengthSemantics,
+                SnapshotConversion.ResolveUniformCharset(liveSchema),
+                ct);
 
             Console.WriteLine($"Snapshot refreshed with {baseline.Violations.Count} violations");
+            Console.WriteLine($"Snapshot format version: {baseline.Version} ({snapshotSchema?.Count ?? 0} tables, {snapshotProcedures.Count} stored procedures)");
             Console.WriteLine($"Database version: {dbVersion}");
-            Console.WriteLine($"Schema hash: {schemaHash}");
+            Console.WriteLine($"Schema hash: {baseline.SchemaHash}");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1233,7 +1231,15 @@ snapshotShowCommand.SetAction(
         Console.WriteLine($"  Provider: {baseline.Provider ?? "unknown"}");
         Console.WriteLine($"  Schema Scope: {baseline.SchemaScope ?? "unknown"}");
         Console.WriteLine($"  Canonicalization: {baseline.SchemaCanonicalizationVersion ?? "unknown"}");
-        Console.WriteLine($"  Created: {baseline.CreatedAt:yyyy-MM-dd HH:mm:ss}");
+        Console.WriteLine($"  Length Semantics: {baseline.LengthSemantics ?? "unknown"}");
+        Console.WriteLine($"  Charset: {baseline.Charset ?? "unknown"}");
+        Console.WriteLine($"  Created: {baseline.CreatedAt:yyyy-MM-dd HH:mm:ss} ({Math.Max(0, (int)(DateTimeOffset.UtcNow - baseline.CreatedAt).TotalDays)} days old)");
+        Console.WriteLine($"  Tables: {baseline.Schema?.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"} (columns: {baseline.Schema?.Sum(table => table.Columns?.Count ?? 0) ?? 0})");
+        Console.WriteLine(baseline.StoredProcedures is null
+            ? "  Stored Procedures: none (format predates version 4; run 'dataguard snapshot refresh')"
+            : $"  Stored Procedures: {baseline.StoredProcedures.Count} (parameters: {baseline.StoredProcedures.Sum(procedure => procedure.Parameters?.Count ?? 0)})");
+        var integrity = BaselineManager.VerifySnapshotIntegrity(baseline);
+        Console.WriteLine($"  Integrity: {integrity.Status}{(integrity.Reason is null ? string.Empty : " (" + integrity.Reason + ")")}");
         Console.WriteLine($"  Violations: {baseline.Violations.Count}");
     });
 
@@ -1284,16 +1290,26 @@ snapshotDiffCommand.SetAction(
             return;
         }
 
+        if (baseline.Version > SnapshotFormat.LatestVersion)
+        {
+            Console.Error.WriteLine($"UNEVALUATED: snapshot format version {baseline.Version} is newer than this DataGuard supports ({SnapshotFormat.LatestVersion}).");
+            Environment.ExitCode = 3;
+            return;
+        }
+
         if (baseline.Version >= 3)
         {
-            if (!string.Equals(baseline.SchemaHashKind, "canonical-schema-v1", StringComparison.Ordinal))
+            var hasProcedureFormat = baseline.Version >= SnapshotFormat.WithStoredProceduresVersion;
+            var expectedHashKind = hasProcedureFormat ? SnapshotFormat.CanonicalSchemaV2HashKind : SnapshotFormat.CanonicalSchemaV1HashKind;
+            var expectedCanonicalization = hasProcedureFormat ? SnapshotFormat.CanonicalizationV2 : SnapshotFormat.CanonicalizationV1;
+            if (!string.Equals(baseline.SchemaHashKind, expectedHashKind, StringComparison.Ordinal))
             {
                 Console.Error.WriteLine("UNEVALUATED: snapshot uses an unsupported schema hash kind.");
                 Environment.ExitCode = 3;
                 return;
             }
 
-            if (!string.Equals(baseline.SchemaCanonicalizationVersion, "v1", StringComparison.Ordinal))
+            if (!string.Equals(baseline.SchemaCanonicalizationVersion, expectedCanonicalization, StringComparison.Ordinal))
             {
                 Console.Error.WriteLine("UNEVALUATED: snapshot uses an unsupported schema canonicalization version.");
                 Environment.ExitCode = 3;
@@ -1319,6 +1335,13 @@ snapshotDiffCommand.SetAction(
             }
         }
 
+        if (BaselineManager.VerifySnapshotIntegrity(baseline) is { Status: SnapshotIntegrityStatus.Mismatch } diffIntegrity)
+        {
+            Console.Error.WriteLine($"UNEVALUATED: snapshot integrity check failed: {diffIntegrity.Reason}; run 'dataguard snapshot refresh'.");
+            Environment.ExitCode = 3;
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(config.ConnectionString))
         {
             Console.Error.WriteLine("UNEVALUATED: snapshot diff requires a fresh database schema acquisition; no connection was configured.");
@@ -1332,6 +1355,13 @@ snapshotDiffCommand.SetAction(
         // snapshot's version (patch/CU differences are ignored).
         var currentVersion = await GetDatabaseVersionAsync(config, provider, ct);
         var snapshotMajorMinor = System.Text.RegularExpressions.Regex.Match(baseline.DatabaseVersion ?? "", @"(\d+)\.(\d+)");
+        var currentMajorMinor = System.Text.RegularExpressions.Regex.Match(currentVersion ?? "", @"(\d+)\.(\d+)");
+        if (snapshotMajorMinor.Success && currentMajorMinor.Success
+            && !string.Equals(snapshotMajorMinor.Value, currentMajorMinor.Value, StringComparison.Ordinal))
+        {
+            Console.WriteLine($"Warning: database version {currentMajorMinor.Value} differs from snapshot database version {snapshotMajorMinor.Value} (major.minor); run 'dataguard snapshot refresh'");
+        }
+
         var freshAcquisition = await AcquireContractsAsync(config, provider, ct);
         if (freshAcquisition.Status != ContractAcquisitionStatus.Complete)
         {
@@ -1358,7 +1388,7 @@ snapshotDiffCommand.SetAction(
         // Prefer schema-based hashing: drift means the schema changed, even when the
         // change produces no new violations. Legacy violation-only diff is an
         // explicit future opt-in and cannot be inferred from a structural command.
-        if (baseline.Schema is null)
+        if (baseline.Schema is null && baseline.StoredProcedures is null)
         {
             if (!legacyViolationDiff)
             {
@@ -1386,17 +1416,36 @@ snapshotDiffCommand.SetAction(
             return;
         }
 
-        var currentSnapshot = freshSchema!.Tables.Select(table => new SnapshotTable(
-                table.Name,
-                table.Columns.Select(column => new SnapshotColumn(
-                    column.Name, column.DataType, column.MaxLength, column.CharLength,
-                    column.Precision, column.Scale, column.IsNullable, column.CharUsed,
-                    column.DataDefault, column.ColumnId)).ToList())).ToList();
-        var currentSchemaHash = baseline.Version >= 3
-            ? BaselineManager.ComputeSchemaHash(currentSnapshot, provider, GetSchemaScope(config, provider), baseline.SchemaCanonicalizationVersion ?? "v1")
-            : BaselineManager.ComputeSchemaHash(currentSnapshot);
+        var hasProcedures = baseline.Version >= SnapshotFormat.WithStoredProceduresVersion;
+        IReadOnlyList<SnapshotTable>? currentSnapshot;
+        IReadOnlyList<SnapshotStoredProcedure>? currentProcedures = null;
+        string currentSchemaHash;
+        if (hasProcedures)
+        {
+            currentSnapshot = freshSchema is null ? null : SnapshotConversion.FromSchema(freshSchema);
+            currentProcedures = SnapshotConversion.FromProcedures(freshContracts);
+            currentSchemaHash = BaselineManager.ComputeSnapshotHash(
+                currentSnapshot,
+                currentProcedures,
+                provider,
+                GetSchemaScope(config, provider),
+                freshSchema?.LengthSemantics,
+                SnapshotConversion.ResolveUniformCharset(freshSchema));
+        }
+        else
+        {
+            currentSnapshot = freshSchema!.Tables.Select(table => new SnapshotTable(
+                    table.Name,
+                    table.Columns.Select(column => new SnapshotColumn(
+                        column.Name, column.DataType, column.MaxLength, column.CharLength,
+                        column.Precision, column.Scale, column.IsNullable, column.CharUsed,
+                        column.DataDefault, column.ColumnId)).ToList())).ToList();
+            currentSchemaHash = baseline.Version >= 3
+                ? BaselineManager.ComputeSchemaHash(currentSnapshot, provider, GetSchemaScope(config, provider), baseline.SchemaCanonicalizationVersion ?? "v1")
+                : BaselineManager.ComputeSchemaHash(currentSnapshot);
+        }
 
-        if (baseline.SchemaHash == currentSchemaHash)
+        if (string.Equals(baseline.SchemaHash, currentSchemaHash, StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine("No differences detected - schema matches snapshot");
             return;
@@ -1405,10 +1454,53 @@ snapshotDiffCommand.SetAction(
         Console.WriteLine("Schema differences detected:");
         Console.WriteLine($"  Snapshot hash: {baseline.SchemaHash}");
         Console.WriteLine($"  Current hash:  {currentSchemaHash}");
+        var difference = SnapshotComparer.Compare(
+            baseline.Schema,
+            hasProcedures ? baseline.StoredProcedures : null,
+            currentSnapshot,
+            currentProcedures);
+        WriteObjectDifferences("Tables", difference.TablesAdded, difference.TablesRemoved, difference.TablesChanged);
+        if (hasProcedures)
+        {
+            WriteObjectDifferences("Stored procedures", difference.ProceduresAdded, difference.ProceduresRemoved, difference.ProceduresChanged);
+            if (!string.Equals(baseline.LengthSemantics, freshSchema?.LengthSemantics, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"  Length semantics: {baseline.LengthSemantics ?? "unknown"} -> {freshSchema?.LengthSemantics ?? "unknown"}");
+            }
+        }
+
         Console.WriteLine();
         Console.WriteLine("Run 'dataguard snapshot refresh' to update snapshot");
 
         WriteDriftExitCode(failOnDrift);
+
+        static void WriteObjectDifferences(string title, IReadOnlyList<string> added, IReadOnlyList<string> removed, IReadOnlyList<SnapshotObjectChange> changed)
+        {
+            if (added.Count == 0 && removed.Count == 0 && changed.Count == 0)
+            {
+                return;
+            }
+
+            Console.WriteLine($"  {title}: {added.Count} added, {removed.Count} removed, {changed.Count} changed");
+            foreach (var name in added)
+            {
+                Console.WriteLine($"    + {name}");
+            }
+
+            foreach (var name in removed)
+            {
+                Console.WriteLine($"    - {name}");
+            }
+
+            foreach (var change in changed)
+            {
+                Console.WriteLine($"    ~ {change.Name}");
+                foreach (var detail in change.Details)
+                {
+                    Console.WriteLine($"        {detail}");
+                }
+            }
+        }
 
         static void WriteDriftExitCode(bool failOnDrift)
         {
@@ -2292,6 +2384,7 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
             "IncludeTelemetryEventDetails" => config with { IncludeTelemetryEventDetails = B() },
             "FailOnUnavailableRules" => config with { FailOnUnavailableRules = B() },
             "StrictConfig" => config with { StrictConfig = B() },
+            "SnapshotMaxAgeDays" => config with { SnapshotMaxAgeDays = I() },
             _ => config
         };
     }
@@ -2307,6 +2400,94 @@ static string SerializeConfig(DataGuardConfiguration config)
         .WithIndentedSequences()
         .Build();
     return serializer.Serialize(config);
+}
+
+// Validate-side snapshot checks (red-team H4). Returns false after reporting UNEVALUATED (exit 3).
+static async Task<bool> CheckSnapshotForValidateAsync(DataGuardConfiguration config, string provider, CancellationToken cancellationToken)
+{
+    if (config.GroundTruthMode != GroundTruthMode.Snapshot
+        || !string.IsNullOrEmpty(config.ConnectionString)
+        || string.IsNullOrEmpty(config.SnapshotFilePath)
+        || !File.Exists(config.SnapshotFilePath))
+    {
+        return true;
+    }
+
+    BaselineFile? snapshot;
+    try
+    {
+        snapshot = await new BaselineManager(config.SnapshotFilePath).LoadAsync(cancellationToken);
+    }
+    catch (Exception ex) when (ex is InvalidDataException or IOException or System.Text.Json.JsonException)
+    {
+        Console.Error.WriteLine($"UNEVALUATED: snapshot could not be read: {ex.Message}");
+        Environment.ExitCode = 3;
+        return false;
+    }
+
+    if (snapshot is null)
+    {
+        // Unparseable: contract acquisition reports the missing schema.
+        return true;
+    }
+
+    if (DescribeUnusableSnapshot(snapshot, provider) is { } unusable)
+    {
+        Console.Error.WriteLine($"UNEVALUATED: {unusable}");
+        Environment.ExitCode = 3;
+        return false;
+    }
+
+    var integrity = BaselineManager.VerifySnapshotIntegrity(snapshot);
+    if (integrity.Status == SnapshotIntegrityStatus.Unverifiable)
+    {
+        Console.Error.WriteLine($"Warning: snapshot integrity cannot be verified ({integrity.Reason}); run 'dataguard snapshot refresh'");
+    }
+
+    var ageDays = (int)Math.Floor((DateTimeOffset.UtcNow - snapshot.CreatedAt).TotalDays);
+    if (config.SnapshotMaxAgeDays > 0 && ageDays > config.SnapshotMaxAgeDays)
+    {
+        Console.Error.WriteLine($"Warning: snapshot is {ageDays} days old (SnapshotMaxAgeDays: {config.SnapshotMaxAgeDays}); run 'dataguard snapshot refresh'");
+    }
+
+    if (snapshot.StoredProcedures is null)
+    {
+        Console.Error.WriteLine("Warning: snapshot has no stored procedures; run 'dataguard snapshot refresh' to enable procedure checks");
+    }
+
+    return true;
+}
+
+// Reasons a loaded snapshot must not be used as ground truth: unknown format, other provider, or content that no
+// longer matches its SchemaHash. Null when it is usable.
+static string? DescribeUnusableSnapshot(BaselineFile snapshot, string provider)
+{
+    if (snapshot.Version > SnapshotFormat.LatestVersion)
+    {
+        return $"snapshot format version {snapshot.Version} is newer than this DataGuard supports ({SnapshotFormat.LatestVersion})";
+    }
+
+    if (!string.IsNullOrWhiteSpace(snapshot.Provider)
+        && !string.Equals(CanonicalProviderName(snapshot.Provider), CanonicalProviderName(provider), StringComparison.Ordinal))
+    {
+        return $"snapshot provider '{snapshot.Provider}' does not match '{provider}'";
+    }
+
+    var integrity = BaselineManager.VerifySnapshotIntegrity(snapshot);
+    if (integrity.Status == SnapshotIntegrityStatus.Mismatch)
+    {
+        return $"snapshot integrity check failed: {integrity.Reason} (stored {Abbreviate(integrity.StoredHash)}, computed {Abbreviate(integrity.ComputedHash)}); run 'dataguard snapshot refresh'";
+    }
+
+    return null;
+
+    static string Abbreviate(string? hash) => string.IsNullOrEmpty(hash) ? "none" : hash.Length > 16 ? hash[..16] : hash;
+}
+
+static string CanonicalProviderName(string provider)
+{
+    var normalized = provider.Trim().ToLowerInvariant();
+    return normalized == "postgres" ? "postgresql" : normalized;
 }
 
 static async Task<ContractAcquisitionResult> AcquireContractsAsync(
@@ -2380,16 +2561,22 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
     {
         var snapshotManager = new BaselineManager(config.SnapshotFilePath);
         var snapshot = await snapshotManager.LoadAsync(cancellationToken);
-        if (snapshot?.Schema is not null)
+        if (snapshot is not null)
         {
-            contracts.Add(new DatabaseSchemaDescriptor(
-                Id: "snapshot-schema",
-                Tables: snapshot.Schema
-                    .Select(t => new DatabaseTableDescriptor(
-                        t.Name,
-                        t.Columns.Select(c => new ColumnDescriptor(c.Name, c.DataType, c.MaxLength, c.Precision, c.Scale, c.IsNullable, c.CharUsed, c.CharLength, c.DataDefault, c.ColumnId ?? 0)).ToList()))
-                    .ToList(),
-                LengthSemantics: "CHAR"));
+            // Every snapshot consumer fails closed on a provider mismatch or tampered content (validate reports it first).
+            if (DescribeUnusableSnapshot(snapshot, provider) is { } unusable)
+            {
+                throw new InvalidDataException(unusable);
+            }
+
+            // Real length semantics and column charsets from the file (pre-v4 files fall back to CHAR), plus the
+            // persisted stored procedures (empty for tables-only snapshots).
+            if (SnapshotConversion.ToSchemaDescriptor(snapshot) is { } persistedSchema)
+            {
+                contracts.Add(persistedSchema);
+            }
+
+            contracts.AddRange(SnapshotConversion.ToProcedures(snapshot));
         }
     }
     else if (config.GroundTruthMode == GroundTruthMode.Manual && !string.IsNullOrEmpty(config.ManualAssemblyPath))
@@ -2552,6 +2739,13 @@ static async Task<(IReadOnlyList<ContractViolation> Violations, IReadOnlyList<Un
         var baseline = await baselineManager.LoadAsync(cancellationToken);
         if (baseline != null)
         {
+            // Legacy RuleId:Message entries still suppress (compat, red-team R6) but are imprecise: say how to upgrade.
+            var legacyEntries = BaselineManager.CountLegacyEntries(baseline);
+            if (legacyEntries > 0)
+            {
+                Console.Error.WriteLine($"baseline contains {legacyEntries} legacy entries; run 'dataguard baseline' to upgrade");
+            }
+
             var countBeforeBaseline = allViolations.Count;
             allViolations = baselineManager.FilterNewViolations(allViolations, baseline).ToList();
             var suppressedCount = countBeforeBaseline - allViolations.Count;

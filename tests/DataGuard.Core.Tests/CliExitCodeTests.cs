@@ -882,6 +882,98 @@ public class CliExitCodeTests
             run.Stderr.Should().MatchRegex(@"DG020 project-sql:[^\s]*Repo\.cs:\d+: Cannot determine result set shape for query \(describe failed\)");
             (run.Stdout + run.Stderr).Should().NotContain("[WARNING] DG020", "an undescribed shape is no longer a DG020 warning");
             (run.Stdout + run.Stderr).Should().NotContain("oracle-secret");
+
+    // ---- Snapshot v4 checks on validate (red-team H4) ----
+
+    /// <summary>Writes a version 4 <c>.dataguard-snapshot.json</c> (tables plus one stored procedure) through the production API.</summary>
+    private static async Task<string> WriteV4SnapshotAsync(string dir, string provider)
+    {
+        var path = Path.Combine(dir, ".dataguard-snapshot.json");
+        var tables = new List<SnapshotTable>
+        {
+            new("CUSTOMERS", new List<SnapshotColumn>
+            {
+                new("ID", "NUMBER", null, null, 22, 0, false, null),
+                new("NAME", "VARCHAR2", 100, 100, null, null, true, "C"),
+            }),
+        };
+        var procedures = SnapshotConversion.FromProcedures(new ContractDescriptor[]
+        {
+            new StoredProcedureDescriptor(
+                "proc:GET_CUSTOMER",
+                "GET_CUSTOMER",
+                "APP",
+                string.Empty,
+                new[] { new ParameterDescriptor("P_ID", "NUMBER", ParameterDirection.Input, null, 22, 0, false, 1) },
+                Array.Empty<ColumnDescriptor>(),
+                false),
+        });
+        await new BaselineManager(path).CreateSnapshotAsync(
+            Array.Empty<ContractViolation>(), "1.0", "19.0", tables, procedures, provider, null, "CHAR", null);
+        return path;
+    }
+
+    private static void RewriteSnapshot(string path, Action<System.Text.Json.Nodes.JsonNode> edit)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
+        edit(node);
+        File.WriteAllText(path, node.ToJsonString());
+    }
+
+    [Fact]
+    public async Task Validate_V4Snapshot_Exit0_WithoutLegacyWarnings()
+    {
+        var dir = NewTempDirectory("dg-cli-v4");
+        try
+        {
+            await WriteV4SnapshotAsync(dir, "sqlserver");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().NotContain("snapshot has no stored procedures").And.NotContain("days old").And.NotContain("integrity");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_TablesOnlySnapshot_WarnsThatProcedureChecksNeedARefresh()
+    {
+        var dir = NewTempDirectory("dg-cli-v3-warn");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, "sqlserver");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("snapshot has no stored procedures; run 'dataguard snapshot refresh' to enable procedure checks");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Validate_TamperedSnapshot_Exit3IntegrityCheckFailed(bool v4)
+    {
+        var dir = NewTempDirectory("dg-cli-tampered");
+        try
+        {
+            var path = v4 ? await WriteV4SnapshotAsync(dir, "sqlserver") : await WriteDefaultSnapshotAsync(dir, "sqlserver");
+
+            // Same PR edits the committed snapshot to make a column look wider: the stored hash no longer matches.
+            RewriteSnapshot(path, node => node["Schema"]![0]!["Columns"]![1]!["MaxLength"] = 4000);
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate");
+
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("UNEVALUATED: snapshot integrity check failed");
         }
         finally
         {
@@ -905,6 +997,39 @@ public class CliExitCodeTests
             run.Stderr.Should().NotContain("pass --allow-unevaluated");
             var hasErrors = (run.Stdout + run.Stderr).Contains("[ERROR]", StringComparison.Ordinal);
             run.ExitCode.Should().Be(hasErrors ? 1 : 0, run.Stdout + run.Stderr);
+    public async Task Validate_TamperedProcedureParameter_Exit3()
+    {
+        var dir = NewTempDirectory("dg-cli-tampered-proc");
+        try
+        {
+            var path = await WriteV4SnapshotAsync(dir, "sqlserver");
+            RewriteSnapshot(path, node => node["StoredProcedures"]![0]!["Parameters"]![0]!["DataType"] = "VARCHAR2");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate");
+
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("snapshot integrity check failed");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Validate_SnapshotProviderMismatch_Exit3(bool v4)
+    {
+        var dir = NewTempDirectory("dg-cli-provider-mismatch");
+        try
+        {
+            _ = v4 ? await WriteV4SnapshotAsync(dir, "oracle") : await WriteDefaultSnapshotAsync(dir, "oracle");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--provider", "sqlserver");
+
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("UNEVALUATED: snapshot provider 'oracle' does not match 'sqlserver'");
         }
         finally
         {
@@ -927,6 +1052,17 @@ public class CliExitCodeTests
             gated.Stderr.Should().Contain($"ACQUISITION: {snapshot}: DG1304 (line 3)");
             allowed.Stderr.Should().Contain("ACQUISITION: ");
             allowed.ExitCode.Should().BeOneOf(new[] { 0, 1 }, allowed.Stdout + allowed.Stderr);
+    public async Task Validate_SnapshotProviderAlias_PostgresMatchesPostgresql()
+    {
+        var dir = NewTempDirectory("dg-cli-provider-alias");
+        try
+        {
+            await WriteV4SnapshotAsync(dir, "postgresql");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--provider", "postgres");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().NotContain("does not match");
         }
         finally
         {
@@ -947,6 +1083,94 @@ public class CliExitCodeTests
 
             run.Stderr.Should().StartWith("ide-safe: active");
             run.ExitCode.Should().BeOneOf(new[] { 0, 1 }, run.Stdout + run.Stderr);
+    public async Task Validate_OldSnapshot_WarnsWithItsAge()
+    {
+        var dir = NewTempDirectory("dg-cli-old-snapshot");
+        try
+        {
+            var path = await WriteV4SnapshotAsync(dir, "sqlserver");
+
+            // CreatedAt is metadata, not hashed content: an old but untouched snapshot stays valid and only warns.
+            RewriteSnapshot(path, node => node["CreatedAt"] = DateTimeOffset.UtcNow.AddDays(-200).AddHours(-1).ToString("O"));
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("Warning: snapshot is 200 days old (SnapshotMaxAgeDays: 90)");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(10, true)]
+    [InlineData(30, false)]
+    [InlineData(0, false)]
+    public async Task Validate_SnapshotMaxAgeDaysConfigKey_ControlsTheAgeWarning(int maxAgeDays, bool warns)
+    {
+        var dir = NewTempDirectory("dg-cli-snapshot-age");
+        try
+        {
+            var path = await WriteV4SnapshotAsync(dir, "sqlserver");
+            RewriteSnapshot(path, node => node["CreatedAt"] = DateTimeOffset.UtcNow.AddDays(-20).AddHours(-1).ToString("O"));
+            var config = Path.Combine(dir, ".dataguard.yml");
+            File.WriteAllText(config, $"StrictConfig: true\nSnapshotMaxAgeDays: {maxAgeDays}\n");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--config", config);
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            if (warns)
+            {
+                run.Stderr.Should().Contain($"snapshot is 20 days old (SnapshotMaxAgeDays: {maxAgeDays})");
+            }
+            else
+            {
+                run.Stderr.Should().NotContain("days old");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SnapshotShow_V4_PrintsTableAndProcedureCountsAndIntegrity()
+    {
+        var dir = NewTempDirectory("dg-cli-show-v4");
+        try
+        {
+            await WriteV4SnapshotAsync(dir, "sqlserver");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "snapshot", "show");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stdout.Should().Contain("Version: 4")
+                .And.Contain("Tables: 1 (columns: 2)")
+                .And.Contain("Stored Procedures: 1 (parameters: 1)")
+                .And.Contain("Length Semantics: CHAR")
+                .And.Contain("Integrity: Verified");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SnapshotDiff_TamperedV4Snapshot_Exit3BeforeConnecting()
+    {
+        var dir = NewTempDirectory("dg-cli-diff-tampered");
+        try
+        {
+            var path = await WriteV4SnapshotAsync(dir, "sqlserver");
+            RewriteSnapshot(path, node => node["StoredProcedures"]![0]!["Parameters"]![0]!["Direction"] = "Output");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "snapshot", "diff");
+
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("UNEVALUATED: snapshot integrity check failed");
         }
         finally
         {

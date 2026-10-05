@@ -55,4 +55,33 @@ public class BaselineCacheTests
             File.Delete(path);
         }
     }
+
+    [Theory]
+    [InlineData(1_000_001)]
+    [InlineData((1024 * 1024) + 1)]
+    [InlineData((1024 * 1024) + 4097)]
+    public async Task LoadAsync_LargeValidJson_ReadsExactlyTheFileLength(int size)
+    {
+        // Files above 1 MiB go through the memory-mapped path, whose view capacity is page-rounded and zero-filled;
+        // reading Capacity bytes handed trailing NULs to the JSON parser (JsonException).
+        var path = Path.Combine(Path.GetTempPath(), "dataguard-baseline-large-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            const string Prefix = "{\"Version\":2,\"CreatedAt\":\"2026-01-01T00:00:00Z\",\"SchemaVersion\":\"1.0\",\"GroundTruthMode\":\"Snapshot\","
+                + "\"DatabaseVersion\":\"unknown\",\"SchemaHash\":\"ABCDEF0123456789\",\"Violations\":[],\"Padding\":\"";
+            const string Suffix = "\"}";
+            var json = Prefix + new string('x', size - Prefix.Length - Suffix.Length) + Suffix;
+            await File.WriteAllTextAsync(path, json);
+            new FileInfo(path).Length.Should().Be(size);
+
+            var loaded = await new BaselineManager(path).LoadAsync();
+
+            loaded.Should().NotBeNull();
+            loaded!.SchemaHash.Should().Be("ABCDEF0123456789");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
