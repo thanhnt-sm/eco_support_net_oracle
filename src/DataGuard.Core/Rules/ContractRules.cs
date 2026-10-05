@@ -322,12 +322,14 @@ public class ColumnShapeMatchRule : ContractRuleBase
                         .Select(p => p.Name)
                         .ToList();
 
+                    // Take(5) is display text only; Properties carry the full list so baseline fingerprints never collide.
                     if (missingColumns.Count > 0)
                     {
                         violations.Add(CreateViolation(
                             RuleId,
                             $"Result set is missing required columns: {string.Join(", ", missingColumns.Take(5))}",
-                            Severity));
+                            Severity,
+                            properties: ShapeProperties("missing", entityDesc.Name, missingColumns, sqlDesc.SqlText)));
                     }
 
                     // Check for extra columns not mapped to entity
@@ -338,7 +340,8 @@ public class ColumnShapeMatchRule : ContractRuleBase
                         violations.Add(CreateViolation(
                             RuleId,
                             $"Result set has {extraColumns.Count} extra columns not mapped to entity properties",
-                            Severity));
+                            Severity,
+                            properties: ShapeProperties("extra", entityDesc.Name, extraColumns, sqlDesc.SqlText)));
                     }
                 }
             }
@@ -365,7 +368,8 @@ public class ColumnShapeMatchRule : ContractRuleBase
                         RuleId,
                         $"Result set is missing required columns: {string.Join(", ", missingColumns.Take(5))}",
                         Severity,
-                        rawSql.Location));
+                        rawSql.Location,
+                        ShapeProperties("missing", rawSql.TargetTypeName, missingColumns, rawSql.SqlText)));
                 }
 
                 var extraColumns = columnNames.Where(c => !expectedPropertyNames.Contains(c)).ToList();
@@ -375,10 +379,46 @@ public class ColumnShapeMatchRule : ContractRuleBase
                         RuleId,
                         $"Result set has {extraColumns.Count} extra columns not mapped to entity properties",
                         Severity,
-                        rawSql.Location));
+                        rawSql.Location,
+                        ShapeProperties("extra", rawSql.TargetTypeName, extraColumns, rawSql.SqlText)));
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Structured subject of a DG004 finding: the full, ordinal-sorted column list (never truncated), the entity and the
+    /// SQL text hash, so two different column sets or two different queries never share a baseline fingerprint.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, object?> ShapeProperties(string kind, string? entity, IEnumerable<string> columns, string? sqlText)
+    {
+        var properties = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["kind"] = kind,
+            ["columns"] = string.Join(",", columns.Distinct(StringComparer.Ordinal).OrderBy(column => column, StringComparer.Ordinal)),
+        };
+        if (!string.IsNullOrWhiteSpace(entity))
+        {
+            properties["entity"] = entity;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sqlText))
+        {
+            properties["sqlHash"] = ComputeSqlHash(sqlText);
+        }
+
+        return properties;
+    }
+
+    /// <summary>
+    /// Stable 16-hex SHA-256 prefix of SQL text with whitespace runs collapsed, so reformatting a query keeps its
+    /// fingerprint while a different query gets a different one.
+    /// </summary>
+    internal static string ComputeSqlHash(string sqlText)
+    {
+        var normalized = Regex.Replace(sqlText ?? string.Empty, @"\s+", " ").Trim();
+        var digest = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexStringLower(digest)[..16];
     }
 
     private static readonly char[] LineEndings = { '\r', '\n', '\u0085', '\u2028', '\u2029' };
@@ -1702,11 +1742,22 @@ public class SelectStarUsageRule : ContractRuleBase
 
             if (ContainsSelectStar(sqlText))
             {
+                // The message is identical for every site; the SQL hash (and referenced tables) identify this one.
+                var properties = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["sqlHash"] = ColumnShapeMatchRule.ComputeSqlHash(sqlText),
+                };
+                if (sqlDesc.ReferencedTables.Count > 0)
+                {
+                    properties["table"] = string.Join(",", sqlDesc.ReferencedTables.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(table => table, StringComparer.OrdinalIgnoreCase));
+                }
+
                 violations.Add(CreateViolation(
                     RuleId,
                     "Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation.",
                     Severity,
-                    contract.Location));
+                    contract.Location,
+                    properties));
             }
         }
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DataGuard.Core.Abstractions;
+using DataGuard.Core.Baseline;
 using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Reporting;
@@ -120,7 +121,8 @@ public class DiagnosticEmitter
                         }
                     }
                     : new List<SarifLocation>(),
-                Properties = CreateSafeProperties(v.Properties)
+                Properties = CreateSafeProperties(v.Properties),
+                PartialFingerprints = CreatePartialFingerprints(v, sourceRoot),
             }).ToList(),
         };
 
@@ -129,6 +131,10 @@ public class DiagnosticEmitter
             Runs = new List<Run> { run },
         };
     }
+
+    /// <summary>SARIF <c>partialFingerprints</c> of a finding: the baseline fingerprint under <c>dataguard/v2</c>.</summary>
+    internal static Dictionary<string, string> CreatePartialFingerprints(ContractViolation violation, string? sourceRoot) =>
+        new(StringComparer.Ordinal) { [BaselineManager.FingerprintKey] = BaselineManager.ComputeFingerprint(violation, sourceRoot) };
 
     internal static PropertyBag CreateSafeProperties(IReadOnlyDictionary<string, object?>? properties)
     {
@@ -251,6 +257,9 @@ public class DiagnosticEmitter
                         },
                     }).ToList(),
                     Properties = CreateSafeProperties(result.Properties.ToDictionary(pair => pair.Key, pair => (object?)pair.Value)),
+                    PartialFingerprints = result.PartialFingerprints?
+                        .Where(pair => !string.IsNullOrEmpty(pair.Key))
+                        .ToDictionary(pair => SafeText(pair.Key), pair => SafeText(pair.Value), StringComparer.Ordinal),
                 }).ToList(),
             }).ToList(),
         };
@@ -426,6 +435,18 @@ public class FileSarifSink : ISarifSink
                             }
 
                             writer.WriteEndArray();
+                        }
+
+                        if (result.PartialFingerprints?.Count > 0)
+                        {
+                            writer.WritePropertyName("partialFingerprints");
+                            writer.WriteStartObject();
+                            foreach (var fingerprint in result.PartialFingerprints)
+                            {
+                                writer.WriteString(fingerprint.Key, fingerprint.Value ?? "");
+                            }
+
+                            writer.WriteEndObject();
                         }
 
                         // Properties
@@ -633,6 +654,11 @@ public class StreamingSarifSink : ISarifSink
                 writer.WriteEndObject();
                 writer.WriteEndArray();
             }
+
+            writer.WritePropertyName("partialFingerprints");
+            writer.WriteStartObject();
+            writer.WriteString(BaselineManager.FingerprintKey, BaselineManager.ComputeFingerprint(violation, _sourceRoot));
+            writer.WriteEndObject();
 
             if (violation.Properties?.Count > 0)
             {

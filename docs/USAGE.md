@@ -187,6 +187,14 @@ dataguard validate --connection "..." --verbose
 - **Rule không khả dụng** (ví dụ `DG012` Oracle, `PG004` PostgreSQL cần metadata DbContext từ analyzer): in một lần ra stderr `Rule <id> not evaluated: <reason>` và **không** chặn run. `--fail-on-unavailable` / `FailOnUnavailableRules: true` khôi phục exit `3`; rule nằm trong `--skip-rules` không được tính.
 - **Config**: key top-level không biết => stderr `Warning: unknown configuration keys: a, b`; `StrictConfig: true` => exit `2`. Giá trị sai kiểu (ví dụ `EnableBaseline: maybe`) => exit `2`.
 
+**Kiểm tra snapshot khi `validate` (red-team H4)**: khi `validate` đọc snapshot (không có connection):
+- `Provider` trong snapshot khác `--provider`/`DefaultProvider` (`postgres` = `postgresql`) => stderr `UNEVALUATED: snapshot provider 'x' does not match 'y'`, exit `3`.
+- `SchemaHash` được tính lại trên nội dung đã nạp; khác giá trị lưu (file bị sửa tay trong PR, hoặc hỏng) => `UNEVALUATED: snapshot integrity check failed: ...`, exit `3`. `snapshot diff` cũng kiểm tra trước khi kết nối.
+- Snapshot cũ hơn `SnapshotMaxAgeDays` (config, mặc định `90`; `0` tắt) => `Warning: snapshot is N days old ...` (không chặn).
+- Snapshot định dạng cũ (v2/v3, chỉ có bảng) vẫn đọc được, kèm `Warning: snapshot has no stored procedures; run 'dataguard snapshot refresh' to enable procedure checks`.
+- `LengthSemantics` và charset của cột lấy từ file (không còn cứng `CHAR`; snapshot cũ mới mặc định `CHAR`); stored procedure trong snapshot v4 được nạp làm ground truth.
+- Baseline còn entry cũ (không có fingerprint) => stderr `baseline contains N legacy entries; run 'dataguard baseline' to upgrade`; các entry này vẫn suppress theo `RuleId:Message`.
+
 **Exit Codes**:
 - `0` = Pass (không violation mới)
 - `1` = Fail (có violation mới, hoặc CLI lỗi trước khi in summary)
@@ -202,14 +210,25 @@ dataguard validate --connection "..." --verbose
 # Tạo baseline từ validation hiện tại
 dataguard baseline --connection "Oracle CI Schema" --output .dataguard-baseline.json
 
+# Không có connection: dùng cùng snapshot mà validate dùng (.dataguard-snapshot.json)
+dataguard baseline
+
 # Baseline sẽ chứa:
 # - Version: 2
 # - SchemaVersion: "1.0"
 # - GroundTruthMode: "Snapshot"
 # - DatabaseVersion: "Oracle Database 19c..."
 # - SchemaHash: "a1b2c3d4e5f67890" (SHA256-64bit)
-# - Violations: [] (tất cả violations hiện tại)
+# - Violations: mỗi entry có Fingerprint (dataguard/v2), Count và Properties
 ```
+
+**Fingerprint v2 (red-team H3)**: `Fingerprint` = SHA-256 của `ruleId | subject | location`. Subject là các `Properties` có cấu trúc (`table`, `column`, `columns`, `entity`, `property`, ...) sắp xếp theo key, bỏ key dễ đổi (số dòng, số đếm, message); không có property thì dùng message. Location là đường dẫn tương đối với thư mục chạy lệnh (dấu `/`) cộng `sqlHash` khi rule có. Hệ quả:
+- Dời finding sang dòng khác => vẫn khớp; **đổi tên/di chuyển file => finding mới** (chạy lại `dataguard baseline`).
+- Chạy `baseline` và `validate` từ cùng thư mục gốc repo.
+- Baseline là multiset: `Count: 1` mà hiện có 2 finding cùng fingerprint => 1 finding mới được báo.
+- Hai `SELECT *` khác nhau, hoặc DG004 thiếu `[A..E]` và `[A..F]`, là hai finding khác nhau (message vẫn cắt 5 cột để hiển thị, `Properties` giữ đủ danh sách).
+- Entry cũ không có `Fingerprint` vẫn khớp theo `RuleId:Message`; chạy lại `dataguard baseline` để ghi lại thành v2 (lệnh luôn đánh giá mọi finding, không lọc qua baseline cũ).
+- SARIF: mỗi result có `partialFingerprints: { "dataguard/v2": <fingerprint> }`, cùng giá trị với baseline.
 
 **Khi nào dùng / When to use**:
 - ✅ **Bắt buộc** khi onboarding legacy codebase
@@ -230,6 +249,8 @@ dataguard snapshot show
 # So sánh schema hiện tại vs snapshot
 dataguard snapshot diff --connection "CI Schema"
 ```
+
+**Định dạng snapshot v4** (plan gọi là "snapshot v3"; trên đĩa `Version: 4`): `refresh` ghi bảng (kèm `Schema` và `Charset` của cột), `StoredProcedures` (tham số với direction/độ dài/`HasDefault`/overload, cột kết quả, ref cursor, `ReturnType`), `LengthSemantics`, `Charset`, `Provider`, `DatabaseVersion`. `SchemaHash` (`canonical-schema-v2`) phủ toàn bộ nội dung đó. `show` in số bảng/cột/procedure/tham số và kết quả kiểm tra integrity. `diff` so sánh cả procedure (thêm/xoá/đổi tham số), in danh sách bảng/procedure thay đổi, và cảnh báo khi major.minor của database khác snapshot.
 
 **Snapshot vs Baseline**:
 | | Snapshot | Baseline |

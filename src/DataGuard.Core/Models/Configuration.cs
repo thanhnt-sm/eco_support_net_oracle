@@ -66,6 +66,11 @@ public record DataGuardConfiguration(
 
     /// <summary>When true, unknown top-level configuration keys are an error (exit 2) instead of a warning.</summary>
     public bool StrictConfig { get; init; }
+
+    /// <summary>
+    /// <c>validate</c> warns when the snapshot it reads is older than this many days (default 90; 0 or less disables the warning).
+    /// </summary>
+    public int SnapshotMaxAgeDays { get; init; } = 90;
 }
 
 /// <summary>
