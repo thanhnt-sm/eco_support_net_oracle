@@ -98,7 +98,14 @@ DefaultProvider: sqlserver         # sqlserver | oracle | mysql | postgresql (po
 SnapshotFilePath: .dataguard-snapshot.json
 FailOnUnavailableRules: false      # true = exit 3 khi rule không khả dụng (như --fail-on-unavailable)
 StrictConfig: false                # true = key top-level không biết => exit 2 (mặc định chỉ cảnh báo)
+StrictProcedureContracts: false    # true = DG101/DG002/DG003 từ catalog stored procedure là Error (exit 1) thay vì Warning
+DefaultSchema: dbo                 # schema cho lời gọi stored procedure không qualify (cũng là scope snapshot)
+DefaultPackage: ""                 # Oracle: package cho lời gọi không qualify
 BaselineFilePath: .dataguard-baseline.json
+
+# Rule plugins (chỉ dùng với validate --plugins-dir)
+Plugins:
+  AllowUnsignedLocal: false        # true = nạp plugin không có signed provenance (vẫn kiểm manifest, SHA-256, dependency, rule ID)
 EnableTelemetry: false             # Opt-in telemetry
 
 # Oracle-specific (nếu dùng Oracle)
@@ -184,6 +191,9 @@ dataguard validate --connection "..." --verbose
 | `--progress` | Ghi JSON progress event từng dòng ra stderr (IDE dùng) | `false` |
 | `--ide-safe` | Chế độ IDE-safe cho repo chưa tin cậy (xem dưới) | `false` |
 | `--allow-env-connection` | Chỉ với `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp (chỉ `validate`) | `false` |
+| `--plugins-dir` | Thư mục rule plugin (`*.dll` + manifest `<dll>.dataguard-plugin.json`). Plugin qua `PluginAdmission` (manifest, SHA-256, dependency closure, rule ID manifest = `[ExportRule]` = runtime) rồi chạy cùng provider rules trong cùng pipeline. Mặc định bắt buộc signed provenance và CLI không có verifier, nên plugin bị từ chối (`Plugin X.dll not loaded: ...`, như rule không khả dụng) trừ khi config `Plugins.AllowUnsignedLocal: true`. Thư mục không tồn tại => exit `2`; bị từ chối với `--ide-safe` (exit `2`). Ví dụ: `samples/plugins/DataGuard.Samples.NamingPlugin` | - |
+
+**Một pipeline / One pipeline**: `validate`, `baseline`, `snapshot refresh` và `snapshot diff --legacy-violation-diff` chạy cùng danh sách rule (`ProviderRuleCatalog`, cấu hình bởi `StrictProcedureContracts`/`DefaultSchema`/`DefaultPackage`) qua cùng executor với API `ValidationPipeline`. Contract chưa đánh giá luôn được liệt kê (`UNEVALUATED:`), không bao giờ ghi vào baseline/snapshot như finding; `snapshot diff --legacy-violation-diff` thoát `3` khi có contract chưa đánh giá.
 
 **Thứ tự resolve connection** (mọi lệnh dùng database: `validate`, `baseline`, `snapshot refresh/diff`, `oracle-check`, `verify-shape`, `preflight`):
 1. `--connection <value>` (kèm cảnh báo deprecated)
@@ -195,7 +205,7 @@ dataguard validate --connection "..." --verbose
 Khi credential provider được dùng, mọi truy cập được ghi vào audit log (`AuditLogPath`) qua một writer duy nhất; đặt `DATAGUARD_AUDIT_KEY` (hoặc `AuditKeyFile`, ≥ 16 byte) để chuỗi được khoá bằng HMAC-SHA256 — xem `SECURITY.md`.
 
 **`--ide-safe` (IDE hosts / untrusted repositories — chỉ `validate` và `assess`)**:
-`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--allow-assembly-from-config`, `--ef-snapshot`, `--ef-project`, `--ef-context`, `--connection-env` khi thiếu `--allow-env-connection` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`.
+`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--allow-assembly-from-config`, `--ef-snapshot`, `--ef-project`, `--ef-context`, `--connection-env` khi thiếu `--allow-env-connection` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`. Dưới `--ide-safe`, `--plugins-dir` cũng bị từ chối (exit 2).
 
 - **Handshake**: dòng stderr **đầu tiên** luôn là `ide-safe: active` (in trước cả dòng từ chối option). Host chỉ chấp nhận kết quả khi thấy dòng này; CLI cũ (≤ 0.2.2) không biết cờ, in `Unrecognized command or argument '--ide-safe'` và **exit `1`** — host báo "CLI quá cũ" và không bao giờ chạy lại mà thiếu cờ.
 - **`--allow-env-connection`** (chỉ `validate`, không có tác dụng nếu thiếu `--ide-safe`): giữ lại đúng một credential là `DATAGUARD_CONNECTION_STRING` do host đặt; `ConnectionString` trong file config **luôn** bị xoá. Khi giữ, stderr in `ide-safe: kept environment connection (--allow-env-connection)`; `GroundTruthMode: Manual` bị ép về `Snapshot`. Credential được giữ **chỉ dùng để đọc catalog ground-truth** (schema, định nghĩa stored procedure); `validate` không gửi hay describe SQL trích từ repo lên database — rule live SQL shape (`sp_describe_first_result_set` trên SQL của repo) vẫn tắt dưới `--ide-safe` (stderr liệt kê `live SQL shape rule disabled (use verify-shape)`), chỉ `verify-shape` (có xác nhận) mới thực hiện. VS Code chỉ truyền cờ này khi có credential trong SecretStorage.

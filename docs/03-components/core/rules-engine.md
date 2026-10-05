@@ -66,6 +66,8 @@ public abstract class ContractRuleBase : IContractRule
 
 The base class also provides a static `CreateViolation` helper for consistent violation construction.
 
+`ContractRuleBase` implements `IContractEvaluationStatusReporter`. A rule that cannot obtain ground truth for a contract (for example a failed live describe) calls `protected void MarkUnevaluated(ContractDescriptor contract, string reason)`; the entry is neither a finding nor a pass. Override `UnevaluatedRuleId` (default `RuleId`) and `NormalizeUnevaluatedReason` (default: one trimmed line) when needed; `LiveSqlShapeValidationRule` reports `DG020` and sanitizes driver text. Every executor drains these entries after each run (see [One validation pipeline](#one-validation-pipeline)).
+
 ## Built-in Rules
 
 ### DG101 — ParameterCountRule
@@ -214,41 +216,16 @@ graph TD
 | **Parallel groups** | `GetParallelGroups()` returns rules that can run concurrently at each level |
 | **Cycle detection** | `Validate()` detects circular dependencies |
 | **Transitive queries** | `GetTransitiveDependents()` / `GetTransitiveDependencies()` for impact analysis |
-| **Placeholder nodes** | Dependencies on unregistered rules create placeholder nodes |
+| **Unique rule IDs** | `RegisterRule` throws `InvalidOperationException` when a *different* rule instance reuses a registered ID; registering the same instance again is idempotent |
+| **Placeholders, never no-op rules** | `RegisterDependencies` / `WithDependency` declare edges with a null placeholder; a graph with unresolved placeholders fails `Validate()` and cannot produce a plan until a real rule with that ID is registered |
+| **Deterministic plans** | Nodes, dependencies, levels and transitive queries iterate in `StringComparer.Ordinal` order, independent of registration order |
 
 ### BuiltInRuleDependencies
 
-Pre-configured dependency graph for all built-in rules:
+`BuiltInRuleDependencies.Edges` holds the built-in edges by rule ID (`DG003 → DG101`, `DG004 → DG101`, `DG005 → DG002`, `DG006 → DG004, DG101`). `CreateDefaultRules()` returns the provider-neutral core rules (DG101, DG002–DG006, DG015–DG017, DG019 and the connectionless DG018); `Create(rules)` composes any rule list with those edges, applying an edge only when both rules are present (so `--skip-rules` never leaves a placeholder). `CreateDefault()` is `Create(CreateDefaultRules())`. A test keeps the core rule IDs equal to the core rules every provider gets from the CLI `ProviderRuleCatalog`.
 
 ```csharp
-public static RuleDependencyGraph CreateDefault()
-{
-    var graph = new RuleDependencyGraph();
-
-    // Level 1: Basic parameter checks (no dependencies)
-    graph.AddRule(new ParameterCountRule());        // DG101
-    graph.AddRule(new ParameterTypeMatchRule());    // DG002
-
-    // Level 2: Parameter direction (depends on parameter existence)
-    graph.AddRule(new ParameterDirectionRule(), "DG101");
-
-    // Level 3: Column shape (depends on parameter existence)
-    graph.AddRule(new ColumnShapeMatchRule(), "DG101");
-
-    // Level 4: Nullable and type matching (depends on parameter type info)
-    graph.AddRule(new NullableMismatchRule(), "DG002");
-
-    // Level 5: Naming convention (depends on parameter/column names)
-    graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
-
-    // Level 6: Phantom identifiers (schema ground truth)
-    graph.AddRule(new PhantomTableRule());       // DG015
-    graph.AddRule(new PhantomColumnRule());      // DG016
-    graph.AddRule(new RawSqlParseStatusRule());  // DG019
-    graph.AddRule(new SelectStarUsageRule());    // DG017
-
-    return graph;
-}
+var graph = BuiltInRuleDependencies.Create(rules); // throws on duplicate rule IDs
 ```
 
 ### Fluent API
@@ -257,8 +234,25 @@ public static RuleDependencyGraph CreateDefault()
 var graph = new RuleDependencyGraph()
     .AddRule(new ParameterCountRule())
     .AddRule(new ParameterDirectionRule(), "DG101")
-    .WithDependency("DG006", "DG101", "DG004");
+    .WithDependency("DG006", "DG004"); // placeholder until a DG006 and a DG004 rule are registered
 ```
+
+## One validation pipeline
+
+The CLI and the library API compose and execute rules the same way (red-team B4/D3):
+
+1. **Rule list.** `ProviderRuleCatalog.GetReadyRules(provider, connection, progress, strictProcedureContracts, defaultSchema, defaultPackage)` (CLI) returns every ready registration for the provider, configured from `.dataguard.yml` (`StrictProcedureContracts`, `DefaultSchema`, `DefaultPackage`). Rules registered `Unavailable` are reported, not executed.
+2. **Plugins.** `validate --plugins-dir <dir>` admits plugin DLLs through `PluginAdmission` and appends their rules (see [Plugins](plugins.md)). `ValidationPipeline.WithPlugins` does the same for library callers.
+3. **Composition.** `BuiltInRuleDependencies.Create` (`ProviderRuleCatalog.Compose`) builds one `RuleDependencyGraph`; duplicate rule IDs are an error.
+4. **Execution.** `GraphValidationExecutor.ValidateAsync(graph, contracts, concurrent, maxDegreeOfParallelism, maxViolationQueueSize)` runs the graph level by level with bounded concurrency when `EnableConcurrentValidation` is true, otherwise `ValidateSequentialAsync`. Both return violations ordered by rule ID and message, per-rule outcomes (a throwing rule is `Failed` and the result incomplete) and `UnevaluatedContracts`, drained from every rule after the run.
+
+Library callers get the CLI composition with `ProviderRuleCatalog.CreatePipeline(provider, configuration)` or with `DataGuardApi.CreatePipeline(config).WithProviderRules(rules)`, which replaces the built-in defaults and keeps rules added with `WithRules`/`WithPlugins`. `ValidationPipeline.Rules` lists the composed rules; a test asserts that the CLI plan and the pipeline plan are identical for every provider. `ValidationResult.UnevaluatedContracts` carries the unevaluated entries, and a result with any of them is not `IsClean`. `ConcurrentValidationEngine.StreamAsync(contracts, rules, unevaluated, ct)` passes each unevaluated contract to the callback before the stream completes.
+
+Every CLI command that validates uses this path: `validate` lists unevaluated contracts and exits 3 unless `--allow-unevaluated`; `baseline` and `snapshot refresh` list them and never persist them as findings; `snapshot diff --legacy-violation-diff` lists them and exits 3 because the violation comparison is incomplete.
+
+### Dialect analyzers
+
+The dialect rules DG010/DG011 (Oracle), MY001/MY002 (MySQL) and PG001/PG002 (PostgreSQL) delegate to their adapter's checker through `IDialectAnalyzer.Analyze(sql, isTargetDialect, location)`: the "syntax of this dialect elsewhere" rules pass `isTargetDialect: false`, the "foreign syntax in this dialect" rules pass `true`.
 
 ## Rule Summary Table
 

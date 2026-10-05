@@ -1410,4 +1410,160 @@ public class CliExitCodeTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    // ---- One pipeline: config-driven procedure rules and plugins (red-team B4/D3) ----
+
+    /// <summary>
+    /// SP_Contract fixture (golden case SP_001): a v4 snapshot with <c>dbo.usp_GetOrders(@CustomerId, @Status, @Top = default)</c>
+    /// written through <see cref="BaselineManager.CreateSnapshotAsync"/>, and a Dapper call that omits the required <c>@Status</c>.
+    /// </summary>
+    private static async Task WriteMissingParameterFixtureAsync(string dir)
+    {
+        var procedures = SnapshotConversion.FromProcedures(new ContractDescriptor[]
+        {
+            new StoredProcedureDescriptor(
+                "sqlserver:dbo.usp_GetOrders",
+                "usp_GetOrders",
+                "dbo",
+                string.Empty,
+                new[]
+                {
+                    new ParameterDescriptor("@CustomerId", "int", ParameterDirection.Input, null, 10, 0, false, 1),
+                    new ParameterDescriptor("@Status", "nvarchar", ParameterDirection.Input, 20, null, null, true, 2),
+                    new ParameterDescriptor("@Top", "int", ParameterDirection.Input, null, 10, 0, true, 3, HasDefault: true),
+                },
+                Array.Empty<ColumnDescriptor>(),
+                false),
+        });
+        var tables = new List<SnapshotTable>
+        {
+            new("Orders", new List<SnapshotColumn> { new("Id", "int", null, null, 10, 0, false, null) }, "dbo"),
+        };
+        await new BaselineManager(Path.Combine(dir, ".dataguard-snapshot.json")).CreateSnapshotAsync(
+            Array.Empty<ContractViolation>(), "1.0", "16.0", tables, procedures, "sqlserver", null, "CHAR", null);
+        File.WriteAllText(Path.Combine(dir, "OrderRepository.cs"), """
+            using System.Data;
+            using Dapper;
+
+            public class OrderRepository
+            {
+                public void Load(IDbConnection conn, int customerId)
+                {
+                    conn.Execute("dbo.usp_GetOrders", new { CustomerId = customerId }, commandType: CommandType.StoredProcedure);
+                }
+            }
+            """);
+    }
+
+    [Fact]
+    public async Task Validate_StrictProcedureContractsConfig_TurnsDg101WarningIntoError()
+    {
+        var dir = NewTempDirectory("dg-cli-strict-sp");
+        try
+        {
+            await WriteMissingParameterFixtureAsync(dir);
+            var repo = Path.Combine(dir, "OrderRepository.cs");
+            var strictConfig = Path.Combine(dir, "strict.yml");
+            File.WriteAllText(strictConfig, "StrictProcedureContracts: true\n");
+
+            var lenient = CliProcessTestRunner.Run(dir, null, null, "validate", "--project", repo);
+            var strict = CliProcessTestRunner.Run(dir, null, null, "validate", "--project", repo, "--config", strictConfig);
+
+            lenient.Stdout.Should().Contain("[WARNING] DG101:", lenient.Stdout + lenient.Stderr)
+                .And.Contain("@Status");
+            lenient.ExitCode.Should().Be(0, lenient.Stdout + lenient.Stderr);
+            strict.Stdout.Should().Contain("[ERROR] DG101:", strict.Stdout + strict.Stderr)
+                .And.Contain("@Status");
+            strict.ExitCode.Should().Be(1, strict.Stdout + strict.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_PluginsDir_WithAllowUnsignedLocal_RunsThePluginRule()
+    {
+        var dir = NewTempDirectory("dg-cli-plugins");
+        try
+        {
+            await WriteV4SnapshotAsync(dir, "sqlserver");
+            var plugins = Directory.CreateDirectory(Path.Combine(dir, "plugins")).FullName;
+            TestPluginBuilder.WritePlugin(plugins, "PLUG001");
+            var config = Path.Combine(dir, "dataguard.yml");
+            File.WriteAllText(config, "Plugins:\n  AllowUnsignedLocal: true\nStrictConfig: true\n");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--config", config, "--plugins-dir", plugins);
+
+            run.Stdout.Should().Contain("[WARNING] PLUG001: PLUG001 saw", run.Stdout + run.Stderr);
+            run.Stderr.Should().NotContain("not loaded");
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_PluginsDir_DefaultTrustPolicyRejectsUnsignedPlugin()
+    {
+        var dir = NewTempDirectory("dg-cli-plugins-unsigned");
+        try
+        {
+            await WriteV4SnapshotAsync(dir, "sqlserver");
+            var plugins = Directory.CreateDirectory(Path.Combine(dir, "plugins")).FullName;
+            TestPluginBuilder.WritePlugin(plugins, "PLUG001");
+
+            var reported = CliProcessTestRunner.Run(dir, null, null, "validate", "--plugins-dir", plugins);
+            var gated = CliProcessTestRunner.Run(dir, null, null, "validate", "--plugins-dir", plugins, "--fail-on-unavailable");
+
+            reported.Stderr.Should().Contain("Plugin DataGuard.TestPlugins.PLUG001.dll not loaded: Signed provenance verifier is required.");
+            reported.Stdout.Should().NotContain("PLUG001 saw");
+            reported.ExitCode.Should().Be(0, reported.Stdout + reported.Stderr);
+            gated.ExitCode.Should().Be(3, gated.Stdout + gated.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_PluginsDir_MissingDirectory_Exit2()
+    {
+        var dir = NewTempDirectory("dg-cli-plugins-missing");
+        try
+        {
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--plugins-dir", Path.Combine(dir, "nope"));
+
+            run.ExitCode.Should().Be(2, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("--plugins-dir directory not found");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_PluginsDir_RejectedUnderIdeSafe_Exit2()
+    {
+        var dir = NewTempDirectory("dg-cli-plugins-ide-safe");
+        try
+        {
+            var plugins = Directory.CreateDirectory(Path.Combine(dir, "plugins")).FullName;
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--ide-safe", "--plugins-dir", plugins);
+
+            run.ExitCode.Should().Be(2, run.Stdout + run.Stderr);
+            run.Stderr.Should().StartWith("ide-safe: active");
+            run.Stderr.Should().Contain("--plugins-dir is not allowed with --ide-safe");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

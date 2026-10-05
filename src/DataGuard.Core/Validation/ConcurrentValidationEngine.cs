@@ -67,9 +67,24 @@ public sealed class ConcurrentValidationEngine
     /// produced. Consumers that write results incrementally need not retain all
     /// violations in memory.
     /// </summary>
+    public IAsyncEnumerable<ContractViolation> StreamAsync(
+        IReadOnlyList<ContractDescriptor> contracts,
+        IReadOnlyList<IContractRule> rules,
+        CancellationToken cancellationToken = default)
+    {
+        return this.StreamAsync(contracts, rules, unevaluated: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// Same as <see cref="StreamAsync(IReadOnlyList{ContractDescriptor}, IReadOnlyList{IContractRule}, CancellationToken)"/>;
+    /// after every rule has seen every contract, each contract a rule could not evaluate is passed to
+    /// <paramref name="unevaluated"/> (deterministic order) before the stream completes, so a consumer that finished
+    /// enumerating has received all of them.
+    /// </summary>
     public async IAsyncEnumerable<ContractViolation> StreamAsync(
         IReadOnlyList<ContractDescriptor> contracts,
         IReadOnlyList<IContractRule> rules,
+        Action<UnevaluatedContract>? unevaluated,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var capacity = Math.Max(1, _maxViolationQueueSize);
@@ -109,6 +124,12 @@ public sealed class ConcurrentValidationEngine
                 if (batch.Count > 0)
                 {
                     await Task.WhenAll(batch);
+                }
+
+                // Drain even without a callback so a reused rule instance does not carry entries into the next run.
+                foreach (var entry in UnevaluatedContracts.DrainFrom(rules))
+                {
+                    unevaluated?.Invoke(entry);
                 }
 
                 channel.Writer.TryComplete();
@@ -287,8 +308,97 @@ public sealed class ValidationIncompleteException : InvalidOperationException
     public ValidationExecutionResult Result { get; }
 }
 
+/// <summary>
+/// The single executor behind the CLI <c>validate</c> family and <c>ValidationPipeline</c>: runs a composed
+/// <see cref="RuleDependencyGraph"/> level by level, concurrently or sequentially, and returns violations, per-rule
+/// outcomes and unevaluated contracts in the same deterministic order either way.
+/// </summary>
 public static class GraphValidationExecutor
 {
+    /// <summary>
+    /// Runs <paramref name="graph"/> concurrently (<see cref="ValidateAsync(RuleDependencyGraph, IReadOnlyList{ContractDescriptor}, int, int, CancellationToken)"/>)
+    /// when <paramref name="concurrent"/> is true (config <c>EnableConcurrentValidation</c>), otherwise sequentially
+    /// (<see cref="ValidateSequentialAsync"/>).
+    /// </summary>
+    public static Task<ValidationExecutionResult> ValidateAsync(
+        RuleDependencyGraph graph,
+        IReadOnlyList<ContractDescriptor> contracts,
+        bool concurrent,
+        int maxDegreeOfParallelism,
+        int maxViolationQueueSize,
+        CancellationToken cancellationToken = default)
+    {
+        return concurrent
+            ? ValidateAsync(graph, contracts, maxDegreeOfParallelism, maxViolationQueueSize, cancellationToken)
+            : ValidateSequentialAsync(graph, contracts, maxViolationQueueSize, cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs every rule of <paramref name="graph"/> in execution order, one contract at a time. A rule that throws is
+    /// recorded as <see cref="RuleExecutionState.Failed"/> (the result is incomplete); cancellation propagates.
+    /// </summary>
+    public static async Task<ValidationExecutionResult> ValidateSequentialAsync(
+        RuleDependencyGraph graph,
+        IReadOnlyList<ContractDescriptor> contracts,
+        int maxViolationQueueSize,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(contracts);
+        var rules = graph.GetExecutionOrder();
+        var violations = new List<ContractViolation>();
+        var remaining = ConcurrentValidationEngine.NormalizeMaxViolationQueueSize(maxViolationQueueSize);
+        var dropped = 0;
+        var known = true;
+        var outcomes = new List<RuleExecutionOutcome>(rules.Length);
+        foreach (var rule in rules)
+        {
+            var ruleViolations = new List<ContractViolation>();
+            string? failureReason = null;
+            foreach (var contract in contracts)
+            {
+                IReadOnlyList<ContractViolation> produced;
+                try
+                {
+                    produced = await rule.ValidateAsync(contract, contracts, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    failureReason = exception.GetType().Name;
+                    known = false;
+                    break;
+                }
+
+                ruleViolations.AddRange(produced);
+                var accepted = produced.Take(Math.Max(0, remaining)).ToList();
+                violations.AddRange(accepted);
+                remaining -= accepted.Count;
+                dropped += produced.Count - accepted.Count;
+            }
+
+            outcomes.Add(new RuleExecutionOutcome(
+                rule.RuleId,
+                failureReason is null ? RuleExecutionState.Evaluated : RuleExecutionState.Failed,
+                ruleViolations,
+                FailureReason: failureReason));
+        }
+
+        return new ValidationExecutionResult(
+            violations.OrderBy(violation => violation.RuleId, StringComparer.Ordinal)
+                .ThenBy(violation => violation.Message, StringComparer.Ordinal).ToList(),
+            dropped > 0 || !known,
+            known ? dropped : null)
+        {
+            RuleOutcomes = outcomes,
+            UnevaluatedContracts = UnevaluatedContracts.DrainFrom(rules),
+        };
+    }
+
+    /// <summary>Runs <paramref name="graph"/> level by level with bounded concurrency inside each level.</summary>
     public static async Task<ValidationExecutionResult> ValidateAsync(
         RuleDependencyGraph graph,
         IReadOnlyList<ContractDescriptor> contracts,

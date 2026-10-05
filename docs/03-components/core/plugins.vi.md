@@ -130,6 +130,10 @@ public sealed class ExportRuleAttribute : ExportAttribute, IRuleMetadata
 
 ### Ví Dụ Plugin
 
+Ví dụ nằm ở `samples/plugins/DataGuard.Samples.NamingPlugin/` (không còn trong `DataGuard.Core`, không có trong `DataGuard.sln`; `PluginLoadingTests` biên dịch mã nguồn này trong test và chạy qua `ValidationPipeline.WithPlugins`).
+
+`RulePluginManager` đọc metadata từ `[ExportRule]` (RuleId, Name, Description, Category, DefaultSeverity, MinDataGuardVersion, Author, Tags); rule export bằng attribute MEF thường thì dùng `[ExportMetadata]` và `RuleId` runtime. Sau khi nạp, `ruleId` của manifest, RuleId của `[ExportRule]` và `IContractRule.RuleId` runtime phải bằng nhau; nếu không, admission bị đánh dấu từ chối (ví dụ `Plugin manifest RuleId 'X' does not match runtime RuleId 'Y' (Type)`) và không rule nào của assembly đó chạy.
+
 ```csharp
 [ExportRule(
     "CUSTOM001",
@@ -214,16 +218,21 @@ public sealed record PluginMetric(
 Plugins khai báo phiên bản DataGuard tối thiểu qua `MinDataGuardVersion`:
 
 ```csharp
-private bool IsCompatible(IRuleMetadata metadata)
+internal static bool IsCompatible(IRuleMetadata metadata, Version? hostVersion, ILogger? logger = null)
 {
-    var currentVersion = Assembly.GetExecutingAssembly().GetName().Version;
+    if (hostVersion is null || hostVersion == new Version(0, 0, 0, 0))
+    {
+        logger?.LogInformation("DataGuard host is unversioned; ... treated as compatible.", ...);
+        return true; // build chưa có release tag (MinVer 0.0.0.0) không so được với phiên bản tối thiểu
+    }
+
     if (!Version.TryParse(metadata.MinDataGuardVersion ?? "", out var minVersion))
         minVersion = new Version(1, 0, 0);
-    return currentVersion >= minVersion;
+    return hostVersion >= minVersion;
 }
 ```
 
-Plugins không tương thích bị loại trừ im lặng khỏi `GetAllRules()`.
+Plugins không tương thích bị loại khỏi `GetAllRules()` / `GetPluginRules()`.
 
 ## Vòng Đời Plugin
 
@@ -276,14 +285,25 @@ public class MyCustomRule : IContractRule
 
 ### 3. Triển Khai
 
-Sao chép DLL đã biên dịch vào thư mục plugin:
-```bash
-cp bin/Release/net9.0/MyPlugin.dll ~/.local/share/DataGuard/Plugins/
+Sao chép DLL plugin đã biên dịch (không gồm `DataGuard.Core`/`DataGuard.Contracts`, host đã cung cấp) vào một thư mục tùy chọn và viết manifest kèm theo `<dll>.dataguard-plugin.json`:
+
+```json
+{ "pluginId": "my-plugin", "version": "1.0.0", "hostApiVersion": "1", "sha256": "<SHA-256 của DLL, hex>", "ruleId": "CUSTOM001" }
 ```
 
-### 4. Xác Minh
+Khai báo mọi dependency managed ngoài host trong `managedDependencies`. Không có gì được nạp từ vị trí mặc định.
+
+### 4. Chạy
 
 ```bash
-dataguard validate --list-rules
-# Nên hiển thị CUSTOM001: My Custom Rule
+dataguard validate --plugins-dir ./plugins --config .dataguard.yml
 ```
+
+CLI nạp plugin với trust policy mặc định: bắt buộc signed provenance, và CLI không có provenance verifier, nên mọi plugin bị từ chối (`Plugin X.dll not loaded: Signed provenance verifier is required.`) trừ khi config chủ động cho phép plugin build cục bộ, đáng tin:
+
+```yaml
+Plugins:
+  AllowUnsignedLocal: true   # vẫn kiểm tra manifest, digest, dependency closure và rule ID
+```
+
+Plugin bị từ chối được báo như rule unavailable (thoát 3 chỉ khi có `--fail-on-unavailable`). `--plugins-dir` bị từ chối khi dùng `--ide-safe` (thoát 2); thư mục không tồn tại thoát 2.

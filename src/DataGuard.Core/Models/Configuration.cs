@@ -96,6 +96,23 @@ public record DataGuardConfiguration(
     /// <see cref="EncryptConnectionStringAtRest"/> is set and no OS protection backend is available. Default false.
     /// </summary>
     public bool RequireEncryptedCredentialStore { get; init; }
+
+    /// <summary>Rule plugin options for <c>validate --plugins-dir</c>; null keeps the strict defaults.</summary>
+    public PluginConfiguration? Plugins { get; init; }
+}
+
+/// <summary>
+/// Rule plugin options. Plugins are only loaded from an explicit <c>--plugins-dir</c> and always pass manifest and
+/// digest admission.
+/// </summary>
+public sealed record PluginConfiguration
+{
+    /// <summary>
+    /// When true, plugins are admitted without a signed-provenance verifier (manifest, SHA-256 digest, dependency closure
+    /// and rule ID checks still apply). Default false: the CLI has no provenance verifier, so every plugin is rejected
+    /// until this is set explicitly for locally built, trusted plugins.
+    /// </summary>
+    public bool AllowUnsignedLocal { get; init; }
 }
 
 /// <summary>

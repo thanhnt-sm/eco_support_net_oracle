@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Sample DataGuard rule plugin (CUSTOM001). Not part of DataGuard.sln; built on demand:
+       dotnet build samples/plugins/DataGuard.Samples.NamingPlugin -c Release
+       The host provides DataGuard.Core at runtime, so it is referenced for compilation only (not copied). -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\DataGuard.Core\DataGuard.Core.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

@@ -130,6 +130,10 @@ public sealed class ExportRuleAttribute : ExportAttribute, IRuleMetadata
 
 ### Example Plugin
 
+The example lives in `samples/plugins/DataGuard.Samples.NamingPlugin/` (not in `DataGuard.Core` and not in `DataGuard.sln`; `PluginLoadingTests` compiles its source in-test and runs it through `ValidationPipeline.WithPlugins`).
+
+`RulePluginManager` reads the metadata from `[ExportRule]` (RuleId, Name, Description, Category, DefaultSeverity, MinDataGuardVersion, Author, Tags); a rule exported with plain MEF attributes falls back to `[ExportMetadata]` and the runtime `RuleId`. After loading, the manifest `ruleId`, the `[ExportRule]` RuleId and the runtime `IContractRule.RuleId` must be equal; otherwise the admission is marked rejected (for example `Plugin manifest RuleId 'X' does not match runtime RuleId 'Y' (Type)`) and none of that assembly's rules run.
+
 ```csharp
 [ExportRule(
     "CUSTOM001",
@@ -215,16 +219,21 @@ public sealed record PluginMetric(
 Plugins declare minimum DataGuard version via `MinDataGuardVersion`:
 
 ```csharp
-private bool IsCompatible(IRuleMetadata metadata)
+internal static bool IsCompatible(IRuleMetadata metadata, Version? hostVersion, ILogger? logger = null)
 {
-    var currentVersion = Assembly.GetExecutingAssembly().GetName().Version;
+    if (hostVersion is null || hostVersion == new Version(0, 0, 0, 0))
+    {
+        logger?.LogInformation("DataGuard host is unversioned; plugin rule {RuleId} ... is treated as compatible.", ...);
+        return true; // a build without a release tag (MinVer 0.0.0.0) cannot be ordered against a minimum
+    }
+
     if (!Version.TryParse(metadata.MinDataGuardVersion ?? "", out var minVersion))
         minVersion = new Version(1, 0, 0);
-    return currentVersion >= minVersion;
+    return hostVersion >= minVersion;
 }
 ```
 
-Incompatible plugins are silently excluded from `GetAllRules()`.
+Incompatible plugins are excluded from `GetAllRules()` / `GetPluginRules()`.
 
 ## Plugin Lifecycle
 
@@ -298,14 +307,25 @@ public class MyCustomRule : IContractRule
 
 ### 3. Deploy
 
-Copy the compiled DLL to the plugin directory:
-```bash
-cp bin/Release/net9.0/MyPlugin.dll ~/.local/share/DataGuard/Plugins/
+Copy the compiled plugin DLL (not `DataGuard.Core`/`DataGuard.Contracts`, which the host provides) into a directory of your choice and write the adjacent manifest `<dll>.dataguard-plugin.json`:
+
+```json
+{ "pluginId": "my-plugin", "version": "1.0.0", "hostApiVersion": "1", "sha256": "<SHA-256 of the DLL, hex>", "ruleId": "CUSTOM001" }
 ```
 
-### 4. Verify
+Declare any managed dependency outside the host in `managedDependencies`. Nothing is loaded from a default location.
+
+### 4. Run
 
 ```bash
-dataguard validate --list-rules
-# Should show CUSTOM001: My Custom Rule
+dataguard validate --plugins-dir ./plugins --config .dataguard.yml
 ```
+
+The CLI admits plugins with the default trust policy: signed provenance is required, and the CLI ships no provenance verifier, so every plugin is rejected (`Plugin X.dll not loaded: Signed provenance verifier is required.`) unless the config explicitly opts in for locally built, trusted plugins:
+
+```yaml
+Plugins:
+  AllowUnsignedLocal: true   # manifest, digest, dependency closure and rule ID checks still apply
+```
+
+A rejected plugin is reported like an unavailable rule (exit 3 only with `--fail-on-unavailable`). `--plugins-dir` is rejected under `--ide-safe` (exit 2); a missing directory exits 2.

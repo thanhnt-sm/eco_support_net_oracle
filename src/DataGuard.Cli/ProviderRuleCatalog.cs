@@ -1,4 +1,5 @@
 using DataGuard.Core.Abstractions;
+using DataGuard.Core.Models;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Rules.TypeCompatibility;
 using DataGuard.MySql.Adapter;
@@ -93,6 +94,46 @@ public static class ProviderRuleCatalog
         }
         return rules;
     }
+
+    /// <summary>
+    /// The rules the CLI executes for <paramref name="provider"/>: every <see cref="RuleAvailability.Ready"/> registration
+    /// of <see cref="Get"/>, in catalog order. <see cref="CreatePipeline"/> composes the same list.
+    /// </summary>
+    public static IReadOnlyList<IContractRule> GetReadyRules(
+        string provider,
+        string? connectionString = null,
+        ProgressEmitter? progress = null,
+        bool strictProcedureContracts = false,
+        string? defaultSchema = null,
+        string? defaultPackage = null) =>
+        Get(provider, connectionString, progress, strictProcedureContracts, defaultSchema, defaultPackage)
+            .Where(registration => registration.Availability == RuleAvailability.Ready)
+            .Select(registration => registration.Rule)
+            .ToList();
+
+    /// <summary>
+    /// Library entry point with the CLI's rule composition: a <see cref="ValidationPipeline"/> whose rules are
+    /// <see cref="GetReadyRules"/> for <paramref name="provider"/> configured from <paramref name="configuration"/>
+    /// (<c>StrictProcedureContracts</c>, <c>DefaultSchema</c>, <c>DefaultPackage</c>). It runs through the same
+    /// <see cref="GraphValidationExecutor"/> as <c>dataguard validate</c>.
+    /// </summary>
+    public static ValidationPipeline CreatePipeline(string provider, DataGuardConfiguration configuration, string? connectionString = null)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        return DataGuardApi.CreatePipeline(configuration).WithProviderRules(GetReadyRules(
+            provider,
+            connectionString,
+            progress: null,
+            configuration.StrictProcedureContracts,
+            configuration.DefaultSchema,
+            configuration.DefaultPackage));
+    }
+
+    /// <summary>
+    /// Composes the executed rule list (provider rules, then plugin rules) into the dependency graph both the CLI and
+    /// <see cref="ValidationPipeline"/> execute.
+    /// </summary>
+    public static RuleDependencyGraph Compose(IEnumerable<IContractRule> rules) => BuiltInRuleDependencies.Create(rules);
 
     private static void AddCoreRules(
         List<ProviderRuleRegistration> rules,
