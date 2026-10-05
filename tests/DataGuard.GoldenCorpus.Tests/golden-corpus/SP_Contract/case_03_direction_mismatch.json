@@ -9,8 +9,15 @@
         "schema": "dbo",
         "name": "usp_CreateOrder",
         "parameters": [
-          { "name": "@CustomerId", "type": "int" },
-          { "name": "@OrderId", "type": "int", "direction": "InputOutput" }
+          {
+            "name": "@CustomerId",
+            "type": "int"
+          },
+          {
+            "name": "@OrderId",
+            "type": "int",
+            "direction": "InputOutput"
+          }
         ]
       }
     ],
@@ -22,5 +29,10 @@
       "messageContains": "Parameter '@OrderId' of stored procedure 'dbo.usp_CreateOrder' is InputOutput but call site passes it as Input",
       "severity": "Warning"
     }
-  ]
+  ],
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  }
 }

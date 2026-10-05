@@ -9,8 +9,14 @@
         "schema": "dbo",
         "name": "usp_GetOrders",
         "parameters": [
-          { "name": "@CustomerId", "type": "int" },
-          { "name": "@Status", "type": "nvarchar" }
+          {
+            "name": "@CustomerId",
+            "type": "int"
+          },
+          {
+            "name": "@Status",
+            "type": "nvarchar"
+          }
         ]
       }
     ],
@@ -22,5 +28,10 @@
       "messageContains": "unknown argument(s) Region",
       "severity": "Warning"
     }
-  ]
+  ],
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  }
 }

@@ -11,8 +11,15 @@
         "name": "CREATE_ORDER",
         "overload": 1,
         "parameters": [
-          { "name": "P_CUSTOMER_ID", "type": "NUMBER" },
-          { "name": "P_ORDER_ID", "type": "NUMBER", "direction": "Output" }
+          {
+            "name": "P_CUSTOMER_ID",
+            "type": "NUMBER"
+          },
+          {
+            "name": "P_ORDER_ID",
+            "type": "NUMBER",
+            "direction": "Output"
+          }
         ]
       },
       {
@@ -21,9 +28,18 @@
         "name": "CREATE_ORDER",
         "overload": 2,
         "parameters": [
-          { "name": "P_CUSTOMER_ID", "type": "NUMBER" },
-          { "name": "P_CHANNEL", "type": "VARCHAR2" },
-          { "name": "P_PRIORITY", "type": "NUMBER" }
+          {
+            "name": "P_CUSTOMER_ID",
+            "type": "NUMBER"
+          },
+          {
+            "name": "P_CHANNEL",
+            "type": "VARCHAR2"
+          },
+          {
+            "name": "P_PRIORITY",
+            "type": "NUMBER"
+          }
         ]
       }
     ],
@@ -35,5 +51,10 @@
       "messageContains": "Call to stored procedure 'SALES.ORDERS_PKG.CREATE_ORDER' does not match its catalog signature: missing required parameter(s) P_PRIORITY",
       "severity": "Warning"
     }
-  ]
+  ],
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  }
 }

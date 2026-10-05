@@ -9,9 +9,19 @@
         "schema": "dbo",
         "name": "usp_GetOrders",
         "parameters": [
-          { "name": "@CustomerId", "type": "int" },
-          { "name": "@Status", "type": "nvarchar" },
-          { "name": "@Top", "type": "int", "hasDefault": true }
+          {
+            "name": "@CustomerId",
+            "type": "int"
+          },
+          {
+            "name": "@Status",
+            "type": "nvarchar"
+          },
+          {
+            "name": "@Top",
+            "type": "int",
+            "hasDefault": true
+          }
         ]
       }
     ],
@@ -24,5 +34,10 @@
       "severity": "Warning"
     }
   ],
-  "notes": "@Top has a default and may be omitted; @Status may not. Warning until StrictProcedureContracts is enabled."
+  "notes": "@Top has a default and may be omitted; @Status may not. Warning until StrictProcedureContracts is enabled.",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  }
 }
