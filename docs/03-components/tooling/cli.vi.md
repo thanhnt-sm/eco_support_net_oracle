@@ -32,6 +32,10 @@ graph TB
     H --> HU[uninstall]
 ```
 
+## Bố cục mã nguồn
+
+`src/DataGuard.Cli/Program.cs` chỉ dựng root command và chạy nó. Mỗi lệnh cấp cao nằm trong một file riêng dưới `src/DataGuard.Cli/Commands/` (`ValidateCommand.cs`, `ScanCommand.cs`, `VerifyShapeCommand.cs`, `PreflightCommand.cs`, `BaselineCommand.cs`, `SnapshotCommands.cs`, `InitCommand.cs`, `HookCommand.cs`, `ConfigCommands.cs`, `OracleCheckCommand.cs`, `MigrateCommand.cs`, `AssessCommand.cs`, `VersionCommand.cs`; option dùng chung nằm trong `CommonOptions.cs`). Logic dùng chung nằm trong `src/DataGuard.Cli/Services/`: `ConfigLoader.cs` (đọc và bind `.dataguard.yml` qua `ConfigDocument.cs`, resolve provider và connection), `ContractAcquisition.cs`, `ValidationRunner.cs` (đường validate duy nhất), `SnapshotGuard.cs` (kiểm tra snapshot), `DatabaseVersionReader.cs` và `OutputSinks.cs` (chính sách đường ghi, ghi nguyên tử). Các contract rule nằm mỗi rule một file dưới `src/DataGuard.Core/Rules/`; các helper SQL text của `ColumnShapeMatchRule` nằm ở `src/DataGuard.Core/Rules/Sql/SqlTextScanner.cs` (quét theo chỉ số, tuyến tính theo độ dài SQL).
+
 ## Lệnh
 
 ### `validate`
@@ -72,9 +76,9 @@ dataguard validate [options]
 - Không có connection và không đặt `SnapshotFilePath`: dùng `.dataguard-snapshot.json` cạnh `--config`, nếu không thì trong thư mục hiện tại, và in `Using snapshot <path>` ra stdout
 - Với `--offline`: không bao giờ kết nối. `--offline` không kèm `--assembly` là Snapshot mode (cùng cách tìm snapshot mặc định); `--offline --assembly <path>` là Manual mode dùng attribute (không đổi)
 - Cổng ground truth: nếu contract thu được không có schema, stored procedure hay entity (chỉ có SQL inline từ `--project`), `validate` in `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` và exit 3. `--allow-syntactic-only` hạ thành cảnh báo; `--format contracts|yaml|typescript` không bị chặn; dưới `--ide-safe` luôn chỉ là cảnh báo
-- Contract chưa đánh giá (red-team H1/H2): khi describe live lỗi hoặc bị từ chối (lỗi kết nối/quyền/biên dịch, temp table, câu lệnh không chỉ-đọc hoặc nhiều câu lệnh) query **không** được so với cột bịa và **không** còn là cảnh báo `DG020`. Sau khi validate, stderr in `UNEVALUATED: <n> contract(s) could not be evaluated:` và mỗi contract một dòng `<ruleId> <contractId>: <reason>` (`DG020` cho shape query không xác định; reason đã được làm sạch). Lỗi acquisition in `ACQUISITION: <path>: <message>` (hiện tại: ModelSnapshot của `--ef-snapshot`/`--ef-project` chỉ parse được một phần; entity đã parse được giữ lại, cấu hình entity bị bỏ qua được liệt kê). Một trong hai làm run exit 3 trừ khi có `--allow-unevaluated` (hoặc `--ide-safe`); file output vẫn được ghi. Có describer live cho SQL Server (`sp_describe_first_result_set`), Oracle, PostgreSQL và MySQL (`CommandBehavior.SchemaOnly` trên wrapper `WHERE 1=0`; MySQL thêm `LIMIT 0` trên session read-only)
+- Contract chưa đánh giá (red-team H1/H2): khi describe live lỗi hoặc bị từ chối (lỗi kết nối/quyền/biên dịch, temp table, câu lệnh không chỉ-đọc hoặc nhiều câu lệnh) query **không** được so với cột bịa và **không** còn là cảnh báo `DG020`. Sau khi validate, stderr in `UNEVALUATED: <n> contract(s) could not be evaluated:` và mỗi contract một dòng `<ruleId> <contractId>: <reason>` (`DG020` cho shape query không xác định; reason đã được làm sạch). Lỗi acquisition in `ACQUISITION: <path>: <message>` (hiện tại: ModelSnapshot của `--ef-snapshot`/`--ef-project` chỉ parse được một phần; entity đã parse được giữ lại, cấu hình entity bị bỏ qua được liệt kê). SQL literal dài hơn 256 KiB được báo một lần, dạng `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`, không lặp lại thành dòng `ACQUISITION:`; nó vẫn làm kết quả không đầy đủ. Một trong hai làm run exit 3 trừ khi có `--allow-unevaluated` (hoặc `--ide-safe`); file output vẫn được ghi. Có describer live cho SQL Server (`sp_describe_first_result_set`), Oracle, PostgreSQL và MySQL (`CommandBehavior.SchemaOnly` trên wrapper `WHERE 1=0`; MySQL thêm `LIMIT 0` trên session read-only)
 - Rule không khả dụng (ví dụ `DG012` Oracle, `PG004` PostgreSQL) in một lần ra stderr `Rule <id> not evaluated: <reason>` và không đổi exit code trừ khi có `--fail-on-unavailable`; `--skip-rules` được áp dụng trước
-- Config: key top-level không biết in `Warning: unknown configuration keys: a, b` (exit 2 khi `StrictConfig: true`); giá trị sai kiểu => exit 2. Dưới `--ide-safe`, `--config` thiếu file chỉ là cảnh báo vì IDE host luôn truyền đường dẫn workspace
+- Config: key top-level không biết in `Warning: unknown configuration keys: a, b` (exit 2 khi `StrictConfig: true`); giá trị sai kiểu => exit 2. Dưới `--ide-safe`, `--config` thiếu file chỉ là cảnh báo vì IDE host luôn truyền đường dẫn workspace. Các block lồng `Oracle:`/`SqlServer:`/`Plugins:` và danh sách `ExcludedProcedures`/`ExcludedEntities` được bind (xem [File cấu hình](#file-cấu-hình))
 - `--project`: phát hiện contract và câu lệnh SQL inline (Dapper, ADO.NET) trực tiếp từ mã nguồn C# (`.csproj`, `.sln`, hoặc thư mục) qua Roslyn AST mà không cần build assembly trước
 - `--progress`: xuất các sự kiện tiến trình thời gian thực dưới dạng dòng JSON (NDJSON) an toàn sang `stderr` để tích hợp công cụ và IDE (ví dụ VS Code extension)
 - `--verbose`: in báo cáo quét chi tiết bao gồm chuỗi/gợi ý kết nối được phát hiện, các câu lệnh SQL kèm số dòng, loại thao tác AST, các bảng được tham chiếu, mapping DTO đích, và chẩn đoán cột/thuộc tính chưa được map
@@ -197,6 +201,7 @@ dataguard verify-shape --connection <conn-string> --provider <provider> --projec
 - **Loại bỏ chú thích & Chuỗi ký tự một lượt (kèm Oracle Q-Quote & Theo dõi độ sâu chú thích lồng nhau) (Single-Pass Comment & String Literal Stripping with Oracle Q-Quotes & Nested Comment Depth Tracking)**: Chú thích SQL (`-- ...` và `/* ... */`) cùng các chuỗi ký tự được loại bỏ trong một lượt phân tích từ vựng duy nhất (`ColumnShapeMatchRule.StripCommentsAndLiterals`) trước khi kiểm tra dấu chấm phẩy và từ khóa câu lệnh. Bộ phân tích cú pháp giữ nguyên các ký tự bên trong định danh dấu ngoặc vuông (`[My--Column]`, bao gồm cả `]]` được escape), định danh backtick (`` `user_orders` ``), và định danh chuỗi ngoặc kép tiêu chuẩn ANSI (`"column_name"`), ngăn ngừa các dấu gạch nối hoặc dấu gạch chéo bên trong định danh cột và bảng phân cách bị hiểu nhầm là chú thích. Bộ bóc tách chú thích theo dõi độ sâu chú thích khối lồng nhau (`commentDepth`) cho tới khi đóng cân bằng hoàn toàn, ngăn ngừa các kỹ thuật chèn mã ẩn trong chú thích (comment-hiding injection) và lỗ hổng ReDoS trên các phương ngữ hỗ trợ chú thích lồng nhau (như T-SQL và PostgreSQL). Bên cạnh các chuỗi ký tự đơn tiêu chuẩn (`'(?:''|[^'])*'`) và chuỗi dollar-quoted của PostgreSQL (`$(?<tag>[A-Za-z0-9_]*)$.*?$\k<tag>$`), bộ phân tích từ vựng hỗ trợ toàn diện cú pháp trích dẫn thay thế của Oracle (Q-quote: `q'...'` và `Q'...'`) trên cả dialect checker lẫn live query validation. Bộ phân tích tự động ghép cặp ngoặc vuông, ngoặc nhọn, ngoặc đơn, ngoặc nhọn tam giác (`q'[...]'`, `q'{...}'`, `q'(...)'`, `q'<...>'`), hoặc ký tự phân cách đơn bất kỳ (`q'!...!^'`), thay thế bằng token chuỗi rỗng an toàn (`''`). Điều này ngăn chặn dấu nháy đơn không escape bên trong chuỗi Q-quote làm hỏng trạng thái tokenizer, ngăn ngừa breakout truy vấn trực tiếp và tránh cho bộ dò tham số hoặc dialect checker hiểu nhầm nội dung chuỗi thành tham số truy vấn hay từ khóa SQL.
 - **Tách nhánh tập hợp an toàn với chuỗi (Quote-Safe Set Branch Splitting)**: Các phép toán tập hợp truy vấn (`UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT`) được tách thành các nhánh con riêng biệt (`ColumnShapeMatchRule.SplitTopLevelSetBranches`) bằng bộ quét từ vựng nhận biết chuỗi và chú thích. Bộ quét theo dõi trạng thái dấu ngoặc kép/đơn (`'...'`, `"..."`, `[...]`, `` `...` ``), độ sâu lồng dấu ngoặc đơn (`depth == 0`), và các khối chú thích (`--` cùng `/* ... */`), đảm bảo rằng các từ khóa tập hợp xuất hiện bên trong chuỗi ký tự, định danh trích dẫn hoặc chú thích không bao giờ bị nhận diện nhầm thành ranh giới phân tách nhánh.
 - **Khử độc thông báo lỗi (Sanitized Error Messages)**: Lý do của contract chưa đánh giá được ghi khi xác định shape gặp lỗi cơ sở dữ liệu (`LiveSqlShapeValidationRule`, `LiveSchemaResult.Error`) sẽ khử độc thông báo ngoại lệ thông qua `SanitizeErrorMessage`. Các tham số chuỗi kết nối (`password=`, `pwd=`, `user id=`, `uid=`, `secret=`, `token=`) và thông tin xác thực URI (`protocol://user:password@host`) được ẩn thành `[REDACTED]` để ngăn ngừa rò rỉ credential vào kết quả SARIF, chẩn đoán IDE hoặc log.
+- **MySQL**: `--provider mysql` describe query bằng `MySqlLiveQuerySchemaProvider` (session read-only, wrapper `LIMIT 0`); phiên bản trước exit 2 với `provider 'mysql' does not support live query schema verification`.
 - **Hỗ trợ ký tự đại diện kèm tiền tố bảng (Table-Prefixed Wildcard Support)**: Phân tích ký tự đại diện fallback (`SelectStarUsageRule.ContainsSelectStar`) phát hiện và phân giải chính xác các wildcard kèm tiền tố bảng (`SELECT T.*`, `SELECT [tbl].*`, ``SELECT `db`.`tbl`.*``) trên cả truy vấn cấp cao nhất lẫn subquery bên trong, ngăn ngừa các cảnh báo sai về thiếu thuộc tính khi truy vấn bảng qua wildcard.
 - **Cơ chế bảo vệ phân tích số cho Oracle LOB & Kiểu số lớn (Oracle LOB & Large Numeric Parsing Safeguards)**: Khi kiểm tra metadata schema của Oracle (như `CLOB`, `NCLOB`, `BLOB`, `LONG`, hoặc `NUMBER` độ chính xác cao), các thuộc tính số như kích thước cột (column size), precision và scale được chuyển đổi bằng cơ chế parse chống tràn (`int.TryParse` có kiểm tra biên). Điều này ngăn ngừa hoàn toàn ngoại lệ `OverflowException` khi metadata Oracle vượt quá khoảng giá trị số nguyên 32-bit tiêu chuẩn hoặc trả về các giá trị lính canh không giới hạn đặc biệt.
 - **Bảo vệ truy vấn xếp chồng (Stacked Query Guard)**: Các truy vấn chứa dấu chấm phẩy không nằm trong chuỗi ký tự (câu lệnh xếp chồng) bị nghiêm cấm thực thi trực tiếp.
@@ -355,6 +360,7 @@ dataguard baseline [options]
 - Danh sách vi phạm với rule ID và thông báo
 - Phiên bản database (từ `@@VERSION` hoặc `V$VERSION`)
 - Hash schema (SHA-256, 16 ký tự hex đầu tiên)
+- Provider (`Provider`), giống snapshot do `snapshot refresh` ghi
 
 ### `preflight`
 
@@ -398,6 +404,10 @@ dataguard snapshot refresh [options]
 
 Lệnh này yêu cầu database connection được cấu hình. Nếu không có acquisition
 trực tiếp mới, lệnh trả `UNEVALUATED` (exit code 3) và không tạo snapshot.
+
+Snapshot luôn ghi `Provider`. `validate` coi snapshot định dạng 4 có `Provider`
+rỗng là không dùng được (`UNEVALUATED: snapshot format version 4 records no
+provider ...`, exit 3); file định dạng 2/3 không có provider vẫn được chấp nhận.
 
 
 #### `snapshot show`
@@ -644,7 +654,23 @@ BaselineFilePath: .dataguard-baseline.json
 SnapshotFilePath: .dataguard-snapshot.json
 EnableConcurrentValidation: true
 MaxDegreeOfParallelism: 4
+SnapshotMaxAgeDays: 90
+StrictProcedureContracts: false
+AuditKeyFile: /etc/dataguard/audit.key
+RequireEncryptedCredentialStore: false
+ExcludedProcedures:
+  - dbo.LegacyImport
+ExcludedEntities: [AuditRow]
+Oracle:
+  Owner: HR
+  DescribeRefCursors: false
+SqlServer:
+  Schema: dbo
+Plugins:
+  AllowUnsignedLocal: false
 ```
+
+Mọi key của `DataGuardConfiguration` đều được bind, gồm các block lồng `Oracle:`, `SqlServer:`, `Plugins:` và các key dạng danh sách; key vắng mặt hoặc rỗng giữ giá trị mặc định. Chỉ khi binding có kiểu từ chối file (ví dụ một scalar ở chỗ cần block) loader mới quay về đọc các key scalar cấp cao nhất.
 
 **Lưu ý bảo mật:** Không bao giờ commit chuỗi kết nối vào source control. Sử dụng biến môi trường `DATAGUARD_CONNECTION_STRING` thay thế.
 

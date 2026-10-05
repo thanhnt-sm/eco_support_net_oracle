@@ -27,4 +27,4 @@
 
 - Thay đổi DataGuard: dùng `dotnet restore DataGuard.sln`, `dotnet build DataGuard.sln --configuration Release`, và test project/suite bị ảnh hưởng.
 - Thay đổi workflow/container: kiểm tra YAML/actionlint và Docker smoke test khi daemon sẵn sàng.
-- Thay đổi documentation/rules: chạy `./scripts/verify_docs_sync.sh`; lưu ý script này hiện chỉ kiểm tra hiện diện, nên plan cleanup phải nâng nó thành validation nội dung DataGuard.
+- Thay đổi documentation/rules: chạy `./scripts/verify_docs_sync.sh`; script kiểm tra hiện diện tài liệu, licence, bảng rule trong README (`scripts/gen_rule_table.py --check`) và CLI flag trong `docs/USAGE.md` so với `src/DataGuard.Cli/**`.

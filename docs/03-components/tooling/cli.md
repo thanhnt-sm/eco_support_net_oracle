@@ -32,6 +32,10 @@ graph TB
     H --> HU[uninstall]
 ```
 
+## Source Layout
+
+`src/DataGuard.Cli/Program.cs` only builds the root command and runs it. Each top-level command lives in its own file under `src/DataGuard.Cli/Commands/` (`ValidateCommand.cs`, `ScanCommand.cs`, `VerifyShapeCommand.cs`, `PreflightCommand.cs`, `BaselineCommand.cs`, `SnapshotCommands.cs`, `InitCommand.cs`, `HookCommand.cs`, `ConfigCommands.cs`, `OracleCheckCommand.cs`, `MigrateCommand.cs`, `AssessCommand.cs`, `VersionCommand.cs`; options shared by several commands are in `CommonOptions.cs`). Shared logic is in `src/DataGuard.Cli/Services/`: `ConfigLoader.cs` (`.dataguard.yml` loading and binding through `ConfigDocument.cs`, provider and connection resolution), `ContractAcquisition.cs`, `ValidationRunner.cs` (the single validation path), `SnapshotGuard.cs` (snapshot checks), `DatabaseVersionReader.cs` and `OutputSinks.cs` (write-path policy, atomic writes). The contract rules are one file per rule under `src/DataGuard.Core/Rules/`; the SQL text helpers of `ColumnShapeMatchRule` are in `src/DataGuard.Core/Rules/Sql/SqlTextScanner.cs` (index-based scanning, linear in the SQL length).
+
 ## Commands
 
 ### `validate`
@@ -72,9 +76,9 @@ dataguard validate [options]
 - Without a connection and without `SnapshotFilePath`: uses `.dataguard-snapshot.json` next to `--config`, else in the current directory, and prints `Using snapshot <path>` to stdout
 - With `--offline`: never connects. Bare `--offline` is Snapshot mode (same default snapshot discovery); `--offline --assembly <path>` is Manual ground-truth mode with attributes (unchanged)
 - Ground-truth gate: when the acquired contracts hold no schema, stored procedure or entity descriptor (only inline SQL from `--project`), `validate` prints `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` and exits 3. `--allow-syntactic-only` downgrades it to a warning; `--format contracts|yaml|typescript` is not gated; under `--ide-safe` it is always a warning
-- Unevaluated contracts (red-team H1/H2): when a live describe fails or is refused (connection/permission/compile error, temp tables, non read-only or stacked statement) the query is **not** compared against fabricated columns and is **not** a `DG020` warning any more. After validation stderr prints `UNEVALUATED: <n> contract(s) could not be evaluated:` and one line `<ruleId> <contractId>: <reason>` each (`DG020` for an undetermined query shape; reasons are sanitized). Acquisition problems print `ACQUISITION: <path>: <message>` (today: a partially parsed `--ef-snapshot`/`--ef-project` ModelSnapshot, whose skipped entity configurations are listed while the parsed entities are kept). Either makes the run exit 3 unless `--allow-unevaluated` (or `--ide-safe`); output files are still written. Live describers exist for SQL Server (`sp_describe_first_result_set`), Oracle, PostgreSQL and MySQL (`CommandBehavior.SchemaOnly` on a `WHERE 1=0` wrapper; MySQL also `LIMIT 0` on a read-only session)
+- Unevaluated contracts (red-team H1/H2): when a live describe fails or is refused (connection/permission/compile error, temp tables, non read-only or stacked statement) the query is **not** compared against fabricated columns and is **not** a `DG020` warning any more. After validation stderr prints `UNEVALUATED: <n> contract(s) could not be evaluated:` and one line `<ruleId> <contractId>: <reason>` each (`DG020` for an undetermined query shape; reasons are sanitized). Acquisition problems print `ACQUISITION: <path>: <message>` (today: a partially parsed `--ef-snapshot`/`--ef-project` ModelSnapshot, whose skipped entity configurations are listed while the parsed entities are kept). A SQL literal over 256 KiB is reported once, as `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`, and is not repeated as an `ACQUISITION:` line; it still makes the result incomplete. Either makes the run exit 3 unless `--allow-unevaluated` (or `--ide-safe`); output files are still written. Live describers exist for SQL Server (`sp_describe_first_result_set`), Oracle, PostgreSQL and MySQL (`CommandBehavior.SchemaOnly` on a `WHERE 1=0` wrapper; MySQL also `LIMIT 0` on a read-only session)
 - Unavailable rules (for example `DG012` on Oracle, `PG004` on PostgreSQL) print `Rule <id> not evaluated: <reason>` once to stderr and do not change the exit code unless `--fail-on-unavailable` is set; `--skip-rules` is applied first
-- Configuration: unknown top-level keys print `Warning: unknown configuration keys: a, b` (exit 2 with `StrictConfig: true`); a value of the wrong type exits 2. Under `--ide-safe` a missing `--config` file is a warning, because IDE hosts always pass the workspace path
+- Configuration: unknown top-level keys print `Warning: unknown configuration keys: a, b` (exit 2 with `StrictConfig: true`); a value of the wrong type exits 2. Nested `Oracle:`/`SqlServer:`/`Plugins:` blocks and the `ExcludedProcedures`/`ExcludedEntities` lists are bound (see [Configuration File](#configuration-file)) Under `--ide-safe` a missing `--config` file is a warning, because IDE hosts always pass the workspace path
 - `--project`: discovers C# source contracts and inline SQL queries (Dapper, ADO.NET) directly from source code (`.csproj`, `.sln`, or directory) via Roslyn AST without requiring a pre-compiled assembly
 - `--progress`: outputs real-time step progress events as newline-delimited JSON (NDJSON) lines to `stderr` for tooling and IDE integration (e.g., VS Code extension)
 - `--verbose`: prints detailed scan report including discovered connection strings/hints, detected SQL queries with line numbers, AST operation types, referenced tables, target DTO mappings, and unmapped column/property diagnostics
@@ -197,6 +201,7 @@ dataguard verify-shape --connection <conn-string> --provider <provider> --projec
 - **Single-Pass Comment & String Literal Stripping (with Oracle Q-Quotes & Nested Comment Depth Tracking)**: SQL comments (`-- ...` and `/* ... */`) and string literals are stripped in a single lexical pass (`ColumnShapeMatchRule.StripCommentsAndLiterals`) before semicolon and statement keyword inspection. The parser preserves characters within bracket identifiers (`[My--Column]`, including escaped `]]`), backtick identifiers (`` `user_orders` ``), and standard ANSI double-quoted identifiers (`"column_name"`), preventing hyphens or slashes within delimited column and table identifiers from being mistakenly treated as comments. The comment stripper tracks nested block comment depth (`commentDepth`) up to balanced termination, preventing comment-hiding injection and ReDoS vulnerabilities in dialects supporting nested block comments (such as T-SQL and PostgreSQL). In addition to standard single-quoted literals (`'(?:''|[^'])*'`) and PostgreSQL dollar-quoted strings (`$(?<tag>[A-Za-z0-9_]*)$.*?$\k<tag>$`), the lexical engine provides comprehensive support for Oracle alternative quoting (Q-quotes: `q'...'` and `Q'...'`) across dialect checking and live query validation. It dynamically pairs brackets, braces, parentheses, angle brackets (`q'[...]'`, `q'{...}'`, `q'(...)'`, `q'<...>'`), and arbitrary single-character delimiters (`q'!...!^'`), replacing them with safe empty literal tokens (`''`). This prevents unescaped apostrophes inside Q-quoted literals from corrupting tokenizer state, prevents live query breakout, and prevents parameter sniffers or dialect checkers from mistaking literal contents for query parameters or SQL keywords.
 - **Quote-Safe Set Branch Splitting**: Query set operations (`UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT`) are split into discrete sub-branches (`ColumnShapeMatchRule.SplitTopLevelSetBranches`) using a quote-aware, comment-aware lexical scanner. The scanner tracks quote states (`'...'`, `"..."`, `[...]`, `` `...` ``), parenthetical nesting depths (`depth == 0`), and comment blocks (`--` and `/* ... */`), ensuring that set keywords appearing within string literals, quoted identifiers, or comments are never mistaken for branch boundaries.
 - **Sanitized Error Messages**: Unevaluated-contract reasons recorded when shape determination encounters database errors (`LiveSqlShapeValidationRule`, `LiveSchemaResult.Error`) sanitize exception messages using `SanitizeErrorMessage`. Connection string parameters (`password=`, `pwd=`, `user id=`, `uid=`, `secret=`, `token=`) and URI credentials (`protocol://user:password@host`) are redacted to `[REDACTED]` to prevent credential leakage into SARIF findings, editor diagnostics, or logs.
+- **MySQL**: `--provider mysql` describes queries with `MySqlLiveQuerySchemaProvider` (read-only session, `LIMIT 0` wrapper); earlier versions exited 2 with `provider 'mysql' does not support live query schema verification`.
 - **Table-Prefixed Wildcard Support**: Fallback wildcard analysis (`SelectStarUsageRule.ContainsSelectStar`) accurately detects and resolves table-prefixed wildcards (`SELECT T.*`, `SELECT [tbl].*`, ``SELECT `db`.`tbl`.*``) across top-level and inner subqueries, preventing missing property false alarms when querying tables via wildcards.
 - **Oracle LOB & Large Numeric Parsing Safeguards**: When inspecting Oracle schema metadata (e.g. `CLOB`, `NCLOB`, `BLOB`, `LONG`, or high-precision `NUMBER`), numeric attributes such as column size, precision, and scale are converted using non-overflowing parsing (`int.TryParse` with bounds checking). This prevents runtime `OverflowException` errors when Oracle metadata exceeds standard 32-bit integer ranges or reports special unbounded sentinel values.
 - **Stacked Query Guard**: Queries containing unquoted semicolons (stacked statements) are strictly rejected from live execution.
@@ -354,6 +359,7 @@ dataguard baseline [options]
 - Violation list with rule IDs and messages
 - Database version (from `@@VERSION` or `V$VERSION`)
 - Schema hash (SHA-256, first 16 hex chars)
+- Provider (`Provider`), like the snapshot written by `snapshot refresh`
 
 ### `preflight`
 
@@ -398,6 +404,11 @@ dataguard snapshot refresh [options]
 This command requires a configured database connection. Without a fresh live
 acquisition it returns `UNEVALUATED` (exit code 3) and does not create a
 snapshot.
+
+The snapshot always records `Provider`. `validate` treats a format-4 snapshot
+with an empty `Provider` as unusable (`UNEVALUATED: snapshot format version 4
+records no provider ...`, exit 3); format 2/3 files without a provider are
+still accepted.
 
 #### `snapshot show`
 
@@ -643,7 +654,23 @@ BaselineFilePath: .dataguard-baseline.json
 SnapshotFilePath: .dataguard-snapshot.json
 EnableConcurrentValidation: true
 MaxDegreeOfParallelism: 4
+SnapshotMaxAgeDays: 90
+StrictProcedureContracts: false
+AuditKeyFile: /etc/dataguard/audit.key
+RequireEncryptedCredentialStore: false
+ExcludedProcedures:
+  - dbo.LegacyImport
+ExcludedEntities: [AuditRow]
+Oracle:
+  Owner: HR
+  DescribeRefCursors: false
+SqlServer:
+  Schema: dbo
+Plugins:
+  AllowUnsignedLocal: false
 ```
+
+Every key of `DataGuardConfiguration` is bound, including the nested `Oracle:`, `SqlServer:` and `Plugins:` blocks and the list keys; a key that is absent or empty keeps its default. Only when the typed binding rejects the file (for example a scalar where a block is expected) does the loader fall back to reading the top-level scalar keys.
 
 **Security note:** Never commit connection strings to source control. Use environment variable `DATAGUARD_CONNECTION_STRING` instead.
 
