@@ -215,41 +215,44 @@ public void GetOrder(int id) { }
 
 ## ProjectCSharpSqlSource
 
-Trích xuất các truy vấn SQL và contract thực thi stored procedure từ mã nguồn C# thông qua phân tích cây cú pháp Roslyn AST qua nhiều pass.
+Trích xuất câu lệnh SQL và call-site stored procedure từ mã nguồn C# bằng Roslyn (cú pháp và semantic model). Mã nằm ở `Sources/ProjectCSharpSqlSource.cs` và các phần partial trong `Sources/CSharp/`.
 
-### Heuristic phát hiện Stored Procedure & SQL (`IsSqlString`)
+### Call-site
 
-Khi đánh giá một biểu thức hoặc chuỗi ký tự có đại diện cho một contract SQL cần kiểm tra hay không, `ProjectCSharpSqlSource.IsSqlString` áp dụng kiểm tra từ khóa và quy ước đặt tên:
+| Dạng | Nhận diện |
+|------|-----------|
+| Dapper | `Query*` (gồm `QueryFirst*`, `QuerySingle*`, `QueryMultiple*`, `QueryUnbufferedAsync`), `Execute*`, `ExecuteScalar*`, `ExecuteReader*`; `conn?.Query<T>(...)`; `commandType: CommandType.StoredProcedure` (đặt tên hoặc theo vị trí) |
+| EF Core | `FromSqlRaw/FromSqlInterpolated/FromSql`, `ExecuteSqlRaw*/ExecuteSqlInterpolated*/ExecuteSql*`, `SqlQuery/SqlQueryRaw` |
+| ADO.NET | `cmd.CommandText = ...`, `new XCommand("...")` và target-typed `XCommand cmd = new("...")`, `CommandType = CommandType.StoredProcedure` (lấy command text **cuối cùng** được gán trước khi command thực thi) |
+| Hằng | field `const`/`static readonly` chứa SQL chưa được tham chiếu (chỉ khi có dạng câu lệnh) |
 
-1. **Từ khóa SQL**: Khớp biểu thức chính quy trực tiếp với các câu lệnh SQL chuẩn (`SELECT`, `INSERT`, `UPDATE`, `DELETE`,...).
-2. **Quy ước đặt tên Stored Procedure**: So khớp tiền tố không phân biệt hoa thường hỗ trợ:
-   - `SP_` (Quy ước Stored Procedure chuẩn)
-   - `USP_` (Quy ước User Stored Procedure)
-   - `PROC_` (Quy ước tiền tố Procedure)
-   - `FNC_` (Quy ước tiền tố Function)
-   - `P_` (Quy ước tham số hoá/thủ tục gói)
-3. **Oracle Package Procedures**: Ký hiệu dấu chấm gói (ví dụ `CUSTOMER_PKG.GET_CUSTOMERS`).
+`base("...")` trong lớp repository chỉ là SQL khi chính đối số có dạng câu lệnh; tên bảng hoặc tên connection (`base("DefaultConnection")`) không còn sinh `SELECT * FROM ...` tổng hợp.
 
-```csharp
-internal static bool IsSqlString(string text)
-{
-    var trimmed = text.Trim();
-    if (SqlKeywordRegex.IsMatch(trimmed))
-        return true;
+### Nhận diện câu lệnh (`IsSqlString`, `IsProcedureName`)
 
-    if (trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("proc_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("fnc_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("p_", StringComparison.OrdinalIgnoreCase))
-        return true;
+`IsSqlString` yêu cầu phần đầu có dạng câu lệnh (sau comment): `SELECT|INSERT|UPDATE|DELETE|MERGE|WITH|EXEC|EXECUTE|CALL|BEGIN|DECLARE`. Từ khóa DML cần thêm mệnh đề `FROM|INTO|SET|VALUES|JOIN`, `WITH` cần `AS (`, `EXEC` cần đích, `CALL` cần `name(`, `BEGIN`/`DECLARE` cần `END` hoặc một câu lệnh bên trong. Chuỗi như `"Please update your profile"` không phải SQL. Tên procedure trần (`usp_GetUser`, `PKG.PROC`, `[dbo].[Get User]`) được nhận diện riêng bởi `IsProcedureName` và chỉ dùng cho lời gọi `CommandType.StoredProcedure`.
 
-    if (trimmed.Contains('.') && !trimmed.Contains(' ') && Regex.IsMatch(trimmed, @"^[A-Za-z_][\w]*\.[A-Za-z_][\w]*$"))
-        return true;
+### Descriptor stored procedure
 
-    return false;
-}
-```
+`RawSqlDescriptor` của một lời gọi procedure mang:
+
+- `ProcedureName` (tên trần), `ProcedureSchema`, `ProcedurePackage`, tách bằng `SchemaObjectName.Parse`. Kiểu Oracle (provider hint `oracle` hoặc khối PL/SQL): `pkg.proc` ⇒ package, `owner.pkg.proc` ⇒ schema + package. Provider khác: `schema.proc` ⇒ schema, `db.schema.proc` ⇒ schema (bỏ database).
+- `IsStoredProcedure = true` chỉ cho lời gọi `CommandType.StoredProcedure`, có `SqlText` tổng hợp là `EXEC {name}`. Lời gọi dạng văn bản (`EXEC dbo.p @a = {0}`, `CALL s.p(?, ?)`, `BEGIN pkg.p(:a, p_b => :b); END;`) giữ nguyên văn bản thật và `IsStoredProcedure = false` để rule dialect vẫn kiểm tra; nhận biết chúng qua `ProcedureName != null`.
+- Mỗi đối số của lời gọi là một `ParameterDescriptor`, theo thứ tự gọi (`OrdinalPosition` bắt đầu từ 1): `Name` như được viết (`@Id`, `p_id`, `Id` cho thuộc tính object Dapper) hoặc `#n` (bắt đầu từ 0) cho đối số theo vị trí; `ClrType` từ semantic model (`int?` ⇒ `int`, enum ⇒ `enum:<underlying>`, không xác định ⇒ null); `CallSiteDirection` từ `ParameterDirection.*` (Dapper `DynamicParameters.Add`, ADO `Direction`), đối số `out`/`ref` và T-SQL `OUTPUT`, nếu không thì `Input` khi có giá trị được gắn và null khi không biết; `DataType` là kiểu provider được viết (`SqlDbType.Int` ⇒ `Int`) hoặc `unknown`; `HasDefault = false`.
+
+Nguồn đối số: object vô danh của Dapper, `DynamicParameters` (template của constructor, `Add`, `AddDynamicParams`), object khác (các thuộc tính public); ADO `Parameters.Add/AddWithValue/AddRange` với `new XParameter(...) { ... }`, biến cục bộ, `.Direction/.Value` nối chuỗi, `Parameters["x"].Direction`; đối số thêm của EF và object `*Parameter`.
+
+### Placeholder và SQL động
+
+Placeholder được quét sau khi che comment và literal: `@name`, `:name`, `$n` giữ nguyên dạng viết; `{n}` (EF) và `?` (ODBC/MySQL) là vị trí `#n`; bỏ qua `::cast`, `:=`, biến hệ thống `@@SYSTEM` và toán tử JSON `?|`/`?&`. Lỗ interpolation và toán hạng nối chuỗi không phải hằng trở thành placeholder `@name` (không bao giờ inline giá trị biến cục bộ) và được liệt kê trong `Parameters` kèm `ClrType`, kể cả khi nằm trong dấu nháy.
+
+### Thuộc tính kỳ vọng, id, bỏ qua và chẩn đoán
+
+- `ExpectedProperties`: thuộc tính public của instance có setter hoặc `init`, không có `[NotMapped]`; rỗng với kiểu đích vô hướng (`string`, kiểu nguyên thủy, kiểu ngày giờ, `Guid`, `decimal`, enum, `byte[]`).
+- `Id` = `project-sql:{đường dẫn tương đối repo}:{span start}:{8 ký tự hex đầu của SHA-256 của SQL đã chuẩn hóa khoảng trắng}`.
+- `[SkipContractCheck]` trên method, kiểu chứa nó hoặc kiểu bao ngoài (kể cả ở phần partial khác) bỏ qua call-site; `SkippedContractCount` đếm số lần bỏ qua.
+- `Diagnostics` (`AcquisitionDiagnostic(Kind, Path, Message)`) liệt kê `UnreadableFile`, `ParseFailed`, `OversizedLiteral` (> 256 KB) và `SkippedByAttribute` của lần chạy gần nhất.
+- Reference biên dịch lấy từ `obj/project.assets.json` của project được quét (compile asset trong `NUGET_PACKAGES` hoặc `~/.nuget/packages`, cộng shared framework đang chạy) khi project đã restore, nếu không thì lấy trusted platform assemblies của host, theo thứ tự đã sắp xếp.
 
 ## SqlKeywordMatcher
 

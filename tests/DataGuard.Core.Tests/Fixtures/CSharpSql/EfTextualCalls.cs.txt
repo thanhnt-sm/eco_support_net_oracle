@@ -1,0 +1,49 @@
+#nullable enable
+using Microsoft.EntityFrameworkCore;
+
+namespace Fixture.Ef;
+
+public class Customer
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+public class CustomerQueries
+{
+    public void ExecWithPlaceholders(DatabaseFacade db, int customerId)
+    {
+        db.ExecuteSqlRaw("EXEC dbo.usp_GetOrders @CustomerId = {0}, @Status = 'A', @Count = 3", customerId);
+    }
+
+    public void CallStatement(DatabaseFacade db, long orderId, string note)
+    {
+        db.ExecuteSqlRaw("CALL shop.add_note({0}, {1})", orderId, note);
+    }
+
+    public void OutArgument(DatabaseFacade db, int input)
+    {
+        db.ExecuteSqlRaw("EXEC usp_Compute {0}, {1}", input, out int result);
+    }
+
+    public void Interpolated(DbSet<Customer> customers, int id)
+    {
+        var name = "bob";
+        customers.FromSqlInterpolated($"SELECT Id, Name FROM Customers WHERE Id = {id} AND Name = {name}");
+    }
+
+    public void RawInterpolated(DatabaseFacade db, string name, int id)
+    {
+        db.ExecuteSqlRaw($"UPDATE Customers SET Name = '{name}' WHERE Id = {id}");
+    }
+
+    public void Positional(DbSet<Customer> customers, int id)
+    {
+        customers.FromSqlRaw("SELECT Id, Name FROM Customers WHERE Id = {0}", id);
+    }
+
+    public void Scalars(DatabaseFacade db)
+    {
+        db.SqlQueryRaw<string>("SELECT Name FROM Customers WHERE Id = 1");
+    }
+}

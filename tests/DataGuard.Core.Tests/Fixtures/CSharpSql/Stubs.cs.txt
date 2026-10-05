@@ -1,0 +1,86 @@
+// Minimal Dapper / EF Core / ODP.NET surface so fixture call sites bind semantically without those packages.
+// Copied next to each fixture as Stubs.cs by ProjectCSharpSqlSourceExtractorTests.
+#nullable enable
+using System.Collections.Generic;
+using System.Data;
+
+namespace Dapper
+{
+    public class DynamicParameters
+    {
+        public DynamicParameters() { }
+        public DynamicParameters(object template) { }
+        public void Add(string name, object? value = null, DbType? dbType = null, ParameterDirection? direction = null, int? size = null) { }
+        public void AddDynamicParams(object param) { }
+        public T Get<T>(string name) => default!;
+    }
+
+    public static class SqlMapper
+    {
+        public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql, object? param = null, IDbTransaction? transaction = null, bool buffered = true, int? commandTimeout = null, CommandType? commandType = null) => null!;
+        public static T QueryFirst<T>(this IDbConnection cnn, string sql, object? param = null, IDbTransaction? transaction = null, int? commandTimeout = null, CommandType? commandType = null) => default!;
+        public static T QueryFirstOrDefault<T>(this IDbConnection cnn, string sql, object? param = null, IDbTransaction? transaction = null, int? commandTimeout = null, CommandType? commandType = null) => default!;
+        public static int Execute(this IDbConnection cnn, string sql, object? param = null, IDbTransaction? transaction = null, int? commandTimeout = null, CommandType? commandType = null) => 0;
+    }
+}
+
+namespace Microsoft.EntityFrameworkCore
+{
+    public class DbSet<T> where T : class
+    {
+        public IEnumerable<T> FromSqlRaw(string sql, params object[] parameters) => null!;
+        public IEnumerable<T> FromSqlInterpolated(System.FormattableString sql) => null!;
+    }
+
+    public class DatabaseFacade
+    {
+        public int ExecuteSqlRaw(string sql, params object[] parameters) => 0;
+        public IEnumerable<T> SqlQueryRaw<T>(string sql, params object[] parameters) => null!;
+    }
+
+    public static class LegacyDbExtensions
+    {
+        // A team-owned wrapper with the EF name: out/ref arguments bind as Output/InputOutput.
+        public static int ExecuteSqlRaw(this DatabaseFacade db, string sql, int input, out int output) { output = 0; return 0; }
+    }
+}
+
+namespace Oracle.ManagedDataAccess.Client
+{
+    public enum OracleDbType { Int32, Decimal, Varchar2, RefCursor }
+
+    public class OracleParameter
+    {
+        public object? Value { get; set; }
+        public ParameterDirection Direction { get; set; }
+    }
+
+    public class OracleParameterCollection
+    {
+        public OracleParameter Add(string name, OracleDbType type) => new();
+        public OracleParameter Add(string name, OracleDbType type, object value, ParameterDirection direction) => new();
+    }
+
+    public class OracleConnection : System.Data.Common.DbConnection
+    {
+        public override string ConnectionString { get; set; } = string.Empty;
+        public override string Database => string.Empty;
+        public override string DataSource => string.Empty;
+        public override string ServerVersion => string.Empty;
+        public override ConnectionState State => ConnectionState.Closed;
+        public override void ChangeDatabase(string databaseName) { }
+        public override void Close() { }
+        public override void Open() { }
+        protected override System.Data.Common.DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) => null!;
+        protected override System.Data.Common.DbCommand CreateDbCommand() => null!;
+    }
+
+    public class OracleCommand
+    {
+        public OracleCommand(string text, OracleConnection connection) { CommandText = text; }
+        public string CommandText { get; set; }
+        public CommandType CommandType { get; set; }
+        public OracleParameterCollection Parameters { get; } = new();
+        public int ExecuteNonQuery() => 0;
+    }
+}

@@ -4,33 +4,43 @@ using DataGuard.Core.Sources;
 
 namespace DataGuard.Core.Tests;
 
+/// <summary>
+/// Bare procedure names are recognized by <c>IsProcedureName</c> (used for <c>CommandType.StoredProcedure</c> command
+/// texts) and are no longer treated as SQL statements by <c>IsSqlString</c> (red-team H9: prefix/dot heuristics turned
+/// arbitrary identifiers into SQL).
+/// </summary>
 public class StoredProcPrefixTests
 {
     [Theory]
     [InlineData("PROC_UPDATE_CUSTOMER")]
     [InlineData("FNC_GET_TOTAL")]
     [InlineData("P_ARCHIVE")]
-    public void IsSqlString_OraclePrefixes_ReturnTrue(string procName)
-    {
-        var result = ProjectCSharpSqlSource.IsSqlString(procName);
-        result.Should().BeTrue();
-    }
-
-    [Theory]
     [InlineData("sp_GetUser")]
     [InlineData("usp_UpdateOrder")]
-    public void IsSqlString_ExistingPrefixes_Regression(string procName)
+    [InlineData("PKG_CUSTOMER.GET_DETAILS")]
+    [InlineData("MYSCHEMA.PROC")]
+    [InlineData("HR.PKG_EMP.GET_EMPLOYEE")]
+    [InlineData("[dbo].[Get Customer]")]
+    public void IsProcedureName_PlainAndQualifiedNames_ReturnTrue(string procName)
     {
-        var result = ProjectCSharpSqlSource.IsSqlString(procName);
-        result.Should().BeTrue();
+        ProjectCSharpSqlSource.IsProcedureName(procName).Should().BeTrue();
     }
 
     [Theory]
+    [InlineData("PROC_UPDATE_CUSTOMER")]
+    [InlineData("sp_GetUser")]
     [InlineData("PKG_CUSTOMER.GET_DETAILS")]
-    [InlineData("MYSCHEMA.PROC")]
-    public void IsSqlString_OracleDotNotation_ReturnTrue(string procName)
+    public void IsSqlString_BareProcedureNames_AreNotStatements(string procName)
     {
-        var result = ProjectCSharpSqlSource.IsSqlString(procName);
-        result.Should().BeTrue();
+        ProjectCSharpSqlSource.IsSqlString(procName).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("EXEC dbo.usp_x @a")]
+    [InlineData("SELECT * FROM x")]
+    [InlineData("Please update your profile")]
+    public void IsProcedureName_StatementsAndSentences_ReturnFalse(string text)
+    {
+        ProjectCSharpSqlSource.IsProcedureName(text).Should().BeFalse();
     }
 }

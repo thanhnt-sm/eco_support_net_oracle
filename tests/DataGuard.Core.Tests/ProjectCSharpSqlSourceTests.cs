@@ -537,7 +537,7 @@ public class User : BaseEntity
     }
 
     [Fact]
-    public async Task ExtractContractsAsync_WhenRepositoryCallsBaseConstructor_EmitsSelectStarDescriptor()
+    public async Task ExtractContractsAsync_WhenRepositoryCallsBaseConstructorWithTableName_DoesNotSynthesizeSelectStar()
     {
         var file = @"namespace MyApp.Repositories;
 public class BaseRepository
@@ -554,8 +554,9 @@ public class CustomerRepository : BaseRepository
         var source = new ProjectCSharpSqlSource(_tempDirectory);
         var contracts = await source.ExtractContractsAsync();
 
-        contracts.OfType<RawSqlDescriptor>()
-            .Should().ContainSingle(d => d.SqlText == "SELECT * FROM CUSTOMERS");
+        // Red-team H9: base("X") is a table or connection name at best (base("DefaultConnection") produced a phantom
+        // table); only a statement-shaped base argument is SQL.
+        contracts.OfType<RawSqlDescriptor>().Should().BeEmpty();
     }
 
     [Fact]
