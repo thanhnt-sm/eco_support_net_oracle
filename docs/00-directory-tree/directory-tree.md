@@ -14,7 +14,6 @@ graph TD
     ROOT --> PLANS["plans/"]
     ROOT --> GITHUB[".github/"]
     ROOT --> SAMPLES["samples/"]
-    ROOT --> BENCH["benchmarks/"]
     ROOT --> TOOLS["tools/"]
     ROOT --> RESEARCH["research/"]
     ROOT --> BRAINSTORM["brainstorm/"]
@@ -308,7 +307,8 @@ Command-line interface tool with 9 commands.
 | Path | Purpose | Layer | Language |
 |------|---------|-------|----------|
 | `samples/DataGuard.Sample/` | Sample project demonstrating DataGuard usage | Example | C# |
-| `benchmarks/DataGuard.Benchmarks/` | BenchmarkDotNet performance benchmarks | Test | C# |
+| `tools/benchmarks/DataGuard.Benchmarks/` | BenchmarkDotNet offline hot-path benchmarks (CI dry run) | Test | C# |
+| `tools/benchmarks/DataGuard.Observability.Benchmarks/` | BenchmarkDotNet observability wrapper overhead benchmark | Test | C# |
 | `BenchmarkDotNet.Artifacts/` | Benchmark execution results and logs | Test | Various |
 
 ## Git Hooks & Agent Rules

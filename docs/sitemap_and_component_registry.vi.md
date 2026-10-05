@@ -57,7 +57,7 @@
 | **`research/niche_ecosystem_survey/`** | Báo cáo khảo sát hiểm họa mã nguồn mở 2026 và mô hình toán độc lập. | Nghiên cứu | Markdown/Python |
 | **`research/benchmarks/`** | Bộ script benchmark thực nghiệm đánh giá Claude 3.7 Extended Thinking. | Nghiên cứu | Python |
 | **`research/data/`** | Tập dữ liệu hạt giống JSON của các thư viện mã nguồn mở có rủi ro cao. | Nghiên cứu | JSON |
-| **`scripts/git_sync.sh`** | 1-click tự động hóa format, kiểm tra lỗi, commit và đẩy code an toàn lên Git. | Công cụ | Bash |
+| **`scripts/git_sync.sh`** | Stage toàn bộ (`git add -A`), commit, rebase và push khi được bật chủ động; từ chối chạy nếu thiếu `DG_ALLOW_AUTO_PUSH=1` (`rules/git_workflow.md`). | Công cụ | Bash |
 | **`scripts/git_conflict_resolver.sh`** | Công cụ tự động chẩn đoán và hướng dẫn gỡ xung đột Git 3 chiều. | Công cụ | Bash |
 | **`scripts/verify_docs_sync.sh`** | Script tự động xác minh toàn bộ tài liệu và bản dịch song ngữ đầy đủ. | Công cụ | Bash |
 | **`scripts/anti_garbage_guard.sh`** | **Anti-Garbage Guard** — chặn commit chứa file rác ngoài phân vùng cho phép. | Công cụ | Bash |

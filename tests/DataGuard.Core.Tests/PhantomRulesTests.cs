@@ -296,8 +296,101 @@ public class PhantomRulesTests
     public void SchemaObjectName_Canonical_FoldsCaseAndQuotes()
     {
         SchemaObjectName.Canonical("[Orders]").Should().Be("ORDERS");
-        SchemaObjectName.Canonical("oracle", "\"orders\"").Should().Be("ORDERS");
+        SchemaObjectName.Canonical("\"orders\"").Should().Be("ORDERS", "the provider-neutral overload stays upper-case");
         SchemaObjectName.Key(null, "dbo", "Orders").Should().Be("DBO.ORDERS");
         SchemaObjectName.Key(null, null, "Orders").Should().Be("ORDERS");
+    }
+
+    [Theory]
+    [InlineData("postgresql", "Orders", "orders")]
+    [InlineData("postgresql", "\"Orders\"", "Orders")]
+    [InlineData("postgres", "ORDERS", "orders")]
+    [InlineData("PostgreSQL", "\"ORDERS\"", "ORDERS")]
+    [InlineData("oracle", "orders", "ORDERS")]
+    [InlineData("oracle", "\"orders\"", "orders")]
+    [InlineData("oracle", "\"MixedCase\"", "MixedCase")]
+    [InlineData("sqlserver", "[Orders]", "ORDERS")]
+    [InlineData("sqlserver", "\"orders\"", "ORDERS")]
+    [InlineData("mysql", "`orders`", "ORDERS")]
+    [InlineData(null, "\"orders\"", "ORDERS")]
+    [InlineData("unknown", "Orders", "ORDERS")]
+    public void SchemaObjectName_Canonical_FoldsPerDialect(string? provider, string name, string expected)
+    {
+        SchemaObjectName.Canonical(provider, name).Should().Be(expected);
+    }
+
+    [Fact]
+    public void SchemaObjectName_CaseSensitivityAndQuoteHelpers()
+    {
+        SchemaObjectName.IsCaseSensitive("postgresql").Should().BeTrue();
+        SchemaObjectName.IsCaseSensitive("oracle").Should().BeTrue();
+        SchemaObjectName.IsCaseSensitive("sqlserver").Should().BeFalse();
+        SchemaObjectName.IsCaseSensitive("mysql").Should().BeFalse();
+        SchemaObjectName.IsCaseSensitive(null).Should().BeFalse();
+        SchemaObjectName.Quote("a\"b").Should().Be("\"a\"\"b\"");
+        SchemaObjectName.Unquote(SchemaObjectName.Quote("a\"b")).Should().Be("a\"b");
+        SchemaObjectName.Key("postgresql", "\"Sales\"", "Orders").Should().Be("Sales.orders");
+    }
+
+    // ---- Dialect-aware table resolution (provider hint from the C# connection type) ----
+    private static DatabaseSchemaDescriptor PostgreSqlSchema() => new(
+        "schema:pg",
+        new List<DatabaseTableDescriptor>
+        {
+            new("orders", new[] { Col("id"), Col("total") }, "public"),
+            new("AuditLog", new[] { Col("id") }, "public"),
+        },
+        "CHAR");
+
+    private static async Task<List<ContractViolation>> RunTableRuleWithHintAsync(string sql, string provider, DatabaseSchemaDescriptor schema)
+    {
+        var raw = Sql(sql) with { ConnectionProviderHint = provider };
+        return (await new PhantomTableRule().ValidateAsync(raw, new ContractDescriptor[] { schema })).ToList();
+    }
+
+    [Theory]
+    [InlineData("SELECT id FROM orders")]
+    [InlineData("SELECT id FROM Orders")]
+    [InlineData("SELECT id FROM ORDERS")]
+    [InlineData("SELECT id FROM \"orders\"")]
+    [InlineData("SELECT id FROM public.orders")]
+    [InlineData("SELECT id FROM \"public\".\"orders\"")]
+    [InlineData("SELECT id FROM \"AuditLog\"")]
+    public async Task PostgreSql_UnquotedFoldsToLowerAndQuotedMatchesExactly(string sql)
+    {
+        (await RunTableRuleWithHintAsync(sql, "postgresql", PostgreSqlSchema())).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("SELECT id FROM \"Orders\"", "Orders")]
+    [InlineData("SELECT id FROM \"ORDERS\"", "ORDERS")]
+    [InlineData("SELECT id FROM AuditLog", "auditlog")]
+    [InlineData("SELECT id FROM public.AuditLog", "public.auditlog")]
+    public async Task PostgreSql_CaseMismatchIsAPhantomTable(string sql, string expectedTable)
+    {
+        var violations = await RunTableRuleWithHintAsync(sql, "postgresql", PostgreSqlSchema());
+
+        violations.Should().ContainSingle().Which.Message.Should().Contain($"'{expectedTable}'");
+    }
+
+    [Theory]
+    [InlineData("SELECT id FROM \"Orders\"")]
+    [InlineData("SELECT id FROM AuditLog")]
+    public async Task NoProviderHint_StaysCaseInsensitive(string sql)
+    {
+        var violations = (await new PhantomTableRule().ValidateAsync(Sql(sql), new ContractDescriptor[] { PostgreSqlSchema() })).ToList();
+
+        violations.Should().BeEmpty("without a provider the comparison is conservative (case-insensitive)");
+    }
+
+    [Theory]
+    [InlineData("SELECT ID FROM orders", 0)]
+    [InlineData("SELECT ID FROM \"ORDERS\"", 0)]
+    [InlineData("SELECT ID FROM \"orders\"", 1)]
+    public async Task Oracle_UnquotedFoldsToUpperAndQuotedMatchesExactly(string sql, int expected)
+    {
+        var violations = await RunTableRuleWithHintAsync(sql, "oracle", Schema());
+
+        violations.Should().HaveCount(expected);
     }
 }

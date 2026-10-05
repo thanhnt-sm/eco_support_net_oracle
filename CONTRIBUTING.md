@@ -32,7 +32,13 @@ Thank you for your interest in contributing to **DataGuard**! DataGuard is a con
    dotnet test DataGuard.CrossPlatform.slnf                  # all non-Visual Studio tests must pass
    dotnet format DataGuard.CrossPlatform.slnf --verify-no-changes
    ```
-   Integration tests that need Docker (Testcontainers) are skipped automatically when no Docker daemon is available.
+   Live-database integration tests (Testcontainers) carry the trait `Category=LiveDb` and are reported as
+   **Skipped** unless you opt in: `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1` (Oracle, MySQL, PostgreSQL) and/or
+   `DATAGUARD_REQUIRE_LIVE_SQLSERVER=1` (SQL Server). Once opted in, a container that cannot start fails the test
+   instead of skipping it. Run only that suite with
+   `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 dotnet test DataGuard.CrossPlatform.slnf --filter Category=LiveDb`
+   (needs a Docker daemon); CI's `build-and-test` job excludes it with `--filter "Category!=LiveDb"` and the
+   `live-db-integration` job runs it.
 4. **Submitting a Pull Request**:
    - Ensure new features/rules have accompanying unit tests under `tests/`.
    - Keep the public API surface in mind: `DataGuard.Contracts` (netstandard2.0) is referenced by consumer projects — breaking changes need an ADR in `plans/adr/`.

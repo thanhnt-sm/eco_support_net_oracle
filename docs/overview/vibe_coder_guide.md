@@ -72,7 +72,7 @@ mindmap
       workspace_governance: Folder Isolation Boundaries
       small_model_protocol: Compiler-in-the-Loop Fix Protocol
     ⚙️ scripts / Automation Tooling
-      git_sync.sh: 1-Click Git Commit & Safe Push
+      git_sync.sh: Opt-in stage-all commit & push, needs DG_ALLOW_AUTO_PUSH=1
       git_conflict_resolver.sh: Automated 3-Way Conflict Resolver
 ```
 
@@ -116,7 +116,7 @@ Open your terminal and use these straightforward commands:
 | **Triage a Complex Bug** | `cargo run -p eco-cli -- triage --repo "owner/repo" --issue 42` | Claude 3.7 engages deep reasoning to diagnose root causes. |
 | **Generate FastMCP Server** | `cargo run -p eco-cli -- synthesize-mcp --package "my-lib"` | Automatically creates a ready-to-run FastMCP 2.0 server. |
 | **Audit MCP Tool Security** | `cargo run -p eco-cli -- audit-mcp crates/eco-mcp/src/server.rs` | Scans code for SSRF and command injection vulnerabilities. |
-| **Sync Code to Git Safely** | `./scripts/git_sync.sh "feat: update documentation"` | Formats code, executes checks, and pushes changes securely. |
+| **Commit and push everything (opt-in)** | `DG_ALLOW_AUTO_PUSH=1 ./scripts/git_sync.sh "docs: update documentation"` | Stages **every** change (`git add -A`), commits with the Conventional Commit message, rebases and pushes. Disabled by default: without `DG_ALLOW_AUTO_PUSH=1` it refuses to run. Prefer `git add <files>` + `tools/git-tools/dg-git commit -m "<type>(<scope>): <subject>"` + `git push`. |
 
 ---
 

@@ -165,7 +165,7 @@ flowchart LR
 
 **Chiến lược phát hiện (dựa trên token, không regex):**
 1. Tokenize với comment (`--`, `/* */`) và string literal bị che, nên `FROM`/identifier bên trong không bao giờ được quét
-2. Đánh index bảng catalog theo cả `(schema, name)` và `name` trần (key catalog như `dbo.Orders` được tách bằng `SchemaObjectName.Parse`); tham chiếu được resolve theo key đầy đủ trước, sau đó theo tên trần
+2. Đánh index bảng catalog theo cả `(schema, name)` và `name` trần (key catalog như `dbo.Orders` được tách bằng `SchemaObjectName.Parse`); tham chiếu được resolve theo key đầy đủ trước, sau đó theo tên trần. Khi raw SQL có provider hint (suy từ kiểu connection C#), tên bảng được fold theo dialect qua `SchemaObjectName.Canonical(provider, name)`: PostgreSQL hạ chữ thường và Oracle nâng chữ hoa với tên **không quote**; tên **có quote** giữ nguyên case và phải trùng đúng tên lưu trong catalog (`"Orders"` không resolve sang `orders`); SQL Server, MySQL và provider không rõ so sánh không phân biệt hoa thường. So khớp cột vẫn không phân biệt hoa thường. `SchemaObjectName.Canonical(name)` là key upper-case trung lập provider
 3. Thu thập mọi tên CTE của `WITH [RECURSIVE] a AS (...), b AS (...)`
 4. Trích xuất tham chiếu bảng từ `FROM`/`JOIN`, bỏ qua `FROM` trong `EXTRACT(`, `TRIM(`, `SUBSTRING(`, `OVERLAY(` và `IS [NOT] DISTINCT FROM`
 5. Coi là không xác định (không bao giờ phantom, không kiểm tra cột): CTE, derived table, table-valued function (`name(`), `#temp`, biến `@table`, tên ba phần cross-database, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`

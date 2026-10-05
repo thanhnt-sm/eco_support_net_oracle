@@ -45,6 +45,8 @@ public sealed class SchemaTableIndex
 
     private readonly Dictionary<string, List<SchemaTable>> _byKey = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<SchemaTable>> _byName = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<SchemaTable>> _byExactKey = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<SchemaTable>> _byExactName = new(StringComparer.Ordinal);
 
     private SchemaTableIndex(DatabaseSchemaDescriptor schema)
     {
@@ -62,10 +64,15 @@ public sealed class SchemaTableIndex
             }
 
             // Readers either qualify the name (legacy SQL Server dbo.Orders) or set DatabaseTableDescriptor.Schema.
-            var key = SchemaObjectName.Key(null, table.Schema ?? parts.Schema, parts.Name);
+            var tableSchema = table.Schema ?? parts.Schema;
+            var key = SchemaObjectName.Key(null, tableSchema, parts.Name);
             var entry = new SchemaTable(key, table);
             Add(_byKey, key, entry);
             Add(_byName, SchemaObjectName.Canonical(parts.Name), entry);
+
+            // Catalog names are stored already folded by the server, so the case-sensitive maps keep them verbatim.
+            Add(_byExactKey, ExactKey(SchemaObjectName.Unquote(tableSchema ?? string.Empty), parts.Name), entry);
+            Add(_byExactName, parts.Name, entry);
         }
     }
 
@@ -89,6 +96,39 @@ public sealed class SchemaTableIndex
 
         return _byName.TryGetValue(SchemaObjectName.Canonical(name), out var bare) ? bare : Array.Empty<SchemaTable>();
     }
+
+    /// <summary>
+    /// Resolves a table reference <em>as written in SQL</em> (quotes included) with the identifier folding of
+    /// <paramref name="provider"/> (<see cref="SchemaObjectName.Canonical(string?, string?)"/>). For PostgreSQL and Oracle the
+    /// folded name must equal the stored catalog name exactly, so <c>"Orders"</c> does not resolve to <c>orders</c>; other
+    /// providers (and a null provider) resolve case-insensitively like <see cref="Resolve(string?, string)"/>.
+    /// </summary>
+    /// <param name="provider">Provider key, or null when unknown.</param>
+    /// <param name="schemaAsWritten">Schema part as written (quoted or not), or null.</param>
+    /// <param name="nameAsWritten">Table name as written (quoted or not).</param>
+    /// <returns>Matching tables; empty when the table does not exist.</returns>
+    public IReadOnlyList<SchemaTable> Resolve(string? provider, string? schemaAsWritten, string nameAsWritten)
+    {
+        ArgumentNullException.ThrowIfNull(nameAsWritten);
+        if (!SchemaObjectName.IsCaseSensitive(provider))
+        {
+            return Resolve(
+                string.IsNullOrEmpty(schemaAsWritten) ? null : SchemaObjectName.Unquote(schemaAsWritten),
+                SchemaObjectName.Unquote(nameAsWritten));
+        }
+
+        var name = SchemaObjectName.Canonical(provider, nameAsWritten);
+        if (!string.IsNullOrEmpty(schemaAsWritten)
+            && _byExactKey.TryGetValue(ExactKey(SchemaObjectName.Canonical(provider, schemaAsWritten), name), out var exact))
+        {
+            return exact;
+        }
+
+        return _byExactName.TryGetValue(name, out var bare) ? bare : Array.Empty<SchemaTable>();
+    }
+
+    // U+001F (unit separator) cannot appear in an identifier, so "a.b"."c" and "a"."b.c" stay distinct.
+    private static string ExactKey(string schema, string name) => schema + "\u001F" + name;
 
     private static void Add(Dictionary<string, List<SchemaTable>> map, string key, SchemaTable table)
     {

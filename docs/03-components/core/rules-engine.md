@@ -167,7 +167,7 @@ flowchart LR
 
 **Detection strategy (token-based, no regex):**
 1. Tokenize with comments (`--`, `/* */`) and string literals masked, so `FROM`/identifiers inside them are never scanned
-2. Index catalog tables by both `(schema, name)` and bare `name` (catalog keys such as `dbo.Orders` are split with `SchemaObjectName.Parse`); a reference resolves by full key first, then bare name
+2. Index catalog tables by both `(schema, name)` and bare `name` (catalog keys such as `dbo.Orders` are split with `SchemaObjectName.Parse`); a reference resolves by full key first, then bare name. Table names fold per dialect through `SchemaObjectName.Canonical(provider, name)` when the raw SQL carries a provider hint (from the C# connection type): PostgreSQL lower-cases and Oracle upper-cases an **unquoted** name, and a **quoted** name keeps its exact case and must equal the stored catalog name (`"Orders"` does not resolve to `orders`); SQL Server, MySQL and an unknown provider compare case-insensitively. Column matching stays case-insensitive. `SchemaObjectName.Canonical(name)` is the provider-neutral upper-case key
 3. Collect every CTE name of `WITH [RECURSIVE] a AS (...), b AS (...)`
 4. Extract table references from `FROM`/`JOIN`, ignoring the `FROM` inside `EXTRACT(`, `TRIM(`, `SUBSTRING(`, `OVERLAY(` and `IS [NOT] DISTINCT FROM`
 5. Treat as unknown (never phantom, columns not checked): CTEs, derived tables, table-valued functions (`name(`), `#temp`, `@table` variables, three-part cross-database names, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`

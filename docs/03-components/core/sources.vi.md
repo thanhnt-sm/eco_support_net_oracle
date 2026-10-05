@@ -85,7 +85,13 @@ public class EfModelSource : IContractSource
 
 `ModelSnapshot.cs` từ source có thể được parse mà không load assembly bằng
 `ModelSnapshotCSharpParser` có giới hạn. Nó hỗ trợ fluent-API subset được sinh cho
-`Entity<T>`, table, property, key, column name/type, length và requiredness. Parser
+`Entity<T>`, table, property, key, column name/type, length và requiredness. Property lấy từ
+`b.Property<T>("Name")` (CLR type = `T`, chuẩn hóa: `System.Int32` ⇒ `int`, `Nullable<DateTime>` ⇒ `DateTime?`,
+`string?` ⇒ `string`) hoặc `b.Property(x => x.Name)` (không có type cú pháp: chỉ là `string` khi cấu hình
+`HasMaxLength`/`IsUnicode`/`IsFixedLength`, ngược lại là `object` và rule length bỏ qua). `.IsUnicode(bool)` thành
+`Annotations["IsUnicode"]` (Oracle DG008 đọc); nullability theo `.IsRequired(bool)` nếu có, nếu không thì
+`T?`/reference type là nullable còn value type đã biết thì không. Key lấy từ `HasKey(x => x.Id)`,
+`HasKey(x => new { x.A, x.B })` hoặc `HasKey("A", "B")`. Parser
 giới hạn source-size và syntax-node, trả diagnostic hiển thị khi syntax lỗi hoặc đầu
 vào unsupported, và không khởi tạo `DbContext`, factory, host hay application code.
 Tự động discovery project/assembly vẫn unsupported.

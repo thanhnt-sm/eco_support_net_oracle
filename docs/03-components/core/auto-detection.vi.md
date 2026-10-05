@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/AutoDetection/AutoDetectionEngine.cs`
 
-Engine tự động phát hiện quét project .NET để tự động cấu hình DataGuard mà không cần thiết lập thủ công. Nó phát hiện nhà cung cấp database, ORM, connection strings, quy ước đặt tên, và EF Core contexts.
+Engine tự động phát hiện quét project .NET để gợi ý cấu hình DataGuard: database provider, ORM, connection string, quy ước đặt tên và tên EF Core context. Caller CLI của nó là wizard `dataguard init --wizard` (`InteractiveConfigBuilder`); `dataguard init` thường chỉ ghi cấu hình mặc định và không quét.
 
 ## Luồng Tự Động Phát Hiện
 
@@ -12,182 +12,106 @@ flowchart TB
         ROOT[Project Root]
     end
 
-    subgraph Detection Steps
-        D1[1. Phát hiện Provider<br/>từ config files]
-        D2[2. Phát hiện EF Core<br/>DbContext + packages]
-        D3[3. Phát hiện Dapper<br/>packages + usage]
-        D4[4. Phát hiện Connection String<br/>env vars → config → yaml]
-        D5[5. Phát hiện Naming Convention<br/>snake_case vs PascalCase]
-        D6[6. Phát hiện EF Context<br/>tên lớp]
+    subgraph Scan["Một lần liệt kê có cắt tỉa (cache)"]
+        FILES[*.cs, *.csproj, *.json, *.yml<br/>bỏ bin/ obj/ node_modules/ .git/ .vs/<br/>bỏ reparse point, bỏ qua mục không truy cập được]
+    end
+
+    subgraph Steps["Các bước phát hiện"]
+        D1[1. Provider<br/>.dataguard.yml → DATAGUARD_PROVIDER → chấm điểm bằng chứng]
+        D2[2. EF Core<br/>package + DbContext]
+        D3[3. Dapper<br/>package + cách dùng]
+        D4[4. Connection String<br/>env var → appsettings → yaml]
+        D5[5. Naming Convention<br/>snake_case vs PascalCase]
+        D6[6. EF Context<br/>tên class]
     end
 
     subgraph Output
         CONFIG[DataGuardConfiguration]
     end
 
-    ROOT --> D1
-    D1 --> D2
-    D2 --> D3
-    D3 --> D4
-    D4 --> D5
-    D5 --> D6
-    D6 --> CONFIG
+    ROOT --> FILES --> D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> CONFIG
 ```
+
+## Liệt kê file
+
+Cây project được liệt kê **một lần** cho mỗi instance engine với `EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = ReparsePoint }` (một `FileSystemEnumerable` có predicate recurse cắt bỏ `bin`, `obj`, `node_modules`, `.git` và `.vs` trước khi đi xuống). Chỉ giữ `*.cs`, `*.csproj`, `*.json`, `*.yml`; path được sắp theo độ sâu rồi theo thứ tự ordinal (nên `appsettings.json` nông nhất thắng, xác định), tối đa 50.000 file, và nội dung mỗi file chỉ đọc một lần (file trên 4 MB coi như rỗng) rồi dùng chung cho mọi bước.
 
 ## AutoDetectionEngine
 
 ```csharp
 public sealed class AutoDetectionEngine
 {
-    private readonly string _projectRoot;
-    private readonly ILogger? _logger;
+    public AutoDetectionEngine(string? projectRoot = null, ILogger? logger = null);
 
-    public AutoDetectionEngine(string? projectRoot = null, ILogger? logger = null) { ... }
+    public Task<DataGuardConfiguration> DetectAsync(CancellationToken cancellationToken = default);
+    public Task<DatabaseProvider?> DetectProviderAsync(CancellationToken cancellationToken = default);
+    public Task<bool> DetectEfCoreAsync(CancellationToken cancellationToken = default);
+    public Task<bool> DetectDapperAsync(CancellationToken cancellationToken = default);
 
-    public async Task<DataGuardConfiguration> DetectAsync(
-        CancellationToken cancellationToken = default) { ... }
+    public static DatabaseProvider? ParseProviderName(string? value); // sqlserver/mssql, oracle, postgresql/postgres/npgsql, mysql/mariadb
+    public static string? ToProviderKey(DatabaseProvider provider);   // sqlserver, oracle, postgresql, mysql
 }
 ```
 
 ### Quy Trình Phát Hiện
 
-| Bước | Phương thức | Nguồn | Ưu tiên |
-|------|-------------|-------|---------|
-| 1 | `DetectProviderFromConfigAsync` | appsettings.json, appsettings.Development.json, .dataguard.yml, env vars | Cao nhất |
-| 2 | `DetectEfCoreAsync` | *.csproj packages, *.cs DbContext references | — |
-| 3 | `DetectDapperAsync` | *.csproj packages, *.cs Dapper usage | — |
-| 4 | `DetectConnectionStringAsync` | env vars → appsettings → .dataguard.yml | — |
-| 5 | `DetectNamingConventionAsync` | Tỷ lệ snake_case vs PascalCase trong *.cs | — |
-| 6 | `DetectEfCoreContextAsync` | Mẫu `class X : DbContext` | — |
+| Bước | Method | Nguồn |
+|------|--------|-------|
+| 1 | `DetectProviderAsync` | `DefaultProvider:`/`provider:` trong `.dataguard.yml`, rồi `DATAGUARD_PROVIDER`, rồi chấm điểm bằng chứng |
+| 2 | `DetectEfCoreAsync` | `*.csproj` chứa `EntityFrameworkCore`, rồi `DbContext` trong `*.cs` |
+| 3 | `DetectDapperAsync` | `*.csproj` chứa `Dapper`, rồi `using Dapper` / `Dapper.` trong `*.cs` |
+| 4 | `DetectConnectionStringAsync` | env var → `appsettings.json` → `appsettings.Development.json` → `.dataguard.yml` |
+| 5 | `DetectNamingConventionAsync` | identifier snake_case so với public member PascalCase trong `*.cs` |
+| 6 | `DetectEfCoreContextAsync` | `class X : DbContext` (kể cả base generic và có namespace); chỉ ghi log |
 
-## Phát Hiện DatabaseProvider
+Provider phát hiện được gán vào `DefaultProvider` (`sqlserver`, `oracle`, `postgresql`, `mysql`) và, với SQL Server/Oracle, khối cấu hình provider.
+
+## Phát Hiện Provider
 
 ```csharp
-public enum DatabaseProvider
-{
-    Unknown,
-    SqlServer,
-    Oracle,
-    PostgreSQL,
-    MySQL,
-}
+public enum DatabaseProvider { Unknown, SqlServer, Oracle, PostgreSQL, MySQL }
 ```
 
-### Chiến Lược Phát Hiện
+Thiết lập tường minh thắng: `DefaultProvider:` (hoặc `provider:` cũ) trong `.dataguard.yml`, rồi biến môi trường `DATAGUARD_PROVIDER`. Ngoài ra mỗi bằng chứng cộng điểm cho provider tương ứng và provider có điểm cao nhất duy nhất thắng; hòa điểm hoặc không có bằng chứng là "không phát hiện" (`null`).
 
-**Từ connection strings:**
-```csharp
-// Kiểm tra chữ ký Oracle trước (cụ thể hơn)
-if (connStr.Contains("oracle") || connStr.Contains("service_name") ||
-    connStr.Contains("connect_data"))
-    return DatabaseProvider.Oracle;
+| Bằng chứng | Trọng số | Nhận diện |
+|------------|----------|-----------|
+| Mỗi giá trị `ConnectionStrings` trong `appsettings.json` / `appsettings.Development.json` | 3 | `ConnectionDiscovery.InferProviderFromConnectionString` (key như `Host`/`Search Path`, `Initial Catalog`/`Encrypt`, `Uid`/`SslMode`, Oracle `Data Source=host:port/service`, `postgres://`, `mysql://`, port quen thuộc) |
+| Mỗi package reference trong `*.csproj` | 2 | `Npgsql*` ⇒ PostgreSQL; `MySqlConnector`, `MySql.Data`, `Pomelo.EntityFrameworkCore.MySql`, `MySql.EntityFrameworkCore` ⇒ MySQL; `Oracle.ManagedDataAccess*`, `Oracle.EntityFrameworkCore` ⇒ Oracle; `Microsoft.EntityFrameworkCore.SqlServer`, `Microsoft.Data.SqlClient`, `System.Data.SqlClient` ⇒ SQL Server |
+| Mỗi file `*.cs` | 2 | `UseNpgsql(`/`NpgsqlConnection`, `UseMySql(`/`UseMySQL(`/`MySqlConnection`, `UseOracle(`/`OracleConnection`, `UseSqlServer(`/`new SqlConnection(` |
 
-// SQL Server
-if (connStr.Contains("data source") || connStr.Contains("server="))
-    return DatabaseProvider.SqlServer;
-```
+## Phát Hiện EF Core và Dapper
 
-**Từ config files:**
-- Phân tích section `ConnectionStrings` trong appsettings.json
-- Kiểm tra mẫu `UseSqlServer`, `UseOracle`
-- Đọc `provider:` từ .dataguard.yml
-
-**Từ environment variables:**
-```csharp
-var envProvider = Environment.GetEnvironmentVariable("DATAGUARD_PROVIDER");
-if (Enum.TryParse<DatabaseProvider>(envProvider, true, out var parsed))
-    return parsed;
-```
-
-## Phát Hiện EF Core
-
-Quét sự hiện diện của EF Core theo hai cách:
-
-1. **Tham chiếu package** — kiểm tra *.csproj cho `Microsoft.EntityFrameworkCore`
-2. **Mã nguồn** — kiểm tra *.cs files cho việc sử dụng `DbContext`
-
-## Phát Hiện Dapper
-
-Tương tự phát hiện EF Core:
-
-1. **Tham chiếu package** — kiểm tra *.csproj cho `Dapper`
-2. **Mã nguồn** — kiểm tra *.cs files cho việc sử dụng `Dapper.`
-
+Cả hai kiểm tra package reference trước, cách dùng trong source sau, trên danh sách file đã cache.
 
 ### Tự Động Phát Hiện Stored Procedure (Dapper & ADO.NET)
 
 Bên cạnh các truy vấn chuỗi SQL thô, engine trích xuất contract tự động phát hiện các lệnh gọi stored procedure mà không đòi hỏi tiền tố phương ngôn SQL:
 - **Lệnh gọi Dapper**: Phát hiện các invocation truyền đối số `commandType: CommandType.StoredProcedure` (vd: `conn.QueryAsync<T>("SP_NAME", commandType: CommandType.StoredProcedure)`). Ngay cả khi `"SP_NAME"` không chứa các từ khóa SQL truy vấn thông thường (như `SELECT`), tên thủ tục vẫn được trích xuất an toàn và tạo `RawSqlDescriptor` với `IsStoredProcedure = true` cùng `ProcedureName = "SP_NAME"`.
 - **Lệnh gọi ADO.NET Command**: Nhận diện phép gán `cmd.CommandType = CommandType.StoredProcedure` và trích xuất `CommandText` tương ứng của `SqlCommand` / `OracleCommand` / `NpgsqlCommand` thành stored procedure descriptor.
+
 ## Phát Hiện Connection String
 
-Thứ tự ưu tiên:
-
-| Ưu tiên | Nguồn | Environment Variable |
-|---------|-------|---------------------|
+| Ưu tiên | Nguồn | Key |
+|---------|-------|-----|
 | 1 | Environment variable | `DATAGUARD_CONNECTION_STRING` |
 | 2 | Environment variable | `ConnectionStrings__DefaultConnection` |
 | 3 | Environment variable | `ConnectionStrings__Default` |
-| 4 | appsettings.json | `ConnectionStrings.DefaultConnection` |
-| 5 | appsettings.Development.json | `ConnectionStrings.DefaultConnection` |
+| 4 | appsettings.json (nông nhất trước) | giá trị `ConnectionStrings` đầu tiên trông như connection string (`Server=`, `Data Source=`, `Host=` hoặc provider nhận diện được) |
+| 5 | appsettings.Development.json | như trên |
 | 6 | .dataguard.yml | `connectionString:` |
 
 ## Phát Hiện Naming Convention
 
-Phân tích codebase để xác định mẫu đặt tên:
-
-```csharp
-private async Task<NamingConvention?> DetectNamingConventionAsync(CancellationToken ct)
-{
-    var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
-    var snakeCaseCount = 0;
-    var pascalCaseCount = 0;
-
-    foreach (var csFile in csFiles)
-    {
-        var content = await File.ReadAllTextAsync(csFile, ct);
-        snakeCaseCount += Regex.Matches(content, @"\b[a-z]+_[a-z]+\b").Count;
-        pascalCaseCount += Regex.Matches(content, @"public\s+\w+\s+[A-Z][a-z]+[A-Z][a-z]+\s*\{").Count;
-    }
-
-    if (snakeCaseCount > pascalCaseCount * 2)
-        return NamingConvention.SnakeCaseToPascalCase;
-    if (pascalCaseCount > snakeCaseCount * 2)
-        return NamingConvention.PascalCaseToSnakeCase;
-    return null; // Không thể xác định
-}
-```
-
-## Phát Hiện EF Core Context
-
-Tìm tên lớp DbContext bằng cách quét mẫu kế thừa:
-
-```csharp
-private async Task<string?> DetectEfCoreContextAsync(CancellationToken ct)
-{
-    var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
-    foreach (var csFile in csFiles)
-    {
-        var content = await File.ReadAllTextAsync(csFile, ct);
-        var matches = Regex.Matches(content, @"class\s+(\w+)\s*:\s*DbContext");
-        if (matches.Count > 0)
-            return matches[0].Groups[1].Value;
-    }
-    return null;
-}
-```
+Đếm identifier snake_case (`\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b`) so với public member PascalCase có **số "bướu" bất kỳ** (`Id`, `Name`, `CustomerOrderId`), kể cả kiểu generic, nullable, mảng (`List<OrderLine>`, `int?`, `byte[]`) và modifier `static`/`virtual`/`override`/`required`. Bên nào lớn hơn gấp đôi bên kia sẽ quyết định: snake_case ⇒ `SnakeCaseToPascalCase`, PascalCase ⇒ `PascalCaseToSnakeCase`; ngược lại giữ mặc định. Regex chạy với timeout 2 giây.
 
 ## InteractiveConfigBuilder
-
-Wizard thiết lập zero-config cho onboarding legacy.
 
 ```csharp
 public static class InteractiveConfigBuilder
 {
-    public static async Task<DataGuardConfiguration> RunWizardAsync(
-        string projectRoot,
-        IConsole console,
-        CancellationToken cancellationToken = default) { ... }
+    public static Task<DataGuardConfiguration> RunWizardAsync(string projectRoot, IConsole console, CancellationToken cancellationToken = default);
+    public static Task<DataGuardConfiguration> RunWizardAsync(string projectRoot, IConsole console, string configPath, CancellationToken cancellationToken = default);
 }
 ```
 
@@ -195,19 +119,19 @@ public static class InteractiveConfigBuilder
 
 ```mermaid
 flowchart LR
-    S1[1. Phát hiện Provider] --> S2[2. Lấy Connection String]
-    S2 --> S3[3. Quét ORMs]
+    S1[1. Phát hiện Provider] --> S2[2. Connection String]
+    S2 --> S3[3. Quét ORM]
     S3 --> S4[4. Naming Convention]
-    S4 --> S5[5. Baseline Mode]
+    S4 --> S5[5. Ground truth / baseline]
     S5 --> S6[6. Lưu Config]
 ```
 
-**Bước 1:** Tự động phát hiện nhà cung cấp database (mặc định: SQL Server)
-**Bước 2:** Nhập connection string hoặc dùng env var `DATAGUARD_CONNECTION_STRING`
-**Bước 3:** Quét packages EF Core và Dapper
-**Bước 4:** Chọn naming convention (snake_case ↔ PascalCase, PascalCase ↔ snake_case, khớp chính xác)
-**Bước 5:** Chọn ground truth mode (Snapshot, Baseline, Manual)
-**Bước 6:** Lưu file cấu hình `.dataguard.yml`
+1. Phát hiện provider bằng `AutoDetectionEngine.DetectProviderAsync`.
+2. Hỏi connection string (Enter = `DATAGUARD_CONNECTION_STRING`). Giá trị **chỉ** dùng để suy ra provider khi bước 1 không tìm thấy (mặc định cuối: SQL Server) và không bao giờ được ghi vào file config.
+3. Quét EF Core và Dapper bằng cùng engine đã cache.
+4. Naming convention: `1` snake_case ↔ PascalCase (mặc định), `2` PascalCase ↔ snake_case, `3` khớp chính xác. Lựa chọn được ghi vào config.
+5. Ground truth: `1` (mặc định) ⇒ `GroundTruthMode: Snapshot`, `EnableBaseline: false`; `2` ⇒ `Snapshot` **kèm** `EnableBaseline: true` (đóng băng vi phạm hiện có, chỉ fail với drift mới); `3` ⇒ `Manual`, `EnableBaseline: false`.
+6. Ghi `GroundTruthMode`, `EnableSmartDefaults`, `EnableBaseline`, `NamingConvention`, `DefaultProvider`, cùng `SnapshotFilePath: .dataguard-snapshot.json` (chế độ snapshot) và `BaselineFilePath: .dataguard-baseline.json` (khi bật baseline) vào đường dẫn config tường minh.
 
 ### Console Abstraction
 
@@ -221,46 +145,18 @@ public interface IConsole
 }
 ```
 
-Cho phép kiểm thử wizard mà không cần I/O console thực.
-
-## Mặc Định Đặc thù Provider
-
-Khi phát hiện provider, các giá trị mặc định phù hợp được áp dụng:
-
-```csharp
-private DataGuardConfiguration ApplyProviderDefaults(
-    DataGuardConfiguration config, DatabaseProvider provider)
-{
-    return provider switch
-    {
-        DatabaseProvider.SqlServer => config with { SqlServer = new SqlServerConfiguration() },
-        DatabaseProvider.Oracle => config with { Oracle = new OracleConfiguration() },
-        _ => config
-    };
-}
-```
+Cho phép test wizard mà không cần console I/O thật.
 
 ## Sử Dụng
-
-### Tự Động Phát Hiện
 
 ```csharp
 var engine = new AutoDetectionEngine(projectRoot);
 var config = await engine.DetectAsync();
-// config sẵn sàng sử dụng với DataGuardApi.CreatePipeline(config)
+
+var wizardConfig = await InteractiveConfigBuilder.RunWizardAsync(projectRoot, new SystemConsole(), configPath);
 ```
-
-### Wizard Tương Tác
-
-```csharp
-var config = await InteractiveConfigBuilder.RunWizardAsync(
-    projectRoot, new SystemConsole());
-// .dataguard.yml được lưu vào projectRoot
-```
-
-### Tích Hợp CLI
 
 ```bash
-dataguard init          # Chạy tự động phát hiện
-dataguard init --wizard # Chạy wizard tương tác
+dataguard init                                   # ghi cấu hình mặc định (không quét)
+dataguard init --wizard --output .dataguard.yml  # wizard tương tác dùng auto-detection
 ```

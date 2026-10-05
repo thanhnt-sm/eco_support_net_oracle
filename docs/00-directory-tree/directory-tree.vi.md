@@ -14,7 +14,6 @@ graph TD
     ROOT --> PLANS["plans/"]
     ROOT --> GITHUB[".github/"]
     ROOT --> SAMPLES["samples/"]
-    ROOT --> BENCH["benchmarks/"]
     ROOT --> TOOLS["tools/"]
     ROOT --> RESEARCH["research/"]
     ROOT --> BRAINSTORM["brainstorm/"]
@@ -308,7 +307,8 @@ Giao diện dòng lệnh với 9 lệnh.
 | Đường Dẫn | Mục Đích | Lớp | Ngôn Ngữ |
 |-----------|----------|-----|----------|
 | `samples/DataGuard.Sample/` | Dự án mẫu minh họa cách sử dụng DataGuard | Ví dụ | C# |
-| `benchmarks/DataGuard.Benchmarks/` | Benchmark hiệu suất BenchmarkDotNet | Kiểm thử | C# |
+| `tools/benchmarks/DataGuard.Benchmarks/` | Benchmark BenchmarkDotNet cho hot path offline (CI chạy dry) | Kiểm thử | C# |
+| `tools/benchmarks/DataGuard.Observability.Benchmarks/` | Benchmark BenchmarkDotNet đo overhead wrapper observability | Kiểm thử | C# |
 | `BenchmarkDotNet.Artifacts/` | Kết quả và nhật ký thực thi benchmark | Kiểm thử | Đa dạng |
 
 ## Git Hooks & Agent Rules
