@@ -60,7 +60,8 @@ internal sealed class SchemaTableIndex
                 continue;
             }
 
-            var key = SchemaObjectName.Key(null, parts.Schema, parts.Name);
+            // Readers either qualify the name (legacy SQL Server dbo.Orders) or set DatabaseTableDescriptor.Schema.
+            var key = SchemaObjectName.Key(null, table.Schema ?? parts.Schema, parts.Name);
             var entry = new SchemaTable(key, table);
             Add(_byKey, key, entry);
             Add(_byName, SchemaObjectName.Canonical(parts.Name), entry);

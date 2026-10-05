@@ -62,11 +62,33 @@ public class SqlServerStoredProcedureParser : IContractSource
             }
         }
 
-        // Process each procedure
+        // Process each procedure. One procedure whose metadata cannot be read (sp_describe_first_result_set
+        // rejects temp tables, dynamic SQL, missing objects, ...) must not abort the extraction: it is kept with
+        // an empty result shape and ReturnType "unknown:<error number>" so rules can treat it as unevaluated.
         foreach (var (objectId, name, schema) in procedures)
         {
-            var parameters = await GetParametersAsync(connection, objectId, cancellationToken);
-            var resultColumns = await GetResultColumnsAsync(connection, name, schema, cancellationToken);
+            List<ParameterDescriptor> parameters;
+            List<ColumnDescriptor> resultColumns;
+            string? unknownMarker = null;
+            try
+            {
+                parameters = await GetParametersAsync(connection, objectId, cancellationToken);
+            }
+            catch (SqlException ex)
+            {
+                parameters = new List<ParameterDescriptor>();
+                unknownMarker = UnknownMarker(ex);
+            }
+
+            try
+            {
+                resultColumns = await GetResultColumnsAsync(connection, name, schema, cancellationToken);
+            }
+            catch (SqlException ex)
+            {
+                resultColumns = new List<ColumnDescriptor>();
+                unknownMarker ??= UnknownMarker(ex);
+            }
 
             contracts.Add(new StoredProcedureDescriptor(
                 Id: $"{schema}.{name}",
@@ -76,7 +98,8 @@ public class SqlServerStoredProcedureParser : IContractSource
                 Parameters: parameters,
                 ResultColumns: resultColumns,
                 ReturnsRefCursor: false,
-                Location: Location.None));
+                Location: Location.None,
+                ReturnType: unknownMarker));
         }
 
         // Include the live relational schema so snapshot refresh can persist
@@ -101,12 +124,14 @@ public class SqlServerStoredProcedureParser : IContractSource
         await using var command = new SqlCommand(schemaSql, connection);
         command.Parameters.AddWithValue("@Schema", _config.DefaultSchema ?? string.Empty);
         var tables = new Dictionary<string, List<ColumnDescriptor>>(StringComparer.OrdinalIgnoreCase);
+        var tableNames = new Dictionary<string, (string Schema, string Name)>(StringComparer.OrdinalIgnoreCase);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
             var schema = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
             var table = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
             var tableKey = string.IsNullOrEmpty(schema) ? table : $"{schema}.{table}";
+            tableNames[tableKey] = (schema, table);
             var column = new ColumnDescriptor(
                 Name: reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
                 DataType: reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
@@ -127,9 +152,13 @@ public class SqlServerStoredProcedureParser : IContractSource
             columns.Add(column);
         }
 
+        // Name is the bare table name; Schema carries the owner (rules index both the bare and qualified forms).
         return new DatabaseSchemaDescriptor(
             Id: "sqlserver-schema",
-            Tables: tables.Select(pair => new DatabaseTableDescriptor(pair.Key, pair.Value)).ToList(),
+            Tables: tables.Select(pair => new DatabaseTableDescriptor(
+                tableNames[pair.Key].Name,
+                pair.Value,
+                string.IsNullOrEmpty(tableNames[pair.Key].Schema) ? null : tableNames[pair.Key].Schema)).ToList(),
             LengthSemantics: "CHAR");
     }
 
@@ -149,7 +178,8 @@ public class SqlServerStoredProcedureParser : IContractSource
                 p.scale,
                 p.is_nullable,
                 p.parameter_id,
-                p.is_output
+                p.is_output,
+                t.system_type_id
             FROM sys.parameters p
             INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
             WHERE p.object_id = @ObjectId
@@ -169,6 +199,7 @@ public class SqlServerStoredProcedureParser : IContractSource
             var isNullable = reader.GetBoolean(5);
             var ordinal = reader.GetInt32(6);
             var isOutput = reader.GetBoolean(7);
+            var systemTypeId = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetValue(8), System.Globalization.CultureInfo.InvariantCulture);
 
             var direction = isOutput
                 ? DataGuard.Core.Abstractions.ParameterDirection.InputOutput
@@ -178,7 +209,7 @@ public class SqlServerStoredProcedureParser : IContractSource
                 Name: name,
                 DataType: dataType,
                 Direction: direction,
-                MaxLength: maxLength == -1 ? (int?)null : maxLength,
+                MaxLength: NormalizeMaxLength(maxLength, systemTypeId),
                 Precision: precision,
                 Scale: scale,
                 IsNullable: isNullable,
@@ -215,6 +246,7 @@ public class SqlServerStoredProcedureParser : IContractSource
 
                 var name = reader.GetString(2);
                 var isNullable = reader.GetBoolean(3);
+                var systemTypeId = reader.IsDBNull(4) ? 0 : Convert.ToInt32(reader.GetValue(4), System.Globalization.CultureInfo.InvariantCulture);
                 var systemType = reader.IsDBNull(5) ? "" : reader.GetString(5);
                 var maxLength = reader.IsDBNull(6) ? (int?)null : (int)reader.GetInt16(6); // smallint
                 var precision = reader.IsDBNull(7) ? (byte?)null : reader.GetByte(7);
@@ -223,12 +255,11 @@ public class SqlServerStoredProcedureParser : IContractSource
                 columns.Add(new ColumnDescriptor(
                     Name: name,
                     DataType: systemType,
-                    MaxLength: maxLength == -1 ? (int?)null : maxLength,
+                    MaxLength: NormalizeMaxLength(maxLength, systemTypeId),
                     Precision: precision,
                     Scale: scale,
                     IsNullable: isNullable,
-                    CharUsed: null) // SQL Server doesn't have CHAR/BYTE semantics
-);
+                    CharUsed: null)); // SQL Server doesn't have CHAR/BYTE semantics
             }
         }
         catch (SqlException ex) when (ex.Number is 11512 or 11513)
@@ -240,6 +271,27 @@ public class SqlServerStoredProcedureParser : IContractSource
     }
 
     private static string EscapeSqlName(string name) => name.Replace("]", "]]");
+
+    /// <summary>
+    /// Converts <c>sys.parameters.max_length</c> / <c>sp_describe_first_result_set.max_length</c> (bytes) to the
+    /// character count used by INFORMATION_SCHEMA and the length rules: <c>-1</c> (MAX) ⇒ null, <c>nchar</c>/<c>nvarchar</c>
+    /// (system type 239/231, also <c>sysname</c>) ⇒ bytes / 2; other types unchanged.
+    /// </summary>
+    /// <param name="maxLength">Byte length as reported by SQL Server.</param>
+    /// <param name="systemTypeId">The column/parameter <c>system_type_id</c>.</param>
+    /// <returns>The length in characters, or null for MAX/unknown.</returns>
+    public static int? NormalizeMaxLength(int? maxLength, int systemTypeId)
+    {
+        if (maxLength is null or -1)
+        {
+            return null;
+        }
+
+        return systemTypeId is 231 or 239 ? maxLength.Value / 2 : maxLength.Value;
+    }
+
+    private static string UnknownMarker(SqlException ex)
+        => "unknown:" + ex.Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>

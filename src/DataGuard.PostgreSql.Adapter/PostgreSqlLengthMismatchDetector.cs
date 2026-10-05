@@ -1,5 +1,6 @@
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.Sql;
 using Microsoft.CodeAnalysis;
 
 namespace DataGuard.PostgreSql.Adapter;
@@ -128,8 +129,10 @@ public static class PostgreSqlColumnTypeFactory
 }
 
 /// <summary>
-/// Detects length mismatches between entity properties and PostgreSQL columns.
-/// Handles UTF-8 encoding (up to 4 bytes per character) and TEXT/JSONB type mismatches.
+/// Detects length mismatches between entity properties and PostgreSQL columns. PostgreSQL limits
+/// <c>character varying(n)</c> / <c>character(n)</c> in characters (never bytes), so no byte-capacity check applies.
+/// Each property yields at most one PG003, chosen in this order: entity length over the column length, entity length
+/// over the VARCHAR maximum, MaxLength on an unlimited column (Info), no MaxLength over a bounded VARCHAR (Warning).
 /// </summary>
 public sealed class PostgreSqlLengthMismatchDetector
 {
@@ -140,11 +143,6 @@ public sealed class PostgreSqlLengthMismatchDetector
     public const int PgVarcharMaxLength = 10_485_760;
 
     /// <summary>
-    /// Maximum bytes per character in UTF-8 encoding (supplementary plane chars).
-    /// </summary>
-    private const int MaxUtf8BytesPerChar = 4;
-
-    /// <summary>
     /// Detects all length-related mismatches between an entity and its PostgreSQL columns.
     /// </summary>
     public IEnumerable<ContractViolation> Detect(
@@ -153,152 +151,173 @@ public sealed class PostgreSqlLengthMismatchDetector
     {
         foreach (var property in entity.Properties)
         {
-            var column = columns.FirstOrDefault(c =>
-                string.Equals(c.Name, property.ColumnName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(c.Name, property.Name, StringComparison.OrdinalIgnoreCase));
-
+            var column = FindColumn(property, columns);
             if (column == null)
             {
                 continue;
             }
 
-            var pgType = PostgreSqlColumnTypeFactory.Resolve(column.DataType);
-
-            // 1. Direct length mismatch: entity MaxLength > column character_maximum_length.
-            //    Only applies to types that have a meaningful length constraint.
-            if (property.MaxLength.HasValue && column.MaxLength.HasValue
-                && !PostgreSqlColumnTypeFactory.IsUnlimitedType(pgType))
+            var violation = DetectProperty(property, column);
+            if (violation != null)
             {
-                if (property.MaxLength.Value > column.MaxLength.Value)
-                {
-                    yield return new ContractViolation(
-                        "PG003",
-                        $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} " +
-                        $"exceeds PostgreSQL column '{column.Name}' ({column.DataType}) length={column.MaxLength.Value}",
-                        DiagnosticSeverity.Error,
-                        null,
-                        new Dictionary<string, object?>
-                        {
-                            { "property", property.Name },
-                            { "entityMaxLength", property.MaxLength.Value },
-                            { "columnMaxLength", column.MaxLength.Value },
-                            { "columnType", column.DataType },
-                        });
-                }
-            }
-
-            // 2. VARCHAR exceeds PostgreSQL maximum (10485760).
-            if (property.MaxLength.HasValue
-                && pgType == PostgreSqlColumnType.VarChar
-                && property.MaxLength.Value > PgVarcharMaxLength)
-            {
-                yield return new ContractViolation(
-                    "PG003",
-                    $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} " +
-                    $"exceeds PostgreSQL VARCHAR maximum of {PgVarcharMaxLength:N0} characters",
-                    DiagnosticSeverity.Error,
-                    null,
-                    new Dictionary<string, object?>
-                    {
-                        { "property", property.Name },
-                        { "entityMaxLength", property.MaxLength.Value },
-                        { "pgVarcharMax", PgVarcharMaxLength },
-                    });
-            }
-
-            // 3. UTF-8 byte-length overflow risk.
-            //    PostgreSQL stores data in the database encoding (usually UTF-8).
-            //    A VARCHAR(n) allows n characters, but each character can be up to 4 bytes.
-            //    If the column has a byte-length limit (not character limit), entity
-            //    MaxLength * 4 could exceed it.
-            if (property.MaxLength.HasValue && column.MaxLength.HasValue
-                && IsUnicodeType(property.ClrTypeName)
-                && PostgreSqlColumnTypeFactory.IsStringType(pgType))
-            {
-                var entityMaxBytes = property.MaxLength.Value * MaxUtf8BytesPerChar;
-
-                // PostgreSQL character_maximum_length is in characters, not bytes.
-                // But if the column was defined with a byte limit (e.g. via raw DDL),
-                // the effective byte capacity is char_length * 4 for UTF-8.
-                // We flag when entity MaxLength > column char length (already caught above)
-                // AND when the entity could produce more bytes than the column can store.
-                if (column.MaxLength.Value > 0 && property.MaxLength.Value > column.MaxLength.Value)
-                {
-                    var columnMaxBytes = column.MaxLength.Value * MaxUtf8BytesPerChar;
-                    yield return new ContractViolation(
-                        "PG003",
-                        $"UTF-8 overflow risk: property '{property.Name}' MaxLength={property.MaxLength.Value} " +
-                        $"may produce up to {entityMaxBytes:N0} bytes but column '{column.Name}' " +
-                        $"allows {column.MaxLength.Value} chars (~{columnMaxBytes:N0} bytes max)",
-                        DiagnosticSeverity.Warning,
-                        null,
-                        new Dictionary<string, object?>
-                        {
-                            { "property", property.Name },
-                            { "entityMaxBytes", entityMaxBytes },
-                            { "columnMaxChars", column.MaxLength.Value },
-                            { "columnMaxBytes", columnMaxBytes },
-                            { "encoding", "UTF-8" },
-                        });
-                }
-            }
-
-            // 4. TEXT/JSONB type mismatch: entity has MaxLength but column is unlimited type.
-            //    PostgreSQL TEXT/JSONB columns have no length limit, but the entity
-            //    constrains MaxLength — this is a design mismatch (entity is more
-            //    restrictive than DB, which is safe but may indicate confusion).
-            if (property.MaxLength.HasValue
-                && PostgreSqlColumnTypeFactory.IsUnlimitedType(pgType))
-            {
-                yield return new ContractViolation(
-                    "PG003",
-                    $"Entity property '{property.Name}' has MaxLength={property.MaxLength.Value} " +
-                    $"but PostgreSQL column '{column.Name}' is {column.DataType} (unlimited length). " +
-                    $"The MaxLength constraint is enforced only at the application level, not by the database.",
-                    DiagnosticSeverity.Info,
-                    null,
-                    new Dictionary<string, object?>
-                    {
-                        { "property", property.Name },
-                        { "entityMaxLength", property.MaxLength.Value },
-                        { "columnType", column.DataType },
-                        { "columnIsUnlimited", true },
-                    });
-            }
-
-            // 5. No MaxLength on entity but column is VARCHAR(n) — entity could write
-            //    arbitrarily long strings that exceed the column limit.
-            if (!property.MaxLength.HasValue
-                && pgType == PostgreSqlColumnType.VarChar
-                && column.MaxLength.HasValue)
-            {
-                yield return new ContractViolation(
-                    "PG003",
-                    $"Entity property '{property.Name}' has no MaxLength but PostgreSQL column " +
-                    $"'{column.Name}' is VARCHAR({column.MaxLength.Value}). " +
-                    $"EF Core Npgsql will infer character varying (unlimited) — values exceeding " +
-                    $"{column.MaxLength.Value} characters will cause a runtime error.",
-                    DiagnosticSeverity.Warning,
-                    null,
-                    new Dictionary<string, object?>
-                    {
-                        { "property", property.Name },
-                        { "columnType", column.DataType },
-                        { "columnMaxLength", column.MaxLength.Value },
-                        { "inferredType", "character varying" },
-                    });
+                yield return violation;
             }
         }
     }
 
-    private static bool IsUnicodeType(string? clrTypeName)
+    /// <summary>
+    /// Candidate column names for a property in lookup order: the EF column name, the property name, and the property
+    /// name in snake_case (<c>CustomerId</c> ⇒ <c>customer_id</c>, the EFCore.NamingConventions / Npgsql convention).
+    /// </summary>
+    /// <returns>Distinct candidates.</returns>
+    public static IReadOnlyList<string> CandidateColumnNames(PropertyDescriptor property)
     {
-        return clrTypeName switch
+        ArgumentNullException.ThrowIfNull(property);
+        var candidates = new List<string>(3);
+        if (!string.IsNullOrEmpty(property.ColumnName))
         {
-            "string" => true,
-            "System.String" => true,
-            _ => false,
-        };
+            candidates.Add(property.ColumnName);
+        }
+
+        candidates.Add(property.Name);
+        candidates.Add(ToSnakeCase(property.Name));
+        return candidates.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>Converts PascalCase to lower snake_case treating acronyms as one word (<c>CustomerID</c> ⇒ <c>customer_id</c>).</summary>
+    /// <returns>The snake-case name.</returns>
+    public static string ToSnakeCase(string name)
+    {
+        var builder = new System.Text.StringBuilder(name.Length + 4);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (i > 0 && char.IsUpper(c))
+            {
+                var previous = name[i - 1];
+                var nextIsLower = i + 1 < name.Length && char.IsLower(name[i + 1]);
+                if (char.IsLower(previous) || char.IsDigit(previous) || (char.IsUpper(previous) && nextIsLower))
+                {
+                    builder.Append('_');
+                }
+            }
+
+            builder.Append(char.ToLowerInvariant(c));
+        }
+
+        return builder.ToString();
+    }
+
+    private static ColumnDescriptor? FindColumn(PropertyDescriptor property, IReadOnlyList<ColumnDescriptor> columns)
+    {
+        foreach (var candidate in CandidateColumnNames(property))
+        {
+            var column = columns.FirstOrDefault(c => string.Equals(c.Name, candidate, StringComparison.Ordinal))
+                ?? columns.FirstOrDefault(c => string.Equals(c.Name, candidate, StringComparison.OrdinalIgnoreCase));
+            if (column != null)
+            {
+                return column;
+            }
+        }
+
+        return null;
+    }
+
+    private static ContractViolation? DetectProperty(PropertyDescriptor property, ColumnDescriptor column)
+    {
+        var pgType = PostgreSqlColumnTypeFactory.Resolve(column.DataType);
+
+        // 1. Direct length mismatch: entity MaxLength > column character_maximum_length.
+        //    Only applies to types that have a meaningful length constraint.
+        if (property.MaxLength.HasValue && column.MaxLength.HasValue
+            && !PostgreSqlColumnTypeFactory.IsUnlimitedType(pgType)
+            && property.MaxLength.Value > column.MaxLength.Value)
+        {
+            return new ContractViolation(
+                "PG003",
+                $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} " +
+                $"exceeds PostgreSQL column '{column.Name}' ({column.DataType}) length={column.MaxLength.Value}",
+                DiagnosticSeverity.Error,
+                null,
+                new Dictionary<string, object?>
+                {
+                    { "property", property.Name },
+                    { "column", column.Name },
+                    { "entityMaxLength", property.MaxLength.Value },
+                    { "columnMaxLength", column.MaxLength.Value },
+                    { "columnType", column.DataType },
+                });
+        }
+
+        // 2. VARCHAR exceeds PostgreSQL maximum (10485760).
+        if (property.MaxLength.HasValue
+            && pgType == PostgreSqlColumnType.VarChar
+            && property.MaxLength.Value > PgVarcharMaxLength)
+        {
+            return new ContractViolation(
+                "PG003",
+                $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} " +
+                $"exceeds PostgreSQL VARCHAR maximum of {PgVarcharMaxLength:N0} characters",
+                DiagnosticSeverity.Error,
+                null,
+                new Dictionary<string, object?>
+                {
+                    { "property", property.Name },
+                    { "column", column.Name },
+                    { "entityMaxLength", property.MaxLength.Value },
+                    { "pgVarcharMax", PgVarcharMaxLength },
+                });
+        }
+
+        // 3. TEXT/JSONB type mismatch: entity has MaxLength but column is unlimited type.
+        //    PostgreSQL TEXT/JSONB columns have no length limit, but the entity
+        //    constrains MaxLength — this is a design mismatch (entity is more
+        //    restrictive than DB, which is safe but may indicate confusion).
+        if (property.MaxLength.HasValue
+            && PostgreSqlColumnTypeFactory.IsUnlimitedType(pgType))
+        {
+            return new ContractViolation(
+                "PG003",
+                $"Entity property '{property.Name}' has MaxLength={property.MaxLength.Value} " +
+                $"but PostgreSQL column '{column.Name}' is {column.DataType} (unlimited length). " +
+                $"The MaxLength constraint is enforced only at the application level, not by the database.",
+                DiagnosticSeverity.Info,
+                null,
+                new Dictionary<string, object?>
+                {
+                    { "property", property.Name },
+                    { "column", column.Name },
+                    { "entityMaxLength", property.MaxLength.Value },
+                    { "columnType", column.DataType },
+                    { "columnIsUnlimited", true },
+                });
+        }
+
+        // 4. No MaxLength on entity but column is VARCHAR(n) — entity could write
+        //    arbitrarily long strings that exceed the column limit.
+        if (!property.MaxLength.HasValue
+            && pgType == PostgreSqlColumnType.VarChar
+            && column.MaxLength.HasValue)
+        {
+            return new ContractViolation(
+                "PG003",
+                $"Entity property '{property.Name}' has no MaxLength but PostgreSQL column " +
+                $"'{column.Name}' is VARCHAR({column.MaxLength.Value}). " +
+                $"EF Core Npgsql will infer character varying (unlimited) — values exceeding " +
+                $"{column.MaxLength.Value} characters will cause a runtime error.",
+                DiagnosticSeverity.Warning,
+                null,
+                new Dictionary<string, object?>
+                {
+                    { "property", property.Name },
+                    { "column", column.Name },
+                    { "columnType", column.DataType },
+                    { "columnMaxLength", column.MaxLength.Value },
+                    { "inferredType", "character varying" },
+                });
+        }
+
+        return null;
     }
 }
 
@@ -350,8 +369,7 @@ internal static class PostgreSqlLengthMismatchRuleHelper
             return Array.Empty<ContractViolation>();
         }
 
-        var table = schema.Tables.FirstOrDefault(t =>
-            string.Equals(t.Name, entity.TableName, StringComparison.OrdinalIgnoreCase));
+        var table = FindTable(schema.Tables, entity.TableName);
         if (table == null)
         {
             return Array.Empty<ContractViolation>();
@@ -360,5 +378,38 @@ internal static class PostgreSqlLengthMismatchRuleHelper
         return new PostgreSqlLengthMismatchDetector().Detect(entity, table.Columns)
             .Where(v => v.RuleId == ruleId)
             .ToList();
+    }
+
+    /// <summary>
+    /// Resolves an EF table name (<c>table</c> or <c>schema.table</c>, optionally quoted) against catalog tables. PostgreSQL
+    /// names are case-sensitive, so an exact (ordinal) match wins; otherwise names are compared through
+    /// <see cref="SchemaObjectName.Canonical(string?, string?)"/>. A schema on both sides must agree; ambiguity resolves to nothing.
+    /// </summary>
+    /// <returns>The single matching table, or null.</returns>
+    internal static DatabaseTableDescriptor? FindTable(IReadOnlyList<DatabaseTableDescriptor> tables, string entityTableName)
+    {
+        var wanted = SchemaObjectName.Parse(entityTableName);
+        if (wanted.Name.Length == 0)
+        {
+            return null;
+        }
+
+        var candidates = tables
+            .Select(table => (Table: table, Parts: SchemaObjectName.Parse(table.Name)))
+            .Select(item => (item.Table, Name: item.Parts.Name, Schema: item.Table.Schema ?? item.Parts.Schema))
+            .Where(item => wanted.Schema is null || item.Schema is null ||
+                string.Equals(item.Schema, wanted.Schema, StringComparison.Ordinal) ||
+                string.Equals(SchemaObjectName.Canonical("postgresql", item.Schema), SchemaObjectName.Canonical("postgresql", wanted.Schema), StringComparison.Ordinal))
+            .ToList();
+
+        var exact = candidates.Where(item => string.Equals(item.Name, wanted.Name, StringComparison.Ordinal)).ToList();
+        var matches = exact.Count > 0
+            ? exact
+            : candidates.Where(item => string.Equals(
+                SchemaObjectName.Canonical("postgresql", item.Name),
+                SchemaObjectName.Canonical("postgresql", wanted.Name),
+                StringComparison.Ordinal)).ToList();
+
+        return matches.Count == 1 ? matches[0].Table : null;
     }
 }

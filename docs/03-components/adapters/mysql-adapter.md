@@ -176,3 +176,15 @@ MySQL's `INFORMATION_SCHEMA.PARAMETERS` may not be available for all MySQL versi
 ### Character Set Awareness
 
 MySQL's `CHARACTER_MAXIMUM_LENGTH` is always in characters (not bytes), regardless of the column's character set. This simplifies length comparison compared to Oracle's CHAR/BYTE semantics.
+
+## Catalog and length semantics (Phase 3.3/3.7)
+
+- **Routines**: `ROUTINE_TYPE IN ('PROCEDURE','FUNCTION')`. A function's `ReturnType` comes from `ROUTINES.DATA_TYPE`, and its return row (`ORDINAL_POSITION = 0`) is not a parameter. Procedures keep the Id `mysql:{schema}.{name}`. Functions live in a separate MySQL namespace and use `mysql:{schema}.{name}#function`.
+- **Default schema**: when no schema is configured, the parser uses `SELECT DATABASE()`. If the connection has no default database, it reads every schema except `mysql`, `sys`, `information_schema` and `performance_schema`.
+- **Table keys** follow `@@lower_case_table_names`. With `0`, keys are case-sensitive, so `Orders` and `orders` stay separate. With `1` or `2`, keys are lower-cased. `DatabaseTableDescriptor.Schema` is set.
+- **Charset**: `ColumnDescriptor.Charset` carries `CHARACTER_SET_NAME`, and `CharUsed` is null. For older snapshots, a charset stored in `CharUsed` is still read.
+- **MY006**: TEXT family limits are bytes (`TINYTEXT` 255, `TEXT` 65,535, `MEDIUMTEXT` 16,777,215, `LONGTEXT` 4,294,967,295). The entity side is `MaxLength × bytes per UTF-16 unit`: utf8mb4, utf8mb3 and utf8 are 3; ucs2 and utf16 are 2; single-byte sets are 1.
+- **MY005**: row size. Each VARCHAR/CHAR column of the table is counted at the mapped property's `MaxLength` (or its own length) × the charset's maximum character width (utf8mb4 4, utf8mb3 3, latin1 1), plus 1–2 length bytes. A total over 65,535 bytes means the CREATE/ALTER TABLE from the model fails with ERROR 1118. Index-prefix limits (3072/767) are not checked, because the schema descriptor carries no index metadata.
+- **MY007**: Pomelo maps a `string` with no `MaxLength` to `longtext`. The rule fires only when that property sits on a `varchar(n)`/`char(n)` column; a TEXT column is not a risk.
+- `GetBytesPerChar` returns MySQL's maximum width per character: `utf8mb3` = 3 (it was wrongly 4), `utf8mb4` = 4.
+

@@ -111,6 +111,7 @@ ORDER BY p.parameter_id
 
 **Key details:**
 - `max_length = -1` indicates `MAX` types (e.g., `varchar(max)`) — normalized to `null`
+- `max_length` is in bytes; `nchar`/`nvarchar` (system type 239/231, including `sysname`) are divided by 2 so `nvarchar(50)` ⇒ `MaxLength = 50` (characters, like `INFORMATION_SCHEMA`). The same normalization applies to `sp_describe_first_result_set` result columns (`SqlServerStoredProcedureParser.NormalizeMaxLength`).
 - `is_output = true` maps to `ParameterDirection.InputOutput` (SQL Server uses `OUTPUT` keyword)
 - Direction is simplified: SQL Server only has `INPUT` and `OUTPUT` (no `IN OUT` like Oracle)
 
@@ -135,7 +136,9 @@ EXEC sp_describe_first_result_set N'EXEC [schema].[proc]', NULL, 1
 | 7 | `precision` | Precision |
 | 8 | `scale` | Scale |
 
-**Error handling:** SQL errors 11512/11513 indicate the procedure returns no result set — these are silently caught and return an empty column list.
+**Error handling:** SQL errors 11512/11513 indicate the procedure returns no result set; they are caught and return an empty column list. Any other `SqlException` for one procedure, such as 11526 for a temp-table result, no longer aborts extraction. The procedure is kept with an empty result shape and `ReturnType = "unknown:<error number>"`.
+
+**Schema tables:** `DatabaseTableDescriptor.Name` is the bare table name and `Schema` holds the owner (`Orders` + `dbo`). The rules' table index resolves both `dbo.Orders` and `Orders`.
 
 ### SQL Name Escaping
 

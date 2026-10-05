@@ -48,43 +48,45 @@ graph TB
 
 ## PostgreSqlStoredProcedureParser
 
-Implements `IContractSource` to extract stored procedure contracts from PostgreSQL's `information_schema`.
+Implements `IContractSource`. It reads functions and procedures from `pg_proc` + `pg_type`, and it reads tables, views and materialized views for the length rules.
 
 ### Query Pattern
 
 ```sql
-SELECT r.routine_name, p.parameter_name, p.data_type, p.parameter_mode,
-       p.ordinal_position, p.character_maximum_length, p.numeric_precision,
-       p.numeric_scale, r.specific_name
-FROM information_schema.routines r
-LEFT JOIN information_schema.parameters p
-  ON r.specific_schema = p.specific_schema AND r.specific_name = p.specific_name
-WHERE r.routine_type = 'PROCEDURE' AND r.routine_schema = @schema
-ORDER BY r.routine_name, p.ordinal_position
+SELECT p.proname, n.nspname, p.proargnames, p.proargtypes, p.proallargtypes, p.proargmodes,
+       p.prorettype, p.oid, p.prokind, p.pronargs, p.pronargdefaults, p.proretset
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = @schema AND p.prokind IN ('f', 'p')
 ```
+
+Table columns come from `information_schema.columns`. Materialized views are not in that view, so their columns are read from `pg_matviews` joined to `pg_attribute`. Table keys are the exact catalog names, compared ordinally. Each `DatabaseTableDescriptor` has `Schema` set.
 
 ### Key Design Decisions
 
-- **Default schema**: Defaults to `"public"` (PostgreSQL convention) rather than empty string.
-- **Overload handling**: PostgreSQL supports function overloading via `specific_name` (unique per overload). The parser keys by `specific_name` to prevent same-named overloads from merging.
-- **NULL parameter skip**: When `ordinal_position IS NULL` (LEFT JOIN filler for parameterless procedures), the row is skipped.
-- **No package support**: PostgreSQL does not have packages — `PackageName` is always empty.
+- **Default schema**: `"public"`.
+- **RETURNS TABLE**: `proargmodes` `'t'` arguments become `ResultColumns` (name, `typname`) and are not parameters.
+- **Defaults**: `pronargdefaults = N` sets `HasDefault` on the last N input (`i`/`b`/`v`) parameters.
+- **Unnamed arguments**: an empty `proargnames` entry becomes `p{i}` (1-based).
+- **Return type**: functions carry `ReturnType = typname(prorettype)`; `refcursor` sets `ReturnsRefCursor`.
+- **No package support**: `PackageName` is always empty.
 
 ### Direction Mapping
 
-| PostgreSQL Mode | DataGuard Direction |
-|-----------------|---------------------|
-| `IN` | `Input` |
-| `OUT` | `Output` |
-| `INOUT` | `InputOutput` |
+| `proargmodes` | DataGuard |
+|---------------|-----------|
+| `i` | `Input` |
+| `o` | `Output` |
+| `b` | `InputOutput` |
+| `v` (VARIADIC) | `Input` |
+| `t` (TABLE) | result column |
 
 ### Contract ID Format
 
 ```
-postgres:{schema}.{specific_name}
+postgres:{schema}.{name}({in-arg type names})
 ```
 
-The `specific_name` is used instead of `routine_name` to handle overloaded functions correctly.
+For example, `postgres:public.find_orders(int4,text)`. The signature is built from `proargtypes`, the IN, INOUT and VARIADIC arguments, which is what PostgreSQL uses to resolve overloads. Unlike OIDs, the signature is stable across dump and restore.
 
 ## PostgreSqlDialectChecker
 
@@ -112,22 +114,14 @@ Detects PostgreSQL-specific syntax in non-PostgreSQL contexts and vice versa.
 
 ## PostgreSqlLengthMismatchDetector
 
-Compares entity `MaxLength` against PostgreSQL column `character_maximum_length`. Direct comparison — PostgreSQL stores character length (not byte length) in `information_schema`.
+Compares entity `MaxLength` against PostgreSQL `character_maximum_length`. PostgreSQL limits `varchar(n)`/`char(n)` in characters, so there is no byte check. Each property yields **at most one PG003**, picked in this order:
 
-### Detection Logic
+1. Entity `MaxLength` > column length (Error).
+2. Entity `MaxLength` > VARCHAR maximum 10,485,760 (Error).
+3. `MaxLength` on an unlimited column (`text`/`json`/`jsonb`/`bytea`) (Info).
+4. No `MaxLength` but the column is `varchar(n)` (Warning).
 
-```csharp
-foreach (var property in entity.Properties)
-{
-    var column = columns.FirstOrDefault(c =>
-        string.Equals(c.Name, property.ColumnName, StringComparison.OrdinalIgnoreCase));
-    if (column == null || !property.MaxLength.HasValue || !column.MaxLength.HasValue)
-        continue;
-
-    if (property.MaxLength.Value > column.MaxLength.Value)
-        yield return new ContractViolation("PG003", ...);
-}
-```
+Columns match on the EF column name, then the property name, then snake_case (`CustomerName` ⇒ `customer_name`); an exact-case match wins. Tables resolve by `(schema, name)`: the exact case first, then a fallback through `SchemaObjectName.Canonical("postgresql", ...)`.
 
 ## Rules Reference
 
@@ -171,11 +165,11 @@ Both `postgresql` and `postgres` are accepted as provider names.
 
 ### Function vs Procedure
 
-PostgreSQL 11+ introduced `PROCEDURE` as a distinct object from `FUNCTION`. The parser filters by `routine_type = 'PROCEDURE'` to match the DataGuard contract model. Functions with return values are not yet covered.
+PostgreSQL 11+ introduced `PROCEDURE` as a distinct object from `FUNCTION`. The parser reads both (`prokind IN ('f','p')`); functions carry `ReturnType`.
 
 ### Overloaded Functions
 
-PostgreSQL allows multiple functions with the same name but different parameter types (overloading). The `specific_name` column in `information_schema.routines` is unique per overload and used as the contract key.
+PostgreSQL allows multiple functions with the same name but different parameter types (overloading). The IN-argument type signature in the contract Id keeps overloads distinct.
 
 ### Schema Qualification
 

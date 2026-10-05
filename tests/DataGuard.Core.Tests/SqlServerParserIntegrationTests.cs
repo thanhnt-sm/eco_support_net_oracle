@@ -70,11 +70,24 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
                 CREATE PROCEDURE dbo.GetCustomer
                     @Id INT,
                     @Note VARCHAR(50) = NULL,
-                    @OutName VARCHAR(200) OUTPUT
+                    @OutName VARCHAR(200) OUTPUT,
+                    @Display NVARCHAR(50) = NULL,
+                    @Body NVARCHAR(MAX) = NULL
                 AS
                 BEGIN
                     SET @OutName = 'x';
-                    SELECT CAST(1 AS INT) AS CustomerId, CAST('Ada' AS VARCHAR(50)) AS FullName;
+                    SELECT CAST(1 AS INT) AS CustomerId, CAST('Ada' AS VARCHAR(50)) AS FullName, CAST(N'Ada' AS NVARCHAR(40)) AS DisplayName;
+                END
+                """;
+            await cmd.ExecuteNonQueryAsync();
+
+            // sp_describe_first_result_set cannot describe a temp-table result (error 11526): must not abort extraction.
+            cmd.CommandText = """
+                CREATE PROCEDURE dbo.UsesTempTable
+                AS
+                BEGIN
+                    CREATE TABLE #t (Id INT);
+                    SELECT Id FROM #t;
                 END
                 """;
             await cmd.ExecuteNonQueryAsync();
@@ -88,10 +101,20 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
         proc.Parameters.Should().Contain(p => p.Name == "@Id" && p.DataType.Contains("int", StringComparison.OrdinalIgnoreCase));
         proc.Parameters.Should().Contain(p => p.Name == "@OutName");
         proc.ResultColumns.Should().Contain(c => c.Name == "CustomerId");
-        proc.ResultColumns.Should().Contain(c => c.Name == "FullName");
+        proc.ResultColumns.Should().Contain(c => c.Name == "FullName" && c.MaxLength == 50);
+        proc.ResultColumns.Should().Contain(c => c.Name == "DisplayName" && c.MaxLength == 40);
+        proc.Parameters.Should().Contain(p => p.Name == "@Display" && p.MaxLength == 50);
+        proc.Parameters.Should().Contain(p => p.Name == "@Body" && p.MaxLength == null);
+        proc.Parameters.Should().Contain(p => p.Name == "@Note" && p.MaxLength == 50);
+        proc.ReturnType.Should().BeNull();
+
+        var failing = contracts.OfType<DataGuard.Core.Abstractions.StoredProcedureDescriptor>()
+            .Should().ContainSingle(p => p.Name == "UsesTempTable").Subject;
+        failing.ResultColumns.Should().BeEmpty();
+        failing.ReturnType.Should().StartWith("unknown:");
 
         var schema = contracts.OfType<DatabaseSchemaDescriptor>().Should().ContainSingle().Subject;
-        var customers = schema.Tables.Should().Contain(table => table.Name.EndsWith(".Customers", StringComparison.OrdinalIgnoreCase)).Subject;
+        var customers = schema.Tables.Should().Contain(table => table.Name == "Customers" && table.Schema == "dbo").Subject;
         customers.Columns.Should().Contain(column =>
             column.Name.Equals("Status", StringComparison.OrdinalIgnoreCase)
             && column.DataDefault != null
@@ -101,4 +124,22 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
     private static bool IsLiveSqlServerRequired()
         => string.Equals(Environment.GetEnvironmentVariable(RequireLiveSqlServerVariable), "1", StringComparison.Ordinal)
             || string.Equals(Environment.GetEnvironmentVariable(RunLiveSqlServerVariable), "1", StringComparison.Ordinal);
+}
+
+/// <summary>
+/// SQL Server length normalization without a database.
+/// </summary>
+public class SqlServerLengthNormalizationTests
+{
+    [Theory]
+    [InlineData(100, 231, 50)] // nvarchar(50): sys.parameters reports 100 bytes
+    [InlineData(100, 239, 50)] // nchar(50)
+    [InlineData(50, 167, 50)] // varchar(50)
+    [InlineData(-1, 231, null)] // nvarchar(max)
+    [InlineData(-1, 167, null)] // varchar(max)
+    [InlineData(4, 56, 4)] // int keeps its byte size
+    public void NormalizeMaxLength_ReturnsCharacters(int maxLength, int systemTypeId, int? expected)
+    {
+        SqlServerStoredProcedureParser.NormalizeMaxLength(maxLength, systemTypeId).Should().Be(expected);
+    }
 }

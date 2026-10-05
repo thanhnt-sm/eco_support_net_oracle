@@ -1,14 +1,16 @@
 namespace DataGuard.Oracle.Adapter;
 
+using System.Text;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using global::Oracle.ManagedDataAccess.Client;
 using System.Data;
-using System.Security.Cryptography;
 
 /// <summary>
-/// Reads stored procedure parameters from Oracle ALL_ARGUMENTS view.
-/// Handles overloaded procedures by including sequence and overload info in the key.
+/// Reads stored procedure parameters from the Oracle <c>ALL_ARGUMENTS</c> view (plus <c>ALL_PROCEDURES</c> for
+/// subprograms that have no argument rows). Packaged subprograms and overloads are keyed by
+/// <c>(package_name, object_name, subprogram_id)</c>; <c>ALL_PROCEDURES</c> has no <c>PACKAGE_NAME</c> column
+/// (packaged subprograms are rows with <c>OBJECT_TYPE = 'PACKAGE'</c> and <c>PROCEDURE_NAME</c> set).
 /// </summary>
 public class AllArgumentsReader
 {
@@ -24,7 +26,26 @@ public class AllArgumentsReader
     }
 
     /// <summary>
-    /// Gets parameters for a specific procedure, handling overloads via sequence/overload.
+    /// Reads every callable subprogram of <paramref name="owner"/> with one statement over <c>ALL_ARGUMENTS</c>
+    /// (<c>DATA_LEVEL = 0</c>) united with <c>ALL_PROCEDURES</c> header rows, grouped by
+    /// <c>(package_name, object_name, subprogram_id)</c>. 0-argument subprograms and every overload are kept;
+    /// <c>DEFAULTED = 'Y'</c> sets <see cref="ParameterDescriptor.HasDefault"/>; the function return row becomes
+    /// <see cref="OracleProcedureCatalogEntry.ReturnType"/>.
+    /// </summary>
+    /// <param name="owner">Schema owner (compared upper-cased).</param>
+    /// <param name="packageFilter">Null = every package and standalone unit; empty = standalone units only; otherwise that package.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The catalog entries.</returns>
+    public Task<IReadOnlyList<OracleProcedureCatalogEntry>> GetProceduresAsync(
+        string owner,
+        string? packageFilter = null,
+        CancellationToken cancellationToken = default)
+        => QueryCatalogAsync(owner, packageFilter, null, cancellationToken);
+
+    /// <summary>
+    /// Gets parameters for a specific procedure. An empty <paramref name="packageName"/> means a standalone procedure
+    /// (<c>package_name IS NULL</c>). With overloads, all overloads' parameters are returned unless
+    /// <paramref name="sequence"/> selects one <c>SUBPROGRAM_ID</c>.
     /// </summary>
     /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<IReadOnlyList<ParameterDescriptor>> GetParametersAsync(
@@ -34,106 +55,16 @@ public class AllArgumentsReader
         int? sequence = null,
         CancellationToken cancellationToken = default)
     {
-        var parameters = new List<ParameterDescriptor>();
-
-        // Include SEQUENCE and OVERLOAD to handle overloaded procedures
-        // SEQUENCE: ordering within overload group
-        // OVERLOAD: unique identifier for each overload (0 = not overloaded)
-        var sql = @"
-            SELECT 
-                argument_name,
-                in_out,
-                data_type,
-                data_length,
-                data_precision,
-                data_scale,
-                position,
-                sequence,
-                overload,
-                type_owner,
-                type_name,
-                type_subname
-            FROM all_arguments
-            WHERE owner = UPPER(:owner)
-              AND (:packageName IS NULL OR package_name = :packageName)
-              AND object_name = :procedureName";
-
-        if (sequence.HasValue)
-        {
-            sql += " AND sequence = :sequence";
-        }
-
-        sql += " ORDER BY sequence, position";
-
-        await using var connection = new OracleConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = new OracleCommand(sql, connection);
-        command.BindByName = true;
-        command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-        command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
-        command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
-        if (sequence.HasValue)
-        {
-            command.Parameters.Add("sequence", OracleDbType.Int32).Value = sequence.Value;
-        }
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            var position = reader.IsDBNull(6) ? 0 : reader.GetInt32(6);
-            if (reader.IsDBNull(0) || position == 0)
-            {
-                continue; // function return-value row - not a real parameter
-            }
-
-            var name = reader.GetString(0);
-            var inOut = reader.IsDBNull(1) ? "" : reader.GetString(1);
-            var dataType = reader.IsDBNull(2) ? "" : reader.GetString(2);
-            var dataLength = reader.IsDBNull(3) ? null : (int?)reader.GetInt32(3);
-            var precision = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4);
-            var scale = reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5);
-            var seq = reader.IsDBNull(7) ? 0 : reader.GetInt32(7);
-            var overload = ReadOverload(reader, 8);
-            var typeOwner = reader.IsDBNull(9) ? null : reader.GetString(9);
-            var typeName = reader.IsDBNull(10) ? null : reader.GetString(10);
-            var typeSubname = reader.IsDBNull(11) ? null : reader.GetString(11);
-
-            var direction = inOut switch
-            {
-                "IN" => DataGuard.Core.Abstractions.ParameterDirection.Input,
-                "OUT" => DataGuard.Core.Abstractions.ParameterDirection.Output,
-                "IN OUT" => DataGuard.Core.Abstractions.ParameterDirection.InputOutput,
-                _ => DataGuard.Core.Abstractions.ParameterDirection.Input
-            };
-
-            // Build type name including owner for user-defined types
-            var fullTypeName = BuildFullTypeName(typeOwner, typeName, typeSubname, dataType);
-
-            parameters.Add(new ParameterDescriptor(
-                Name: name,
-                DataType: fullTypeName,
-                Direction: direction,
-                MaxLength: dataLength,
-                Precision: precision,
-                Scale: scale,
-                IsNullable: true, // ALL_ARGUMENTS doesn't track nullability
-                OrdinalPosition: position,
-                Overload: overload,
-                Sequence: seq,
-                TypeOwner: typeOwner,
-                TypeName: typeName,
-                TypeSubname: typeSubname));
-        }
-
-        return parameters;
+        var entries = await QueryCatalogAsync(owner, packageName ?? string.Empty, procedureName, cancellationToken);
+        return entries
+            .Where(entry => sequence is null || entry.SubprogramId == sequence.Value)
+            .SelectMany(entry => entry.Parameters)
+            .ToList();
     }
 
     /// <summary>
-    /// Gets all overloads for a procedure.
-    /// </summary>
-    /// <summary>
-    /// Lists distinct procedure/function names in a schema (from ALL_PROCEDURES).
+    /// Lists procedure/function names from <c>ALL_PROCEDURES</c>: the subprograms of <paramref name="packageName"/>
+    /// (<c>OBJECT_TYPE = 'PACKAGE'</c>, <c>PROCEDURE_NAME</c>), or standalone procedures/functions when it is null or empty.
     /// </summary>
     /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<IReadOnlyList<string>> GetProcedureNamesAsync(
@@ -141,13 +72,24 @@ public class AllArgumentsReader
         string? packageName = null,
         CancellationToken cancellationToken = default)
     {
-        var sql = "SELECT DISTINCT object_name FROM all_procedures WHERE owner = UPPER(:owner)";
-        if (!string.IsNullOrEmpty(packageName))
-        {
-            sql += " AND package_name = UPPER(:packageName)";
-        }
-
-        sql += " ORDER BY object_name";
+        var packaged = !string.IsNullOrEmpty(packageName);
+        var sql = packaged
+            ? """
+              SELECT DISTINCT procedure_name
+              FROM all_procedures
+              WHERE owner = UPPER(:owner)
+                AND object_type = 'PACKAGE'
+                AND UPPER(object_name) = UPPER(:packageName)
+                AND procedure_name IS NOT NULL
+              ORDER BY procedure_name
+              """
+            : """
+              SELECT DISTINCT object_name
+              FROM all_procedures
+              WHERE owner = UPPER(:owner)
+                AND object_type IN ('PROCEDURE', 'FUNCTION')
+              ORDER BY object_name
+              """;
 
         await using var connection = new OracleConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -155,9 +97,9 @@ public class AllArgumentsReader
         await using var command = new OracleCommand(sql, connection);
         command.BindByName = true;
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-        if (!string.IsNullOrEmpty(packageName))
+        if (packaged)
         {
-            command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
+            command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = packageName;
         }
 
         var names = new List<string>();
@@ -173,31 +115,88 @@ public class AllArgumentsReader
         return names;
     }
 
+    /// <summary>
+    /// Gets all overloads (one per <c>SUBPROGRAM_ID</c>, including 0-argument overloads) of a procedure. An empty
+    /// <paramref name="packageName"/> means a standalone procedure.
+    /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<IReadOnlyList<ProcedureOverloadInfo>> GetOverloadsAsync(
         string owner,
         string packageName,
         string procedureName,
         CancellationToken cancellationToken = default)
     {
-        var overloads = new List<ProcedureOverloadInfo>();
+        var entries = await QueryCatalogAsync(owner, packageName ?? string.Empty, procedureName, cancellationToken);
+        return entries
+            .Select(entry => new ProcedureOverloadInfo
+            {
+                Sequence = 0,
+                Overload = entry.SubprogramId,
+                SubprogramId = entry.SubprogramId,
+                ReturnType = entry.ReturnType,
+                Parameters = entry.Parameters.ToList(),
+            })
+            .ToList();
+    }
 
-        const string sql = @"
-            SELECT DISTINCT 
-                sequence,
-                overload,
-                argument_name,
-                in_out,
-                data_type,
-                data_length,
-                data_precision,
-                data_scale,
-                position,
-                subprogram_id
-            FROM all_arguments
-            WHERE owner = UPPER(:owner)
-              AND (:packageName IS NULL OR package_name = :packageName)
-              AND object_name = :procedureName
-            ORDER BY overload, sequence, position";
+    /// <summary>Builds the single catalog statement for the given filters (exposed for tests).</summary>
+    /// <param name="packageFilter">Null = all; empty = standalone only; otherwise one package.</param>
+    /// <param name="filterByName">Whether a <c>:procedureName</c> filter is applied.</param>
+    /// <returns>The SQL text.</returns>
+    public static string BuildCatalogSql(string? packageFilter, bool filterByName)
+    {
+        var argumentFilter = new StringBuilder();
+        var headerFilter = new StringBuilder();
+        if (packageFilter is not null)
+        {
+            if (packageFilter.Length == 0)
+            {
+                argumentFilter.Append(" AND a.package_name IS NULL");
+                headerFilter.Append(" AND p.object_type IN ('PROCEDURE', 'FUNCTION')");
+            }
+            else
+            {
+                argumentFilter.Append(" AND UPPER(a.package_name) = UPPER(:packageName)");
+                headerFilter.Append(" AND p.object_type = 'PACKAGE' AND UPPER(p.object_name) = UPPER(:packageName)");
+            }
+        }
+
+        if (filterByName)
+        {
+            argumentFilter.Append(" AND UPPER(a.object_name) = UPPER(:procedureName)");
+            headerFilter.Append(" AND UPPER(NVL(p.procedure_name, p.object_name)) = UPPER(:procedureName)");
+        }
+
+        return $"""
+            SELECT 'A' AS row_kind, a.package_name, a.object_name, a.subprogram_id, a.overload, a.position, a.sequence,
+                   a.argument_name, a.in_out, a.data_type, a.data_length, a.data_precision, a.data_scale,
+                   a.char_used, a.char_length, a.defaulted, a.type_owner, a.type_name, a.type_subname,
+                   CAST(NULL AS VARCHAR2(23)) AS object_type
+            FROM all_arguments a
+            WHERE a.owner = UPPER(:owner)
+              AND a.data_level = 0{argumentFilter}
+            UNION ALL
+            SELECT 'P', CASE WHEN p.object_type = 'PACKAGE' THEN p.object_name END, NVL(p.procedure_name, p.object_name),
+                   p.subprogram_id, p.overload, NULL, NULL,
+                   NULL, NULL, NULL, NULL, NULL, NULL,
+                   NULL, NULL, NULL, NULL, NULL, NULL,
+                   p.object_type
+            FROM all_procedures p
+            WHERE p.owner = UPPER(:owner)
+              AND (p.object_type IN ('PROCEDURE', 'FUNCTION') OR (p.object_type = 'PACKAGE' AND p.procedure_name IS NOT NULL)){headerFilter}
+            ORDER BY 2 NULLS FIRST, 3, 4, 1 DESC, 6
+            """;
+    }
+
+    private async Task<IReadOnlyList<OracleProcedureCatalogEntry>> QueryCatalogAsync(
+        string owner,
+        string? packageFilter,
+        string? procedureName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(owner);
+        var normalizedPackage = packageFilter?.Trim();
+        var sql = BuildCatalogSql(normalizedPackage, procedureName is not null);
 
         await using var connection = new OracleConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -205,123 +204,51 @@ public class AllArgumentsReader
         await using var command = new OracleCommand(sql, connection);
         command.BindByName = true;
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-        command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = string.IsNullOrEmpty(packageName) ? DBNull.Value : packageName;
-        command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
+        if (!string.IsNullOrEmpty(normalizedPackage))
+        {
+            command.Parameters.Add("packageName", OracleDbType.Varchar2).Value = normalizedPackage;
+        }
 
+        if (procedureName is not null)
+        {
+            command.Parameters.Add("procedureName", OracleDbType.Varchar2).Value = procedureName;
+        }
+
+        var rows = new List<OracleArgumentRow>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
-        var currentOverload = new ProcedureOverloadInfo();
-        int? lastOverload = null;
-
         while (await reader.ReadAsync(cancellationToken))
         {
-            var seq = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
-            var overload = ReadOverload(reader, 1);
-
-            // SUBPROGRAM_ID is NUMBER and unique per overload; fall back to the
-            // (possibly string-typed) OVERLOAD column when it is null.
-            var groupKey = reader.IsDBNull(9) ? overload : reader.GetInt32(9);
-
-            if (lastOverload != groupKey)
-            {
-                if (currentOverload.Parameters.Count > 0)
-                {
-                    overloads.Add(currentOverload);
-                }
-
-                currentOverload = new ProcedureOverloadInfo
-                {
-                    Sequence = seq,
-                    Overload = groupKey,
-                };
-                lastOverload = groupKey;
-            }
-
-            var position = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
-            if (reader.IsDBNull(2) || position == 0)
-            {
-                continue; // function return-value row - not a real parameter
-            }
-
-            var name = reader.GetString(2);
-            var inOut = reader.IsDBNull(3) ? "" : reader.GetString(3);
-            var dataType = reader.IsDBNull(4) ? "" : reader.GetString(4);
-            var dataLength = reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5);
-            var precision = reader.IsDBNull(6) ? null : (int?)reader.GetInt32(6);
-            var scale = reader.IsDBNull(7) ? null : (int?)reader.GetInt32(7);
-
-            var direction = inOut switch
-            {
-                "IN" => DataGuard.Core.Abstractions.ParameterDirection.Input,
-                "OUT" => DataGuard.Core.Abstractions.ParameterDirection.Output,
-                "IN OUT" => DataGuard.Core.Abstractions.ParameterDirection.InputOutput,
-                _ => DataGuard.Core.Abstractions.ParameterDirection.Input
-            };
-
-            currentOverload.Parameters.Add(new ParameterDescriptor(
-                Name: name,
-                DataType: dataType,
-                Direction: direction,
-                MaxLength: dataLength,
-                Precision: precision,
-                Scale: scale,
-                IsNullable: true,
-                OrdinalPosition: position,
-                Overload: overload,
-                Sequence: seq));
+            rows.Add(new OracleArgumentRow(
+                PackageName: GetString(reader, 1),
+                ObjectName: GetString(reader, 2) ?? string.Empty,
+                SubprogramId: GetInt(reader, 3) ?? 0,
+                Overload: reader.IsDBNull(4) ? null : Convert.ToString(reader.GetValue(4), System.Globalization.CultureInfo.InvariantCulture),
+                Position: GetInt(reader, 5),
+                Sequence: GetInt(reader, 6),
+                ArgumentName: GetString(reader, 7),
+                InOut: GetString(reader, 8),
+                DataType: GetString(reader, 9),
+                DataLength: GetInt(reader, 10),
+                DataPrecision: GetInt(reader, 11),
+                DataScale: GetInt(reader, 12),
+                CharUsed: GetString(reader, 13),
+                CharLength: GetInt(reader, 14),
+                Defaulted: GetString(reader, 15),
+                TypeOwner: GetString(reader, 16),
+                TypeName: GetString(reader, 17),
+                TypeSubname: GetString(reader, 18),
+                IsHeader: string.Equals(GetString(reader, 0), "P", StringComparison.Ordinal),
+                ObjectType: GetString(reader, 19)));
         }
 
-        if (currentOverload.Parameters.Count > 0)
-        {
-            overloads.Add(currentOverload);
-        }
-
-        return overloads;
+        return OracleCatalog.Group(owner, rows);
     }
 
-    /// <summary>
-    /// Reads ALL_ARGUMENTS.OVERLOAD safely: the column is reported as NUMBER in some
-    /// Oracle versions and VARCHAR2 in others, so convert defensively (0 = not overloaded).
-    /// </summary>
-    private static int ReadOverload(global::Oracle.ManagedDataAccess.Client.OracleDataReader reader, int ordinal)
-    {
-        if (reader.IsDBNull(ordinal))
-        {
-            return 0;
-        }
+    private static string? GetString(OracleDataReader reader, int ordinal)
+        => reader.IsDBNull(ordinal) ? null : Convert.ToString(reader.GetValue(ordinal), System.Globalization.CultureInfo.InvariantCulture);
 
-        var raw = Convert.ToString(reader.GetValue(ordinal));
-        return int.TryParse(raw, out var value) ? value : 0;
-    }
-
-    private static string BuildFullTypeName(string? typeOwner, string? typeName, string? typeSubname, string fallback)
-    {
-        if (!string.IsNullOrEmpty(typeName))
-        {
-            var parts = new List<string>();
-            if (!string.IsNullOrEmpty(typeOwner))
-            {
-                parts.Add(typeOwner);
-            }
-
-            parts.Add(typeName);
-            if (!string.IsNullOrEmpty(typeSubname))
-            {
-                parts.Add(typeSubname);
-            }
-
-            return string.Join(".", parts);
-        }
-
-        return fallback;
-    }
-
-    private static string ComputeConnectionHash(string connectionString)
-    {
-        using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(connectionString));
-        return Convert.ToHexString(hash)[..16];
-    }
+    private static int? GetInt(OracleDataReader reader, int ordinal)
+        => reader.IsDBNull(ordinal) ? null : Convert.ToInt32(reader.GetValue(ordinal), System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>
@@ -331,7 +258,14 @@ public sealed class ProcedureOverloadInfo
 {
     public int Sequence { get; init; }
 
+    /// <summary>Gets the overload discriminator; equals <see cref="SubprogramId"/>.</summary>
     public int Overload { get; init; }
+
+    /// <summary>Gets the ALL_ARGUMENTS SUBPROGRAM_ID of this overload.</summary>
+    public int SubprogramId { get; init; }
+
+    /// <summary>Gets the function return type, or null for a procedure.</summary>
+    public string? ReturnType { get; init; }
 
     public List<ParameterDescriptor> Parameters { get; init; } = new();
 
@@ -527,44 +461,64 @@ public class NlsSessionReader
     }
 
     /// <summary>
-    /// Gets all NLS parameters relevant to length semantics and character set.
+    /// Gets the NLS facts relevant to length checks. <c>NLS_LENGTH_SEMANTICS</c>, <c>NLS_LANGUAGE</c> and
+    /// <c>NLS_TERRITORY</c> come from <c>nls_session_parameters</c>; the character sets exist only in
+    /// <c>nls_database_parameters</c>; <c>MAX_STRING_SIZE</c> is read from <c>v$parameter</c> when the account can see it
+    /// (otherwise <c>STANDARD</c>, the conservative 4000-byte limit).
     /// </summary>
     /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<NlsParameters> GetNlsParametersAsync(CancellationToken cancellationToken = default)
     {
-        const string sql = @"
+        const string sessionSql = @"
             SELECT parameter, value
             FROM nls_session_parameters
-            WHERE parameter IN (
-                'NLS_LENGTH_SEMANTICS',
-                'NLS_CHARACTERSET',
-                'NLS_NCHAR_CHARACTERSET',
-                'NLS_LANGUAGE',
-                'NLS_TERRITORY'
-            )";
+            WHERE parameter IN ('NLS_LENGTH_SEMANTICS', 'NLS_LANGUAGE', 'NLS_TERRITORY')";
+        const string databaseSql = @"
+            SELECT parameter, value
+            FROM nls_database_parameters
+            WHERE parameter IN ('NLS_CHARACTERSET', 'NLS_NCHAR_CHARACTERSET')";
+        const string maxStringSizeSql = "SELECT value FROM v$parameter WHERE name = 'max_string_size'";
 
         await using var connection = new OracleConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        await using var command = new OracleCommand(sql, connection);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-
-        var parameters = new Dictionary<string, string>();
-        while (await reader.ReadAsync(cancellationToken))
+        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sql in new[] { sessionSql, databaseSql })
         {
-            var param = reader.IsDBNull(0) ? "" : reader.GetString(0);
-            var value = reader.IsDBNull(1) ? "" : reader.GetString(1);
-            parameters[param] = value;
+            await using var command = new OracleCommand(sql, connection);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var param = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                var value = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                parameters[param] = value;
+            }
         }
 
+        var maxStringSize = "STANDARD";
+        try
+        {
+            await using var command = new OracleCommand(maxStringSizeSql, connection);
+            if (await command.ExecuteScalarAsync(cancellationToken) is string value && !string.IsNullOrWhiteSpace(value))
+            {
+                maxStringSize = value.Trim().ToUpperInvariant();
+            }
+        }
+        catch (OracleException)
+        {
+            // ORA-00942 without SELECT on v$parameter: keep the conservative STANDARD limit.
+        }
+
+        parameters["MAX_STRING_SIZE"] = maxStringSize;
         return new NlsParameters
         {
-            LengthSemantics = parameters.GetValueOrDefault("NLS_LENGTH_SEMANTICS") == "CHAR"
+            LengthSemantics = string.Equals(parameters.GetValueOrDefault("NLS_LENGTH_SEMANTICS"), "CHAR", StringComparison.OrdinalIgnoreCase)
                 ? LengthSemantics.Char : LengthSemantics.Byte,
             CharacterSet = parameters.GetValueOrDefault("NLS_CHARACTERSET") ?? "UNKNOWN",
             NCharCharacterSet = parameters.GetValueOrDefault("NLS_NCHAR_CHARACTERSET") ?? "UNKNOWN",
             Language = parameters.GetValueOrDefault("NLS_LANGUAGE") ?? "UNKNOWN",
             Territory = parameters.GetValueOrDefault("NLS_TERRITORY") ?? "UNKNOWN",
+            MaxStringSize = maxStringSize,
             AllParameters = parameters,
         };
     }
@@ -627,7 +581,7 @@ public sealed class DatabaseVersionInfo
 }
 
 /// <summary>
-/// NLS session parameters.
+/// NLS session and database parameters.
 /// </summary>
 public sealed class NlsParameters
 {
@@ -641,11 +595,16 @@ public sealed class NlsParameters
 
     public string Territory { get; init; } = "UNKNOWN";
 
+    /// <summary>Gets the <c>MAX_STRING_SIZE</c> initialization parameter (STANDARD = 4000-byte VARCHAR2, EXTENDED = 32767).</summary>
+    public string MaxStringSize { get; init; } = "STANDARD";
+
     public Dictionary<string, string> AllParameters { get; init; } = new();
 }
 
 /// <summary>
-/// Describes REF CURSOR result sets using DBMS_SQL.
+/// Describes REF CURSOR result sets using DBMS_SQL. <b>This executes the procedure or function</b> (inside an anonymous
+/// PL/SQL block, with the supplied sample values bound to its IN parameters), so it is only used when
+/// <see cref="DataGuard.Core.Models.OracleConfiguration.DescribeRefCursors"/> is explicitly enabled and the account is suitable.
 /// </summary>
 public class RefCursorDescriber
 {
@@ -656,6 +615,17 @@ public class RefCursorDescriber
         _connectionString = connectionString;
     }
 
+    /// <summary>
+    /// Executes <c>[owner.][package.]procedure</c> and describes the REF CURSOR it returns, either as a function result
+    /// (<paramref name="refCursorParameterName"/> null) or through the named OUT parameter.
+    /// </summary>
+    /// <param name="owner">Schema owner; empty to rely on the session's current schema.</param>
+    /// <param name="packageName">Package name; empty for a standalone procedure/function.</param>
+    /// <param name="procedureName">Procedure or function name.</param>
+    /// <param name="sampleParameters">IN parameter values by formal parameter name (use <see cref="DBNull.Value"/> for NULL).</param>
+    /// <param name="refCursorParameterName">OUT SYS_REFCURSOR parameter name, or null for a function returning a cursor.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The described columns.</returns>
     public async Task<IReadOnlyList<ColumnDescriptor>> DescribeRefCursorAsync(
         string owner,
         string packageName,
@@ -667,26 +637,38 @@ public class RefCursorDescriber
         // Named PL/SQL notation so the OUT cursor can sit at any parameter position.
         // Identifiers are interpolated into PL/SQL, so reject anything that is not
         // a plain Oracle identifier (bind parameters only protect values).
-        ValidateIdentifier(packageName, nameof(packageName));
+        if (!string.IsNullOrEmpty(owner))
+        {
+            ValidateIdentifier(owner, nameof(owner));
+        }
+
+        if (!string.IsNullOrEmpty(packageName))
+        {
+            ValidateIdentifier(packageName, nameof(packageName));
+        }
+
         ValidateIdentifier(procedureName, nameof(procedureName));
         if (!string.IsNullOrEmpty(refCursorParameterName))
         {
             ValidateIdentifier(refCursorParameterName, nameof(refCursorParameterName));
         }
 
-        foreach (var key in sampleParameters.Keys)
+        var sampleNames = sampleParameters.Keys.ToList();
+        foreach (var key in sampleNames)
         {
             ValidateIdentifier(key, "sample parameter");
         }
 
-        var paramNames = string.Join(", ", sampleParameters.Keys.Select(k => $"{k} => :{k}"));
+        // Bind samples as :a0, :a1, ... so a formal parameter name can never collide with the describe binds.
+        var paramNames = string.Join(", ", sampleNames.Select((k, i) => $"{k} => :a{i}"));
+        var target = string.Join(".", new[] { owner, packageName, procedureName }.Where(part => !string.IsNullOrEmpty(part)));
 
         // PL/SQL block: call the function/procedure that returns a SYS_REFCURSOR
         // (either as a FUNCTION return value or through an OUT SYS_REFCURSOR
         // parameter), then describe the result set with DBMS_SQL.DESCRIBE_COLUMNS3.
         var invocation = string.IsNullOrEmpty(refCursorParameterName)
-            ? $"v_cursor := {packageName}.{procedureName}({paramNames});"
-            : $"{packageName}.{procedureName}({refCursorParameterName} => :cursor_out{(paramNames.Length > 0 ? ", " + paramNames : "")});" + "\n    v_cursor := :cursor_out;";
+            ? $"v_cursor := {target}({paramNames});"
+            : $"{target}({refCursorParameterName} => v_cursor{(paramNames.Length > 0 ? ", " + paramNames : "")});";
         var plsql = $@"
 DECLARE
     v_cursor SYS_REFCURSOR;
@@ -720,17 +702,9 @@ END;";
         command.BindByName = true;
         command.CommandType = CommandType.Text;
 
-        foreach (var param in sampleParameters)
+        for (var i = 0; i < sampleNames.Count; i++)
         {
-            command.Parameters.Add(new OracleParameter(param.Key, param.Value));
-        }
-
-        if (!string.IsNullOrEmpty(refCursorParameterName))
-        {
-            command.Parameters.Add(new OracleParameter("cursor_out", OracleDbType.RefCursor)
-            {
-                Direction = System.Data.ParameterDirection.Output,
-            });
+            command.Parameters.Add(new OracleParameter($"a{i}", sampleParameters[sampleNames[i]] ?? DBNull.Value));
         }
 
         const int MaxColumns = 1000;
@@ -759,14 +733,15 @@ END;";
 
         await command.ExecuteNonQueryAsync(cancellationToken);
 
-        var colCount = Convert.ToInt32(cntParam.Value);
-        var names = (string[])command.Parameters["names"].Value;
-        var types = (int[])command.Parameters["types"].Value;
-        var maxlens = (int[])command.Parameters["maxlens"].Value;
-        var precisions = (int[])command.Parameters["precisions"].Value;
-        var scales = (int[])command.Parameters["scales"].Value;
-        var nullables = (int[])command.Parameters["nullables"].Value;
-        var charsetforms = (int[])command.Parameters["charsetforms"].Value;
+        // ODP.NET returns OUT binds as provider types (OracleDecimal, OracleDecimal[], OracleString[]), not CLR ints/strings.
+        var colCount = ToInt(cntParam.Value);
+        var names = ToStrings(command.Parameters["names"].Value);
+        var types = ToInts(command.Parameters["types"].Value);
+        var maxlens = ToInts(command.Parameters["maxlens"].Value);
+        var precisions = ToInts(command.Parameters["precisions"].Value);
+        var scales = ToInts(command.Parameters["scales"].Value);
+        var nullables = ToInts(command.Parameters["nullables"].Value);
+        var charsetforms = ToInts(command.Parameters["charsetforms"].Value);
 
         var columns = new List<ColumnDescriptor>(colCount);
         for (var i = 0; i < colCount; i++)
@@ -784,6 +759,27 @@ END;";
 
         return columns;
     }
+
+    private static int ToInt(object? value) => value switch
+    {
+        null or DBNull => 0,
+        global::Oracle.ManagedDataAccess.Types.OracleDecimal oracle => oracle.IsNull ? 0 : oracle.ToInt32(),
+        IConvertible convertible => convertible.ToInt32(System.Globalization.CultureInfo.InvariantCulture),
+        _ => 0,
+    };
+
+    private static int[] ToInts(object? value)
+        => value is Array array ? array.Cast<object?>().Select(ToInt).ToArray() : Array.Empty<int>();
+
+    private static string[] ToStrings(object? value)
+        => value is Array array
+            ? array.Cast<object?>().Select(item => item switch
+            {
+                global::Oracle.ManagedDataAccess.Types.OracleString oracle => oracle.IsNull ? string.Empty : oracle.Value,
+                null or DBNull => string.Empty,
+                _ => Convert.ToString(item, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            }).ToArray()
+            : Array.Empty<string>();
 
     private static void ValidateIdentifier(string identifier, string what)
     {
