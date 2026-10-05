@@ -1,0 +1,118 @@
+# Attach the SLSA build-provenance bundle to an already-published GitHub release.
+#
+# release.yml has attested every release artifact with actions/attest-build-provenance since
+# v0.3.0, but the resulting Sigstore bundle only started being uploaded to the release as
+# `dataguard-<tag>.intoto.jsonl` on 2026-10-05 (job publish-attestations). v0.3.0, v0.3.1 and
+# v0.3.2 therefore ship signatures but no provenance asset, which OpenSSF Scorecard
+# (Signed-Releases) scores 8/10 instead of 10/10 per release.
+#
+# The bundles still exist in the repository's attestation store (GitHub keeps them per subject
+# digest), so this workflow downloads them for the release's assets, verifies each asset against
+# the bundle, and uploads the aggregate `.intoto.jsonl` asset. It never creates an attestation:
+# an asset that was not attested at build time stays unattested and is only reported. Re-running
+# it for a release that already carries the asset is harmless (the upload clobbers an identical
+# file).
+name: Release provenance backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release tag whose provenance bundle should be (re)attached, e.g. v0.3.2."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    name: Attach provenance bundle to release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release download/upload; the attestation store is read-only here
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      # The provenance of a release is only ever produced by release.yml on the tag ref.
+      SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
+    steps:
+      - name: Download the release's attested assets
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$RELEASE_TAG' is not a v-prefixed SemVer release tag (for example v0.3.2)." >&2
+            exit 1
+          fi
+          if [ "$(gh release view "$RELEASE_TAG" --json isDraft -q .isDraft)" = "true" ]; then
+            echo "::error::Release $RELEASE_TAG is still a draft; release.yml publish-attestations owns drafts." >&2
+            exit 1
+          fi
+          mkdir -p ./assets
+          # Same subject set as release.yml publish-attestations: NuGet packages, both VSIX and the
+          # per-RID CLI zips. The SBOM zip and the checksum/signature files are not attested.
+          gh release download "$RELEASE_TAG" --dir ./assets \
+            --pattern '*.nupkg' --pattern '*.vsix' --pattern 'dataguard-*.zip'
+          rm -f ./assets/dataguard-*-sbom.zip
+          if [ -z "$(find ./assets -type f -print -quit)" ]; then
+            echo "::error::Release $RELEASE_TAG has no attestable assets (nupkg, vsix, dataguard-*.zip)." >&2
+            exit 1
+          fi
+          ls -l ./assets
+
+      - name: Collect the build-time bundles from the attestation store
+        run: |
+          set -euo pipefail
+          mkdir -p ./bundles
+          attested=()
+          unattested=()
+          for asset in ./assets/*; do
+            name="$(basename "$asset")"
+            # Writes one <digest>.jsonl per asset; a multi-subject attestation (one per release
+            # run) is downloaded once per subject, so the lines are de-duplicated below.
+            if (cd ./bundles && gh attestation download "../$asset" --repo "$GH_REPO" >/dev/null 2>&1); then
+              attested+=("$name")
+            else
+              unattested+=("$name")
+            fi
+          done
+          if (( ${#attested[@]} == 0 )); then
+            echo "::error::No build provenance exists in the attestation store for any asset of $RELEASE_TAG; nothing to attach." >&2
+            exit 1
+          fi
+          provenance_file="dataguard-${RELEASE_TAG}.intoto.jsonl"
+          cat ./bundles/*.jsonl | sort -u > "$provenance_file"
+          echo "Bundles: $(wc -l < "$provenance_file"); attested assets: ${#attested[@]}; unattested: ${#unattested[@]}"
+          {
+            echo "## Provenance backfill for ${RELEASE_TAG}"
+            echo
+            echo "Attested at build time (${#attested[@]}):"
+            for name in "${attested[@]}"; do echo "- \`${name}\`"; done
+            if (( ${#unattested[@]} > 0 )); then
+              echo
+              echo "No build-time attestation (left as is, ${#unattested[@]}):"
+              for name in "${unattested[@]}"; do echo "- \`${name}\`"; done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          for name in "${unattested[@]}"; do
+            echo "::warning::$name has no build provenance in the attestation store; it is not covered by $provenance_file."
+          done
+          printf '%s\n' "${attested[@]}" > ./attested.txt
+
+      - name: Verify every attested asset against the bundle
+        run: |
+          set -euo pipefail
+          provenance_file="dataguard-${RELEASE_TAG}.intoto.jsonl"
+          while IFS= read -r name; do
+            gh attestation verify "./assets/$name" \
+              --repo "$GH_REPO" \
+              --bundle "$provenance_file" \
+              --signer-workflow "$SIGNER_WORKFLOW"
+          done < ./attested.txt
+
+      - name: Upload the bundle to the release
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" "dataguard-${RELEASE_TAG}.intoto.jsonl" --clobber
+          gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' | grep '\.intoto\.jsonl$'
