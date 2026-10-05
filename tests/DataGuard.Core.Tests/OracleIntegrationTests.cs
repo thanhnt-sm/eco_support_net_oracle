@@ -15,22 +15,28 @@ namespace DataGuard.Core.Tests;
 /// </summary>
 public class OracleIntegrationTests : IAsyncLifetime
 {
-    private const string RequireLiveRelationalVariable = "DATAGUARD_REQUIRE_LIVE_RELATIONAL";
     private OracleContainer? _container;
 
     public async Task InitializeAsync()
     {
-        if (!RequiresLiveRelational())
+        if (!LiveDbGate.IsEnabled(LiveDbTarget.Relational))
         {
-            return;
+            return; // Gated tests are Skipped and never construct this class; this only guards direct use.
         }
 
-        _container = new OracleBuilder("gvenzl/oracle-free:23-slim-faststart")
-            .WithDatabase("FREEPDB1")
-            .WithUsername("dataguard")
-            .WithPassword("DataGuard_Test_1!")
-            .Build();
-        await _container.StartAsync();
+        try
+        {
+            _container = new OracleBuilder("gvenzl/oracle-free:23-slim-faststart")
+                .WithDatabase("FREEPDB1")
+                .WithUsername("dataguard")
+                .WithPassword("DataGuard_Test_1!")
+                .Build();
+            await _container.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            throw LiveDbGate.ContainerStartFailed(LiveDbTarget.Relational, "gvenzl/oracle-free:23-slim-faststart", ex);
+        }
     }
 
     public async Task DisposeAsync()
@@ -41,13 +47,10 @@ public class OracleIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [LiveDbFact(LiveDbTarget.Relational)]
     public async Task AllArgumentsReader_ReadsProcedureParametersFromLiveOracle()
     {
-        if (_container == null)
-        {
-            return; // xUnit 2.9 has no supported dynamic skip API.
-        }
+        Assert.NotNull(_container);
 
         await using (var connection = new OracleConnection(_container.GetConnectionString()))
         {
@@ -71,7 +74,4 @@ public class OracleIntegrationTests : IAsyncLifetime
         parameters.Should().Contain(parameter => parameter.Name == "P_ID" && parameter.Direction == ParameterDirection.Input);
         parameters.Should().Contain(parameter => parameter.Name == "P_NAME" && parameter.Direction == ParameterDirection.Output);
     }
-
-    private static bool RequiresLiveRelational()
-        => string.Equals(Environment.GetEnvironmentVariable(RequireLiveRelationalVariable), "1", StringComparison.Ordinal);
 }

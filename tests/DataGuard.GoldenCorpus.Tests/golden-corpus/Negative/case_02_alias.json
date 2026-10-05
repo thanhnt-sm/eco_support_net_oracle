@@ -1,0 +1,29 @@
+{
+  "testCase": "NEG_002",
+  "category": "Negative",
+  "description": "Column aliases (AS order_id) and table aliases are not phantom identifiers",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT o.id AS order_id, o.total_amount AS amount FROM orders o WHERE o.customer_id = :cid ORDER BY amount DESC",
+    "provider": "Oracle",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "ORDERS",
+          "columns": [
+            "ID",
+            "CUSTOMER_ID",
+            "ORDER_DATE",
+            "TOTAL_AMOUNT",
+            "STATUS"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

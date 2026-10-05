@@ -1,0 +1,37 @@
+{
+  "testCase": "NEG_006",
+  "category": "Negative",
+  "description": "Unqualified columns in a JOIN resolve against the union of the joined tables",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT full_name, order_date, total_amount FROM customers JOIN orders ON customers.id = orders.customer_id WHERE email = :email",
+    "provider": "Oracle",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "ORDERS",
+          "columns": [
+            "ID",
+            "CUSTOMER_ID",
+            "ORDER_DATE",
+            "TOTAL_AMOUNT",
+            "STATUS"
+          ]
+        },
+        {
+          "name": "CUSTOMERS",
+          "columns": [
+            "ID",
+            "FULL_NAME",
+            "EMAIL"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

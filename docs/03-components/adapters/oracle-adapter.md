@@ -327,8 +327,8 @@ These hints are ingested by the VS Code extension (surfaced directly in editor t
 | Property | Value |
 |----------|-------|
 | **Severity** | Warning |
-| **Trigger** | `EXEC dbo.Procedure` pattern in Oracle context |
-| **Message** | SQL Server EXEC syntax used in Oracle context |
+| **Trigger** | `EXEC dbo.Procedure` pattern, or a T-SQL bracket-quoted identifier such as `[Col]` / `PIVOT ... IN ([Q1])`, in Oracle context (comments and literals are masked first) |
+| **Message** | SQL Server EXEC syntax used in Oracle context / SQL Server bracket-quoted identifier '[{name}]' used in Oracle context |
 
 ### DG014 — Raw SQL Unmapped Type Usage
 

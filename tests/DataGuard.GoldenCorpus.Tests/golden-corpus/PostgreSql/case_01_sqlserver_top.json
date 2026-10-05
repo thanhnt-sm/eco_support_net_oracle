@@ -1,0 +1,39 @@
+{
+  "testCase": "PG_001",
+  "category": "PostgreSql",
+  "description": "SQL Server TOP clause used in a PostgreSQL query (should be LIMIT)",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT TOP 10 id, status FROM orders ORDER BY id DESC",
+    "provider": "PostgreSql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "orders",
+          "columns": [
+            "id",
+            "customer_id",
+            "status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "PG002",
+      "messageContains": "SQL Server-specific keyword 'TOP'",
+      "severity": "Warning"
+    },
+    {
+      "ruleId": "PG002",
+      "messageContains": "SQL Server TOP clause used in PostgreSQL context",
+      "severity": "Warning"
+    }
+  ],
+  "notes": "PG002 currently reports TOP twice (keyword list + clause pattern). The corpus pins that; deduplicating PG002 must update this case."
+}

@@ -53,6 +53,11 @@ public class OracleDialectChecker : IDialectAnalyzer
         ["**"] = "Use POWER(base, exponent) (ANSI SQL)",
     };
 
+    private static readonly System.Text.RegularExpressions.Regex BracketIdentifierPattern = new(
+        @"\[(?<name>[A-Za-z_][A-Za-z0-9_$# ]*)\]",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
     private static readonly HashSet<string> SqlServerKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "ISNULL", "GETDATE", "GETUTCDATE", "DATEADD", "DATEDIFF",
@@ -232,6 +237,22 @@ public class OracleDialectChecker : IDialectAnalyzer
                 DiagnosticSeverity.Warning,
                 location));
         }
+
+        // T-SQL bracket-quoted identifiers ([Col], PIVOT ... IN ([Q1])) are a syntax error in Oracle, which quotes
+        // identifiers with double quotes. Literals and comments are already masked, so a '[' here is never data.
+        // An EXEC [dbo].[Proc] statement is already reported above; one DG013 per statement is enough.
+        var bracket = BracketIdentifierPattern.Match(sanitized);
+        if (violations.Count == 0 && bracket.Success)
+        {
+            var identifier = bracket.Groups["name"].Value;
+            violations.Add(new ContractViolation(
+                "DG013",
+                $"SQL Server bracket-quoted identifier '[{identifier}]' used in Oracle context. Use \"{identifier}\" or an unquoted name.",
+                DiagnosticSeverity.Warning,
+                location,
+                new Dictionary<string, object?> { { "identifier", identifier } }));
+        }
+
         return violations;
     }
 
@@ -387,7 +408,7 @@ public class SqlServerSyntaxLeakRule : ContractRuleBase
 
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
 
-    public override string Description => "SQL Server EXEC syntax used in Oracle context";
+    public override string Description => "SQL Server EXEC syntax or bracket-quoted identifiers used in Oracle context";
 
     protected override Task ValidateCoreAsync(
         ContractDescriptor contract,

@@ -15,22 +15,28 @@ namespace DataGuard.Core.Tests;
 /// </summary>
 public class MySqlIntegrationTests : IAsyncLifetime
 {
-    private const string RequireLiveRelationalVariable = "DATAGUARD_REQUIRE_LIVE_RELATIONAL";
     private MySqlContainer? _container;
 
     public async Task InitializeAsync()
     {
-        if (!RequiresLiveRelational())
+        if (!LiveDbGate.IsEnabled(LiveDbTarget.Relational))
         {
-            return;
+            return; // Gated tests are Skipped and never construct this class; this only guards direct use.
         }
 
-        _container = new MySqlBuilder("mysql:8.4")
-            .WithDatabase("dataguard")
-            .WithUsername("dataguard")
-            .WithPassword("DataGuard_Test_1!")
-            .Build();
-        await _container.StartAsync();
+        try
+        {
+            _container = new MySqlBuilder("mysql:8.4")
+                .WithDatabase("dataguard")
+                .WithUsername("dataguard")
+                .WithPassword("DataGuard_Test_1!")
+                .Build();
+            await _container.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            throw LiveDbGate.ContainerStartFailed(LiveDbTarget.Relational, "mysql:8.4", ex);
+        }
     }
 
     public async Task DisposeAsync()
@@ -41,13 +47,10 @@ public class MySqlIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [LiveDbFact(LiveDbTarget.Relational)]
     public async Task ExtractContractsAsync_ReadsProcedureParametersFromLiveMySql()
     {
-        if (_container == null)
-        {
-            return; // xUnit 2.9 has no supported dynamic skip API.
-        }
+        Assert.NotNull(_container);
 
         await using (var connection = new MySqlConnection(_container.GetConnectionString()))
         {
@@ -88,13 +91,10 @@ public class MySqlIntegrationTests : IAsyncLifetime
                 && column.DataDefault.Contains("active", StringComparison.OrdinalIgnoreCase)));
     }
 
-    [Fact]
+    [LiveDbFact(LiveDbTarget.Relational)]
     public async Task MySqlLiveQuerySchemaProvider_DescribesParameterizedQueryWithoutReturningRows()
     {
-        if (_container == null)
-        {
-            return; // xUnit 2.9 has no supported dynamic skip API.
-        }
+        Assert.NotNull(_container);
 
         await using (var connection = new MySqlConnection(_container.GetConnectionString()))
         {
@@ -121,7 +121,4 @@ public class MySqlIntegrationTests : IAsyncLifetime
         missing.Status.Should().Be(DataGuard.Core.Rules.LiveSchemaStatus.Failed);
         missing.Columns.Should().BeEmpty();
     }
-
-    private static bool RequiresLiveRelational()
-        => string.Equals(Environment.GetEnvironmentVariable(RequireLiveRelationalVariable), "1", StringComparison.Ordinal);
 }

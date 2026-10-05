@@ -2,6 +2,7 @@
   "testCase": "H1_001",
   "category": "H1_Phantom_Identifier",
   "description": "AI invents a table name that doesn't exist in the database schema",
+  "provenance": { "source": "manual", "model": null, "date": "2026-09-25" },
   "input": {
     "entity": {
       "name": "Order",
@@ -13,6 +14,7 @@
       ]
     },
     "sql": "SELECT * FROM ORDERS_SUMMARY WHERE customer_id = :custId",
+    "provider": "Oracle",
     "databaseSchema": {
       "tables": [
         { "name": "ORDERS", "columns": ["ID", "CUSTOMER_ID", "ORDER_DATE", "TOTAL_AMOUNT"] }
@@ -24,6 +26,11 @@
       "ruleId": "DG015",
       "messageContains": "Table 'ORDERS_SUMMARY' does not exist in database",
       "severity": "Error"
+    },
+    {
+      "ruleId": "DG017",
+      "messageContains": "Avoid SELECT *",
+      "severity": "Warning"
     }
   ]
 }

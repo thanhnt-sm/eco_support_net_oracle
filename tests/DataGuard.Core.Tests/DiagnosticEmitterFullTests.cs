@@ -15,6 +15,7 @@ using Xunit;
 
 namespace DataGuard.Core.Tests;
 
+[Collection(ConsoleCollection.Name)]
 public class DiagnosticEmitterFullTests : IDisposable
 {
     private readonly string _tempDir;

@@ -630,6 +630,11 @@
         "resolved": "10.0.3",
         "contentHash": "gpKPycgDFS2oAPr0yaqwBmShE1ya4yMMkn3lxBPcXrsCI4KL10xSu0cSUzeajQ7LKjb3EsUAgjhBiPGrGU6vSQ=="
       },
+      "System.CommandLine": {
+        "type": "Transitive",
+        "resolved": "2.0.12",
+        "contentHash": "FpW672e6qqrTd1EfKqsvUtFZaJWlTlszUR1o8tdakXhkzKbnEZVndtpfd4K3fUPCFcIs9UmcswMyYGJP1zp/rg=="
+      },
       "System.Composition": {
         "type": "Transitive",
         "resolved": "10.0.1",
@@ -863,6 +868,18 @@
         "dependencies": {
           "DataGuard.Contracts": "[1.0.0, )",
           "System.Composition.Hosting": "[10.0.12, )"
+        }
+      },
+      "dataguard.cli": {
+        "type": "Project",
+        "dependencies": {
+          "DataGuard.Analyzers": "[1.0.0, )",
+          "DataGuard.Core": "[1.0.0, )",
+          "DataGuard.MySql.Adapter": "[1.0.0, )",
+          "DataGuard.Oracle.Adapter": "[1.0.0, )",
+          "DataGuard.PostgreSql.Adapter": "[1.0.0, )",
+          "DataGuard.SqlServer.Adapter": "[1.0.0, )",
+          "System.CommandLine": "[2.0.12, )"
         }
       },
       "dataguard.contracts": {

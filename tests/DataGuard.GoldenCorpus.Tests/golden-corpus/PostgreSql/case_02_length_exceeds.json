@@ -1,0 +1,63 @@
+{
+  "testCase": "PG_002",
+  "category": "PostgreSql",
+  "description": "Entity MaxLength exceeds PostgreSQL character varying length",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "entity": {
+      "name": "Customer",
+      "tableName": "customers",
+      "properties": [
+        {
+          "name": "Id",
+          "type": "int",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "FullName",
+          "type": "string",
+          "maxLength": 200,
+          "isNullable": false
+        }
+      ]
+    },
+    "provider": "PostgreSql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "customers",
+          "columns": [
+            {
+              "name": "id",
+              "type": "integer",
+              "nullable": false
+            },
+            {
+              "name": "full_name",
+              "type": "character varying",
+              "nullable": false,
+              "char_length": 100
+            }
+          ]
+        }
+      ]
+    },
+    "lengthSemantics": "CHAR"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "PG003",
+      "messageContains": "MaxLength=200 exceeds PostgreSQL column 'full_name'",
+      "severity": "Error"
+    },
+    {
+      "ruleId": "PG003",
+      "messageContains": "UTF-8 overflow risk",
+      "severity": "Warning"
+    }
+  ]
+}

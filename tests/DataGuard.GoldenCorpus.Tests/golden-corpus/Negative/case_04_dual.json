@@ -1,0 +1,29 @@
+{
+  "testCase": "NEG_004",
+  "category": "Negative",
+  "description": "Oracle DUAL is a pseudo-table and never a phantom table",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT SYSDATE FROM DUAL",
+    "provider": "Oracle",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "ORDERS",
+          "columns": [
+            "ID",
+            "CUSTOMER_ID",
+            "ORDER_DATE",
+            "TOTAL_AMOUNT",
+            "STATUS"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

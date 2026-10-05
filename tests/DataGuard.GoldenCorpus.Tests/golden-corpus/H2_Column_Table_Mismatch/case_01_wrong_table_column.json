@@ -2,6 +2,7 @@
   "testCase": "H2_001",
   "category": "H2_Column_Table_Mismatch",
   "description": "AI assigns a real column to the wrong table in a JOIN",
+  "provenance": { "source": "manual", "model": null, "date": "2026-09-25" },
   "input": {
     "entity": {
       "name": "OrderDetail",
@@ -13,6 +14,7 @@
       ]
     },
     "sql": "SELECT od.order_id, od.product_id, od.quantity, od.unit_price, p.product_name FROM order_details od JOIN products p ON od.product_id = p.id WHERE od.order_id = :orderId AND od.customer_id = :custId",
+    "provider": "Oracle",
     "databaseSchema": {
       "tables": [
         { "name": "ORDER_DETAILS", "columns": ["ORDER_ID", "PRODUCT_ID", "QUANTITY", "UNIT_PRICE"] },
