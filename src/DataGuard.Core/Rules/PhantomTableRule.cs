@@ -8,10 +8,21 @@ namespace DataGuard.Core.Rules;
 /// DG015: raw SQL references (FROM/JOIN) a table that does not exist in the ground-truth catalog
 /// (a common AI-hallucination failure mode). CTEs, derived tables, table-valued functions, <c>#temp</c>,
 /// <c>@table</c> variables, cross-database names, <c>DUAL</c> and system catalogs are never reported.
-/// Shares <see cref="PhantomSqlAnalyzer"/> with <see cref="PhantomColumnRule"/> (DG016).
+/// Shares one <see cref="IPhantomReferenceAnalyzer"/> result per raw SQL contract with <see cref="PhantomColumnRule"/> (DG016);
+/// the default is the tokenizer <see cref="PhantomSqlAnalyzer"/>, SQL Server passes its ScriptDOM analyzer. When the
+/// analyzer cannot parse the SQL nothing is reported (DG019 reports parse errors).
 /// </summary>
 public sealed class PhantomTableRule : ContractRuleBase
 {
+    private readonly IPhantomReferenceAnalyzer _analyzer;
+
+    /// <summary>Initializes a new instance of the <see cref="PhantomTableRule"/> class.</summary>
+    /// <param name="analyzer">Phantom reference analyzer; null uses the tokenizer <see cref="PhantomSqlAnalyzer"/>.</param>
+    public PhantomTableRule(IPhantomReferenceAnalyzer? analyzer = null)
+    {
+        _analyzer = analyzer ?? PhantomSqlAnalyzer.Instance;
+    }
+
     /// <inheritdoc />
     public override string RuleId => "DG015";
 
@@ -42,7 +53,13 @@ public sealed class PhantomTableRule : ContractRuleBase
             return Task.CompletedTask;
         }
 
-        foreach (var finding in PhantomSqlAnalyzer.Analyze(rawSql, schema).Tables)
+        var analysis = PhantomAnalysisCache.Get(rawSql, schema, _analyzer);
+        if (analysis.ParseFailed)
+        {
+            return Task.CompletedTask;
+        }
+
+        foreach (var finding in analysis.PhantomTables)
         {
             violations.Add(CreateViolation(
                 RuleId,

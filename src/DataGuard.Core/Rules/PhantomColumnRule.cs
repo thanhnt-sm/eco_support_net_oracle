@@ -9,10 +9,21 @@ namespace DataGuard.Core.Rules;
 /// <c>alias.column</c> resolves the alias to the nearest table reference in scope; an unqualified SELECT-list
 /// column is checked against the union of every table that SELECT references. Output aliases, expressions,
 /// and columns of unknown sources (CTE, derived table, TVF, temp table) are never reported.
-/// Shares <see cref="PhantomSqlAnalyzer"/> with <see cref="PhantomTableRule"/> (DG015).
+/// Shares one <see cref="IPhantomReferenceAnalyzer"/> result per raw SQL contract with <see cref="PhantomTableRule"/> (DG015);
+/// the default is the tokenizer <see cref="PhantomSqlAnalyzer"/>, SQL Server passes its ScriptDOM analyzer. When the
+/// analyzer cannot parse the SQL nothing is reported (DG019 reports parse errors).
 /// </summary>
 public sealed class PhantomColumnRule : ContractRuleBase
 {
+    private readonly IPhantomReferenceAnalyzer _analyzer;
+
+    /// <summary>Initializes a new instance of the <see cref="PhantomColumnRule"/> class.</summary>
+    /// <param name="analyzer">Phantom reference analyzer; null uses the tokenizer <see cref="PhantomSqlAnalyzer"/>.</param>
+    public PhantomColumnRule(IPhantomReferenceAnalyzer? analyzer = null)
+    {
+        _analyzer = analyzer ?? PhantomSqlAnalyzer.Instance;
+    }
+
     /// <inheritdoc />
     public override string RuleId => "DG016";
 
@@ -43,7 +54,13 @@ public sealed class PhantomColumnRule : ContractRuleBase
             return Task.CompletedTask;
         }
 
-        foreach (var finding in PhantomSqlAnalyzer.Analyze(rawSql, schema).Columns)
+        var analysis = PhantomAnalysisCache.Get(rawSql, schema, _analyzer);
+        if (analysis.ParseFailed)
+        {
+            return Task.CompletedTask;
+        }
+
+        foreach (var finding in analysis.PhantomColumns)
         {
             violations.Add(CreateViolation(
                 RuleId,

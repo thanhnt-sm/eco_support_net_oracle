@@ -150,7 +150,7 @@ Flags properties where `MaxLength` is inferred from CLR type defaults rather tha
 
 **Severity:** Error
 **Scope:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
-**Source:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, shared `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, catalog lookup `Sql/SchemaTableIndex.cs`, names `Sql/SqlIdentifier.cs`)
+**Source:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, analyzer contract `Sql/IPhantomReferenceAnalyzer.cs`, default tokenizer analyzer `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, catalog lookup `Sql/SchemaTableIndex.cs`, names `Sql/SqlIdentifier.cs`); SQL Server AST analyzer `src/DataGuard.SqlServer.Adapter/TSqlPhantomAnalyzer.cs` + `TSqlPhantomScopeVisitor.cs`
 
 Detects table/column references in raw SQL that do not exist in the database schema — a common **AI hallucination failure mode** when LLMs generate SQL queries. The two IDs are separate rules, so `--skip-rules DG015` or `--skip-rules DG016` disables exactly one finding kind. Raw SQL parse errors are a different rule, **DG019** (`RawSqlParseStatusRule`).
 
@@ -174,7 +174,14 @@ flowchart LR
 6. Check qualified `alias.column` against the nearest table reference in scope (innermost subquery first, so an alias reused in a subquery resolves to the subquery's table)
 7. Check single-identifier items of each `SELECT` list (parenthesis-aware split) against the union of all tables that `SELECT` references; `AS alias` and implicit trailing aliases are output names, never column references
 
-AST-based scope resolution (ScriptDOM for SQL Server) is planned for a later phase; non-T-SQL dialects keep this tokenizer.
+Both rules take an optional `IPhantomReferenceAnalyzer` (default: the tokenizer above); one result per raw SQL contract is cached and shared by DG015 and DG016. `ProviderRuleCatalog` passes `TSqlPhantomAnalyzer` for `--provider sqlserver`; every other provider keeps the tokenizer (AST parsing of non-T-SQL dialects is out of scope).
+
+**SQL Server (`TSqlPhantomAnalyzer`, ScriptDOM `TSql160Parser`, quoted identifiers on):**
+1. Client placeholders that are not T-SQL (`:name`, `{0}`, `?`) are rewritten to `@` variables outside literals/comments; any remaining parse error ⇒ `ParseFailed`, no DG015/DG016 (DG019 reports the parse error)
+2. One scope per query specification and per DML statement. Base tables: `NamedTableReference` and DML targets (`INSERT INTO t`, `UPDATE t`, `DELETE FROM t`, `MERGE INTO t`; `UPDATE o … FROM dbo.Orders o` resolves `o` to the FROM source). Unqualified names default to schema `dbo`; lookup uses `(schema, name)` then bare name like the tokenizer
+3. Opaque sources (never reported; columns not checked): CTE names of the statement's `WITH` (also inside recursive CTE bodies), derived and `VALUES` tables, TVFs (`dbo.fn_X(@id)`, `STRING_SPLIT`), `OPENJSON`/`OPENROWSET`/`OPENQUERY`, `PIVOT`/`UNPIVOT` output, `#temp`/`##temp`, `@table` variables, three/four-part names, `sys.*`, `INFORMATION_SCHEMA.*`, legacy `sysobjects`-style views. Synonyms and views are checked as tables unless the catalog contains them
+4. `alias.column` / `schema.table.column` resolve through the scope chain, innermost first; an unknown qualifier (`inserted`, `deleted`) is skipped
+5. Unqualified columns: skipped when any scope on the chain holding sources has an opaque source; otherwise found in the innermost scope's tables (union for joins) or an outer scope (correlated subquery), else reported against the innermost scope's tables. Output aliases (`AS x`, `x = expr`, alias without `AS`), `SELECT *`/`o.*`, date-part arguments, and `ORDER BY` of a `UNION` are never column references
 
 ## RuleDependencyGraph
 

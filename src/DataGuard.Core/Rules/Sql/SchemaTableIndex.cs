@@ -4,9 +4,9 @@ using DataGuard.Core.Abstractions;
 namespace DataGuard.Core.Rules.Sql;
 
 /// <summary>A catalog table with its columns keyed by canonical name.</summary>
-internal sealed class SchemaTable
+public sealed class SchemaTable
 {
-    public SchemaTable(string displayName, DatabaseTableDescriptor descriptor)
+    internal SchemaTable(string displayName, DatabaseTableDescriptor descriptor)
     {
         DisplayName = displayName;
         Descriptor = descriptor;
@@ -37,8 +37,9 @@ internal sealed class SchemaTable
 /// Catalog lookup that indexes every table by both its full <c>(schema, name)</c> key and its bare name, because
 /// catalog readers emit keys in different shapes (SQL Server <c>dbo.Orders</c>, Oracle <c>ORDERS</c>). A reference
 /// resolves by full key first, then by bare name; several tables sharing a bare name are all returned.
+/// Shared by every <see cref="IPhantomReferenceAnalyzer"/> implementation.
 /// </summary>
-internal sealed class SchemaTableIndex
+public sealed class SchemaTableIndex
 {
     private static readonly ConditionalWeakTable<DatabaseSchemaDescriptor, SchemaTableIndex> Cache = new();
 

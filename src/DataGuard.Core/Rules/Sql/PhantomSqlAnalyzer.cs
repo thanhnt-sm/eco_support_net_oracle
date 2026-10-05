@@ -3,32 +3,65 @@ using DataGuard.Core.Abstractions;
 
 namespace DataGuard.Core.Rules.Sql;
 
-/// <summary>A table referenced in FROM/JOIN that the catalog does not contain.</summary>
-/// <param name="Table">Canonical name as written (<c>SCHEMA.NAME</c> or <c>NAME</c>).</param>
-internal sealed record PhantomTableFinding(string Table);
-
-/// <summary>A column reference that none of the resolved catalog tables contains.</summary>
-/// <param name="Column">Canonical column name.</param>
-/// <param name="Table">Display name of the table (or comma-separated tables) it was checked against.</param>
-internal sealed record PhantomColumnFinding(string Column, string Table);
-
-/// <summary>Result of one <see cref="PhantomSqlAnalyzer"/> run.</summary>
-internal sealed record PhantomAnalysis(IReadOnlyList<PhantomTableFinding> Tables, IReadOnlyList<PhantomColumnFinding> Columns)
-{
-    public static readonly PhantomAnalysis Empty = new(Array.Empty<PhantomTableFinding>(), Array.Empty<PhantomColumnFinding>());
-}
-
 /// <summary>
-/// Token-based phantom table/column analyzer shared by <see cref="PhantomTableRule"/> (DG015) and
-/// <see cref="PhantomColumnRule"/> (DG016). It is deliberately conservative: anything it cannot resolve to a catalog
+/// Token-based phantom table/column analyzer, the default <see cref="IPhantomReferenceAnalyzer"/> of
+/// <see cref="PhantomTableRule"/> (DG015) and <see cref="PhantomColumnRule"/> (DG016) for every provider without an
+/// AST implementation. It is deliberately conservative: anything it cannot resolve to a catalog
 /// table (CTE, derived table, table-valued function, <c>#temp</c>, <c>@table</c> variable, three-part cross-database
 /// name, <c>DUAL</c>, <c>sys.*</c>, <c>INFORMATION_SCHEMA.*</c>, <c>pg_catalog.*</c>, db links) is "unknown" and never
 /// produces a column finding. Comments and string literals are masked by <see cref="SqlTokenizer"/>.
+/// It never reports a parse failure.
 /// </summary>
-internal sealed class PhantomSqlAnalyzer
+public sealed class PhantomSqlAnalyzer : IPhantomReferenceAnalyzer
+{
+    /// <summary>Gets the shared stateless instance.</summary>
+    public static PhantomSqlAnalyzer Instance { get; } = new();
+
+    /// <inheritdoc />
+    public PhantomAnalysis Analyze(string sql, SchemaTableIndex schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        return PhantomTokenWalker.Run(sql, schema);
+    }
+}
+
+/// <summary>
+/// Caches one <see cref="PhantomAnalysis"/> per raw SQL contract so DG015 and DG016 analyze each SQL text once.
+/// </summary>
+internal static class PhantomAnalysisCache
 {
     private static readonly ConditionalWeakTable<RawSqlDescriptor, CachedAnalysis> Cache = new();
 
+    /// <summary>Returns the (cached) analysis of <paramref name="rawSql"/> against <paramref name="schema"/>.</summary>
+    /// <param name="rawSql">The raw SQL contract.</param>
+    /// <param name="schema">The ground-truth catalog.</param>
+    /// <param name="analyzer">The analyzer; the cache entry is reused only for the same analyzer type and schema.</param>
+    /// <returns>The analysis.</returns>
+    public static PhantomAnalysis Get(RawSqlDescriptor rawSql, DatabaseSchemaDescriptor schema, IPhantomReferenceAnalyzer analyzer)
+    {
+        if (Cache.TryGetValue(rawSql, out var cached)
+            && ReferenceEquals(cached.Schema, schema)
+            && cached.AnalyzerType == analyzer.GetType())
+        {
+            return cached.Analysis;
+        }
+
+        var index = SchemaTableIndex.For(schema);
+        var analysis = index.IsEmpty || string.IsNullOrWhiteSpace(rawSql.SqlText)
+            ? PhantomAnalysis.Empty
+            : analyzer is PhantomSqlAnalyzer
+                ? PhantomTokenWalker.Run(rawSql.SqlText, index, rawSql.ConnectionProviderHint)
+                : analyzer.Analyze(rawSql.SqlText, index);
+        Cache.AddOrUpdate(rawSql, new CachedAnalysis(schema, analyzer.GetType(), analysis));
+        return analysis;
+    }
+
+    private sealed record CachedAnalysis(DatabaseSchemaDescriptor Schema, Type AnalyzerType, PhantomAnalysis Analysis);
+}
+
+/// <summary>The token walk behind <see cref="PhantomSqlAnalyzer"/>.</summary>
+internal sealed class PhantomTokenWalker
+{
     private static readonly HashSet<string> SetOperators = new(StringComparer.Ordinal) { "UNION", "INTERSECT", "EXCEPT", "MINUS" };
 
     private static readonly HashSet<string> FromKeywordFunctions = new(StringComparer.Ordinal) { "EXTRACT", "TRIM", "SUBSTRING", "OVERLAY" };
@@ -75,10 +108,10 @@ internal sealed class PhantomSqlAnalyzer
     private readonly List<TableRef> _refs = new();
     private readonly SchemaTableIndex _index;
     private readonly string? _provider;
-    private readonly List<PhantomTableFinding> _tableFindings = new();
-    private readonly List<PhantomColumnFinding> _columnFindings = new();
+    private readonly List<PhantomTableRef> _tableFindings = new();
+    private readonly List<PhantomColumnRef> _columnFindings = new();
 
-    private PhantomSqlAnalyzer(string sql, SchemaTableIndex index, string? provider)
+    private PhantomTokenWalker(string sql, SchemaTableIndex index, string? provider)
     {
         _t = SqlTokenizer.Tokenize(sql);
         _n = _t.Count;
@@ -91,48 +124,26 @@ internal sealed class PhantomSqlAnalyzer
         ComputeStructure();
     }
 
-    /// <summary>Analyzes <paramref name="rawSql"/> against <paramref name="schema"/>; the result is cached per descriptor and schema.</summary>
-    /// <param name="rawSql">The raw SQL contract.</param>
-    /// <param name="schema">The ground-truth catalog.</param>
-    /// <returns>Phantom table and column findings.</returns>
-    public static PhantomAnalysis Analyze(RawSqlDescriptor rawSql, DatabaseSchemaDescriptor schema)
-    {
-        if (Cache.TryGetValue(rawSql, out var cached) && ReferenceEquals(cached.Schema, schema))
-        {
-            return cached.Analysis;
-        }
-
-        var analysis = Analyze(rawSql.SqlText, schema, rawSql.ConnectionProviderHint);
-        Cache.AddOrUpdate(rawSql, new CachedAnalysis(schema, analysis));
-        return analysis;
-    }
-
-    /// <summary>Analyzes <paramref name="sql"/> against <paramref name="schema"/>.</summary>
+    /// <summary>Runs the token walk over <paramref name="sql"/>.</summary>
     /// <param name="sql">SQL text.</param>
-    /// <param name="schema">The ground-truth catalog.</param>
+    /// <param name="index">The ground-truth catalog index.</param>
     /// <param name="provider">Optional provider key for identifier folding.</param>
     /// <returns>Phantom table and column findings.</returns>
-    public static PhantomAnalysis Analyze(string? sql, DatabaseSchemaDescriptor schema, string? provider = null)
+    public static PhantomAnalysis Run(string? sql, SchemaTableIndex index, string? provider = null)
     {
-        if (string.IsNullOrWhiteSpace(sql))
+        if (string.IsNullOrWhiteSpace(sql) || index.IsEmpty)
         {
             return PhantomAnalysis.Empty;
         }
 
-        var index = SchemaTableIndex.For(schema);
-        if (index.IsEmpty)
-        {
-            return PhantomAnalysis.Empty;
-        }
-
-        var analyzer = new PhantomSqlAnalyzer(sql, index, provider);
-        analyzer.CollectCteNames();
-        analyzer.CollectTableReferences();
-        analyzer.CheckQualifiedColumns();
-        analyzer.CheckSelectListColumns();
+        var walker = new PhantomTokenWalker(sql, index, provider);
+        walker.CollectCteNames();
+        walker.CollectTableReferences();
+        walker.CheckQualifiedColumns();
+        walker.CheckSelectListColumns();
         return new PhantomAnalysis(
-            analyzer._tableFindings.Distinct().ToList(),
-            analyzer._columnFindings.Distinct().ToList());
+            walker._tableFindings.Distinct().ToList(),
+            walker._columnFindings.Distinct().ToList());
     }
 
     private bool IsWord(int i, string upper) => i >= 0 && i < _n && _t[i].Kind == SqlTokenKind.Word && _t[i].Upper == upper;
@@ -347,7 +358,7 @@ internal sealed class PhantomSqlAnalyzer
             var resolved = _index.Resolve(schemaPart, nameToken.Text);
             if (resolved.Count == 0)
             {
-                _tableFindings.Add(new PhantomTableFinding(SchemaObjectName.Key(_provider, schemaPart, nameToken.Text)));
+                _tableFindings.Add(new PhantomTableRef(SchemaObjectName.Key(_provider, schemaPart, nameToken.Text)));
             }
             else
             {
@@ -446,7 +457,7 @@ internal sealed class PhantomSqlAnalyzer
             var column = _t[k - 1].Upper;
             if (!tables.Any(t => t.Columns.ContainsKey(column)))
             {
-                _columnFindings.Add(new PhantomColumnFinding(column, DisplayName(tables)));
+                _columnFindings.Add(new PhantomColumnRef(column, DisplayName(tables)));
             }
         }
     }
@@ -527,7 +538,7 @@ internal sealed class PhantomSqlAnalyzer
                     continue;
                 }
 
-                _columnFindings.Add(new PhantomColumnFinding(column, DisplayName(tables)));
+                _columnFindings.Add(new PhantomColumnRef(column, DisplayName(tables)));
             }
         }
     }
@@ -705,6 +716,4 @@ internal sealed class PhantomSqlAnalyzer
         string.Join(", ", tables.Select(t => t.DisplayName).Distinct(StringComparer.Ordinal));
 
     private sealed record TableRef(int Scope, int Branch, int Position, string? Alias, string? BareName, IReadOnlyList<SchemaTable>? Tables);
-
-    private sealed record CachedAnalysis(DatabaseSchemaDescriptor Schema, PhantomAnalysis Analysis);
 }
