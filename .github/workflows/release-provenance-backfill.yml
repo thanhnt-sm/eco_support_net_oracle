@@ -15,11 +15,6 @@
 name: Release provenance backfill
 
 on:
-  # Bootstrap only: GitHub registers a workflow (and accepts workflow_dispatch for it) once it has
-  # run on some branch or exists on the default branch. Removed again once the backfill ran.
-  push:
-    branches: [ci/scorecard-signed-releases-provenance-backfill]
-    paths: [.github/workflows/release-provenance-backfill.yml]
   workflow_dispatch:
     inputs:
       tag:
@@ -33,7 +28,6 @@ permissions:
 jobs:
   backfill:
     name: Attach provenance bundle to release
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # gh release download/upload; the attestation store is read-only here
