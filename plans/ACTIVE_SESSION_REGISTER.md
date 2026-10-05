@@ -423,6 +423,20 @@ Nhánh: `docs/redteam-261004-source-vs-goals` (HEAD `95a5120`, 59 commit trên `
 4. ✅ **Phase 5–6**: `Program.cs` 3041 → 52 dòng (output CLI byte-identical trên 56 lời gọi), một file mỗi rule, YAML binding typed hoạt động; VS Code chỉ truyền `--config` khi file tồn tại; `ModelSnapshotCSharpParser` phát CLR type/IsUnicode; folding định danh theo dialect; `AutoDetectionEngine` + wizard sửa; `benchmarks/` root xoá theo manifest; README rule table sinh + check; 10 ADR cho thành phần ngoài mục tiêu gốc; e2e snapshot mode 4 provider PASS (sạch exit 0; seeded DG015 + DG101); mutation guard.
 5. **Xác minh cuối**: build 0 warning; format sạch; **1997 pass / 15 skip / 0 fail**; LiveDb 10/10 trên container thật; coverage 70,99 % (cách tính của CI); mọi gate script xanh.
 
+---
+
+## 📌 PHIÊN 2026-10-05 tối — OpenSSF Scorecard: root cause 6 check chưa tối đa, backfill provenance
+
+Nhánh: `ci/scorecard-signed-releases-provenance-backfill` (từ `main` @ `3656e0e`). Scorecard 7.9/10 (scan 2026-10-05). Phân tích theo mã nguồn probe của Scorecard v5, ghi tại `docs/security/scorecard-optimization-guide.md`.
+
+- ✅ **Signed-Releases 8 → 10 (sửa trong repo)**: `release.yml` đã attest mọi asset từ v0.3.0 nhưng bước upload `dataguard-<tag>.intoto.jsonl` chỉ có từ `0315a5b` (2026-10-05); bundle thật vẫn nằm trong attestation store của GitHub. Workflow mới `.github/workflows/release-provenance-backfill.yml` (dispatch, input `tag`) tải bundle build-time bằng `gh attestation download`, verify từng asset với `--signer-workflow .../release.yml`, upload lên release; không tạo attestation mới. Đã chạy cho v0.3.0, v0.3.1, v0.3.2 từ nhánh này.
+- ❌ **Code-Review 0/10**: 20 changeset gần nhất trên `main` đều do `thanhnt-sm` vừa tạo vừa merge (Dependabot bị probe bỏ qua). Cần tài khoản thứ hai approve PR trước khi merge; không sửa được trong repo.
+- ❌ **Branch-Protection 8/10**: ruleset `Main Branch Protection` (24366111) có bypass actor *Repository admin* (mode always) và chỉ yêu cầu 1 approval. Bỏ bypass + 2 approval → 10; chỉ 2 approval → 9; chỉ bỏ bypass → vẫn 8.
+- ❌ **CII-Best-Practices 5/10**: badge 15184 ở Passing (Silver 15 %, Gold 13 %). Owner tự khai trên bestpractices.dev theo `docs/guides/openssf-best-practices-answers.md`; Silver → 7, Gold → 10.
+- ❌ **Maintained 0/10**: repo tạo 2026-08-16, Scorecard trả 0 cho repo < 90 ngày → tự hết sau **2026-11-14** nếu giữ nhịp ≥ 1 commit/tuần.
+- ❌ **Contributors 0/10**: cần contributor ≥ 5 commit thuộc ≥ 3 company/org GitHub; profile owner chưa có Company (điền Company → 3/10).
+- ⚠️ **Phát hiện thêm**: Release dispatch `v0.3.3` (run 37299220786, 2026-10-05) dừng ở *Publish to NuGet.org*: Trusted Publishing 401 "no matching trust policy owned by user", `NUGET_API_KEY` 403 hết hạn/không có quyền → draft `v0.3.3` chưa publish. Owner sửa trust policy/API key trên nuget.org rồi dispatch lại `dry_run=false`.
+
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO (owner)
 
 - [ ] Review nhánh và quyết định mở PR (chưa mở theo yêu cầu). Lưu ý breaking: Id SP Oracle đổi, DG002 analyzer → DG097, namespace SQL Server đổi gói, fingerprint baseline v2 (legacy vẫn khớp), `--offline` = Snapshot, lint-only CI cần `--allow-syntactic-only`.
