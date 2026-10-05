@@ -212,41 +212,16 @@ graph TD
 | **Nhóm song song** | `GetParallelGroups()` trả về rules có thể chạy đồng thời tại mỗi cấp |
 | **Phát hiện chu trình** | `Validate()` phát hiện phụ thuộc tuần hoàn |
 | **Truy vấn bắc cầu** | `GetTransitiveDependents()` / `GetTransitiveDependencies()` cho phân tích tác động |
-| **Nút giữ chỗ** | Phụ thuộc vào rules chưa đăng ký tạo nút giữ chỗ |
+| **Rule ID duy nhất** | `RegisterRule` ném `InvalidOperationException` khi một instance rule *khác* dùng lại ID đã đăng ký; đăng ký lại cùng instance là idempotent |
+| **Giữ chỗ, không bao giờ là rule no-op** | `RegisterDependencies` / `WithDependency` khai báo cạnh với placeholder null; đồ thị còn placeholder chưa giải quyết thì `Validate()` báo lỗi và không tạo được kế hoạch cho tới khi có rule thật cùng ID |
+| **Kế hoạch tất định** | Node, phụ thuộc, cấp và truy vấn bắc cầu duyệt theo `StringComparer.Ordinal`, không phụ thuộc thứ tự đăng ký |
 
 ### BuiltInRuleDependencies
 
-Đồ thị phụ thuộc cấu hình sẵn cho tất cả rules tích hợp:
+`BuiltInRuleDependencies.Edges` giữ các cạnh tích hợp theo rule ID (`DG003 → DG101`, `DG004 → DG101`, `DG005 → DG002`, `DG006 → DG004, DG101`). `CreateDefaultRules()` trả về các core rule trung lập provider (DG101, DG002–DG006, DG015–DG017, DG019 và DG018 không kết nối); `Create(rules)` ghép một danh sách rule bất kỳ với các cạnh đó, chỉ áp cạnh khi cả hai rule có mặt (nên `--skip-rules` không để lại placeholder). `CreateDefault()` là `Create(CreateDefaultRules())`. Một test giữ tập core rule ID bằng tập core rule mà mọi provider nhận từ `ProviderRuleCatalog` của CLI.
 
 ```csharp
-public static RuleDependencyGraph CreateDefault()
-{
-    var graph = new RuleDependencyGraph();
-
-    // Level 1: Kiểm tra tham số cơ bản (không phụ thuộc)
-    graph.AddRule(new ParameterCountRule());        // DG101
-    graph.AddRule(new ParameterTypeMatchRule());    // DG002
-
-    // Level 2: Hướng tham số (phụ thuộc vào sự tồn tại tham số)
-    graph.AddRule(new ParameterDirectionRule(), "DG101");
-
-    // Level 3: Shape cột (phụ thuộc vào sự tồn tại tham số)
-    graph.AddRule(new ColumnShapeMatchRule(), "DG101");
-
-    // Level 4: Nullable và khớp kiểu (phụ thuộc thông tin kiểu tham số)
-    graph.AddRule(new NullableMismatchRule(), "DG002");
-
-    // Level 5: Quy ước đặt tên (phụ thuộc tên tham số/cột)
-    graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
-
-    // Level 6: Phantom identifiers (schema ground truth)
-    graph.AddRule(new PhantomTableRule());       // DG015
-    graph.AddRule(new PhantomColumnRule());      // DG016
-    graph.AddRule(new RawSqlParseStatusRule());  // DG019
-    graph.AddRule(new SelectStarUsageRule());    // DG017
-
-    return graph;
-}
+var graph = BuiltInRuleDependencies.Create(rules); // ném lỗi khi trùng rule ID
 ```
 
 ### Fluent API
@@ -255,8 +230,25 @@ public static RuleDependencyGraph CreateDefault()
 var graph = new RuleDependencyGraph()
     .AddRule(new ParameterCountRule())
     .AddRule(new ParameterDirectionRule(), "DG101")
-    .WithDependency("DG006", "DG101", "DG004");
+    .WithDependency("DG006", "DG004"); // placeholder cho tới khi đăng ký rule DG006 và DG004
 ```
+
+## Một pipeline validate duy nhất
+
+CLI và API thư viện ghép và thực thi rule cùng một cách (red-team B4/D3):
+
+1. **Danh sách rule.** `ProviderRuleCatalog.GetReadyRules(provider, connection, progress, strictProcedureContracts, defaultSchema, defaultPackage)` (CLI) trả về mọi đăng ký sẵn sàng của provider, cấu hình từ `.dataguard.yml` (`StrictProcedureContracts`, `DefaultSchema`, `DefaultPackage`). Rule đăng ký `Unavailable` được báo cáo, không thực thi.
+2. **Plugin.** `validate --plugins-dir <dir>` nạp DLL plugin qua `PluginAdmission` và nối thêm rule của chúng (xem [Plugins](plugins.vi.md)). `ValidationPipeline.WithPlugins` làm tương tự cho thư viện.
+3. **Ghép.** `BuiltInRuleDependencies.Create` (`ProviderRuleCatalog.Compose`) tạo một `RuleDependencyGraph`; trùng rule ID là lỗi.
+4. **Thực thi.** `GraphValidationExecutor.ValidateAsync(graph, contracts, concurrent, maxDegreeOfParallelism, maxViolationQueueSize)` chạy đồ thị theo cấp với song song có giới hạn khi `EnableConcurrentValidation` bật, ngược lại dùng `ValidateSequentialAsync`. Cả hai trả về violation sắp theo rule ID và message, outcome từng rule (rule ném lỗi là `Failed` và kết quả chưa đầy đủ) và `UnevaluatedContracts` được drain từ mọi rule sau mỗi lần chạy.
+
+Thư viện có thành phần giống CLI qua `ProviderRuleCatalog.CreatePipeline(provider, configuration)` hoặc `DataGuardApi.CreatePipeline(config).WithProviderRules(rules)`, thay rule mặc định và giữ rule thêm bằng `WithRules`/`WithPlugins`. `ValidationPipeline.Rules` liệt kê rule đã ghép; một test khẳng định kế hoạch của CLI và pipeline giống hệt nhau cho mọi provider. `ValidationResult.UnevaluatedContracts` mang các mục chưa đánh giá, và kết quả có mục đó không `IsClean`. `ConcurrentValidationEngine.StreamAsync(contracts, rules, unevaluated, ct)` gọi callback cho từng contract chưa đánh giá trước khi stream kết thúc.
+
+`ContractRuleBase` có `protected void MarkUnevaluated(ContractDescriptor contract, string reason)` và cài `IContractEvaluationStatusReporter`; `LiveSqlShapeValidationRule` dùng nó (báo `DG020`). Mọi lệnh CLI có validate dùng đường này: `validate` liệt kê contract chưa đánh giá và thoát 3 trừ khi `--allow-unevaluated`; `baseline` và `snapshot refresh` liệt kê và không bao giờ lưu chúng như finding; `snapshot diff --legacy-violation-diff` liệt kê và thoát 3 vì so sánh violation chưa đầy đủ.
+
+### Dialect analyzer
+
+Các dialect rule DG010/DG011 (Oracle), MY001/MY002 (MySQL) và PG001/PG002 (PostgreSQL) gọi checker của adapter qua `IDialectAnalyzer.Analyze(sql, isTargetDialect, location)`: rule "cú pháp dialect này ở nơi khác" truyền `isTargetDialect: false`, rule "cú pháp lạ trong dialect này" truyền `true`.
 
 ## Bảng Tổng Hợp Rules
 

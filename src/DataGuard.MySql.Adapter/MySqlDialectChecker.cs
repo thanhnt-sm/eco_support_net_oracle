@@ -430,6 +430,8 @@ public sealed class MySqlDialectChecker : IDialectAnalyzer
 /// </summary>
 public class MySqlSyntaxInNonMySqlContextRule : ContractRuleBase
 {
+    private static readonly IDialectAnalyzer Analyzer = new MySqlDialectChecker();
+
     public override string RuleId => "MY001";
 
     public override string Name => "MySQL Syntax in Non-MySQL Context";
@@ -446,8 +448,7 @@ public class MySqlSyntaxInNonMySqlContextRule : ContractRuleBase
     {
         if (contract is RawSqlDescriptor rawSql)
         {
-            var checker = new MySqlDialectChecker();
-            violations.AddRange(checker.CheckMySqlSyntaxInNonMySqlContext(rawSql.SqlText, false, contract.Location));
+            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: false, contract.Location));
         }
 
         return Task.CompletedTask;
@@ -459,6 +460,8 @@ public class MySqlSyntaxInNonMySqlContextRule : ContractRuleBase
 /// </summary>
 public class NonMySqlSyntaxInMySqlContextRule : ContractRuleBase
 {
+    private static readonly IDialectAnalyzer Analyzer = new MySqlDialectChecker();
+
     public override string RuleId => "MY002";
 
     public override string Name => "Non-MySQL Syntax in MySQL Context";
@@ -475,8 +478,7 @@ public class NonMySqlSyntaxInMySqlContextRule : ContractRuleBase
     {
         if (contract is RawSqlDescriptor rawSql)
         {
-            var checker = new MySqlDialectChecker();
-            violations.AddRange(checker.CheckNonMySqlSyntaxInMySqlContext(rawSql.SqlText, true, contract.Location));
+            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: true, contract.Location));
         }
 
         return Task.CompletedTask;

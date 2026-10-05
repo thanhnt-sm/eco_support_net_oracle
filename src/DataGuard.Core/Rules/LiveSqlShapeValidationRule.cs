@@ -181,7 +181,7 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
 /// A query whose shape cannot be described is recorded as an unevaluated contract (<see cref="UndeterminedShapeRuleId"/>),
 /// never downgraded to a warning and never compared against fabricated columns (red-team H1/H2).
 /// </summary>
-public class LiveSqlShapeValidationRule : ContractRuleBase, IContractEvaluationStatusReporter
+public class LiveSqlShapeValidationRule : ContractRuleBase
 {
     public const string MismatchRuleId = "DG018";
     public const string UndeterminedShapeRuleId = "DG020";
@@ -197,7 +197,6 @@ public class LiveSqlShapeValidationRule : ContractRuleBase, IContractEvaluationS
     private readonly string _provider;
     private readonly ProgressEmitter? _progress;
     private readonly ILiveQuerySchemaProvider? _schemaProvider;
-    private readonly UnevaluatedContractCollector _unevaluated = new();
 
     public LiveSqlShapeValidationRule()
         : this(null, "sqlserver", null, null)
@@ -219,18 +218,11 @@ public class LiveSqlShapeValidationRule : ContractRuleBase, IContractEvaluationS
         _schemaProvider = schemaProvider;
     }
 
-    /// <inheritdoc />
-    public IReadOnlyList<UnevaluatedContract> DrainUnevaluatedContracts() => _unevaluated.Drain();
+    /// <summary>Unevaluated contracts are reported as <see cref="UndeterminedShapeRuleId"/> (undetermined query shape).</summary>
+    protected override string UnevaluatedRuleId => UndeterminedShapeRuleId;
 
-    /// <summary>
-    /// Records that <paramref name="contract"/> could not be evaluated. The engine drains these into
-    /// <see cref="ValidationExecutionResult.UnevaluatedContracts"/>.
-    /// </summary>
-    protected void MarkUnevaluated(ContractDescriptor contract, string reason)
-    {
-        ArgumentNullException.ThrowIfNull(contract);
-        _unevaluated.Add(new UnevaluatedContract(UndeterminedShapeRuleId, contract.Id, SanitizeErrorMessage(reason), contract.Location));
-    }
+    /// <summary>Describe errors may echo driver text; sanitize them like every other surfaced database error.</summary>
+    protected override string NormalizeUnevaluatedReason(string reason) => SanitizeErrorMessage(reason);
 
     protected override async Task ValidateCoreAsync(
         ContractDescriptor contract,

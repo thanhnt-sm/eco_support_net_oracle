@@ -17,6 +17,9 @@ public static class IdeSafePolicy
     /// <summary>The <c>validate</c>-only option that keeps a host-supplied <c>DATAGUARD_CONNECTION_STRING</c> under IDE-safe mode.</summary>
     public const string AllowEnvConnectionOptionName = "--allow-env-connection";
 
+    /// <summary>The <c>validate</c> option that loads rule plugin assemblies; always rejected under IDE-safe mode.</summary>
+    public const string PluginsDirOptionName = "--plugins-dir";
+
     /// <summary>Positive acknowledgement hosts require as the first stderr line before publishing any result.</summary>
     public const string ActiveLine = "ide-safe: active";
 
@@ -152,14 +155,18 @@ public static class IdeSafePolicy
         return config;
     }
 
-    /// <summary>Returns the first <c>validate</c> option that is incompatible with IDE-safe mode, or null.</summary>
+    /// <summary>
+    /// Returns the first <c>validate</c> option that is incompatible with IDE-safe mode, or null. A non-empty
+    /// <see cref="PluginsDirOptionName"/> value is rejected too: plugin loading is code loading.
+    /// </summary>
     public static string? FirstRejectedValidateOption(
         string? commandLineConnection,
         bool offline,
         string? assemblyPath,
         string? efSnapshotPath,
         string? efProjectPath,
-        string? efContextName)
+        string? efContextName,
+        string? pluginsDirectory = null)
     {
         if (!string.IsNullOrWhiteSpace(commandLineConnection))
         {
@@ -189,6 +196,11 @@ public static class IdeSafePolicy
         if (!string.IsNullOrWhiteSpace(efContextName))
         {
             return "--ef-context";
+        }
+
+        if (!string.IsNullOrWhiteSpace(pluginsDirectory))
+        {
+            return PluginsDirOptionName;
         }
 
         return null;

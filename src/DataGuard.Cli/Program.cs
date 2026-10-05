@@ -10,6 +10,7 @@ using DataGuard.Core.Assessment.Internal;
 using DataGuard.Core.AutoDetection;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
+using DataGuard.Core.Plugins;
 using DataGuard.Core.Reporting;
 using DataGuard.Core.Sources;
 using DataGuard.Oracle.Adapter;
@@ -140,6 +141,8 @@ var allowSyntacticOnlyOption = new Option<bool>("--allow-syntactic-only");
 allowSyntacticOnlyOption.Description = "Allow validate without ground truth (snapshot, connection, manual assembly or EF model): warn instead of exiting 3";
 var allowUnevaluatedOption = new Option<bool>("--allow-unevaluated");
 allowUnevaluatedOption.Description = "Report contracts that could not be evaluated (failed live describe, partial acquisition) without exiting 3; the exit code then follows the violations. Implied by --ide-safe";
+var pluginsDirOption = new Option<string>(IdeSafePolicy.PluginsDirOptionName);
+pluginsDirOption.Description = "Directory of rule plugins (*.dll with an adjacent .dataguard-plugin.json manifest) to admit and run with the provider rules; signed provenance is required unless config Plugins.AllowUnsignedLocal is true. Rejected with --ide-safe";
 var allowEnvConnectionOption = new Option<bool>(IdeSafePolicy.AllowEnvConnectionOptionName);
 allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DATAGUARD_CONNECTION_STRING (config-file connection strings are still ignored); no effect without --ide-safe";
 
@@ -149,7 +152,7 @@ allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DA
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption, pluginsDirOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -166,6 +169,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var efContextName = result.GetValue(efContextOption);
     var skipRulesRaw = result.GetValue(skipRulesOption);
     var projectPath = result.GetValue(projectOption);
+    var pluginsDirectory = result.GetValue(pluginsDirOption);
     var ideSafe = result.GetValue(ideSafeOption);
     var allowEnvConnection = ideSafe && result.GetValue(allowEnvConnectionOption);
     var environmentConnection = Environment.GetEnvironmentVariable(IdeSafeEnvironment.ConnectionVariable);
@@ -176,13 +180,20 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
 
         // IDE-safe: reject every option that would load code or open a connection before doing any work.
         var rejectedOption = IdeSafePolicy.FirstRejectedValidateOption(
-            result.GetValue(connectionOption), offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName);
+            result.GetValue(connectionOption), offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName, pluginsDirectory);
         if (rejectedOption is not null)
         {
             Console.Error.WriteLine(IdeSafePolicy.FormatRejectionLine(rejectedOption));
             Environment.ExitCode = 2;
             return;
         }
+    }
+
+    if (!string.IsNullOrWhiteSpace(pluginsDirectory) && !Directory.Exists(pluginsDirectory))
+    {
+        Console.Error.WriteLine($"{IdeSafePolicy.PluginsDirOptionName} directory not found: {pluginsDirectory}");
+        Environment.ExitCode = 2;
+        return;
     }
 
     ProgressEmitter? progress = result.GetValue(progressOption) ? new ProgressEmitter(Console.Error, enabled: true) : null;
@@ -300,6 +311,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         "Acquiring contracts",
         "Acquiring database, snapshot, or manual contracts."));
 
+    RulePluginManager? pluginManager = null;
     try
     {
         ct.ThrowIfCancellationRequested();
@@ -428,7 +440,14 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         }
 
         // Unavailable rules (red-team C2) are reported once, after --skip-rules, and only block with --fail-on-unavailable.
-        var unavailableOutcomes = ProviderRuleCatalog.Get(provider)
+        var catalog = ProviderRuleCatalog.Get(
+            provider,
+            connectionString: null,
+            progress: null,
+            config.StrictProcedureContracts,
+            config.DefaultSchema,
+            config.DefaultPackage);
+        var unavailableOutcomes = catalog
             .Where(registration => registration.Availability == RuleAvailability.Unavailable)
             .Where(registration => skipRuleIds is null || !skipRuleIds.Contains(registration.Rule.RuleId))
             .Select(registration => registration.CreateUnavailableOutcome())
@@ -436,6 +455,35 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         foreach (var outcome in unavailableOutcomes)
         {
             Console.Error.WriteLine($"Rule {outcome.RuleId} not evaluated: {outcome.PrerequisiteReason}");
+        }
+
+        // --plugins-dir: admission (manifest, digest, dependency closure, rule ID, provenance) happens before any plugin
+        // code loads; a rejected plugin is a requested rule that did not run, reported like an unavailable rule.
+        IReadOnlyList<IContractRule> pluginRules = Array.Empty<IContractRule>();
+        if (!string.IsNullOrWhiteSpace(pluginsDirectory))
+        {
+            var reservedRuleIds = catalog.Select(registration => registration.Rule.RuleId).ToList();
+            pluginManager = new RulePluginManager(
+                pluginsDirectory,
+                logger: null,
+                trustPolicy: new PluginTrustPolicy { RequireSignedProvenance = config.Plugins?.AllowUnsignedLocal != true },
+                provenanceVerifier: null,
+                reservedRuleIds: reservedRuleIds);
+            foreach (var admission in pluginManager.GetAdmissions().Where(admission => !admission.Accepted))
+            {
+                Console.Error.WriteLine($"Plugin {Path.GetFileName(admission.AssemblyPath)} not loaded: {admission.Reason}");
+                unavailableOutcomes.Add(new RuleExecutionOutcome(
+                    admission.Manifest?.RuleId ?? Path.GetFileName(admission.AssemblyPath),
+                    RuleExecutionState.Unavailable,
+                    Array.Empty<ContractViolation>(),
+                    admission.Reason));
+            }
+
+            pluginRules = pluginManager.GetPluginRules(catalog.Select(registration => registration.Rule));
+            if (verbose)
+            {
+                Console.WriteLine($"Loaded {pluginRules.Count} plugin rule(s): {string.Join(", ", pluginRules.Select(rule => rule.RuleId))}");
+            }
         }
 
         if (unavailableOutcomes.Count > 0 && failOnUnavailable)
@@ -450,7 +498,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             "Validating rules",
             "Running enabled validation rules.",
             new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
-        var validation = await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress);
+        var validation = await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress, pluginRules);
         var violations = validation.Violations;
         if (normalizedFormat == "text")
         {
@@ -505,14 +553,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             Console.Error.WriteLine($"Skipped {skippedByAttribute} call site(s) marked [SkipContractCheck].");
         }
 
-        if (unevaluated.Count > 0)
-        {
-            Console.Error.WriteLine($"UNEVALUATED: {unevaluated.Count} contract(s) could not be evaluated:");
-            foreach (var entry in unevaluated)
-            {
-                Console.Error.WriteLine($"  {entry.RuleId} {entry.ContractId}: {entry.Reason}");
-            }
-        }
+        WriteUnevaluated(unevaluated, string.Empty);
 
         foreach (var diagnostic in acquisitionDiagnostics)
         {
@@ -563,6 +604,11 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         }
 
         Environment.ExitCode = 1;
+    }
+    finally
+    {
+        // Unloads admitted plugin assemblies (collectible load contexts).
+        pluginManager?.Dispose();
     }
 });
 
@@ -1062,7 +1108,10 @@ baselineCommand.SetAction(
                 }
             }
 
-            var violations = await RunValidationAsync(config, provider, verbose, ct);
+            var (violations, unevaluated) = await RunValidationAsync(config, provider, verbose, ct);
+
+            // Unevaluated contracts have no verdict: they are listed, never persisted as baseline findings.
+            WriteUnevaluated(unevaluated, " and are not part of the baseline");
 
             var baselineManager = new BaselineManager(outputPath);
             var previous = File.Exists(outputPath) ? await baselineManager.LoadAsync(ct) : null;
@@ -1147,7 +1196,8 @@ snapshotRefreshCommand.SetAction(
                 throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
             }
 
-            var violations = await ValidateContractsAsync(acquisition.Contracts, config, provider, config.ConnectionString, ct);
+            var (violations, unevaluated) = await ValidateContractsDetailedAsync(acquisition.Contracts, config, provider, config.ConnectionString, ct);
+            WriteUnevaluated(unevaluated, " and are not recorded in the snapshot");
 
             var snapshotPath = config.SnapshotFilePath ?? CliConfigurationResolver.DefaultSnapshotFileName;
             var baselineManager = new BaselineManager(snapshotPath);
@@ -1403,8 +1453,16 @@ snapshotDiffCommand.SetAction(
                 return;
             }
 
-            var currentViolations = await ValidateContractsAsync(freshContracts, config, provider, config.ConnectionString, ct);
+            var (currentViolations, unevaluated) = await ValidateContractsDetailedAsync(freshContracts, config, provider, config.ConnectionString, ct);
             Console.WriteLine("Warning: --legacy-violation-diff compares violations only; it is not structural schema drift evidence.");
+            if (unevaluated.Count > 0)
+            {
+                // A violation comparison that could not evaluate every contract is neither drift nor a match.
+                WriteUnevaluated(unevaluated, "; the violation comparison is incomplete");
+                Environment.ExitCode = 3;
+                return;
+            }
+
             var snapshotHash = string.IsNullOrEmpty(baseline.SchemaHash)
                 ? BaselineManager.ComputeSchemaHash(baseline.Violations)
                 : baseline.SchemaHash;
@@ -2342,6 +2400,20 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
 
     foreach (var entry in root.Children)
     {
+        // Nested Plugins block: only AllowUnsignedLocal is mapped (the typed path above maps the whole record).
+        if (entry.Key is YamlDotNet.RepresentationModel.YamlScalarNode { Value: "Plugins" } &&
+            entry.Value is YamlDotNet.RepresentationModel.YamlMappingNode pluginsNode)
+        {
+            var allowUnsignedLocal = pluginsNode.Children
+                .Where(child => child.Key is YamlDotNet.RepresentationModel.YamlScalarNode { Value: "AllowUnsignedLocal" })
+                .Select(child => child.Value)
+                .OfType<YamlDotNet.RepresentationModel.YamlScalarNode>()
+                .Select(value => bool.Parse(value.Value ?? string.Empty))
+                .LastOrDefault();
+            config = config with { Plugins = new PluginConfiguration { AllowUnsignedLocal = allowUnsignedLocal } };
+            continue;
+        }
+
         if (entry.Key is not YamlDotNet.RepresentationModel.YamlScalarNode keyNode ||
             entry.Value is not YamlDotNet.RepresentationModel.YamlScalarNode valueNode)
         {
@@ -2391,6 +2463,7 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
             "FailOnUnavailableRules" => config with { FailOnUnavailableRules = B() },
             "StrictConfig" => config with { StrictConfig = B() },
             "SnapshotMaxAgeDays" => config with { SnapshotMaxAgeDays = I() },
+            "StrictProcedureContracts" => config with { StrictProcedureContracts = B() },
             _ => config
         };
     }
@@ -2641,20 +2714,11 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
     return contracts;
 }
 
+// The single validation path of every CLI command (red-team B4/D3): ProviderRuleCatalog rules configured from config
+// (StrictProcedureContracts, DefaultSchema, DefaultPackage), plus admitted plugin rules, composed into one dependency
+// graph and run by GraphValidationExecutor (concurrent or sequential per EnableConcurrentValidation), the executor
+// ValidationPipeline uses. Returns the violations and the contracts rules could not evaluate (never findings).
 // rulesConnectionString: connection for connection-bound rules; null registers their offline variants.
-static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
-    IReadOnlyList<ContractDescriptor> contracts,
-    DataGuardConfiguration config,
-    string provider,
-    string? rulesConnectionString,
-    CancellationToken cancellationToken = default,
-    HashSet<string>? skipRuleIds = null,
-    ProgressEmitter? progress = null)
-{
-    return (await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, cancellationToken, skipRuleIds, progress)).Violations;
-}
-
-// Same as ValidateContractsAsync, plus the contracts rules could not evaluate (drained on both execution paths).
 static async Task<(IReadOnlyList<ContractViolation> Violations, IReadOnlyList<UnevaluatedContract> Unevaluated)> ValidateContractsDetailedAsync(
     IReadOnlyList<ContractDescriptor> contracts,
     DataGuardConfiguration config,
@@ -2662,29 +2726,31 @@ static async Task<(IReadOnlyList<ContractViolation> Violations, IReadOnlyList<Un
     string? rulesConnectionString,
     CancellationToken cancellationToken = default,
     HashSet<string>? skipRuleIds = null,
-    ProgressEmitter? progress = null)
+    ProgressEmitter? progress = null,
+    IReadOnlyList<IContractRule>? pluginRules = null)
 {
-    var allViolations = new List<ContractViolation>();
-    IReadOnlyList<UnevaluatedContract> unevaluatedContracts;
-    var rules = GetRulesForProvider(provider, rulesConnectionString, progress)
+    var rules = GetRulesForProvider(provider, rulesConnectionString, config, progress)
+        .Concat(pluginRules ?? Array.Empty<IContractRule>())
         .Where(r => skipRuleIds is null || !skipRuleIds.Contains(r.RuleId))
         .ToList();
-    if (config.EnableConcurrentValidation)
+    var execution = await GraphValidationExecutor.ValidateAsync(
+        ProviderRuleCatalog.Compose(rules),
+        contracts,
+        config.EnableConcurrentValidation,
+        config.MaxDegreeOfParallelism,
+        config.MaxViolationQueueSize,
+        cancellationToken);
+    ConcurrentValidationEngine.ThrowIfIncomplete(execution);
+    var allViolations = execution.Violations.ToList();
+    var unevaluatedContracts = execution.UnevaluatedContracts;
+    if (progress is not null)
     {
-        var engine = new ConcurrentValidationEngine(config.MaxDegreeOfParallelism, config.MaxViolationQueueSize);
-        var execution = await engine.ValidateDetailedAsync(
-            contracts,
-            rules,
-            cancellationToken,
-            executionCompleted: null);
-        ConcurrentValidationEngine.ThrowIfIncomplete(execution);
-        allViolations.AddRange(execution.Violations);
-        unevaluatedContracts = execution.UnevaluatedContracts;
-        var violationsByRule = allViolations.GroupBy(v => v.RuleId).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var outcomes = execution.RuleOutcomes
+            .GroupBy(outcome => outcome.RuleId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Sum(outcome => outcome.Violations.Count), StringComparer.Ordinal);
         foreach (var rule in rules)
         {
-            var ruleViolationCount = violationsByRule.GetValueOrDefault(rule.RuleId, 0);
-            progress?.Emit(new ProgressEvent(
+            progress.Emit(new ProgressEvent(
                 ProgressEventKind.RuleExecuted,
                 "Validating rules",
                 $"Rule {rule.RuleId}",
@@ -2693,35 +2759,9 @@ static async Task<(IReadOnlyList<ContractViolation> Violations, IReadOnlyList<Un
                     ["RuleId"] = rule.RuleId,
                     ["RuleTitle"] = ProviderRuleCatalog.RuleTitles.GetValueOrDefault(rule.RuleId, rule.RuleId),
                     ["ContractCount"] = contracts.Count,
-                    ["ViolationCount"] = ruleViolationCount,
+                    ["ViolationCount"] = outcomes.GetValueOrDefault(rule.RuleId, 0),
                 }));
         }
-    }
-    else
-    {
-        foreach (var rule in rules)
-        {
-            int ruleViolationCount = 0;
-            foreach (var contract in contracts)
-            {
-                var ruleViolations = await rule.ValidateAsync(contract, contracts, cancellationToken);
-                allViolations.AddRange(ruleViolations);
-                ruleViolationCount += ruleViolations.Count;
-            }
-            progress?.Emit(new ProgressEvent(
-                ProgressEventKind.RuleExecuted,
-                "Validating rules",
-                $"Rule {rule.RuleId}",
-                new Dictionary<string, object?>
-                {
-                    ["RuleId"] = rule.RuleId,
-                    ["RuleTitle"] = ProviderRuleCatalog.RuleTitles.GetValueOrDefault(rule.RuleId, rule.RuleId),
-                    ["ContractCount"] = contracts.Count,
-                    ["ViolationCount"] = ruleViolationCount,
-                }));
-        }
-
-        unevaluatedContracts = UnevaluatedContracts.DrainFrom(rules);
     }
 
     if (config.EnableBaseline && !string.IsNullOrEmpty(config.BaselineFilePath) && File.Exists(config.BaselineFilePath))
@@ -2769,7 +2809,7 @@ static async Task<(IReadOnlyList<ContractViolation> Violations, IReadOnlyList<Un
     return (allViolations, unevaluatedContracts);
 }
 
-static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
+static async Task<(IReadOnlyList<ContractViolation> Violations, IReadOnlyList<UnevaluatedContract> Unevaluated)> RunValidationAsync(
     DataGuardConfiguration config,
     string provider,
     bool verbose,
@@ -2781,7 +2821,22 @@ static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
         throw new InvalidOperationException($"Contract acquisition {acquisition.Status}: {acquisition.Message}");
     }
 
-    return await ValidateContractsAsync(acquisition.Contracts, config, provider, config.ConnectionString, cancellationToken, progress: null);
+    return await ValidateContractsDetailedAsync(acquisition.Contracts, config, provider, config.ConnectionString, cancellationToken, progress: null);
+}
+
+// One Unevaluated rendering for every command: a contract no rule could evaluate is listed, never reported as a finding.
+static void WriteUnevaluated(IReadOnlyList<UnevaluatedContract> unevaluated, string context)
+{
+    if (unevaluated.Count == 0)
+    {
+        return;
+    }
+
+    Console.Error.WriteLine($"UNEVALUATED: {unevaluated.Count} contract(s) could not be evaluated{context}:");
+    foreach (var entry in unevaluated)
+    {
+        Console.Error.WriteLine($"  {entry.RuleId} {entry.ContractId}: {entry.Reason}");
+    }
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
@@ -2833,12 +2888,15 @@ static async Task<IReadOnlyList<ContractViolation>> RunOracleValidationAsync(
     return violations;
 }
 
-static List<IContractRule> GetRulesForProvider(string provider, string? connectionString, ProgressEmitter? progress = null)
+static IReadOnlyList<IContractRule> GetRulesForProvider(string provider, string? connectionString, DataGuardConfiguration config, ProgressEmitter? progress = null)
 {
-    return ProviderRuleCatalog.Get(provider, connectionString, progress)
-        .Where(registration => registration.Availability == RuleAvailability.Ready)
-        .Select(registration => registration.Rule)
-        .ToList();
+    return ProviderRuleCatalog.GetReadyRules(
+        provider,
+        connectionString,
+        progress,
+        config.StrictProcedureContracts,
+        config.DefaultSchema,
+        config.DefaultPackage);
 }
 
 static async Task<string> GetDatabaseVersionAsync(DataGuardConfiguration config, string provider, CancellationToken cancellationToken = default)

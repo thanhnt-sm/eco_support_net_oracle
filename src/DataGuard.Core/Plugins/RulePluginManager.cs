@@ -61,6 +61,7 @@ public sealed class RulePluginManager : IDisposable
     private readonly ImmutableArray<Lazy<IContractRule, IRuleMetadata>> _rulePlugins;
     private readonly List<System.Runtime.Loader.AssemblyLoadContext> _pluginContexts = new();
     private readonly List<PluginAdmissionResult> _admissions = new();
+    private readonly Dictionary<Assembly, int> _loadedAssemblies = new();
 
     public RulePluginManager(
         string? pluginDirectory = null,
@@ -115,6 +116,7 @@ public sealed class RulePluginManager : IDisposable
                     NativeLibrary.SetDllImportResolver(assembly, static (_, _, _) =>
                         throw new DllNotFoundException("Native dependencies are not admitted for DataGuard plugins."));
                     config = config.WithAssembly(assembly);
+                    _loadedAssemblies[assembly] = _admissions.Count - 1;
                 }
                 catch (Exception ex)
                 {
@@ -133,17 +135,105 @@ public sealed class RulePluginManager : IDisposable
 
         _container = config.CreateContainer();
 
-        // GetExports<T, TMetadata> doesn't exist in MEF 2, use GetExports<T>()
-        // and create Lazy with metadata manually
-        _rulePlugins = _container.GetExports<IContractRule>()
-            .Select(e => new Lazy<IContractRule, IRuleMetadata>(
-                () => e,
-                new RulePluginMetadata(e.GetType().GetCustomAttributes<ExportMetadataAttribute>().ToDictionary(a => a.Name, a => a.Value))))
+        // GetExports<T, TMetadata> doesn't exist in MEF 2: read [ExportRule] (the metadata attribute plugins use) from
+        // each export's type, then bind every export to the admission of the assembly that defines it.
+        var exports = _container.GetExports<IContractRule>()
+            .OrderBy(rule => rule.GetType().FullName, StringComparer.Ordinal)
+            .Select(rule => (Rule: rule, Metadata: ReadMetadata(rule)))
+            .ToList();
+        var rejectedAssemblies = new HashSet<Assembly>();
+        foreach (var (rule, metadata) in exports)
+        {
+            var mismatch = DescribeRuleIdMismatch(rule, metadata, FindAdmission(rule.GetType().Assembly));
+            if (mismatch is null)
+            {
+                continue;
+            }
+
+            rejectedAssemblies.Add(rule.GetType().Assembly);
+            var index = FindAdmissionIndex(rule.GetType().Assembly);
+            if (index >= 0)
+            {
+                _admissions[index] = _admissions[index] with
+                {
+                    Accepted = false,
+                    Reason = mismatch,
+                    VerifiedAssemblyBytes = null,
+                    VerifiedManagedDependencies = null,
+                };
+            }
+
+            _logger?.LogWarning("Rejected plugin rule {RuleType}: {Reason}", rule.GetType().FullName, mismatch);
+        }
+
+        _rulePlugins = exports
+            .Where(export => !rejectedAssemblies.Contains(export.Rule.GetType().Assembly))
+            .Select(export =>
+            {
+                var rule = export.Rule;
+                return new Lazy<IContractRule, IRuleMetadata>(() => rule, export.Metadata);
+            })
             .ToImmutableArray();
 
         _logger?.LogInformation(
             "Loaded {Count} rule plugins from {Directory}",
             _rulePlugins.Length, pluginDirectory ?? GetDefaultPluginDirectory());
+    }
+
+    /// <summary>
+    /// Reads plugin metadata from <see cref="ExportRuleAttribute"/>; a rule exported with plain MEF attributes falls back
+    /// to <c>[ExportMetadata]</c> entries, and an empty rule ID falls back to the runtime <see cref="IContractRule.RuleId"/>.
+    /// </summary>
+    internal static IRuleMetadata ReadMetadata(IContractRule rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        var type = rule.GetType();
+        if (type.GetCustomAttribute<ExportRuleAttribute>() is { } export)
+        {
+            return export;
+        }
+
+        var values = type.GetCustomAttributes<ExportMetadataAttribute>()
+            .GroupBy(attribute => attribute.Name, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Last().Value!, StringComparer.Ordinal);
+        if (!values.TryGetValue("RuleId", out var ruleId) || string.IsNullOrWhiteSpace(ruleId?.ToString()))
+        {
+            values["RuleId"] = rule.RuleId;
+        }
+
+        return new RulePluginMetadata(values);
+    }
+
+    private PluginAdmissionResult? FindAdmission(Assembly assembly)
+    {
+        var index = FindAdmissionIndex(assembly);
+        return index >= 0 ? _admissions[index] : null;
+    }
+
+    private int FindAdmissionIndex(Assembly assembly) =>
+        _loadedAssemblies.TryGetValue(assembly, out var index) ? index : -1;
+
+    /// <summary>Null when the manifest, [ExportRule] and runtime rule IDs agree; otherwise the rejection reason.</summary>
+    private static string? DescribeRuleIdMismatch(IContractRule rule, IRuleMetadata metadata, PluginAdmissionResult? admission)
+    {
+        var runtimeRuleId = rule.RuleId;
+        if (string.IsNullOrWhiteSpace(runtimeRuleId))
+        {
+            return $"Plugin rule {rule.GetType().FullName} has an empty runtime RuleId.";
+        }
+
+        if (!string.Equals(metadata.RuleId, runtimeRuleId, StringComparison.Ordinal))
+        {
+            return $"Plugin rule {rule.GetType().FullName}: [ExportRule] RuleId '{metadata.RuleId}' does not match runtime RuleId '{runtimeRuleId}'.";
+        }
+
+        var manifestRuleId = admission?.Manifest?.RuleId;
+        if (!string.IsNullOrWhiteSpace(manifestRuleId) && !string.Equals(manifestRuleId, runtimeRuleId, StringComparison.Ordinal))
+        {
+            return $"Plugin manifest RuleId '{manifestRuleId}' does not match runtime RuleId '{runtimeRuleId}' ({rule.GetType().FullName}).";
+        }
+
+        return null;
     }
 
     /// <summary>Gets admission results without loading rejected plugin code.</summary>
@@ -166,18 +256,28 @@ public sealed class RulePluginManager : IDisposable
     /// <returns></returns>
     public ImmutableArray<IContractRule> GetAllRules(ImmutableArray<IContractRule> builtInRules)
     {
+        return builtInRules.AddRange(GetPluginRules(builtInRules));
+    }
+
+    /// <summary>
+    /// Gets the compatible plugin rules (one per rule ID, ordered by rule ID) whose IDs do not collide with
+    /// <paramref name="builtInRules"/>.
+    /// </summary>
+    /// <returns>Plugin rules only.</returns>
+    public ImmutableArray<IContractRule> GetPluginRules(IEnumerable<IContractRule> builtInRules)
+    {
+        ArgumentNullException.ThrowIfNull(builtInRules);
         var builtInRuleIds = builtInRules
             .Select(rule => rule.RuleId)
             .ToHashSet(StringComparer.Ordinal);
-        var pluginRules = _rulePlugins
+        return _rulePlugins
             .Where(p => IsCompatible(p.Metadata))
             .GroupBy(plugin => plugin.Metadata.RuleId, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => group.OrderBy(plugin => plugin.Metadata.Name, StringComparer.Ordinal).First())
             .Where(plugin => !builtInRuleIds.Contains(plugin.Metadata.RuleId))
             .Select(p => p.Value)
             .ToImmutableArray();
-
-        return builtInRules.AddRange(pluginRules);
     }
 
     /// <summary>
@@ -215,21 +315,33 @@ public sealed class RulePluginManager : IDisposable
             "Plugins");
     }
 
-    private bool IsCompatible(IRuleMetadata metadata)
+    private bool IsCompatible(IRuleMetadata metadata) =>
+        IsCompatible(metadata, Assembly.GetExecutingAssembly().GetName().Version, _logger);
+
+    /// <summary>
+    /// True when <paramref name="hostVersion"/> satisfies the plugin's <c>MinDataGuardVersion</c>. An unversioned host
+    /// (null or 0.0.0.0, a build without a release tag) cannot be ordered against any minimum, so it is treated as
+    /// compatible and a note is logged.
+    /// </summary>
+    internal static bool IsCompatible(IRuleMetadata metadata, Version? hostVersion, ILogger? logger = null)
     {
-        // Check version compatibility (lenient parse: malformed metadata must not crash).
-        var currentVersion = Assembly.GetExecutingAssembly().GetName().Version;
-        if (currentVersion == null)
+        ArgumentNullException.ThrowIfNull(metadata);
+        if (hostVersion is null || hostVersion == new Version(0, 0, 0, 0))
         {
-            return false;
+            logger?.LogInformation(
+                "DataGuard host is unversioned; plugin rule {RuleId} (MinDataGuardVersion {MinVersion}) is treated as compatible.",
+                metadata.RuleId,
+                metadata.MinDataGuardVersion);
+            return true;
         }
 
+        // Lenient parse: malformed metadata must not crash.
         if (!Version.TryParse(metadata.MinDataGuardVersion ?? "", out var minVersion))
         {
             minVersion = new Version(1, 0, 0);
         }
 
-        return currentVersion >= minVersion;
+        return hostVersion >= minVersion;
     }
 
     private sealed class VerifiedPluginLoadContext : System.Runtime.Loader.AssemblyLoadContext
@@ -345,54 +457,6 @@ public sealed class ExportRuleAttribute : ExportAttribute, IRuleMetadata
     public string Author { get; set; } = "";
 
     public string[] Tags { get; set; } = Array.Empty<string>();
-}
-
-/// <summary>
-/// Example custom rule plugin.
-/// </summary>
-[ExportRule(
-    "CUSTOM001",
-    Name = "Custom Naming Convention",
-    Description = "Enforces custom naming convention for specific schemas",
-    Category = "Naming",
-    DefaultSeverity = "Warning",
-    MinDataGuardVersion = "1.0.0",
-    Author = "DataGuard Team",
-    Tags = new[] { "naming", "custom" })]
-public sealed class CustomNamingConventionRule : IContractRule
-{
-    public string RuleId => "CUSTOM001";
-
-    public string Name => "Custom Naming Convention";
-
-    public Microsoft.CodeAnalysis.DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Warning;
-
-    public string Description => "Enforces custom naming convention for specific schemas";
-
-    public async Task<IReadOnlyList<ContractViolation>> ValidateAsync(
-        ContractDescriptor contract,
-        IReadOnlyList<ContractDescriptor> allContracts,
-        CancellationToken cancellationToken = default)
-    {
-        var violations = new List<ContractViolation>();
-
-        // Example: Check for specific naming pattern in Oracle schemas
-        if (contract is StoredProcedureDescriptor sp && sp.Schema.StartsWith("LEGACY_", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var param in sp.Parameters)
-            {
-                if (!param.Name.StartsWith("P_", StringComparison.OrdinalIgnoreCase))
-                {
-                    violations.Add(new ContractViolation(
-                        RuleId: "CUSTOM001",
-                        Message: $"Parameter '{param.Name}' in legacy schema procedure '{sp.Name}' should start with 'P_'",
-                        Severity: DiagnosticSeverity.Warning));
-                }
-            }
-        }
-
-        return await Task.FromResult(violations);
-    }
 }
 
 /// <summary>

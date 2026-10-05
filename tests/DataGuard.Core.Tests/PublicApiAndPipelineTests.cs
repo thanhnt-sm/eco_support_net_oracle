@@ -11,6 +11,7 @@ using DataGuard.Core.Plugins;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Security;
 using DataGuard.Core.Telemetry;
+using DataGuard.Core.Validation;
 using FluentAssertions;
 using Xunit;
 
@@ -89,7 +90,7 @@ public class PublicApiAndPipelineTests
             using var pipeline = DataGuardApi.CreatePipeline(new DataGuardConfiguration())
                 .WithBaselineFile(tempBaseline)
                 .WithTelemetry(new Telemetry.TelemetryConfig(Enabled: false))
-                .WithRules(new NamingConventionRule());
+                .WithRules(new PipelineUnifiedTests.FixedRule("CUSTOM900"));
 
             var entity = new EntityDescriptor(
                 "e1", "Customer", "Customer", "CUSTOMERS",
@@ -534,7 +535,7 @@ public class DataGuardApiSurfaceTests
     public async Task ValidationPipeline_WithRules_AcceptsCustomRules()
     {
         using var pipeline = DataGuardApi.CreatePipeline();
-        pipeline.WithRules(new ParameterCountRule());
+        pipeline.WithRules(new PipelineUnifiedTests.FixedRule("CUSTOM901", "custom finding"));
 
         var entity = new EntityDescriptor("e1", "C", "C", "dbo",
             new List<PropertyDescriptor>
@@ -545,6 +546,18 @@ public class DataGuardApiSurfaceTests
 
         result.Should().NotBeNull();
         result.ContractsValidated.Should().Be(1);
+        result.Violations.Should().Contain(violation => violation.RuleId == "CUSTOM901");
+    }
+
+    [Fact]
+    public void ValidationPipeline_WithRules_DuplicateBuiltInRuleIdThrows()
+    {
+        using var pipeline = DataGuardApi.CreatePipeline();
+
+        // A second DG101 used to be dropped silently by the graph; now the conflict is reported.
+        var act = () => pipeline.WithRules(new ParameterCountRule());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*DG101*");
     }
 
     [Fact]
@@ -708,5 +721,300 @@ public class ValidationPipelineExtensionTests
         using var pipeline = DataGuardApi.CreatePipeline();
         var result = pipeline.WithBaseline("custom-baseline.json");
         result.Should().BeSameAs(pipeline);
+    }
+}
+
+/// <summary>Red-team B4/D3: one rule composition and one executor for the CLI and the public API.</summary>
+public class PipelineUnifiedTests
+{
+    private static DataGuardConfiguration Config(bool concurrent = true, string? baselinePath = null) => new()
+    {
+        EnableSmartDefaults = false,
+        EnableAuditLogging = false,
+        EnableConcurrentValidation = concurrent,
+        BaselineFilePath = baselinePath,
+    };
+
+    private static EntityDescriptor Entity(string id) => new(
+        id, "C", "C", "dbo",
+        new List<PropertyDescriptor> { new("Id", "int", "Id", "int", false, null, false, false) });
+
+    [Theory]
+    [InlineData("sqlserver")]
+    [InlineData("oracle")]
+    [InlineData("postgresql")]
+    [InlineData("mysql")]
+    public void CliAndApi_ComposeIdenticalRuleIdSets(string provider)
+    {
+        // What `dataguard validate` executes: the catalog's ready rules composed by ProviderRuleCatalog.Compose.
+        var cliPlan = DataGuard.Cli.ProviderRuleCatalog.Compose(DataGuard.Cli.ProviderRuleCatalog.GetReadyRules(provider))
+            .GetExecutionOrder().Select(rule => rule.RuleId).ToList();
+
+        using var pipeline = DataGuard.Cli.ProviderRuleCatalog.CreatePipeline(provider, Config());
+        var apiPlan = pipeline.Rules.Select(rule => rule.RuleId).ToList();
+
+        apiPlan.Should().Equal(cliPlan, "CLI and API must run the same rules in the same order");
+        apiPlan.Should().BeEquivalentTo(DataGuard.Cli.ProviderRuleCatalog.Get(provider)
+            .Where(registration => registration.Availability == DataGuard.Cli.RuleAvailability.Ready)
+            .Select(registration => registration.Rule.RuleId));
+        apiPlan.Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void CreatePipeline_PassesProcedureSettingsFromConfiguration()
+    {
+        var config = Config() with { StrictProcedureContracts = true, DefaultSchema = "APP", DefaultPackage = "PKG" };
+
+        using var pipeline = DataGuard.Cli.ProviderRuleCatalog.CreatePipeline("oracle", config);
+
+        var dg101 = pipeline.Rules.OfType<ParameterCountRule>().Single();
+        dg101.StrictProcedureContracts.Should().BeTrue();
+        dg101.DefaultSchema.Should().Be("APP");
+        dg101.DefaultPackage.Should().Be("PKG");
+    }
+
+    [Fact]
+    public void WithProviderRules_ReplacesDefaultsAndKeepsCustomRules()
+    {
+        using var pipeline = DataGuardApi.CreatePipeline(Config())
+            .WithRules(new FixedRule("CUSTOM902"))
+            .WithProviderRules(new IContractRule[] { new FixedRule("P1"), new ParameterCountRule() });
+
+        pipeline.Rules.Select(rule => rule.RuleId).Should().BeEquivalentTo(new[] { "P1", "DG101", "CUSTOM902" });
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Pipeline_SurfacesAndDrainsUnevaluatedContracts_OnBothExecutionPaths(bool concurrent)
+    {
+        using var pipeline = DataGuardApi.CreatePipeline(Config(concurrent))
+            .WithProviderRules(new IContractRule[] { new UnevaluatingRule(), new FixedRule("A1") });
+
+        var first = await pipeline.ValidateAsync(new[] { Entity("c1"), Entity("c2") });
+        var second = await pipeline.ValidateAsync(new[] { Entity("c3") });
+
+        first.UnevaluatedContracts.Select(entry => (entry.RuleId, entry.ContractId)).Should().Equal(("UNEV1", "c1"), ("UNEV1", "c2"));
+        first.UnevaluatedContracts.Should().OnlyContain(entry => entry.Reason == "no ground truth for this contract");
+        first.IsClean.Should().BeFalse("an unevaluated contract is not a pass");
+        first.ExecutionStatus.Should().Be(ValidationExecutionStatus.Complete);
+        second.UnevaluatedContracts.Should().ContainSingle().Which.ContractId.Should().Be("c3", "entries are drained after each run");
+    }
+
+    [Fact]
+    public async Task GraphExecutor_SequentialAndConcurrent_ProduceIdenticalResults()
+    {
+        IContractRule[] Rules() => new IContractRule[] { new FixedRule("B1", "z"), new FixedRule("A1", "y"), new UnevaluatingRule() };
+        var contracts = new ContractDescriptor[] { Entity("e2"), Entity("e1") };
+
+        var concurrent = await GraphValidationExecutor.ValidateAsync(BuiltInRuleDependencies.Create(Rules()), contracts, concurrent: true, 4, 1000);
+        var sequential = await GraphValidationExecutor.ValidateAsync(BuiltInRuleDependencies.Create(Rules()), contracts, concurrent: false, 4, 1000);
+
+        sequential.Violations.Select(v => (v.RuleId, v.Message)).Should().Equal(concurrent.Violations.Select(v => (v.RuleId, v.Message)));
+        sequential.UnevaluatedContracts.Select(e => (e.RuleId, e.ContractId)).Should().Equal(concurrent.UnevaluatedContracts.Select(e => (e.RuleId, e.ContractId)));
+        sequential.UnevaluatedContracts.Should().HaveCount(2);
+        sequential.IsIncomplete.Should().BeFalse();
+        concurrent.IsIncomplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GraphExecutor_Sequential_RecordsFailedRuleAsIncomplete()
+    {
+        var result = await GraphValidationExecutor.ValidateAsync(
+            BuiltInRuleDependencies.Create(new IContractRule[] { new ThrowingRule(), new FixedRule("A1") }),
+            new ContractDescriptor[] { Entity("e1") },
+            concurrent: false,
+            1,
+            1000);
+
+        result.IsIncomplete.Should().BeTrue();
+        result.RuleOutcomes.Should().ContainSingle(outcome => outcome.RuleId == "THROW1" && outcome.State == RuleExecutionState.Failed);
+        result.Violations.Should().ContainSingle(violation => violation.RuleId == "A1");
+    }
+
+    [Fact]
+    public async Task StreamAsync_ReportsUnevaluatedContractsBeforeTheStreamCompletes()
+    {
+        var unevaluated = new List<UnevaluatedContract>();
+        var violations = new List<ContractViolation>();
+        var contracts = new ContractDescriptor[] { Entity("e1"), Entity("e2") };
+
+        await foreach (var violation in new ConcurrentValidationEngine(2).StreamAsync(
+            contracts, new IContractRule[] { new FixedRule("A1"), new UnevaluatingRule() }, unevaluated.Add))
+        {
+            violations.Add(violation);
+        }
+
+        violations.Should().HaveCount(2);
+        unevaluated.Select(entry => entry.ContractId).Should().Equal("e1", "e2");
+    }
+
+    [Fact]
+    public async Task CreateBaselineAsync_WithSchemaAndProcedures_WritesV4_AndDriftDetectsChanges()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-v4-api-{Guid.NewGuid():N}.json");
+        try
+        {
+            var config = Config(baselinePath: path) with { DefaultProvider = "oracle", DefaultSchema = "APP" };
+            using var pipeline = DataGuardApi.CreatePipeline(config);
+            var schema = Schema(new ColumnDescriptor("ID", "NUMBER", null, 22, 0, false, null, null));
+            var procedure = Procedure("NUMBER");
+
+            var baseline = await pipeline.CreateBaselineAsync(Array.Empty<ContractViolation>(), schema, new[] { procedure });
+
+            baseline.Version.Should().Be(SnapshotFormat.WithStoredProceduresVersion);
+            baseline.SchemaHashKind.Should().Be(SnapshotFormat.CanonicalSchemaV2HashKind);
+            baseline.StoredProcedures.Should().ContainSingle();
+
+            var same = await pipeline.CheckDriftAsync(schema, new[] { procedure });
+            same.Status.Should().Be(DriftEvaluationStatus.Complete, same.Message);
+            same.DriftDetected.Should().BeFalse();
+            same.CurrentHash.Should().Be(baseline.SchemaHash);
+
+            var tablesOnly = await pipeline.CheckDriftAsync(schema);
+            tablesOnly.Status.Should().Be(DriftEvaluationStatus.Complete);
+            tablesOnly.DriftDetected.Should().BeFalse();
+            tablesOnly.Message.Should().Contain("not compared");
+
+            var procedureChanged = await pipeline.CheckDriftAsync(schema, new[] { Procedure("VARCHAR2") });
+            procedureChanged.DriftDetected.Should().BeTrue();
+
+            var widened = Schema(
+                new ColumnDescriptor("ID", "NUMBER", null, 22, 0, false, null, null),
+                new ColumnDescriptor("NAME", "VARCHAR2", 100, null, null, true, "C", 100));
+            (await pipeline.CheckDriftAsync(widened, new[] { procedure })).DriftDetected.Should().BeTrue();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task CreateBaselineAsync_TablesOnly_WritesV4WithEmptyProcedures()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-v4-tables-{Guid.NewGuid():N}.json");
+        try
+        {
+            using var pipeline = DataGuardApi.CreatePipeline(Config(baselinePath: path) with { DefaultProvider = "sqlserver" });
+            var schema = Schema(new ColumnDescriptor("ID", "int", null, 10, 0, false, null, null));
+
+            var baseline = await pipeline.CreateBaselineAsync(Array.Empty<ContractViolation>(), schema, storedProcedures: null);
+            var report = await pipeline.CheckDriftAsync(schema);
+
+            baseline.Version.Should().Be(SnapshotFormat.WithStoredProceduresVersion);
+            baseline.StoredProcedures.Should().BeEmpty();
+            report.Status.Should().Be(DriftEvaluationStatus.Complete, report.Message);
+            report.DriftDetected.Should().BeFalse();
+            report.Message.Should().BeEmpty();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task CheckDriftAsync_TamperedV4Snapshot_IsCorrupt()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dg-v4-tampered-{Guid.NewGuid():N}.json");
+        try
+        {
+            using var pipeline = DataGuardApi.CreatePipeline(Config(baselinePath: path) with { DefaultProvider = "sqlserver" });
+            var schema = Schema(new ColumnDescriptor("ID", "int", null, 10, 0, false, null, null));
+            await pipeline.CreateBaselineAsync(Array.Empty<ContractViolation>(), schema, storedProcedures: null);
+            var node = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
+            node["Schema"]![0]!["Columns"]![0]!["DataType"] = "bigint";
+            await File.WriteAllTextAsync(path, node.ToJsonString());
+
+            var report = await pipeline.CheckDriftAsync(schema);
+
+            report.Status.Should().Be(DriftEvaluationStatus.Corrupt);
+            report.DriftDetected.Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static DatabaseSchemaDescriptor Schema(params ColumnDescriptor[] columns) =>
+        new("current", new[] { new DatabaseTableDescriptor("CUSTOMERS", columns) }, "CHAR");
+
+    private static StoredProcedureDescriptor Procedure(string parameterType) => new(
+        "proc:GET_CUSTOMER",
+        "GET_CUSTOMER",
+        "APP",
+        string.Empty,
+        new[] { new ParameterDescriptor("P_ID", parameterType, ParameterDirection.Input, null, 22, 0, false, 1) },
+        Array.Empty<ColumnDescriptor>(),
+        false);
+
+    /// <summary>Emits one violation per contract with a fixed message.</summary>
+    internal sealed class FixedRule : IContractRule
+    {
+        private readonly string? _message;
+
+        public FixedRule(string ruleId, string? message = null)
+        {
+            RuleId = ruleId;
+            _message = message;
+        }
+
+        public string RuleId { get; }
+
+        public string Name => RuleId;
+
+        public Microsoft.CodeAnalysis.DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Warning;
+
+        public string Description => "test rule";
+
+        public Task<IReadOnlyList<ContractViolation>> ValidateAsync(
+            ContractDescriptor contract,
+            IReadOnlyList<ContractDescriptor> allContracts,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ContractViolation>>(new[]
+            {
+                new ContractViolation(RuleId, $"{_message ?? RuleId} {contract.Id}", Severity),
+            });
+    }
+
+    /// <summary>Uses the base-class <c>MarkUnevaluated</c> for every contract.</summary>
+    private sealed class UnevaluatingRule : ContractRuleBase
+    {
+        public override string RuleId => "UNEV1";
+
+        public override string Name => "Unevaluating";
+
+        public override Microsoft.CodeAnalysis.DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Error;
+
+        public override string Description => "Marks every contract unevaluated";
+
+        protected override Task ValidateCoreAsync(
+            ContractDescriptor contract,
+            IReadOnlyList<ContractDescriptor> allContracts,
+            List<ContractViolation> violations,
+            CancellationToken cancellationToken)
+        {
+            MarkUnevaluated(contract, "no ground truth\nfor this contract");
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingRule : IContractRule
+    {
+        public string RuleId => "THROW1";
+
+        public string Name => RuleId;
+
+        public Microsoft.CodeAnalysis.DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Error;
+
+        public string Description => "throws";
+
+        public Task<IReadOnlyList<ContractViolation>> ValidateAsync(
+            ContractDescriptor contract,
+            IReadOnlyList<ContractDescriptor> allContracts,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("boom");
     }
 }

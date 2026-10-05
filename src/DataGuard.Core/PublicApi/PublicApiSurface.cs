@@ -54,7 +54,9 @@ public static class DataGuardApi
 public sealed class ValidationPipeline : IDisposable
 {
     private DataGuardConfiguration _config;
-    private readonly RuleDependencyGraph _ruleGraph;
+    private RuleDependencyGraph _ruleGraph;
+    private IReadOnlyList<IContractRule> _baseRules;
+    private readonly List<IContractRule> _additionalRules = new();
     private TelemetryCollector? _telemetry;
     private readonly List<RulePluginManager> _pluginManagers = new();
     private readonly CredentialManager _credentialManager;
@@ -64,7 +66,8 @@ public sealed class ValidationPipeline : IDisposable
     internal ValidationPipeline(DataGuardConfiguration config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
-        _ruleGraph = BuiltInRuleDependencies.CreateDefault();
+        _baseRules = BuiltInRuleDependencies.CreateDefaultRules();
+        _ruleGraph = BuiltInRuleDependencies.Create(_baseRules);
         _telemetry = config.EnableTelemetry
             ? new TelemetryCollector(new TelemetryConfig(Enabled: true)
             {
@@ -79,17 +82,50 @@ public sealed class ValidationPipeline : IDisposable
     }
 
     /// <summary>
+    /// The composed rules in execution order: the base set (built-in defaults, or the list passed to
+    /// <see cref="WithProviderRules"/>) plus rules added with <see cref="WithRules"/> and <see cref="WithPlugins(string)"/>.
+    /// </summary>
+    public ImmutableArray<IContractRule> Rules => _ruleGraph.GetExecutionOrder();
+
+    /// <summary>
+    /// Replaces the built-in default rules with a provider rule list (the CLI composes the same list with
+    /// <c>ProviderRuleCatalog</c>, so CLI and API run the same rules through the same executor). Rules added with
+    /// <see cref="WithRules"/> or plugins are kept. Built-in dependency edges are applied by rule ID.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Two rules share a rule ID.</exception>
+    /// <returns>This pipeline.</returns>
+    public ValidationPipeline WithProviderRules(IEnumerable<IContractRule> providerRules)
+    {
+        ArgumentNullException.ThrowIfNull(providerRules);
+        var rules = providerRules.ToList();
+        _ruleGraph = BuiltInRuleDependencies.Create(rules.Concat(_additionalRules));
+        _baseRules = rules;
+        return this;
+    }
+
+    /// <summary>
     /// Adds custom rules to the pipeline.
     /// </summary>
-    /// <returns></returns>
+    /// <exception cref="InvalidOperationException">A different rule with the same ID is already registered.</exception>
+    /// <returns>This pipeline.</returns>
     public ValidationPipeline WithRules(params IContractRule[] rules)
     {
+        ArgumentNullException.ThrowIfNull(rules);
         foreach (var rule in rules)
         {
-            _ruleGraph.AddRule(rule);
+            AddAdditionalRule(rule);
         }
 
         return this;
+    }
+
+    private void AddAdditionalRule(IContractRule rule)
+    {
+        _ruleGraph.AddRule(rule);
+        if (!_additionalRules.Contains(rule) && !_baseRules.Contains(rule))
+        {
+            _additionalRules.Add(rule);
+        }
     }
 
     /// <summary>
@@ -108,17 +144,17 @@ public sealed class ValidationPipeline : IDisposable
         PluginTrustPolicy? trustPolicy,
         IPluginProvenanceVerifier? provenanceVerifier)
     {
+        var registered = _ruleGraph.GetExecutionOrder();
         var manager = new RulePluginManager(
             pluginDirectory,
             logger: null,
             trustPolicy: trustPolicy,
             provenanceVerifier: provenanceVerifier,
-            reservedRuleIds: _ruleGraph.GetExecutionOrder().Select(rule => rule.RuleId));
+            reservedRuleIds: registered.Select(rule => rule.RuleId));
         _pluginManagers.Add(manager);
-        var plugins = manager.GetAllRules(_ruleGraph.GetExecutionOrder());
-        foreach (var rule in plugins)
+        foreach (var rule in manager.GetPluginRules(registered))
         {
-            _ruleGraph.AddRule(rule);
+            AddAdditionalRule(rule);
         }
 
         return this;
@@ -159,72 +195,19 @@ public sealed class ValidationPipeline : IDisposable
         IReadOnlyList<ContractDescriptor> contracts,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(contracts);
         var stopwatch = Stopwatch.StartNew();
-        var allViolations = new List<ContractViolation>();
-        var executionStatus = ValidationExecutionStatus.Complete;
-        var remainingCapacity = ConcurrentValidationEngine.NormalizeMaxViolationQueueSize(_config.MaxViolationQueueSize);
-        var droppedViolationCount = 0;
-        var droppedCountIsKnown = true;
-        IReadOnlyList<RuleExecutionOutcome> ruleOutcomes = Array.Empty<RuleExecutionOutcome>();
 
-        // Get execution order from dependency graph
-        var rules = _ruleGraph.GetExecutionOrder();
-
-        if (_config.EnableConcurrentValidation)
-        {
-            var execution = await GraphValidationExecutor.ValidateAsync(
-                _ruleGraph, contracts, _config.MaxDegreeOfParallelism, _config.MaxViolationQueueSize, cancellationToken);
-            allViolations.AddRange(execution.Violations);
-            executionStatus = execution.IsIncomplete ? ValidationExecutionStatus.Incomplete : ValidationExecutionStatus.Complete;
-            droppedCountIsKnown = execution.DroppedViolationCount.HasValue;
-            droppedViolationCount = execution.DroppedViolationCount ?? 0;
-            ruleOutcomes = execution.RuleOutcomes;
-        }
-        else
-        {
-            var outcomes = new List<RuleExecutionOutcome>(rules.Length);
-            for (var ruleIndex = 0; ruleIndex < rules.Length; ruleIndex++)
-            {
-                var rule = rules[ruleIndex];
-                var ruleViolations = new List<ContractViolation>();
-                string? failureReason = null;
-                foreach (var contract in contracts)
-                {
-                    IReadOnlyList<ContractViolation> violations;
-                    try
-                    {
-                        violations = await rule.ValidateAsync(contract, contracts, cancellationToken);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception exception)
-                    {
-                        failureReason = exception.GetType().Name;
-                        executionStatus = ValidationExecutionStatus.Incomplete;
-                        droppedCountIsKnown = false;
-                        break;
-                    }
-                    ruleViolations.AddRange(violations);
-                    var accepted = violations.Take(remainingCapacity).ToList();
-                    allViolations.AddRange(accepted);
-                    remainingCapacity -= accepted.Count;
-                    if (accepted.Count != violations.Count)
-                    {
-                        executionStatus = ValidationExecutionStatus.Incomplete;
-                        droppedViolationCount += violations.Count - accepted.Count;
-                    }
-                }
-
-                outcomes.Add(new RuleExecutionOutcome(
-                    rule.RuleId,
-                    failureReason is null ? RuleExecutionState.Evaluated : RuleExecutionState.Failed,
-                    ruleViolations,
-                    FailureReason: failureReason));
-            }
-            ruleOutcomes = outcomes;
-        }
+        // One executor for CLI and API: concurrent levels or sequential, both draining unevaluated contracts.
+        var execution = await GraphValidationExecutor.ValidateAsync(
+            _ruleGraph,
+            contracts,
+            _config.EnableConcurrentValidation,
+            _config.MaxDegreeOfParallelism,
+            _config.MaxViolationQueueSize,
+            cancellationToken);
+        var allViolations = execution.Violations.ToList();
+        var executionStatus = execution.IsIncomplete ? ValidationExecutionStatus.Incomplete : ValidationExecutionStatus.Complete;
 
         // Apply baseline filtering
         if (_config.EnableBaseline && !string.IsNullOrEmpty(_config.BaselineFilePath))
@@ -258,8 +241,9 @@ public sealed class ValidationPipeline : IDisposable
             SchemaVersion: "1.0")
         {
             ExecutionStatus = executionStatus,
-            DroppedViolationCount = droppedCountIsKnown ? droppedViolationCount : null,
-            RuleOutcomes = ruleOutcomes,
+            DroppedViolationCount = execution.DroppedViolationCount,
+            RuleOutcomes = execution.RuleOutcomes,
+            UnevaluatedContracts = execution.UnevaluatedContracts,
         };
     }
 
@@ -274,6 +258,35 @@ public sealed class ValidationPipeline : IDisposable
     {
         var baselineManager = new BaselineManager(_config.BaselineFilePath ?? ".dataguard-baseline.json");
         return await baselineManager.CreateBaselineAsync(violations, schemaVersion, _config.GroundTruthMode.ToString(), cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates a snapshot baseline (format version 4, <c>canonical-schema-v2</c> hash) carrying the schema, the stored
+    /// procedures (empty when <paramref name="storedProcedures"/> is null), length semantics and charset, scoped to the
+    /// configured <c>DefaultProvider</c> and <c>DefaultSchema</c>. Tables-only input also writes version 4.
+    /// </summary>
+    /// <returns>The persisted snapshot.</returns>
+    public async Task<BaselineFile> CreateBaselineAsync(
+        IReadOnlyList<ContractViolation> violations,
+        DatabaseSchemaDescriptor? schema,
+        IReadOnlyList<StoredProcedureDescriptor>? storedProcedures,
+        string schemaVersion = "1.0",
+        string? databaseVersion = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(violations);
+        var baselineManager = new BaselineManager(_config.BaselineFilePath ?? ".dataguard-baseline.json");
+        return await baselineManager.CreateSnapshotAsync(
+            violations,
+            schemaVersion,
+            databaseVersion,
+            schema is null ? null : SnapshotConversion.FromSchema(schema),
+            (storedProcedures ?? Array.Empty<StoredProcedureDescriptor>()).Select(SnapshotConversion.FromProcedure).ToList(),
+            _config.DefaultProvider,
+            _config.DefaultSchema,
+            schema?.LengthSemantics,
+            SnapshotConversion.ResolveUniformCharset(schema),
+            cancellationToken);
     }
 
     /// <summary>
@@ -332,8 +345,22 @@ public sealed class ValidationPipeline : IDisposable
     /// carries an explicit evaluation status so missing or incompatible input
     /// cannot be interpreted as a clean comparison.
     /// </summary>
+    public Task<DriftReport> CheckDriftAsync(
+        DatabaseSchemaDescriptor currentSchema,
+        CancellationToken cancellationToken = default)
+    {
+        return CheckDriftAsync(currentSchema, currentProcedures: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// Checks structural drift (tables, and for version 4 snapshots also stored procedures, length semantics and
+    /// charset) against a persisted snapshot of format version 2, 3 or 4. When <paramref name="currentProcedures"/> is
+    /// null the persisted procedures are not compared (the report message says so); a version 4 snapshot whose stored
+    /// hash does not match its content is <see cref="DriftEvaluationStatus.Corrupt"/>.
+    /// </summary>
     public async Task<DriftReport> CheckDriftAsync(
         DatabaseSchemaDescriptor currentSchema,
+        IReadOnlyList<StoredProcedureDescriptor>? currentProcedures,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(currentSchema);
@@ -348,7 +375,7 @@ public sealed class ValidationPipeline : IDisposable
             };
         }
 
-        if (baseline.Version < 2 || baseline.Version > 3)
+        if (baseline.Version < SnapshotFormat.ViolationsOnlyVersion || baseline.Version > SnapshotFormat.LatestVersion)
         {
             return new DriftReport(true, false, BaselineVersion: baseline.SchemaVersion, Message: $"Unsupported baseline version {baseline.Version}.")
             {
@@ -356,7 +383,8 @@ public sealed class ValidationPipeline : IDisposable
             };
         }
 
-        if (baseline.Schema is null)
+        var isV4 = baseline.Version >= SnapshotFormat.WithStoredProceduresVersion;
+        if (baseline.Schema is null && (!isV4 || baseline.StoredProcedures is null))
         {
             return new DriftReport(true, false, BaselineVersion: baseline.SchemaVersion, BaselineHash: baseline.SchemaHash, Message: "Baseline has no persisted schema.")
             {
@@ -364,7 +392,9 @@ public sealed class ValidationPipeline : IDisposable
             };
         }
 
-        if (baseline.Version >= 3 && !string.Equals(baseline.SchemaHashKind, "canonical-schema-v1", StringComparison.Ordinal))
+        var expectedHashKind = isV4 ? SnapshotFormat.CanonicalSchemaV2HashKind : SnapshotFormat.CanonicalSchemaV1HashKind;
+        var expectedCanonicalization = isV4 ? SnapshotFormat.CanonicalizationV2 : SnapshotFormat.CanonicalizationV1;
+        if (baseline.Version >= 3 && !string.Equals(baseline.SchemaHashKind, expectedHashKind, StringComparison.Ordinal))
         {
             return new DriftReport(true, false, BaselineVersion: baseline.SchemaVersion, BaselineHash: baseline.SchemaHash, Message: "Snapshot uses an unsupported schema hash kind.")
             {
@@ -372,7 +402,7 @@ public sealed class ValidationPipeline : IDisposable
             };
         }
 
-        if (baseline.Version >= 3 && !string.Equals(baseline.SchemaCanonicalizationVersion, "v1", StringComparison.Ordinal))
+        if (baseline.Version >= 3 && !string.Equals(baseline.SchemaCanonicalizationVersion, expectedCanonicalization, StringComparison.Ordinal))
         {
             return new DriftReport(true, false, BaselineVersion: baseline.SchemaVersion, BaselineHash: baseline.SchemaHash, Message: "Snapshot uses an unsupported schema canonicalization version.")
             {
@@ -420,6 +450,11 @@ public sealed class ValidationPipeline : IDisposable
             };
         }
 
+        if (isV4 || baseline.Schema is null)
+        {
+            return CheckSnapshotV4Drift(baseline, currentSchema, currentProcedures);
+        }
+
         var persistedSchema = new DatabaseSchemaDescriptor(
             "persisted-schema",
             baseline.Schema.Select(table => new DatabaseTableDescriptor(
@@ -457,6 +492,44 @@ public sealed class ValidationPipeline : IDisposable
         };
     }
 
+    // Version 4: verify the stored canonical-schema-v2 hash, then hash the current state with the same canonical form.
+    // The provider and scope were matched above, so the persisted values are reused (no false drift on letter case).
+    private static DriftReport CheckSnapshotV4Drift(
+        BaselineFile baseline,
+        DatabaseSchemaDescriptor currentSchema,
+        IReadOnlyList<StoredProcedureDescriptor>? currentProcedures)
+    {
+        var integrity = BaselineManager.VerifySnapshotIntegrity(baseline);
+        if (integrity.Status != SnapshotIntegrityStatus.Verified)
+        {
+            return new DriftReport(true, false, BaselineVersion: baseline.SchemaVersion, BaselineHash: baseline.SchemaHash,
+                Message: $"Snapshot integrity check failed: {integrity.Reason ?? integrity.Status.ToString()}.")
+            {
+                Status = DriftEvaluationStatus.Corrupt
+            };
+        }
+
+        var procedures = currentProcedures is null
+            ? baseline.StoredProcedures
+            : currentProcedures.Select(SnapshotConversion.FromProcedure).ToList();
+        var currentHash = BaselineManager.ComputeSnapshotHash(
+            SnapshotConversion.FromSchema(currentSchema),
+            procedures,
+            baseline.Provider,
+            baseline.SchemaScope,
+            currentSchema.LengthSemantics,
+            SnapshotConversion.ResolveUniformCharset(currentSchema));
+        var message = currentProcedures is null && baseline.StoredProcedures is { Count: > 0 }
+            ? "Stored procedures were not compared: no current procedures were supplied."
+            : string.Empty;
+        return new DriftReport(true, !string.Equals(baseline.SchemaHash, currentHash, StringComparison.OrdinalIgnoreCase),
+            BaselineVersion: baseline.SchemaVersion, BaselineHash: baseline.SchemaHash, CurrentHash: currentHash,
+            Message: message)
+        {
+            Status = DriftEvaluationStatus.Complete
+        };
+    }
+
     public void Dispose()
     {
         if (!_disposed)
@@ -488,9 +561,15 @@ public sealed record ValidationResult(
     public ValidationExecutionStatus ExecutionStatus { get; init; } = ValidationExecutionStatus.Complete;
     public int? DroppedViolationCount { get; init; }
     public IReadOnlyList<RuleExecutionOutcome> RuleOutcomes { get; init; } = Array.Empty<RuleExecutionOutcome>();
+
+    /// <summary>
+    /// Contracts a rule could not evaluate (for example a failed live describe). They are neither violations nor passes,
+    /// so a result with any of them is not <see cref="IsClean"/>.
+    /// </summary>
+    public IReadOnlyList<UnevaluatedContract> UnevaluatedContracts { get; init; } = Array.Empty<UnevaluatedContract>();
     public bool HasErrors => Errors > 0;
     public bool HasWarnings => Warnings > 0;
-    public bool IsClean => TotalViolations == 0 && ExecutionStatus == ValidationExecutionStatus.Complete;
+    public bool IsClean => TotalViolations == 0 && ExecutionStatus == ValidationExecutionStatus.Complete && UnevaluatedContracts.Count == 0;
     public bool HasViolations => TotalViolations > 0;
     public double ViolationsPerContract => ContractsValidated > 0 ? (double)TotalViolations / ContractsValidated : 0;
 }

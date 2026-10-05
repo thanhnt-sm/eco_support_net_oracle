@@ -480,6 +480,8 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
 /// </summary>
 public class PostgreSqlSyntaxInNonPostgreSqlContextRule : ContractRuleBase
 {
+    private static readonly IDialectAnalyzer Analyzer = new PostgreSqlDialectChecker();
+
     public override string RuleId => "PG001";
 
     public override string Name => "PostgreSQL Syntax in Non-PostgreSQL Context";
@@ -496,9 +498,7 @@ public class PostgreSqlSyntaxInNonPostgreSqlContextRule : ContractRuleBase
     {
         if (contract is RawSqlDescriptor rawSql)
         {
-            var checker = new PostgreSqlDialectChecker();
-            violations.AddRange(checker.CheckPostgreSqlSyntaxInNonPostgreSqlContext(
-                rawSql.SqlText, false, contract.Location));
+            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: false, contract.Location));
         }
 
         return Task.CompletedTask;
@@ -510,6 +510,8 @@ public class PostgreSqlSyntaxInNonPostgreSqlContextRule : ContractRuleBase
 /// </summary>
 public class NonPostgreSqlSyntaxInPostgreSqlContextRule : ContractRuleBase
 {
+    private static readonly IDialectAnalyzer Analyzer = new PostgreSqlDialectChecker();
+
     public override string RuleId => "PG002";
 
     public override string Name => "Non-PostgreSQL Syntax in PostgreSQL Context";
@@ -526,9 +528,7 @@ public class NonPostgreSqlSyntaxInPostgreSqlContextRule : ContractRuleBase
     {
         if (contract is RawSqlDescriptor rawSql)
         {
-            var checker = new PostgreSqlDialectChecker();
-            violations.AddRange(checker.CheckNonPostgreSqlSyntaxInPostgreSqlContext(
-                rawSql.SqlText, true, contract.Location));
+            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: true, contract.Location));
         }
 
         return Task.CompletedTask;

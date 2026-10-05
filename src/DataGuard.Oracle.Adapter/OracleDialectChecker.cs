@@ -316,7 +316,7 @@ public class OracleDialectChecker : IDialectAnalyzer
 /// </summary>
 public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 {
-    private readonly OracleDialectChecker _checker = new();
+    private static readonly IDialectAnalyzer Analyzer = new OracleDialectChecker();
 
     public override string RuleId => "DG010";
 
@@ -334,9 +334,8 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
     {
         if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
-            var checker = new OracleDialectChecker();
-            var isOracle = false; // This rule detects Oracle syntax leaking into non-Oracle (SQL Server) context
-            violations.AddRange(checker.CheckOracleSyntaxInNonOracleContext(rawSql.SqlText, isOracle, contract.Location));
+            // Oracle syntax leaking into a non-Oracle context: the analyzer's non-target direction.
+            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: false, contract.Location));
         }
 
         return Task.CompletedTask;
@@ -348,6 +347,8 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 /// </summary>
 public class NonOracleFunctionInOracleContextRule : ContractRuleBase
 {
+    private static readonly IDialectAnalyzer Analyzer = new OracleDialectChecker();
+
     public override string RuleId => "DG011";
 
     public override string Name => "Non-Oracle Function in Oracle Context";
@@ -364,8 +365,7 @@ public class NonOracleFunctionInOracleContextRule : ContractRuleBase
     {
         if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
-            var checker = new OracleDialectChecker();
-            violations.AddRange(checker.CheckNonOracleSyntaxInOracleContext(rawSql.SqlText, true, contract.Location));
+            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: true, contract.Location));
         }
 
         return Task.CompletedTask;

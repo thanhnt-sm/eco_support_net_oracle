@@ -99,6 +99,16 @@ public class IdeSafePolicyTests
     public void FirstRejectedValidateOption_NoCodeLoadingOptions_ReturnsNull()
     {
         IdeSafePolicy.FirstRejectedValidateOption(null, false, null, null, null, null).Should().BeNull();
+        IdeSafePolicy.FirstRejectedValidateOption(null, false, null, null, null, null, pluginsDirectory: " ").Should().BeNull();
+    }
+
+    [Fact]
+    public void FirstRejectedValidateOption_PluginsDir_IsRejected()
+    {
+        // Plugin loading is code loading: never under IDE-safe mode.
+        IdeSafePolicy.FirstRejectedValidateOption(null, false, null, null, null, null, pluginsDirectory: "plugins")
+            .Should().Be(IdeSafePolicy.PluginsDirOptionName).And.Be("--plugins-dir");
+        IdeSafePolicy.FormatRejectionLine("--plugins-dir").Should().Contain("assembly loading");
     }
 
     [Theory]
