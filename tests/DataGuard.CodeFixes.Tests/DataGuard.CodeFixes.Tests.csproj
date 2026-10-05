@@ -26,5 +26,8 @@
     <PackageReference Include="FluentAssertions" Version="7.2.2" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
+    <!-- Microsoft.CodeAnalysis.Testing (rec 19): framework-neutral packages + DefaultVerifier
+         (the .XUnit flavours are deprecated since 1.1.2). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
   </ItemGroup>
 </Project>
