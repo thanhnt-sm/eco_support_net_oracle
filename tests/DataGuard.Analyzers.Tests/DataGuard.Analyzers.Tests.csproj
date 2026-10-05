@@ -24,5 +24,11 @@
     </PackageReference>
     <PackageReference Include="FluentAssertions" Version="7.2.2" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <!-- Microsoft.CodeAnalysis.Testing (rec 19): the .XUnit flavours are deprecated since 1.1.2,
+         so the framework-neutral packages are used with DefaultVerifier. Workspaces is pinned to the
+         repo Roslyn version so the testing packages' 1.0.1 floor never resolves an older compiler. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.SourceGenerators.Testing" Version="1.1.4" />
   </ItemGroup>
 </Project>
