@@ -35,6 +35,14 @@ All notable changes to DataGuard are documented here. Format based on
 - **Default snapshot**: without a connection or `SnapshotFilePath`, `validate` uses `.dataguard-snapshot.json` next to `--config`, else in the current directory, and prints `Using snapshot <path>`.
 - **`--offline` semantics** (risk R3): bare `--offline` now means Snapshot mode and drops any connection (was Manual mode without an assembly, or exit 1); `--offline --assembly <path>` is unchanged (Manual).
 
+### Changed (red-team H1, H2: unevaluated semantics)
+- **One `Unevaluated` outcome for database failures**: `ILiveQuerySchemaProvider.DescribeResultSetAsync` now returns `LiveSchemaResult` (`Columns`, `Status` = `Described | Failed | Unsupported`, sanitized `Error`); `DescribeColumnsOrThrowAsync` keeps a column-list form for callers such as `verify-shape`. **Breaking for custom `ILiveQuerySchemaProvider` implementations.**
+- **No fabricated columns** (H1): the Oracle and PostgreSQL live describers return `Failed`/`Unsupported` instead of inventing `VARCHAR2`/`text` columns from the SQL text. The syntactic extraction survives only behind the constructor flag `allowSyntacticFallback` (default false), and even then the status is never `Described`.
+- **DG020 is no longer a warning** (H2): a query whose shape cannot be described is recorded as an unevaluated contract (`DG020 <contractId>: <reason>`), not as a `Warning` that exits 0. `validate` prints `UNEVALUATED: <n> contract(s) could not be evaluated:` with one line per contract and exits 3. **Breaking for CI runs whose live describe fails**: new `--allow-unevaluated` lists them but exits by violations; `--ide-safe` implies it.
+- **MySQL live describe** (H2): new `MySqlLiveQuerySchemaProvider` (`CommandBehavior.SchemaOnly` + `GetColumnSchema()` on a `WHERE 1=0 LIMIT 0` wrapper, read-only session, denylist and MySQL lexical guard); `ProviderRuleCatalog` registers it for `mysql` instead of skipping the live rule silently.
+- **Partial ModelSnapshot parse is visible**: `EfModelSource.ParseModelSnapshotWithDiagnostics`/`ExtractFromModelSnapshotWithDiagnosticsAsync` keep the parsed entities and return `AcquisitionDiagnostic` entries for skipped configurations; `validate` prints `ACQUISITION: <path>: <message>` and exits 3 unless `--allow-unevaluated`.
+- **Engine**: `ValidationExecutionResult.UnevaluatedContracts` is filled from rules implementing `IContractEvaluationStatusReporter` on the concurrent, graph and sequential paths; it does not set `IsIncomplete`, so `ConcurrentValidationEngine.ValidateAsync` does not throw for it.
+
 ### Last MIT nightly (snapshot before the first GPL nightly)
 The `nightly` GitHub release was published 2026-09-30T07:09:25Z and holds the last MIT-licensed development builds
 (0.3.0-nightly.20260930.11). The next merge to `main` publishes a GPL-3.0-only nightly over it. Assets and SHA-256:

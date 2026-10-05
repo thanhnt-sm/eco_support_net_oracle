@@ -109,6 +109,7 @@ public static class ProviderRuleCatalog
             {
                 "oracle" => new OracleLiveQuerySchemaProvider(connectionString),
                 "postgresql" or "postgres" => new PostgreSqlLiveQuerySchemaProvider(connectionString),
+                "mysql" => new MySqlLiveQuerySchemaProvider(connectionString),
                 "sqlserver" => new SqlServerLiveQuerySchemaProvider(connectionString),
                 _ => null,
             };

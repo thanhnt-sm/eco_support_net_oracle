@@ -45,12 +45,21 @@ public sealed class ConcurrentValidationEngine
         Action<string, int>? executionCompleted)
     {
         var result = await this.ValidateDetailedAsync(contracts, rules, cancellationToken, executionCompleted);
+        ThrowIfIncomplete(result);
+        return result.Violations;
+    }
+
+    /// <summary>
+    /// Throws <see cref="ValidationIncompleteException"/> when <paramref name="result"/> is incomplete (a rule failed or
+    /// violations were dropped). Unevaluated contracts do not make a result incomplete; callers report them separately.
+    /// </summary>
+    public static void ThrowIfIncomplete(ValidationExecutionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
         if (result.IsIncomplete)
         {
             throw new ValidationIncompleteException(DescribeIncompleteResult(result), result);
         }
-
-        return result.Violations;
     }
 
     /// <summary>
@@ -247,6 +256,7 @@ public sealed class ConcurrentValidationEngine
                 ruleFailures.ContainsKey(rule.RuleId) ? RuleExecutionState.Failed : RuleExecutionState.Evaluated,
                 ruleViolations[rule.RuleId],
                 FailureReason: ruleFailures.GetValueOrDefault(rule.RuleId))).ToList(),
+            UnevaluatedContracts = UnevaluatedContracts.DrainFrom(rules),
         };
     }
 }
@@ -258,6 +268,12 @@ public sealed record ValidationExecutionResult(
 {
     /// <summary>Per-rule coverage and execution outcomes when the caller requests detailed reporting.</summary>
     public IReadOnlyList<RuleExecutionOutcome> RuleOutcomes { get; init; } = Array.Empty<RuleExecutionOutcome>();
+
+    /// <summary>
+    /// Contracts a rule could not evaluate (for example a live describe that failed). They are not violations and do not
+    /// set <see cref="IsIncomplete"/>; the CLI reports them and exits 3 unless <c>--allow-unevaluated</c>.
+    /// </summary>
+    public IReadOnlyList<UnevaluatedContract> UnevaluatedContracts { get; init; } = Array.Empty<UnevaluatedContract>();
 }
 
 public sealed class ValidationIncompleteException : InvalidOperationException
@@ -285,6 +301,7 @@ public static class GraphValidationExecutor
         var dropped = 0;
         var known = true;
         var outcomes = new List<RuleExecutionOutcome>();
+        var unevaluated = new List<UnevaluatedContract>();
 
         foreach (var level in graph.GetParallelGroups())
         {
@@ -292,6 +309,7 @@ public static class GraphValidationExecutor
                 .ValidateDetailedAsync(contracts, level, cancellationToken);
             violations.AddRange(result.Violations);
             outcomes.AddRange(result.RuleOutcomes);
+            unevaluated.AddRange(result.UnevaluatedContracts);
             if (result.RuleOutcomes.Any(outcome => outcome.MakesValidationIncomplete))
             {
                 known = false;
@@ -314,6 +332,7 @@ public static class GraphValidationExecutor
             known ? dropped : null)
         {
             RuleOutcomes = outcomes,
+            UnevaluatedContracts = UnevaluatedContracts.Order(unevaluated),
         };
     }
 }

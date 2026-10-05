@@ -88,6 +88,40 @@ public class MySqlIntegrationTests : IAsyncLifetime
                 && column.DataDefault.Contains("active", StringComparison.OrdinalIgnoreCase)));
     }
 
+    [Fact]
+    public async Task MySqlLiveQuerySchemaProvider_DescribesParameterizedQueryWithoutReturningRows()
+    {
+        if (_container == null)
+        {
+            return; // xUnit 2.9 has no supported dynamic skip API.
+        }
+
+        await using (var connection = new MySqlConnection(_container.GetConnectionString()))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(50) NULL)";
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = "INSERT INTO t (id, name) VALUES (1, 'Ada')";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var provider = new MySqlLiveQuerySchemaProvider(_container.GetConnectionString());
+
+        var result = await provider.DescribeResultSetAsync("SELECT id, name FROM t WHERE id = @p", default);
+
+        result.Status.Should().Be(DataGuard.Core.Rules.LiveSchemaStatus.Described, result.Error);
+        result.Columns.Select(column => column.Name).Should().Equal("id", "name");
+        result.Columns[0].DataType.Should().ContainEquivalentOf("INT");
+        result.Columns[0].IsNullable.Should().BeFalse();
+        result.Columns[1].DataType.Should().ContainEquivalentOf("VARCHAR");
+        result.Columns[1].IsNullable.Should().BeTrue();
+
+        var missing = await provider.DescribeResultSetAsync("SELECT id FROM no_such_table", default);
+        missing.Status.Should().Be(DataGuard.Core.Rules.LiveSchemaStatus.Failed);
+        missing.Columns.Should().BeEmpty();
+    }
+
     private static bool RequiresLiveRelational()
         => string.Equals(Environment.GetEnvironmentVariable(RequireLiveRelationalVariable), "1", StringComparison.Ordinal);
 }

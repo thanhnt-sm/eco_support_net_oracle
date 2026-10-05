@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Reporting;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Validation;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -24,10 +25,22 @@ public class LiveSqlShapeValidationTests
             _handler = handler;
         }
 
-        public Task<IReadOnlyList<ColumnDescriptor>> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
+        public Task<LiveSchemaResult> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
         {
-            return Task.FromResult(_handler(sqlText));
+            return Task.FromResult(LiveSchemaResult.FromColumns(_handler(sqlText)));
         }
+    }
+
+    private sealed class FixedResultProvider : ILiveQuerySchemaProvider
+    {
+        private readonly LiveSchemaResult _result;
+
+        public FixedResultProvider(LiveSchemaResult result)
+        {
+            _result = result;
+        }
+
+        public Task<LiveSchemaResult> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken) => Task.FromResult(_result);
     }
 
     private sealed class FailingLiveQuerySchemaProvider : ILiveQuerySchemaProvider
@@ -39,7 +52,7 @@ public class LiveSqlShapeValidationTests
             _exception = exception;
         }
 
-        public Task<IReadOnlyList<ColumnDescriptor>> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
+        public Task<LiveSchemaResult> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
         {
             throw _exception;
         }
@@ -178,34 +191,144 @@ public class LiveSqlShapeValidationTests
         violations.Single().Message.Should().Contain("extra column(s)");
     }
 
+    private static RawSqlDescriptor TypedQuery(string id = "raw:1", string sql = "SELECT Id FROM Customers") => new(
+        Id: id,
+        SqlText: sql,
+        Parameters: Array.Empty<ParameterDescriptor>(),
+        ResultColumns: Array.Empty<ColumnDescriptor>(),
+        ExpectedProperties: new List<PropertyDescriptor> { new("Id", "int", null, null, false, null, true, false) },
+        TargetTypeName: "Customer");
+
     [Fact]
-    public async Task ValidateAsync_TempTableOrDescribeFailure_ReportsDG020Warning()
+    public async Task ValidateAsync_DescribeThrows_RecordsUnevaluatedInsteadOfDG020Warning()
     {
         var failingProvider = new FailingLiveQuerySchemaProvider(
-            new InvalidOperationException("The metadata could not be determined because statement '#temp' in procedure or batch is not supported."));
-
+            new InvalidOperationException("The metadata could not be determined because statement '#temp' in procedure or batch is not supported. Password=hunter2"));
         var rule = new LiveSqlShapeValidationRule(schemaProvider: failingProvider);
-
-        var expectedProps = new List<PropertyDescriptor>
-        {
-            new ("Id", "int", null, null, false, null, true, false),
-        };
-
-        var rawSql = new RawSqlDescriptor(
-            Id: "raw:1",
-            SqlText: "SELECT * INTO #temp FROM Customers; SELECT * FROM #temp;",
-            Parameters: Array.Empty<ParameterDescriptor>(),
-            ResultColumns: Array.Empty<ColumnDescriptor>(),
-            ExpectedProperties: expectedProps,
-            TargetTypeName: "Customer");
+        var rawSql = TypedQuery(sql: "SELECT * INTO #temp FROM Customers; SELECT * FROM #temp;");
 
         var violations = await rule.ValidateAsync(rawSql, new ContractDescriptor[] { rawSql });
 
-        violations.Should().ContainSingle(v => v.RuleId == "DG020");
-        var violation = violations.Single();
-        violation.Severity.Should().Be(DiagnosticSeverity.Warning);
-        violation.Message.Should().Contain("Cannot determine result set shape for query");
-        violation.Message.Should().Contain("#temp");
+        violations.Should().BeEmpty("an undescribed shape is not a finding (red-team H2)");
+        var entry = rule.DrainUnevaluatedContracts().Should().ContainSingle().Subject;
+        entry.RuleId.Should().Be(LiveSqlShapeValidationRule.UndeterminedShapeRuleId);
+        entry.ContractId.Should().Be("raw:1");
+        entry.Status.Should().Be(ContractEvaluationStatus.Unevaluated);
+        entry.Reason.Should().Contain("Cannot determine result set shape for query").And.Contain("#temp");
+        entry.Reason.Should().NotContain("hunter2");
+        rule.DrainUnevaluatedContracts().Should().BeEmpty("draining clears the collector");
+    }
+
+    [Theory]
+    [InlineData(LiveSchemaStatus.Failed, "describe failed")]
+    [InlineData(LiveSchemaStatus.Unsupported, "describe not supported")]
+    public async Task ValidateAsync_NotDescribed_IgnoresNonLiveColumnsAndRecordsUnevaluated(LiveSchemaStatus status, string expectedKind)
+    {
+        // Even when a provider attaches syntactic hint columns that would produce a mismatch, they are never compared.
+        var hint = new List<ColumnDescriptor> { new("Other", "VARCHAR2", null, null, null, true, "C") };
+        var result = status == LiveSchemaStatus.Failed
+            ? LiveSchemaResult.Fail("ORA-12541: TNS:no listener", hint)
+            : LiveSchemaResult.NotSupported("Statement is not a read-only query; not described live.", hint);
+        var rule = new LiveSqlShapeValidationRule(schemaProvider: new FixedResultProvider(result));
+        var rawSql = TypedQuery();
+
+        var violations = await rule.ValidateAsync(rawSql, new ContractDescriptor[] { rawSql });
+
+        violations.Should().BeEmpty();
+        rule.DrainUnevaluatedContracts().Should().ContainSingle()
+            .Which.Reason.Should().Contain(expectedKind);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_ConnectionWithoutDescriberForProvider_RecordsUnevaluated()
+    {
+        var rule = new LiveSqlShapeValidationRule("Server=db;Database=x;", "db2");
+        var rawSql = TypedQuery();
+
+        var violations = await rule.ValidateAsync(rawSql, new ContractDescriptor[] { rawSql });
+
+        violations.Should().BeEmpty();
+        rule.DrainUnevaluatedContracts().Should().ContainSingle()
+            .Which.Reason.Should().Contain("No live query schema provider").And.Contain("db2");
+    }
+
+    [Fact]
+    public async Task ValidateAsync_NoConnectionAndNoProvider_IsNotUnevaluated()
+    {
+        // The offline registration is not a live check at all; it must not invent unevaluated entries.
+        var rule = new LiveSqlShapeValidationRule();
+        var rawSql = TypedQuery();
+
+        await rule.ValidateAsync(rawSql, new ContractDescriptor[] { rawSql });
+
+        rule.DrainUnevaluatedContracts().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ConcurrentEngine_DrainsUnevaluatedIntoResultWithoutMarkingIncomplete()
+    {
+        var rule = new LiveSqlShapeValidationRule(schemaProvider: new FixedResultProvider(LiveSchemaResult.Fail("connection refused")));
+        var contracts = new ContractDescriptor[] { TypedQuery("raw:b"), TypedQuery("raw:a") };
+
+        var result = await new ConcurrentValidationEngine(maxDegreeOfParallelism: 4)
+            .ValidateDetailedAsync(contracts, new IContractRule[] { rule });
+
+        result.IsIncomplete.Should().BeFalse("unevaluated contracts are a separate channel from rule failures");
+        result.Violations.Should().BeEmpty();
+        result.UnevaluatedContracts.Select(entry => entry.ContractId).Should().Equal("raw:a", "raw:b");
+        result.UnevaluatedContracts.Should().OnlyContain(entry => entry.RuleId == "DG020");
+        rule.DrainUnevaluatedContracts().Should().BeEmpty("the engine already drained the rule");
+
+        // The violations-only entry point does not throw for unevaluated contracts.
+        var violations = await new ConcurrentValidationEngine(2).ValidateAsync(contracts, new IContractRule[] { rule });
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GraphExecutor_AggregatesUnevaluatedAcrossLevels()
+    {
+        var rule = new LiveSqlShapeValidationRule(schemaProvider: new FixedResultProvider(LiveSchemaResult.Fail("timeout")));
+        var graph = new RuleDependencyGraph().AddRule(rule);
+
+        var result = await GraphValidationExecutor.ValidateAsync(graph, new ContractDescriptor[] { TypedQuery() }, 2, 100);
+
+        result.UnevaluatedContracts.Should().ContainSingle().Which.ContractId.Should().Be("raw:1");
+    }
+
+    [Fact]
+    public async Task SequentialPath_DrainFromCollectsEachRuleOnce()
+    {
+        var rule = new LiveSqlShapeValidationRule(schemaProvider: new FixedResultProvider(LiveSchemaResult.Fail("timeout")));
+        var contract = TypedQuery();
+
+        // Mirrors the CLI fallback path (EnableConcurrentValidation: false): rules run one contract at a time, then drain.
+        await rule.ValidateAsync(contract, new ContractDescriptor[] { contract });
+        var drained = UnevaluatedContracts.DrainFrom(new IContractRule[] { rule, rule, new ParameterCountRule() });
+
+        drained.Should().ContainSingle().Which.ContractId.Should().Be("raw:1");
+    }
+
+    [Fact]
+    public async Task DescribeColumnsOrThrowAsync_ThrowsForNotDescribedAndReturnsDescribedColumns()
+    {
+        var failed = new FixedResultProvider(LiveSchemaResult.Fail("boom"));
+        var act = async () => await failed.DescribeColumnsOrThrowAsync("SELECT 1", CancellationToken.None);
+        (await act.Should().ThrowAsync<LiveSchemaUnavailableException>()).Which.Result.Status.Should().Be(LiveSchemaStatus.Failed);
+
+        var described = new FixedResultProvider(LiveSchemaResult.FromColumns(new List<ColumnDescriptor> { new("Id", "int", null, null, null, false, null) }));
+        (await described.DescribeColumnsOrThrowAsync("SELECT 1", CancellationToken.None)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task SqlServerProvider_UnreachableServer_ReturnsFailedInsteadOfThrowing()
+    {
+        var provider = new SqlServerLiveQuerySchemaProvider("Server=127.0.0.1,1;Database=x;User Id=u;Password=secret-pw;Connect Timeout=1;Encrypt=False");
+
+        var result = await provider.DescribeResultSetAsync("SELECT Id FROM Customers", CancellationToken.None);
+
+        result.Status.Should().Be(LiveSchemaStatus.Failed);
+        result.Columns.Should().BeEmpty();
+        result.Error.Should().NotBeNullOrWhiteSpace().And.NotContain("secret-pw");
     }
 
     [Fact]

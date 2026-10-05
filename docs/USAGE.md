@@ -168,6 +168,7 @@ dataguard validate --connection "..." --verbose
 | `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`); áp dụng trước kiểm tra rule không khả dụng | - |
 | `--fail-on-unavailable` | Exit `3` khi có rule không khả dụng cho provider (config `FailOnUnavailableRules`) | `false` |
 | `--allow-syntactic-only` | Cho phép chạy khi không có ground truth: cảnh báo thay vì exit `3` | `false` |
+| `--allow-unevaluated` | Vẫn in contract chưa đánh giá (`UNEVALUATED:`) và chẩn đoán acquisition (`ACQUISITION:`), nhưng exit theo violation thay vì `3`; `--ide-safe` ngầm bật | `false` |
 | `--progress` | Ghi JSON progress event từng dòng ra stderr (IDE dùng) | `false` |
 | `--ide-safe` | Chế độ IDE-safe cho repo chưa tin cậy (xem dưới) | `false` |
 | `--allow-env-connection` | Chỉ với `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp (chỉ `validate`) | `false` |
@@ -184,6 +185,7 @@ dataguard validate --connection "..." --verbose
 **Cổng chống "PASS rỗng" (empty-pass gate)**:
 - **Snapshot mặc định**: khi không có connection và config không đặt `SnapshotFilePath`, `validate` tìm `.dataguard-snapshot.json` cạnh file `--config`, rồi trong thư mục hiện tại (nơi `snapshot refresh` ghi mặc định); nếu thấy, stdout in `Using snapshot <path>`.
 - **Ground truth bắt buộc**: nếu sau khi thu thập không có schema (snapshot/connection), stored procedure, hay entity (assembly Manual / EF `--ef-snapshot`/`--ef-project`) — tức chỉ có SQL inline từ `--project` — stderr in `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` và exit `3`. `--allow-syntactic-only` hạ xuống cảnh báo. Không áp dụng cho `--format contracts|yaml|typescript`. Dưới `--ide-safe` cổng này luôn chỉ là cảnh báo (IDE-safe đã cố ý tắt mọi nguồn nạp code/kết nối), và `--config` thiếu file chỉ là cảnh báo vì host luôn truyền đường dẫn config chuẩn của workspace.
+- **Contract chưa đánh giá** (red-team H1/H2): describe live lỗi hoặc bị từ chối (DB không kết nối được, thiếu quyền, temp table, câu lệnh không chỉ-đọc hoặc nhiều câu lệnh) không còn sinh cảnh báo `DG020` exit `0` và Oracle/PostgreSQL không còn bịa cột `VARCHAR2`/`text` từ text SQL. Sau validate, stderr in `UNEVALUATED: <n> contract(s) could not be evaluated:` rồi mỗi dòng `<ruleId> <contractId>: <reason>` (`DG020` = shape query không xác định). ModelSnapshot parse một phần (`--ef-snapshot`/`--ef-project`) giữ entity đã parse và in `ACQUISITION: <path>: <message>` cho từng cấu hình bị bỏ qua. Có một trong hai => exit `3`, trừ khi `--allow-unevaluated` (hoặc `--ide-safe`) => exit theo violation. MySQL giờ có describer live (`CommandBehavior.SchemaOnly` + `GetColumnSchema()`, wrapper `WHERE 1=0 LIMIT 0`, session read-only).
 - **Rule không khả dụng** (ví dụ `DG012` Oracle, `PG004` PostgreSQL cần metadata DbContext từ analyzer): in một lần ra stderr `Rule <id> not evaluated: <reason>` và **không** chặn run. `--fail-on-unavailable` / `FailOnUnavailableRules: true` khôi phục exit `3`; rule nằm trong `--skip-rules` không được tính.
 - **Config**: key top-level không biết => stderr `Warning: unknown configuration keys: a, b`; `StrictConfig: true` => exit `2`. Giá trị sai kiểu (ví dụ `EnableBaseline: maybe`) => exit `2`.
 
@@ -191,7 +193,7 @@ dataguard validate --connection "..." --verbose
 - `0` = Pass (không violation mới)
 - `1` = Fail (có violation mới, hoặc CLI lỗi trước khi in summary)
 - `2` = Sai tham số / config: `--provider` hoặc `DefaultProvider` ngoài danh sách, `--config` trỏ tới file không tồn tại, config sai kiểu hoặc có key lạ khi `StrictConfig: true` (kể cả option bị `--ide-safe` từ chối; lưu ý CLI ≤ 0.2.2 không biết `--ide-safe` thì exit `1`)
-- `3` = Validation incomplete: không có nguồn contract, không có ground truth (trừ khi `--allow-syntactic-only`), hoặc rule không khả dụng khi bật `--fail-on-unavailable`
+- `3` = Validation incomplete: không có nguồn contract, không có ground truth (trừ khi `--allow-syntactic-only`), rule không khả dụng khi bật `--fail-on-unavailable`, hoặc có contract chưa đánh giá / chẩn đoán acquisition (trừ khi `--allow-unevaluated`)
 - `130` = Bị huỷ (Ctrl+C)
 
 ---

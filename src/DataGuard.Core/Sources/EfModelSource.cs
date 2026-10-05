@@ -229,19 +229,68 @@ public class EfModelSource : IContractSource
     }
 
     /// <summary>
-    /// Parses the EF Core ModelSnapshot JSON emitted by the generated DbContext ModelSnapshot file.
+    /// Extracts entities from a ModelSnapshot.cs file and also returns the parse diagnostics of a partial parse
+    /// (entity configurations that were skipped). Throws <see cref="EfModelExtractionException"/> when nothing parsed.
     /// </summary>
-    public static IReadOnlyList<EntityDescriptor> ParseModelSnapshot(
-        string json,
-        DataGuardConfiguration? config = null)
+    public static async Task<ModelSnapshotExtraction> ExtractFromModelSnapshotWithDiagnosticsAsync(
+        string snapshotFilePath,
+        DataGuardConfiguration? config = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = ModelSnapshotCSharpParser.Parse(json);
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshotFilePath);
+        if (!File.Exists(snapshotFilePath))
+        {
+            throw new EfModelExtractionException("ModelSnapshot source file does not exist.");
+        }
+
+        var source = await File.ReadAllTextAsync(snapshotFilePath, cancellationToken).ConfigureAwait(false);
+        return ParseModelSnapshotWithDiagnostics(source, config, snapshotFilePath);
+    }
+
+    /// <summary>
+    /// Parses a ModelSnapshot.cs source, keeping the entities that parsed and exposing every diagnostic for the ones that
+    /// did not as an <see cref="AcquisitionDiagnostic"/> (red-team: partial parse must not be silent).
+    /// Throws <see cref="EfModelExtractionException"/> when no entity parsed.
+    /// </summary>
+    /// <param name="source">ModelSnapshot.cs source text.</param>
+    /// <param name="config">Optional configuration (reserved).</param>
+    /// <param name="sourcePath">Path reported in diagnostics; defaults to <c>ModelSnapshot.cs</c>.</param>
+    public static ModelSnapshotExtraction ParseModelSnapshotWithDiagnostics(
+        string source,
+        DataGuardConfiguration? config = null,
+        string? sourcePath = null)
+    {
+        _ = config;
+        var result = ModelSnapshotCSharpParser.Parse(source);
         if (result.Diagnostics.Count > 0 && result.Entities.Count == 0)
         {
             throw new EfModelExtractionException(result.Diagnostics[0].Message);
         }
 
-        return result.Entities;
+        var path = string.IsNullOrWhiteSpace(sourcePath) ? "ModelSnapshot.cs" : sourcePath;
+        var diagnostics = result.Diagnostics
+            .Select(diagnostic => new AcquisitionDiagnostic(
+                ModelSnapshotPartialParseKind,
+                path,
+                diagnostic.Line is { } line
+                    ? $"{diagnostic.Code} (line {line}): {diagnostic.Message} The entity configuration was skipped."
+                    : $"{diagnostic.Code}: {diagnostic.Message}"))
+            .ToList();
+        return new ModelSnapshotExtraction(result.Entities, diagnostics);
+    }
+
+    /// <summary><see cref="AcquisitionDiagnostic.Kind"/> for a ModelSnapshot that parsed only partially.</summary>
+    public const string ModelSnapshotPartialParseKind = "ModelSnapshotPartialParse";
+
+    /// <summary>
+    /// Parses the EF Core ModelSnapshot JSON emitted by the generated DbContext ModelSnapshot file.
+    /// Partial-parse diagnostics are available from <see cref="ParseModelSnapshotWithDiagnostics"/>.
+    /// </summary>
+    public static IReadOnlyList<EntityDescriptor> ParseModelSnapshot(
+        string json,
+        DataGuardConfiguration? config = null)
+    {
+        return ParseModelSnapshotWithDiagnostics(json, config).Entities;
 
 #pragma warning disable CS0162 // Retained implementation is deliberately unreachable until removed in a major release.
         var entities = new List<EntityDescriptor>();
@@ -712,6 +761,11 @@ public class EfModelSource : IContractSource
 }
 
 /// <summary>Raised when a model artifact does not meet the explicit trusted-artifact contract.</summary>
+/// <summary>Entities parsed from a ModelSnapshot plus the diagnostics for configurations that were skipped.</summary>
+public sealed record ModelSnapshotExtraction(
+    IReadOnlyList<EntityDescriptor> Entities,
+    IReadOnlyList<AcquisitionDiagnostic> Diagnostics);
+
 public sealed class EfModelExtractionException : InvalidOperationException
 {
     public EfModelExtractionException(string message, Exception? innerException = null)

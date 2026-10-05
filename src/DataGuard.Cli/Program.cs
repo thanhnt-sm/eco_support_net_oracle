@@ -138,6 +138,8 @@ var failOnUnavailableOption = new Option<bool>("--fail-on-unavailable");
 failOnUnavailableOption.Description = "Exit 3 when a provider rule cannot be evaluated (config: FailOnUnavailableRules); by default unavailable rules are reported on stderr only";
 var allowSyntacticOnlyOption = new Option<bool>("--allow-syntactic-only");
 allowSyntacticOnlyOption.Description = "Allow validate without ground truth (snapshot, connection, manual assembly or EF model): warn instead of exiting 3";
+var allowUnevaluatedOption = new Option<bool>("--allow-unevaluated");
+allowUnevaluatedOption.Description = "Report contracts that could not be evaluated (failed live describe, partial acquisition) without exiting 3; the exit code then follows the violations. Implied by --ide-safe";
 var allowEnvConnectionOption = new Option<bool>(IdeSafePolicy.AllowEnvConnectionOptionName);
 allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DATAGUARD_CONNECTION_STRING (config-file connection strings are still ignored); no effect without --ide-safe";
 
@@ -147,7 +149,7 @@ allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DA
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -213,6 +215,9 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
 
     // IDE-safe strips every code-loading and connection source by design, so a lint-only run is its expected outcome.
     var allowSyntacticOnly = result.GetValue(allowSyntacticOnlyOption) || ideSafe;
+
+    // Same precedent: IDE hosts render findings, they do not gate; unevaluated contracts are still listed on stderr.
+    var allowUnevaluated = result.GetValue(allowUnevaluatedOption) || ideSafe;
 
     // Connection-bound rules share the acquisition credential unless the IDE-safe policy withholds it (review H1).
     var rulesConnectionString = config.ConnectionString;
@@ -293,9 +298,12 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         ct.ThrowIfCancellationRequested();
         var acquisition = await AcquireContractsAsync(config, provider, ct, projectPath, progress);
         var contracts = acquisition.Contracts.ToList();
+        var acquisitionDiagnostics = new List<AcquisitionDiagnostic>();
         if (!string.IsNullOrWhiteSpace(efSnapshotPath))
         {
-            contracts.AddRange(await EfModelSource.ExtractFromModelSnapshotAsync(efSnapshotPath, config, ct));
+            var snapshotExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(efSnapshotPath, config, ct);
+            contracts.AddRange(snapshotExtraction.Entities);
+            acquisitionDiagnostics.AddRange(snapshotExtraction.Diagnostics);
         }
         progress?.Emit(new ProgressEvent(
             ProgressEventKind.PhaseCompleted,
@@ -433,7 +441,8 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             "Validating rules",
             "Running enabled validation rules.",
             new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
-        var violations = await ValidateContractsAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress);
+        var validation = await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress);
+        var violations = validation.Violations;
         if (normalizedFormat == "text")
         {
             var emitter = new DiagnosticEmitter();
@@ -479,12 +488,39 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
 
         var hasErrors = violations.Any(v => v.Severity == DiagnosticSeverity.Error);
 
-        if (verbose)
+        // One Unevaluated semantics (red-team H1/H2): a contract no rule could evaluate and an acquisition that read only
+        // part of its input are neither findings nor passes. List them all, then exit 3 unless --allow-unevaluated.
+        // Phase 3 merge: also print ProjectCSharpSqlSource.Diagnostics
+        var unevaluated = validation.Unevaluated;
+        if (unevaluated.Count > 0)
         {
-            Console.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings, {unavailableOutcomes.Count} rules not evaluated)");
+            Console.Error.WriteLine($"UNEVALUATED: {unevaluated.Count} contract(s) could not be evaluated:");
+            foreach (var entry in unevaluated)
+            {
+                Console.Error.WriteLine($"  {entry.RuleId} {entry.ContractId}: {entry.Reason}");
+            }
         }
 
-        Environment.ExitCode = hasErrors ? 1 : 0;
+        foreach (var diagnostic in acquisitionDiagnostics)
+        {
+            Console.Error.WriteLine($"ACQUISITION: {diagnostic.Path}: {diagnostic.Message}");
+        }
+
+        if (verbose)
+        {
+            Console.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings, {unavailableOutcomes.Count} rules not evaluated, {unevaluated.Count} contracts not evaluated)");
+        }
+
+        var hasUnevaluated = unevaluated.Count > 0 || acquisitionDiagnostics.Count > 0;
+        if (hasUnevaluated && !allowUnevaluated)
+        {
+            Console.Error.WriteLine("UNEVALUATED: exit 3 because the result is incomplete; pass --allow-unevaluated to exit by violations only.");
+            Environment.ExitCode = 3;
+        }
+        else
+        {
+            Environment.ExitCode = hasErrors ? 1 : 0;
+        }
 
         progress?.Emit(new ProgressEvent(
             ProgressEventKind.Summary,
@@ -496,6 +532,8 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
                 ["WarningCount"] = violations.Count(v => v.Severity == DiagnosticSeverity.Warning),
                 ["ViolationCount"] = violations.Count,
                 ["UnavailableRuleCount"] = unavailableOutcomes.Count,
+                ["UnevaluatedContractCount"] = unevaluated.Count,
+                ["AcquisitionDiagnosticCount"] = acquisitionDiagnostics.Count,
             }));
     }
     catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -724,7 +762,7 @@ verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
             IReadOnlyList<ColumnDescriptor>? dbColumns = null;
             try
             {
-                dbColumns = await schemaProvider.DescribeResultSetAsync(query.SqlText, ct);
+                dbColumns = await schemaProvider.DescribeColumnsOrThrowAsync(query.SqlText, ct);
             }
             catch (Exception ex)
             {
@@ -2435,18 +2473,35 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
     HashSet<string>? skipRuleIds = null,
     ProgressEmitter? progress = null)
 {
+    return (await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, cancellationToken, skipRuleIds, progress)).Violations;
+}
+
+// Same as ValidateContractsAsync, plus the contracts rules could not evaluate (drained on both execution paths).
+static async Task<(IReadOnlyList<ContractViolation> Violations, IReadOnlyList<UnevaluatedContract> Unevaluated)> ValidateContractsDetailedAsync(
+    IReadOnlyList<ContractDescriptor> contracts,
+    DataGuardConfiguration config,
+    string provider,
+    string? rulesConnectionString,
+    CancellationToken cancellationToken = default,
+    HashSet<string>? skipRuleIds = null,
+    ProgressEmitter? progress = null)
+{
     var allViolations = new List<ContractViolation>();
+    IReadOnlyList<UnevaluatedContract> unevaluatedContracts;
     var rules = GetRulesForProvider(provider, rulesConnectionString, progress)
         .Where(r => skipRuleIds is null || !skipRuleIds.Contains(r.RuleId))
         .ToList();
     if (config.EnableConcurrentValidation)
     {
         var engine = new ConcurrentValidationEngine(config.MaxDegreeOfParallelism, config.MaxViolationQueueSize);
-        allViolations.AddRange(await engine.ValidateAsync(
+        var execution = await engine.ValidateDetailedAsync(
             contracts,
             rules,
             cancellationToken,
-            executionCompleted: null));
+            executionCompleted: null);
+        ConcurrentValidationEngine.ThrowIfIncomplete(execution);
+        allViolations.AddRange(execution.Violations);
+        unevaluatedContracts = execution.UnevaluatedContracts;
         var violationsByRule = allViolations.GroupBy(v => v.RuleId).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         foreach (var rule in rules)
         {
@@ -2487,6 +2542,8 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
                     ["ViolationCount"] = ruleViolationCount,
                 }));
         }
+
+        unevaluatedContracts = UnevaluatedContracts.DrainFrom(rules);
     }
 
     if (config.EnableBaseline && !string.IsNullOrEmpty(config.BaselineFilePath) && File.Exists(config.BaselineFilePath))
@@ -2524,7 +2581,7 @@ static async Task<IReadOnlyList<ContractViolation>> ValidateContractsAsync(
         "Validation rules completed.",
         new Dictionary<string, object?> { ["ViolationCount"] = allViolations.Count }));
 
-    return allViolations;
+    return (allViolations, unevaluatedContracts);
 }
 
 static async Task<IReadOnlyList<ContractViolation>> RunValidationAsync(
