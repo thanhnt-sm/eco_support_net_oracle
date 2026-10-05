@@ -20,7 +20,7 @@
     <ProjectReference Include="..\DataGuard.MySql.Adapter\DataGuard.MySql.Adapter.csproj" />
     <ProjectReference Include="..\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj" />
     <ProjectReference Include="..\DataGuard.Analyzers\DataGuard.Analyzers.csproj" />
-    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.14" />
+    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.15" />
     <PackageReference Include="System.CommandLine" Version="2.0.12" />
   </ItemGroup>
 
