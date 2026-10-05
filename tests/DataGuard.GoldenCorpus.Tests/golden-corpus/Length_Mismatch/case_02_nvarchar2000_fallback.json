@@ -2,12 +2,13 @@
   "testCase": "LM_002",
   "category": "Length_Mismatch",
   "description": "EF Core Oracle provider infers NVARCHAR2(2000) for string with no MaxLength",
+  "provenance": { "source": "manual", "model": null, "date": "2026-09-25" },
   "input": {
     "entity": {
       "name": "Document",
       "properties": [
         { "name": "Id", "type": "int", "isPrimaryKey": true },
-        { "name": "Content", "type": "string", "isUnicode": true }
+        { "name": "Content", "type": "string", "isUnicode": true, "isNullable": true }
       ]
     },
     "databaseSchema": {

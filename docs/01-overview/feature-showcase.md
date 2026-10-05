@@ -94,7 +94,7 @@ graph TD
 | **DG010** | Oracle Syntax in Non-Oracle | Warning | Oracle-specific keywords (`ROWNUM`, `NVL`, `SYSDATE`, `DECODE`) or operators (`(+)`, `\|\|`) used in non-Oracle context. |
 | **DG011** | Non-Oracle Function in Oracle | Warning | SQL Server syntax (`TOP`, `LIMIT`, `GROUP_CONCAT`, `GETDATE`) used in Oracle context. Suggests Oracle equivalents (`FETCH FIRST`, `LISTAGG`, `SYSDATE`). |
 | **DG012** | Provider Option Mismatch | Error | Oracle context detected but EF Core provider is not Oracle. Missing `UseOracle()` in configuration. |
-| **DG013** | SQL Server Syntax Leak | Warning | SQL Server `EXEC dbo.Procedure` syntax used in Oracle context. Oracle uses `BEGIN ... END;` block or `CALL`. |
+| **DG013** | SQL Server Syntax Leak | Warning | SQL Server `EXEC dbo.Procedure` syntax or bracket-quoted identifiers (`[Col]`) used in Oracle context. Oracle uses `BEGIN ... END;` block or `CALL`, and `"Col"` for quoted identifiers. |
 | **DG014** | Unmapped Type Usage | Warning | Type used with Oracle EF Core raw SQL but not mapped by the Oracle provider. May cause runtime mapping failures. |
 
 ### Phantom Identifier Rules (DataGuard.Core)

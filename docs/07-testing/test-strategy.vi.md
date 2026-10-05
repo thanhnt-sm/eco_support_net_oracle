@@ -77,11 +77,36 @@ dotnet test --filter "Category=Integration"
 - **MySQL**: Kết nối thực, truy vấn INFORMATION_SCHEMA
 - **PostgreSQL**: Kết nối thực, truy vấn pg_catalog
 
-SQL Server fixture thông thường ghi nhận informational skip khi Docker không
-có. Để biến Docker/provider health thành gate bắt buộc, dùng:
+### Test cơ sở dữ liệu thật (`Category=LiveDb`)
+
+Năm fixture Testcontainers (`OracleIntegrationTests`, `MySqlIntegrationTests`,
+`PostgreSqlIntegrationTests`, `SqlServerIntegrationTests`,
+`SqlServerParserIntegrationTests`) dùng `[LiveDbFact(LiveDbTarget.Relational | SqlServer)]`
+trong `tests/DataGuard.Core.Tests/LiveDbFactAttribute.cs`:
+
+| Biến bật | Bật cho | Image |
+|---|---|---|
+| `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1` | Oracle, MySQL, PostgreSQL | `gvenzl/oracle-free:23-slim-faststart`, `mysql:8.4`, `postgres:16-alpine` |
+| `DATAGUARD_REQUIRE_LIVE_SQLSERVER=1` (alias cũ `DATAGUARD_RUN_SQLSERVER_INTEGRATION=1`) | SQL Server | `mcr.microsoft.com/mssql/server:2022-latest` |
+
+- Không đặt biến: test được báo **Skipped** kèm lý do; không còn `return` sớm rồi tính là passed, và không khởi động container.
+- Có đặt biến: fixture bắt buộc khởi động container; lỗi pull image, daemon, khởi động hoặc health-check sẽ ném ngoại lệ và làm test fail.
+- Mọi test có cổng đều mang trait `Category=LiveDb` (và `LiveDbTarget=Relational|SqlServer`).
 
 ```bash
-DATAGUARD_RUN_SQLSERVER_INTEGRATION=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+# Job mặc định/unit: loại hẳn các test live
+dotnet test DataGuard.CrossPlatform.slnf -c Release --filter "Category!=LiveDb"
+
+# Job live (cần Docker): chạy thật
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 \
+  dotnet test tests/DataGuard.Core.Tests -c Release --filter Category=LiveDb
+```
+
+Vẫn có thể chọn riêng một provider bằng biến cổng tương ứng và filter
+`FullyQualifiedName~<Fixture>`, ví dụ:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
   --configuration Release --no-restore \
   --filter 'FullyQualifiedName~SqlServerIntegrationTests|FullyQualifiedName~SqlServerParserIntegrationTests'
 ```
@@ -112,9 +137,19 @@ DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataG
 
 ### Golden Corpus Tests
 
-- SQL đã biết đúng phải pass tất cả rules
-- SQL đã biết sai phải trigger rules cụ thể
-- Edge cases: result sets rỗng, overloaded procedures, nullable columns
+`tests/DataGuard.GoldenCorpus.Tests/golden-corpus/<Category>/*.json`, mỗi file một case:
+
+- Bộ rule lấy từ inventory của CLI `ProviderRuleCatalog.Get(provider)` lọc theo
+  `Ready`, nên corpus chạy đúng những rule mà `dataguard validate` đăng ký.
+- Finding Error và Warning được so khớp toàn bộ theo `(ruleId, severity)`: thiếu hoặc
+  thừa một Error/Warning đều làm case fail; Info được nới lỏng.
+- JSON lỗi hoặc thiếu trường bắt buộc (`testCase`, `category`, `input`,
+  `expectedDiagnostics`, `provenance`) làm fail đúng dòng theory đó.
+- Ngưỡng: tối thiểu 24 case, tối thiểu 6 case `Negative/` (`expectedDiagnostics: []`),
+  mọi thư mục category không rỗng, phủ đủ bốn provider.
+- `provenance`: `{ "source": "manual" | "llm", "model": <id hoặc null>, "date": "yyyy-MM-dd" }`
+  (`llm` bắt buộc có `model`). `tools/corpus/collect_hallucinations.py` soạn nháp case
+  `llm`; xem `tools/corpus/README.md`.
 
 ### Analyzer Tests
 

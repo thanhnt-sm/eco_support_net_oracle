@@ -12,34 +12,32 @@ using Xunit;
 namespace DataGuard.Core.Tests;
 
 /// <summary>
-/// Live SQL Server tests via Testcontainers. Skipped automatically when Docker
-/// is not available so local/offline CI still passes.
+/// Live SQL Server tests via Testcontainers. Gated by <see cref="LiveDbFactAttribute"/>: reported as Skipped unless
+/// DATAGUARD_REQUIRE_LIVE_SQLSERVER=1, and the fixture fails loudly when that variable is set and the container cannot
+/// start.
 /// </summary>
 public class SqlServerParserIntegrationTests : IAsyncLifetime
 {
-    private const string RequireLiveSqlServerVariable = "DATAGUARD_REQUIRE_LIVE_SQLSERVER";
-    private const string RunLiveSqlServerVariable = "DATAGUARD_RUN_SQLSERVER_INTEGRATION";
+    private const string Image = "mcr.microsoft.com/mssql/server:2022-latest";
     private MsSqlContainer? _container;
-    private bool _dockerAvailable;
 
     public async Task InitializeAsync()
     {
+        if (!LiveDbGate.IsEnabled(LiveDbTarget.SqlServer))
+        {
+            return; // Gated tests are Skipped and never construct this class; this only guards direct use.
+        }
+
         try
         {
-            _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest")
+            _container = new MsSqlBuilder(Image)
                 .WithPassword("DataGuard_Test_1!")
                 .Build();
             await _container.StartAsync();
-            _dockerAvailable = true;
         }
         catch (Exception ex)
         {
-            if (IsLiveSqlServerRequired())
-            {
-                throw new InvalidOperationException("Live SQL Server was required but the Testcontainers fixture could not start.", ex);
-            }
-
-            _dockerAvailable = false;
+            throw LiveDbGate.ContainerStartFailed(LiveDbTarget.SqlServer, Image, ex);
         }
     }
 
@@ -51,13 +49,10 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [LiveDbFact(LiveDbTarget.SqlServer)]
     public async Task ExtractContractsAsync_ReadsProcedureParametersAndResultSet()
     {
-        if (!_dockerAvailable || _container == null)
-        {
-            return; // xUnit 2.9 has no supported dynamic skip API.
-        }
+        Assert.NotNull(_container);
 
         var cs = _container.GetConnectionString();
         await using (var conn = new SqlConnection(cs))
@@ -97,8 +92,4 @@ public class SqlServerParserIntegrationTests : IAsyncLifetime
             && column.DataDefault != null
             && column.DataDefault.Contains("active", StringComparison.OrdinalIgnoreCase));
     }
-
-    private static bool IsLiveSqlServerRequired()
-        => string.Equals(Environment.GetEnvironmentVariable(RequireLiveSqlServerVariable), "1", StringComparison.Ordinal)
-            || string.Equals(Environment.GetEnvironmentVariable(RunLiveSqlServerVariable), "1", StringComparison.Ordinal);
 }

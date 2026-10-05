@@ -2,6 +2,7 @@
   "testCase": "VN_001",
   "category": "Vietnamese_Data",
   "description": "Vietnamese Unicode characters exceed BYTE length semantics",
+  "provenance": { "source": "manual", "model": null, "date": "2026-09-25" },
   "input": {
     "entity": {
       "name": "Customer",

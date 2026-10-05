@@ -2,6 +2,7 @@
   "testCase": "H3_002",
   "category": "H3_Dialect_Confusion",
   "description": "AI uses MySQL/PostgreSQL LIMIT instead of Oracle FETCH FIRST",
+  "provenance": { "source": "manual", "model": null, "date": "2026-09-25" },
   "input": {
     "entity": {
       "name": "Product",
@@ -23,6 +24,11 @@
     {
       "ruleId": "DG011",
       "messageContains": "LIMIT clause not supported in Oracle, use FETCH FIRST n ROWS ONLY",
+      "severity": "Warning"
+    },
+    {
+      "ruleId": "DG017",
+      "messageContains": "Avoid SELECT *",
       "severity": "Warning"
     }
   ]

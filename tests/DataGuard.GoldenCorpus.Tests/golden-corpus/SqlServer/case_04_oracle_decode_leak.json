@@ -1,0 +1,34 @@
+{
+  "testCase": "SS_004",
+  "category": "SqlServer",
+  "description": "Oracle DECODE used in a SQL Server query (should be CASE WHEN)",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT o.Id, DECODE(o.Status, 'A', 1, 0) AS IsActive FROM dbo.Orders o WHERE o.CustomerId = @customerId",
+    "provider": "SqlServer",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "dbo.Orders",
+          "columns": [
+            "Id",
+            "CustomerId",
+            "OrderDate",
+            "Status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG010",
+      "messageContains": "Keyword 'DECODE' is unsupported",
+      "severity": "Warning"
+    }
+  ]
+}

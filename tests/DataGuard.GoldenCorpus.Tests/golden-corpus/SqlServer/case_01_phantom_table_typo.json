@@ -1,0 +1,42 @@
+{
+  "testCase": "SS_001",
+  "category": "SqlServer",
+  "description": "AI misspells a schema-qualified table (dbo.Ordres instead of dbo.Orders)",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT o.Id, o.CustomerId FROM dbo.Ordres o WHERE o.Id = @id",
+    "provider": "SqlServer",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "dbo.Orders",
+          "columns": [
+            "Id",
+            "CustomerId",
+            "OrderDate",
+            "Status"
+          ]
+        },
+        {
+          "name": "dbo.Customers",
+          "columns": [
+            "Id",
+            "FullName",
+            "Email"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG015",
+      "messageContains": "ORDRES",
+      "severity": "Error"
+    }
+  ]
+}

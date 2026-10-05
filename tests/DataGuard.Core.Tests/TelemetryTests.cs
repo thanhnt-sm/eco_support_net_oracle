@@ -364,15 +364,32 @@ public class TimedOperationTests
     [Fact]
     public void TimedOperation_Dispose_RecordsHistogram()
     {
-        using var collector = new TelemetryCollector(
-            new TelemetryConfig(Enabled: true, FlushIntervalSeconds: 3600));
-
-        using (var op = collector.MeasureOperation("test.timed"))
+        var instrumentName = $"test.timed.{Guid.NewGuid():N}";
+        var measurements = new System.Collections.Concurrent.ConcurrentQueue<double>();
+        using var listener = new System.Diagnostics.Metrics.MeterListener
         {
-            // op is disposed here, recording the elapsed time
+            InstrumentPublished = (instrument, l) =>
+            {
+                if (instrument.Meter.Name == "DataGuard.Core" && instrument.Name == instrumentName)
+                {
+                    l.EnableMeasurementEvents(instrument);
+                }
+            },
+        };
+        listener.SetMeasurementEventCallback<double>((_, value, _, _) => measurements.Enqueue(value));
+        listener.Start();
+
+        using var collector = new TelemetryCollector(
+            new TelemetryConfig(Enabled: true, FlushIntervalSeconds: 3600),
+            (_, _) => Task.CompletedTask);
+
+        using (collector.MeasureOperation(instrumentName))
+        {
+            // Disposing the TimedOperation records the elapsed milliseconds as a histogram value.
         }
 
-        // No exception means TimedOperation.Dispose called RecordHistogram successfully
+        measurements.Should().ContainSingle("disposing the operation records exactly one histogram measurement")
+            .Which.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]

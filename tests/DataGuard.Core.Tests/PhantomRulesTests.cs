@@ -202,6 +202,50 @@ public class PhantomRulesTests
         violations.Should().BeEmpty(string.Join("; ", violations.Select(v => $"{v.RuleId}: {v.Message}")));
     }
 
+    // ---- Aliases that are SQL keywords (quoted where the dialect requires it) ----
+    [Theory]
+    [InlineData("SELECT [user].NAME FROM CUSTOMERS AS [user]")]
+    [InlineData("SELECT \"ORDER\".TOTAL FROM ORDERS \"ORDER\"")]
+    [InlineData("SELECT [order].Amount FROM dbo.Invoices AS [order] WHERE [order].OrderId = @id")]
+    [InlineData("SELECT o.ID AS [key], o.TOTAL AS value, o.ORDER_DATE AS [date] FROM ORDERS o")]
+    [InlineData("SELECT c.NAME AS \"LEVEL\", c.EMAIL \"TYPE\" FROM CUSTOMERS c")]
+    [InlineData("SELECT [user].NAME, [order].TOTAL FROM CUSTOMERS [user] JOIN ORDERS [order] ON [order].CUSTOMER_ID = [user].ID")]
+    public async Task KeywordAlias_ExistingColumns_NotFlagged(string sql)
+    {
+        var violations = await RunBothAsync(sql);
+
+        violations.Should().BeEmpty(string.Join("; ", violations.Select(v => $"{v.RuleId}: {v.Message}")));
+    }
+
+    [Fact]
+    public async Task KeywordAlias_PhantomColumn_ReportsDG016AgainstAliasedTable()
+    {
+        var violations = await RunBothAsync("SELECT [user].NAME, [user].NICKNAME FROM CUSTOMERS AS [user]");
+
+        var violation = violations.Should().ContainSingle().Subject;
+        violation.RuleId.Should().Be("DG016");
+        violation.Message.Should().Contain("'NICKNAME'").And.Contain("'CUSTOMERS'");
+    }
+
+    [Fact]
+    public async Task SchemaQualifiedTable_WithKeywordAlias_PhantomColumn_ReportsDG016()
+    {
+        var violations = await RunBothAsync("SELECT [order].Amount, [order].Discount FROM dbo.Invoices [order]");
+
+        var violation = violations.Should().ContainSingle().Subject;
+        violation.RuleId.Should().Be("DG016");
+        violation.Message.Should().Contain("'DISCOUNT'").And.Contain("DBO.INVOICES");
+    }
+
+    [Fact]
+    public async Task SchemaQualifiedPhantomTable_WithKeywordAlias_ReportsDG015Only()
+    {
+        var violations = await RunBothAsync("SELECT [user].Id FROM dbo.Users AS [user]");
+
+        violations.Should().ContainSingle().Which.Should().Match<ContractViolation>(
+            v => v.RuleId == "DG015" && v.Message.Contains("DBO.USERS"));
+    }
+
     [Fact]
     public async Task PhantomInsideComment_IsMasked_ButRealPhantomStillReported()
     {

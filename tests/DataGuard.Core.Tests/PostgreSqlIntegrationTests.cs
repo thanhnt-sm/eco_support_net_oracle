@@ -16,22 +16,28 @@ namespace DataGuard.Core.Tests;
 /// </summary>
 public class PostgreSqlIntegrationTests : IAsyncLifetime
 {
-    private const string RequireLiveRelationalVariable = "DATAGUARD_REQUIRE_LIVE_RELATIONAL";
     private PostgreSqlContainer? _container;
 
     public async Task InitializeAsync()
     {
-        if (!RequiresLiveRelational())
+        if (!LiveDbGate.IsEnabled(LiveDbTarget.Relational))
         {
-            return;
+            return; // Gated tests are Skipped and never construct this class; this only guards direct use.
         }
 
-        _container = new PostgreSqlBuilder("postgres:16-alpine")
-            .WithDatabase("dataguard")
-            .WithUsername("dataguard")
-            .WithPassword("DataGuard_Test_1!")
-            .Build();
-        await _container.StartAsync();
+        try
+        {
+            _container = new PostgreSqlBuilder("postgres:16-alpine")
+                .WithDatabase("dataguard")
+                .WithUsername("dataguard")
+                .WithPassword("DataGuard_Test_1!")
+                .Build();
+            await _container.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            throw LiveDbGate.ContainerStartFailed(LiveDbTarget.Relational, "postgres:16-alpine", ex);
+        }
     }
 
     public async Task DisposeAsync()
@@ -42,13 +48,10 @@ public class PostgreSqlIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [LiveDbFact(LiveDbTarget.Relational)]
     public async Task ExtractContractsAsync_ReadsFunctionParametersFromLivePostgreSql()
     {
-        if (_container == null)
-        {
-            return; // xUnit 2.9 has no supported dynamic skip API.
-        }
+        Assert.NotNull(_container);
 
         await using (var connection = new NpgsqlConnection(_container.GetConnectionString()))
         {
@@ -76,7 +79,4 @@ public class PostgreSqlIntegrationTests : IAsyncLifetime
         schema.Tables.Should().Contain(table => table.Name == "customers" && table.Columns.Any(column =>
             column.Name == "status" && column.DataDefault != null && column.DataDefault.Contains("active", StringComparison.OrdinalIgnoreCase)));
     }
-
-    private static bool RequiresLiveRelational()
-        => string.Equals(Environment.GetEnvironmentVariable(RequireLiveRelationalVariable), "1", StringComparison.Ordinal);
 }
