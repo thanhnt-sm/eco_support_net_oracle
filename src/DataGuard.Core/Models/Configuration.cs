@@ -71,6 +71,13 @@ public record DataGuardConfiguration(
     /// <c>validate</c> warns when the snapshot it reads is older than this many days (default 90; 0 or less disables the warning).
     /// </summary>
     public int SnapshotMaxAgeDays { get; init; } = 90;
+
+    /// <summary>
+    /// When true, DG101/DG002/DG003 findings produced by resolving stored-procedure calls against the catalog are errors.
+    /// Default false: they are warnings in this release. Unqualified calls use <see cref="DefaultSchema"/> and
+    /// <see cref="DefaultPackage"/> (Oracle) for resolution.
+    /// </summary>
+    public bool StrictProcedureContracts { get; init; }
 }
 
 /// <summary>

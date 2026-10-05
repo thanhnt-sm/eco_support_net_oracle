@@ -3,6 +3,8 @@ using System.Text.RegularExpressions;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using DataGuard.Core.Rules.Sql;
+using DataGuard.Core.Rules.StoredProcedures;
+using DataGuard.Core.Rules.TypeCompatibility;
 using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Rules;
@@ -48,60 +50,143 @@ public abstract class ContractRuleBase : IContractRule
 }
 
 /// <summary>
-/// Rule: Parameter count must match between call site and stored procedure.
+/// Rule DG101: a stored-procedure call must resolve to a catalog procedure (overload) whose signature accepts the call.
+/// With <see cref="StoredProcedureDescriptor"/>s in the run, the call is resolved by <see cref="StoredProcedureCallResolver"/>
+/// and the rule reports an unknown procedure (with the nearest catalog name), missing required parameters and unknown
+/// arguments. Without a catalog (syntactic-only runs) it keeps the legacy heuristic: <c>EXEC</c> text without any
+/// <c>@</c> token on a descriptor that is not flagged as a stored-procedure call.
 /// </summary>
-public class ParameterCountRule : ContractRuleBase
+public class ParameterCountRule : StoredProcedureContractRuleBase
 {
+    /// <summary>Initializes a new instance of the <see cref="ParameterCountRule"/> class.</summary>
+    /// <param name="provider">Provider key; null infers it per descriptor.</param>
+    /// <param name="typeCompatibility">Provider type table used to rank overloads.</param>
+    /// <param name="strictProcedureContracts">True reports catalog-resolved findings as errors.</param>
+    /// <param name="defaultSchema">Schema assumed for unqualified calls.</param>
+    /// <param name="defaultPackage">Oracle package assumed for unqualified calls.</param>
+    public ParameterCountRule(
+        string? provider = null,
+        ITypeCompatibility? typeCompatibility = null,
+        bool strictProcedureContracts = false,
+        string? defaultSchema = null,
+        string? defaultPackage = null)
+        : base(provider, typeCompatibility, strictProcedureContracts, defaultSchema, defaultPackage)
+    {
+    }
+
     public override string RuleId => "DG101"; // engine-only id; DG001 is the IDE UnvalidatedSqlCall id
 
     public override string Name => "Parameter Count Match";
 
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Error;
 
-    public override string Description => "Stored procedure parameter count must match call site";
+    public override string Description => "Stored procedure calls must resolve to a catalog procedure and supply exactly its required parameters";
 
-    protected override async Task ValidateCoreAsync(
+    protected override Task ValidateCoreAsync(
         ContractDescriptor contract,
         IReadOnlyList<ContractDescriptor> allContracts,
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        // Handle RawSqlDescriptor which has SqlText
-        if (contract is RawSqlDescriptor sqlDesc)
+        if (contract is not RawSqlDescriptor call || (string.IsNullOrEmpty(call.SqlText) && call.ProcedureName is null))
         {
-            var sqlText = sqlDesc.SqlText;
+            return Task.CompletedTask;
+        }
 
-            if (string.IsNullOrEmpty(sqlText))
-            {
-                return;
-            }
+        if (!StoredProcedureCallResolver.HasCatalog(allContracts))
+        {
+            ValidateWithoutCatalog(call, violations);
+            return Task.CompletedTask;
+        }
 
-            // Count parameters in SQL
-            var paramMatches = Regex.Matches(sqlText, @"@\w+");
-            var detectedCount = paramMatches.Count;
+        var resolution = Resolve(call, allContracts);
+        switch (resolution.Status)
+        {
+            case StoredProcedureResolutionStatus.NoCandidate:
+                var nearest = resolution.NearestCandidate is null
+                    ? string.Empty
+                    : $" (nearest: {StoredProcedureCallResolver.QualifiedName(resolution.NearestCandidate)})";
+                violations.Add(CreateViolation(
+                    RuleId,
+                    $"Stored procedure '{resolution.CallSite!.DisplayName}' not found in catalog{nearest}",
+                    ResolvedSeverity,
+                    call.Location,
+                    FindingProperties(resolution)));
+                break;
 
-            // Suppress DG101 if IsStoredProcedure=true (parameters passed out-of-band, no inline tokens).
-            if ((sqlText.Trim().StartsWith("exec ", StringComparison.OrdinalIgnoreCase) ||
-                 sqlText.Trim().StartsWith("execute ", StringComparison.OrdinalIgnoreCase)) &&
-                !sqlDesc.IsStoredProcedure)
-            {
-                if (detectedCount == 0)
+            case StoredProcedureResolutionStatus.NoMatch:
+                var problems = new List<string>();
+                if (resolution.MissingRequired.Count > 0)
                 {
-                    violations.Add(CreateViolation(
-                        RuleId,
-                        "Stored procedure call appears to have no parameters detected",
-                        Severity));
+                    problems.Add($"missing required parameter(s) {string.Join(", ", resolution.MissingRequired.Select(p => p.Name))}");
                 }
-            }
+
+                if (resolution.ExtraArguments.Count > 0)
+                {
+                    problems.Add($"unknown argument(s) {string.Join(", ", resolution.ExtraArguments.Select(a => a.Display))}");
+                }
+
+                var note = resolution.Note is null ? string.Empty : $" ({resolution.Note})";
+                var properties = new Dictionary<string, object?>(FindingProperties(resolution), StringComparer.Ordinal)
+                {
+                    ["parameter"] = resolution.MissingRequired.Select(p => p.Name).FirstOrDefault() ?? resolution.ExtraArguments.Select(a => a.Display).FirstOrDefault(),
+                    ["missingParameters"] = string.Join(",", resolution.MissingRequired.Select(p => p.Name)),
+                    ["extraArguments"] = string.Join(",", resolution.ExtraArguments.Select(a => a.Display)),
+                };
+                violations.Add(CreateViolation(
+                    RuleId,
+                    $"Call to stored procedure '{StoredProcedureCallResolver.QualifiedName(resolution.NearestCandidate!)}' does not match its catalog signature: {string.Join("; ", problems)}{note}",
+                    ResolvedSeverity,
+                    call.Location,
+                    properties));
+                break;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void ValidateWithoutCatalog(RawSqlDescriptor call, List<ContractViolation> violations)
+    {
+        var sqlText = call.SqlText.Trim();
+        var isExec = sqlText.StartsWith("exec ", StringComparison.OrdinalIgnoreCase) ||
+                     sqlText.StartsWith("execute ", StringComparison.OrdinalIgnoreCase);
+
+        // IsStoredProcedure=true means parameters are passed out-of-band, not as inline tokens.
+        if (isExec && !call.IsStoredProcedure && !Regex.IsMatch(sqlText, @"@\w+", RegexOptions.None, TimeSpan.FromSeconds(1)))
+        {
+            violations.Add(CreateViolation(
+                RuleId,
+                "Stored procedure call appears to have no parameters detected",
+                Severity,
+                call.Location));
         }
     }
 }
 
 /// <summary>
-/// Rule: Parameter types must match between call site and stored procedure.
+/// Rule DG002: the CLR type passed for a stored-procedure parameter must be compatible with the parameter's database type,
+/// using the provider's <see cref="ITypeCompatibility"/> table. With a catalog, every argument bound by
+/// <see cref="StoredProcedureCallResolver"/> that carries a CLR type is checked; without one, descriptor parameters that
+/// carry both a CLR and a database type (manual contracts) are checked. Unknown CLR or database types never produce a finding.
 /// </summary>
-public class ParameterTypeMatchRule : ContractRuleBase
+public class ParameterTypeMatchRule : StoredProcedureContractRuleBase
 {
+    /// <summary>Initializes a new instance of the <see cref="ParameterTypeMatchRule"/> class.</summary>
+    /// <param name="provider">Provider key; null infers it per descriptor.</param>
+    /// <param name="typeCompatibility">Provider type table; null resolves one through <see cref="TypeCompatibilityRegistry"/>.</param>
+    /// <param name="strictProcedureContracts">True reports catalog-resolved findings as errors.</param>
+    /// <param name="defaultSchema">Schema assumed for unqualified calls.</param>
+    /// <param name="defaultPackage">Oracle package assumed for unqualified calls.</param>
+    public ParameterTypeMatchRule(
+        string? provider = null,
+        ITypeCompatibility? typeCompatibility = null,
+        bool strictProcedureContracts = false,
+        string? defaultSchema = null,
+        string? defaultPackage = null)
+        : base(provider, typeCompatibility, strictProcedureContracts, defaultSchema, defaultPackage)
+    {
+    }
+
     public override string RuleId => "DG002";
 
     public override string Name => "Parameter Type Match";
@@ -110,113 +195,113 @@ public class ParameterTypeMatchRule : ContractRuleBase
 
     public override string Description => "Parameter CLR types must match database types";
 
-    private static readonly ImmutableDictionary<string, string[]> SqlServerTypeMap = ImmutableDictionary<string, string[]>.Empty
-        .Add("int", new[] { "int" })
-        .Add("long", new[] { "bigint" })
-        .Add("short", new[] { "smallint" })
-        .Add("byte", new[] { "tinyint" })
-        .Add("bool", new[] { "bit" })
-        .Add("decimal", new[] { "decimal", "numeric", "money", "smallmoney" })
-        .Add("double", new[] { "float" })
-        .Add("float", new[] { "real" })
-        .Add("string", new[] { "nvarchar", "varchar", "nchar", "char", "ntext", "text" })
-        .Add("DateTime", new[] { "datetime", "datetime2", "smalldatetime", "date", "time" })
-        .Add("DateTimeOffset", new[] { "datetimeoffset" })
-        .Add("Guid", new[] { "uniqueidentifier" })
-        .Add("byte[]", new[] { "varbinary", "binary", "image" })
-        .Add("TimeSpan", new[] { "time" });
+    /// <summary>
+    /// Compatibility shim for callers of the pre-3.1 API: true only when the provider table reports
+    /// <see cref="TypeCompatibilityResult.Compatible"/> (unknown types are not compatible here).
+    /// </summary>
+    /// <param name="clrType">CLR type in any spelling.</param>
+    /// <param name="dbType">Database type.</param>
+    /// <param name="isOracle">True selects the Oracle table, false the SQL Server table.</param>
+    /// <returns>True when compatible.</returns>
+    public static bool IsTypeCompatible(string clrType, string dbType, bool isOracle) =>
+        TypeCompatibilityRegistry.Resolve(isOracle ? "oracle" : "sqlserver").Check(clrType, dbType) == TypeCompatibilityResult.Compatible;
 
-    private static readonly ImmutableDictionary<string, string[]> OracleTypeMap = ImmutableDictionary<string, string[]>.Empty
-        .Add("int", new[] { "NUMBER", "INTEGER", "INT" })
-        .Add("long", new[] { "NUMBER", "BIGINT" })
-        .Add("short", new[] { "NUMBER", "SMALLINT" })
-        .Add("byte", new[] { "NUMBER" })
-        .Add("bool", new[] { "NUMBER(1)" })
-        .Add("decimal", new[] { "NUMBER", "DECIMAL", "NUMERIC" })
-        .Add("double", new[] { "BINARY_DOUBLE", "FLOAT" })
-        .Add("float", new[] { "BINARY_FLOAT" })
-        .Add("string", new[] { "VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR", "CLOB", "NCLOB" })
-        .Add("DateTime", new[] { "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE" })
-        .Add("DateTimeOffset", new[] { "TIMESTAMP WITH TIME ZONE" })
-        .Add("Guid", new[] { "RAW(16)" })
-        .Add("byte[]", new[] { "RAW", "BLOB" });
-
-    protected override async Task ValidateCoreAsync(
+    protected override Task ValidateCoreAsync(
         ContractDescriptor contract,
         IReadOnlyList<ContractDescriptor> allContracts,
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        // Handle RawSqlDescriptor which has Parameters with DataType
-        if (contract is RawSqlDescriptor sqlDesc)
+        if (contract is not RawSqlDescriptor call)
         {
-            var isOracle = sqlDesc.Parameters?.Any(p => p.DataType?.Contains("NUMBER", StringComparison.OrdinalIgnoreCase) == true) == true;
+            return Task.CompletedTask;
+        }
 
-            foreach (var param in sqlDesc.Parameters ?? Array.Empty<ParameterDescriptor>())
+        var table = TypeTableFor(call);
+        if (StoredProcedureCallResolver.HasCatalog(allContracts))
+        {
+            var resolution = Resolve(call, allContracts);
+            if (resolution.Status == StoredProcedureResolutionStatus.Resolved)
             {
-                // Only check when a real CLR type source is available (attribute or Roslyn call site).
-                // Without one, checking would fabricate violations from inferred types.
-                if (string.IsNullOrEmpty(param.ClrType))
+                foreach (var binding in resolution.Bindings.Where(b => !string.IsNullOrEmpty(b.Argument.ClrType)))
                 {
-                    continue;
+                    var parameter = binding.Parameter;
+                    if (table.Check(binding.Argument.ClrType, parameter.DataType, parameter.Precision, parameter.Scale, parameter.MaxLength) == TypeCompatibilityResult.Incompatible)
+                    {
+                        violations.Add(CreateViolation(
+                            RuleId,
+                            $"Parameter '{parameter.Name}' of stored procedure '{StoredProcedureCallResolver.QualifiedName(resolution.Procedure!)}' has database type '{parameter.DataType}' but the call site passes CLR type '{binding.Argument.ClrType}' which is not compatible",
+                            ResolvedSeverity,
+                            call.Location,
+                            FindingProperties(resolution, parameter, binding.Argument)));
+                    }
                 }
 
-                if (!IsTypeCompatible(param.ClrType, param.DataType, isOracle))
-                {
-                    violations.Add(CreateViolation(
-                        RuleId,
-                        $"Parameter '{param.Name}' has CLR type '{param.ClrType}' but database type '{param.DataType}' is not compatible",
-                        Severity));
-                }
+                return Task.CompletedTask;
+            }
+
+            if (resolution.Status != StoredProcedureResolutionStatus.NotApplicable)
+            {
+                return Task.CompletedTask; // unresolved calls are DG101's finding; nothing to bind types against
             }
         }
 
-        await Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Splits a database type string into normalized tokens: parentheses contents,
-    /// whitespace and commas are separators, so "nvarchar(50)" → ["nvarchar", "50"].
-    /// </summary>
-    private static IEnumerable<string> TokenizeDbType(string dbType)
-    {
-        return dbType.Split(new[] { '(', ')', ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    }
-
-    public static bool IsTypeCompatible(string clrType, string dbType, bool isOracle)
-    {
-        if (string.IsNullOrWhiteSpace(clrType) || string.IsNullOrWhiteSpace(dbType))
+        // Descriptor-level check: only when a real CLR type source is available (attribute or Roslyn call site)
+        // and the descriptor itself carries the database type.
+        foreach (var param in call.Parameters ?? Array.Empty<ParameterDescriptor>())
         {
-            return false;
+            if (string.IsNullOrEmpty(param.ClrType))
+            {
+                continue;
+            }
+
+            if (table.Check(param.ClrType, param.DataType, param.Precision, param.Scale, param.MaxLength) == TypeCompatibilityResult.Incompatible)
+            {
+                violations.Add(CreateViolation(
+                    RuleId,
+                    $"Parameter '{param.Name}' has CLR type '{param.ClrType}' but database type '{param.DataType}' is not compatible",
+                    Severity,
+                    call.Location,
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["procedure"] = call.ProcedureName,
+                        ["schema"] = call.ProcedureSchema,
+                        ["package"] = call.ProcedurePackage,
+                        ["parameter"] = param.Name,
+                        ["clrType"] = param.ClrType,
+                        ["dbType"] = param.DataType,
+                    }));
+            }
         }
 
-        var map = isOracle ? OracleTypeMap : SqlServerTypeMap;
-        if (!map.TryGetValue(clrType, out var compatibleDbTypes))
-        {
-            return false;
-        }
-
-        // Exact matching only - never substring ("POINT" must not match "int",
-        // "CHART" must not match "char"). Two exact forms: a map entry equals one
-        // type token ("NUMBER" in "NUMBER(10)"), or the whole entry equals the
-        // whole db type with whitespace collapsed ("NUMBER(1)", "RAW(16)",
-        // "TIMESTAMP WITH TIME ZONE").
-        var tokens = TokenizeDbType(dbType).ToList();
-        var full = CollapseWhitespace(dbType);
-        return compatibleDbTypes.Any(t =>
-            tokens.Contains(t, StringComparer.OrdinalIgnoreCase) ||
-            string.Equals(CollapseWhitespace(t), full, StringComparison.OrdinalIgnoreCase));
+        return Task.CompletedTask;
     }
-
-    private static string CollapseWhitespace(string value) =>
-        string.Concat(value.Where(c => !char.IsWhiteSpace(c)));
 }
 
 /// <summary>
-/// Rule: Parameter direction must match (IN/OUT/INOUT ↔ in/out/ref).
+/// Rule DG003: parameter direction must match between the catalog (IN/OUT/IN OUT) and the call site (input, out/ref,
+/// <c>OUTPUT</c>, ADO/Dapper direction). With a catalog, every bound argument whose call-site direction is known is checked
+/// both ways: an OUT/IN OUT parameter passed as input loses its value, and an IN parameter passed as out/ref is rejected by
+/// the provider. Without a catalog, descriptor parameters that carry both directions are checked one way (pre-3.1 behavior).
 /// </summary>
-public class ParameterDirectionRule : ContractRuleBase
+public class ParameterDirectionRule : StoredProcedureContractRuleBase
 {
+    /// <summary>Initializes a new instance of the <see cref="ParameterDirectionRule"/> class.</summary>
+    /// <param name="provider">Provider key; null infers it per descriptor.</param>
+    /// <param name="typeCompatibility">Provider type table used to rank overloads.</param>
+    /// <param name="strictProcedureContracts">True reports catalog-resolved findings as errors.</param>
+    /// <param name="defaultSchema">Schema assumed for unqualified calls.</param>
+    /// <param name="defaultPackage">Oracle package assumed for unqualified calls.</param>
+    public ParameterDirectionRule(
+        string? provider = null,
+        ITypeCompatibility? typeCompatibility = null,
+        bool strictProcedureContracts = false,
+        string? defaultSchema = null,
+        string? defaultPackage = null)
+        : base(provider, typeCompatibility, strictProcedureContracts, defaultSchema, defaultPackage)
+    {
+    }
+
     public override string RuleId => "DG003";
 
     public override string Name => "Parameter Direction Match";
@@ -225,39 +310,80 @@ public class ParameterDirectionRule : ContractRuleBase
 
     public override string Description => "Parameter direction must match call site (in/out/ref)";
 
-    protected override async Task ValidateCoreAsync(
+    protected override Task ValidateCoreAsync(
         ContractDescriptor contract,
         IReadOnlyList<ContractDescriptor> allContracts,
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        // Handle RawSqlDescriptor which has Parameters with Direction
-        if (contract is RawSqlDescriptor sqlDesc)
+        if (contract is not RawSqlDescriptor call)
         {
-            foreach (var param in sqlDesc.Parameters ?? Array.Empty<ParameterDescriptor>())
+            return Task.CompletedTask;
+        }
+
+        if (StoredProcedureCallResolver.HasCatalog(allContracts))
+        {
+            var resolution = Resolve(call, allContracts);
+            if (resolution.Status == StoredProcedureResolutionStatus.Resolved)
             {
-                // Only check when call-site direction is known; without a call site
-                // the rule cannot decide and must not flag unconditionally.
-                if (param.CallSiteDirection is null)
+                foreach (var binding in resolution.Bindings.Where(b => b.Argument.Direction is not null))
                 {
-                    continue;
+                    var message = DescribeMismatch(binding.Parameter.Name, binding.Parameter.Direction, binding.Argument.Direction!.Value, resolution.Procedure!);
+                    if (message is not null)
+                    {
+                        violations.Add(CreateViolation(RuleId, message, ResolvedSeverity, call.Location, FindingProperties(resolution, binding.Parameter, binding.Argument)));
+                    }
                 }
 
-                // Flag only when the SP requires out/ref but the call site is input-only.
-                var requiresOutAtCallSite = param.Direction is ParameterDirection.Output
-                    or ParameterDirection.InputOutput
-                    or ParameterDirection.ReturnValue;
-                var callSiteIsInputOnly = param.CallSiteDirection == ParameterDirection.Input;
+                return Task.CompletedTask;
+            }
 
-                if (requiresOutAtCallSite && callSiteIsInputOnly)
-                {
-                    violations.Add(CreateViolation(
-                        RuleId,
-                        $"Parameter '{param.Name}' is {param.Direction} but call site passes it as {param.CallSiteDirection} (out/ref required)",
-                        Severity));
-                }
+            if (resolution.Status != StoredProcedureResolutionStatus.NotApplicable)
+            {
+                return Task.CompletedTask;
             }
         }
+
+        foreach (var param in call.Parameters ?? Array.Empty<ParameterDescriptor>())
+        {
+            // Only check when call-site direction is known; without a call site
+            // the rule cannot decide and must not flag unconditionally.
+            if (param.CallSiteDirection is null)
+            {
+                continue;
+            }
+
+            // Flag only when the SP requires out/ref but the call site is input-only.
+            var requiresOutAtCallSite = param.Direction is ParameterDirection.Output
+                or ParameterDirection.InputOutput
+                or ParameterDirection.ReturnValue;
+            if (requiresOutAtCallSite && param.CallSiteDirection == ParameterDirection.Input)
+            {
+                violations.Add(CreateViolation(
+                    RuleId,
+                    $"Parameter '{param.Name}' is {param.Direction} but call site passes it as {param.CallSiteDirection} (out/ref required)",
+                    Severity,
+                    call.Location));
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static string? DescribeMismatch(string parameter, ParameterDirection declared, ParameterDirection callSite, StoredProcedureDescriptor procedure)
+    {
+        var name = StoredProcedureCallResolver.QualifiedName(procedure);
+        if (declared is ParameterDirection.Output or ParameterDirection.InputOutput && callSite == ParameterDirection.Input)
+        {
+            return $"Parameter '{parameter}' of stored procedure '{name}' is {declared} but call site passes it as Input (out/ref required)";
+        }
+
+        if (declared == ParameterDirection.Input && callSite is ParameterDirection.Output or ParameterDirection.InputOutput)
+        {
+            return $"Parameter '{parameter}' of stored procedure '{name}' is Input but call site passes it as {callSite} (parameter is not an OUT parameter)";
+        }
+
+        return null;
     }
 }
 

@@ -1,0 +1,39 @@
+{
+  "testCase": "SP_004",
+  "category": "SP_Contract",
+  "description": "Oracle package call matches no overload: one overload lacks the named argument, the other needs an extra required parameter",
+  "input": {
+    "sql": "BEGIN ORDERS_PKG.CREATE_ORDER(p_customer_id => :cid, p_channel => :channel); END;",
+    "storedProcedures": [
+      {
+        "schema": "SALES",
+        "package": "ORDERS_PKG",
+        "name": "CREATE_ORDER",
+        "overload": 1,
+        "parameters": [
+          { "name": "P_CUSTOMER_ID", "type": "NUMBER" },
+          { "name": "P_ORDER_ID", "type": "NUMBER", "direction": "Output" }
+        ]
+      },
+      {
+        "schema": "SALES",
+        "package": "ORDERS_PKG",
+        "name": "CREATE_ORDER",
+        "overload": 2,
+        "parameters": [
+          { "name": "P_CUSTOMER_ID", "type": "NUMBER" },
+          { "name": "P_CHANNEL", "type": "VARCHAR2" },
+          { "name": "P_PRIORITY", "type": "NUMBER" }
+        ]
+      }
+    ],
+    "provider": "Oracle"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG101",
+      "messageContains": "Call to stored procedure 'SALES.ORDERS_PKG.CREATE_ORDER' does not match its catalog signature: missing required parameter(s) P_PRIORITY",
+      "severity": "Warning"
+    }
+  ]
+}
