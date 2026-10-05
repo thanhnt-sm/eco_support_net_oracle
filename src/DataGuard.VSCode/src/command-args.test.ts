@@ -1,6 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCliArguments, normalizeProvider } from "./command-args";
+import { buildCliArguments, configArguments, normalizeProvider, resolveExistingConfigPath } from "./command-args";
+
+test("--config is passed only when the workspace config file exists", () => {
+    for (const command of ["validate", "snapshot", "baseline"] as const) {
+        const withConfig = buildCliArguments(command, "/workspace", "sqlserver", "/workspace/.dataguard.yml", "/tmp/out.sarif");
+        const index = withConfig.indexOf("--config");
+        assert.ok(index >= 0, `${command} with an existing config must pass --config`);
+        assert.equal(withConfig[index + 1], "/workspace/.dataguard.yml");
+
+        const withoutConfig = buildCliArguments(command, "/workspace", "sqlserver", undefined, "/tmp/out.sarif");
+        assert.ok(!withoutConfig.includes("--config"), `${command} without a config file must omit --config`);
+        assert.ok(withoutConfig.every((arg) => typeof arg === "string"), `${command} must not emit an undefined argv entry`);
+    }
+    assert.deepEqual(
+        buildCliArguments("snapshot", "/workspace", "postgresql", undefined),
+        ["snapshot", "refresh", "--provider", "postgresql"],
+    );
+    assert.deepEqual(
+        buildCliArguments("baseline", "/workspace", "oracle", undefined),
+        ["baseline", "--provider", "oracle"],
+    );
+    assert.deepEqual(configArguments(""), []);
+    assert.deepEqual(configArguments("/w/.dataguard.yml"), ["--config", "/w/.dataguard.yml"]);
+});
+
+test("resolveExistingConfigPath drops a candidate whose file does not exist", async () => {
+    const present = new Set(["/workspace/.dataguard.yml"]);
+    const exists = async (filePath: string): Promise<boolean> => present.has(filePath);
+    assert.equal(await resolveExistingConfigPath("/workspace/.dataguard.yml", exists), "/workspace/.dataguard.yml");
+    assert.equal(await resolveExistingConfigPath("/workspace/missing.yml", exists), undefined);
+    assert.equal(await resolveExistingConfigPath(undefined, exists), undefined);
+    let probed = false;
+    assert.equal(await resolveExistingConfigPath("", async () => { probed = true; return true; }), undefined);
+    assert.equal(probed, false, "an empty candidate must not be probed");
+});
 
 test("CLI argument builder emits positional argv without shell interpolation", () => {
     assert.deepEqual(

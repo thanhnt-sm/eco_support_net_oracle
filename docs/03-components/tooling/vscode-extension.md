@@ -215,6 +215,7 @@ Processes are spawned using Node.js `child_process.spawn()` with safe process ex
 - Deterministic argument vectors with validated inputs.
 - Passing connection strings strictly via the process environment (`DATAGUARD_CONNECTION_STRING`), never as command-line arguments.
 - Workspace trust verification (`vscode.workspace.isTrusted`) before spawning any CLI command.
+- `--config <workspace>/<dataguard.configPath>` is passed (to `validate`, `snapshot refresh` and `baseline`) only when that file exists (`resolveExistingConfigPath` + `configArguments` in `command-args.ts`); the CLI exits 2 for an explicit `--config` that points at a missing file, so a workspace without `.dataguard.yml` runs on CLI defaults.
 - `windowsHide: true` on Windows, and process group detachment on POSIX for reliable process tree termination.
 
 ```typescript

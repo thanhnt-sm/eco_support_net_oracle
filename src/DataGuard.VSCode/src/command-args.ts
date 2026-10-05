@@ -22,6 +22,29 @@ export interface CliArgumentOptions {
     readonly hasUserCredential?: boolean;
 }
 
+/**
+ * Returns the `--config <path>` pair only when a config path was resolved for a file that exists.
+ * The CLI treats an explicit `--config` that points at a missing file as a usage error (exit 2), so
+ * a workspace without `.dataguard.yml` must not pass the flag at all and lets the CLI use defaults.
+ */
+export function configArguments(configPath: string | undefined): string[] {
+    return configPath === undefined || configPath.length === 0 ? [] : ["--config", configPath];
+}
+
+/**
+ * Resolves the config path to pass to the CLI: the candidate when `exists(candidate)` is true,
+ * otherwise `undefined` (so {@link configArguments} omits the flag).
+ */
+export async function resolveExistingConfigPath(
+    candidate: string | undefined,
+    exists: (filePath: string) => Promise<boolean>,
+): Promise<string | undefined> {
+    if (candidate === undefined || candidate.length === 0) {
+        return undefined;
+    }
+    return (await exists(candidate)) ? candidate : undefined;
+}
+
 export function normalizeProvider(value: string): string {
     const provider = value.trim().toLowerCase();
     if (!PROVIDERS.has(provider)) {
@@ -43,8 +66,7 @@ export function buildCliArguments(
         case "validate":
             return [
                 "validate",
-                "--config",
-                configPath!,
+                ...configArguments(configPath),
                 "--provider",
                 normalizedProvider,
                 "--format",
@@ -60,9 +82,9 @@ export function buildCliArguments(
         case "assess":
             return ["assess", "--workspace", workspacePath, "--provider", normalizedProvider, "--format", "sarif", "--output", outputPath!, IDE_SAFE_FLAG];
         case "snapshot":
-            return ["snapshot", "refresh", "--config", configPath!, "--provider", normalizedProvider];
+            return ["snapshot", "refresh", ...configArguments(configPath), "--provider", normalizedProvider];
         case "baseline":
-            return ["baseline", "--config", configPath!, "--provider", normalizedProvider];
+            return ["baseline", ...configArguments(configPath), "--provider", normalizedProvider];
         case "scan":
             return [
                 "scan",
