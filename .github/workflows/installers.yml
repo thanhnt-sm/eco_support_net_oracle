@@ -35,6 +35,7 @@ concurrency:
 
 env:
   DOTNET_VERSION: "9.0.x"
+  CROSS_PLATFORM_SOLUTION: DataGuard.CrossPlatform.slnf
   CLI_PROJECT: src/DataGuard.Cli/DataGuard.Cli.csproj
   VSCODE_DIR: src/DataGuard.VSCode
   VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
@@ -97,13 +98,48 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Resolved version $version (plain SemVer: $plain)"
 
+  # Same C# test gate as ci.yml's build-and-test (LiveDb tests excluded; they run in ci.yml's
+  # live-db-integration job). Every packaging job needs it, so a red suite never reaches the
+  # signed, attested `nightly` pre-release (scripts/check-workflow-policy.py rule f).
+  test:
+    name: Build and test (C#)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
+
+      - name: Build solution
+        run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb"
+
   # Framework-dependent CLI per RID (.NET 9 runtime required on the target), same recipe as
   # release.yml's cli-package job. The RID-specific restore writes its own lock file so the
   # committed packages.lock.json files stay untouched. fetch-depth 0: MinVer needs tag history.
   cli:
     name: CLI (${{ matrix.rid }})
     runs-on: ubuntu-latest
-    needs: resolve-version
+    needs: [resolve-version, test]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -176,7 +212,7 @@ jobs:
   vscode:
     name: VS Code extension
     runs-on: ubuntu-latest
-    needs: resolve-version
+    needs: [resolve-version, test]
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -187,7 +223,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
 
@@ -230,7 +266,7 @@ jobs:
   visualstudio:
     name: Visual Studio extension
     runs-on: windows-latest
-    needs: resolve-version
+    needs: [resolve-version, test]
     timeout-minutes: 40
     steps:
       - name: Checkout
@@ -345,10 +381,12 @@ jobs:
 
   # Rolling pre-release: the previous `nightly` release and tag are removed and a fresh one is
   # created at the current commit. Versioned `v*` tags and release.yml are never touched.
+  # Runs only when `test` and every packaging job succeeded (default `needs` semantics), so a
+  # nightly is never signed, attested or published from a red build.
   publish:
     name: Publish nightly pre-release
     runs-on: ubuntu-latest
-    needs: [resolve-version, cli, vscode, visualstudio]
+    needs: [resolve-version, test, cli, vscode, visualstudio]
     if: github.event_name == 'push' || inputs.publish_prerelease
     permissions:
       contents: write
@@ -461,9 +499,11 @@ jobs:
             ./assets/*.vsix
 
       - name: Stage provenance file for release assets
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          cp "${{ steps.attest.outputs.bundle-path }}" ./assets/dataguard-nightly.intoto.jsonl
+          cp "$BUNDLE_PATH" ./assets/dataguard-nightly.intoto.jsonl
 
       - name: Recreate rolling nightly pre-release
         env:
