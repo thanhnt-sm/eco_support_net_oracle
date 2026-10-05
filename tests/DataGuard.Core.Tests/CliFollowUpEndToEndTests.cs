@@ -41,9 +41,11 @@ public class CliFollowUpEndToEndTests
                 "verify-shape", "--provider", "mysql", "--project", dir,
                 "--connection", "Server=127.0.0.1;Port=1;Database=dg;User ID=dg;Password=dg;Connection Timeout=3");
 
-            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            // The mysql provider is wired (no "does not support" rejection); because the database is unreachable the
+            // catalog acquisition fails and verify-shape reports UNEVALUATED with exit 3 instead of "0 queries, exit 0".
             run.Stderr.Should().NotContain("does not support live query schema verification");
-            run.Stdout.Should().Contain("=== DataGuard Verify-Shape Report (mysql) ===");
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("UNEVALUATED: contract acquisition");
         }
         finally
         {
