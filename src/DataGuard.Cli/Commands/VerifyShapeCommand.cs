@@ -92,6 +92,14 @@ internal static class VerifyShapeCommand
                 }
 
                 var acquisition = await AcquireContractsAsync(resolved.Configuration, provider, ct, project);
+                if (acquisition.Status != ContractAcquisitionStatus.Complete)
+                {
+                    // One Unevaluated semantics: a failed or partial acquisition is not "0 queries evaluated, exit 0".
+                    Console.Error.WriteLine($"UNEVALUATED: contract acquisition {acquisition.Status.ToString().ToLowerInvariant()}: {acquisition.Message}");
+                    Environment.ExitCode = 3;
+                    return;
+                }
+
                 var readQueries = acquisition.Contracts
                     .OfType<RawSqlDescriptor>()
                     .Where(r => r.OperationType == SqlOperationType.Read)

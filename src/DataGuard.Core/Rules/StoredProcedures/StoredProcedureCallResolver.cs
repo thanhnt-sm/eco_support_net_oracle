@@ -461,6 +461,13 @@ public static class StoredProcedureCallResolver
                     }
                 }
 
+                // Oracle "X.PROC" written at the call site is ambiguous: X may be a package or the owning schema. The
+                // extractor records it as a package; also try it as the schema of a standalone procedure (e2e: APP.GET_ORDERS).
+                if (SupportsPackages && schema is null && package is not null)
+                {
+                    return new List<Interpretation> { new(null, package), new(package, null) };
+                }
+
                 return new List<Interpretation> { new(schema, package) };
             }
 

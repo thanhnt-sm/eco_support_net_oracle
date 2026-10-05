@@ -76,6 +76,10 @@ All notable changes to DataGuard are documented here. Format based on
 - **SARIF**: every result has `partialFingerprints["dataguard/v2"]`, equal to the baseline fingerprint.
 - **Large baseline load**: the >1 MiB memory-mapped path reads exactly the file length instead of the page-rounded view capacity (trailing NULs failed JSON parsing where the capacity is rounded, e.g. Windows).
 
+### Fixed (lead verification after the remediation merges)
+- **`verify-shape` no longer exits 0 on a failed acquisition**: an unreachable database or a partial acquisition prints `UNEVALUATED: contract acquisition <status>` and exits 3 instead of `Queries evaluated: 0` with exit 0.
+- **Oracle two-part procedure names resolve as owner or package**: `BEGIN APP.GET_ORDERS(:p); END;` is tried as package `APP` and then as a standalone procedure owned by schema `APP`, so DG101/DG002/DG003 run on it (end-to-end check across the four providers).
+
 ### Fixed (red-team C3, C5, H5, H10, H11: rule correctness)
 - **Phantom rules split and schema-aware** (C3, H10): `PhantomIdentifierRule` is replaced by `PhantomTableRule` (DG015) and `PhantomColumnRule` (DG016) sharing a tokenizer-based analyzer. Catalog tables are indexed by `(schema, name)` and bare name, so SQL Server tables keyed `dbo.Orders` no longer flag every `FROM Orders`; comments and literals are masked; CTE lists, `WITH RECURSIVE`, TVFs, `#temp`/`@tvp`, cross-database names, `DUAL`, `sys.*`, `EXTRACT(... FROM ...)`, `TRIM(... FROM ...)`, `IS DISTINCT FROM`, output aliases and multi-table unqualified columns are no longer reported. `--skip-rules DG016` now targets only phantom columns.
 - **DG005 nullability** (C5): uses `PropertyDescriptor.IsNullable`, resolves the column inside the entity's own table (schema-qualified names supported, no cross-table merging) and reports both directions: NOT NULL column ↔ nullable property and nullable column ↔ non-nullable property.

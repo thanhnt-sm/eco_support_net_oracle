@@ -178,4 +178,31 @@ public class CliFollowUpEndToEndTests
 
         return count;
     }
+
+    [Fact]
+    public void VerifyShape_FailedAcquisition_Exits3InsteadOfZeroQueries()
+    {
+        var dir = Directory.CreateTempSubdirectory("dg-verify-shape-unevaluated").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Repo.cs"), """
+                using Dapper;
+                public class Customer { public int Id { get; set; } }
+                public class Repo { public void F(System.Data.IDbConnection c) { var rows = c.Query<Customer>("SELECT Id FROM Customers"); } }
+                """);
+
+            // Unreachable SQL Server: acquisition fails before any query can be described.
+            var run = CliProcessTestRunner.Run(dir, null, null,
+                "verify-shape", "--provider", "sqlserver", "--project", Path.Combine(dir, "Repo.cs"),
+                "--connection", "Server=127.0.0.1,1;Database=x;User Id=u;Password=p;Connect Timeout=1;TrustServerCertificate=true");
+
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("UNEVALUATED");
+            run.Stdout.Should().NotContain("Queries evaluated: 0");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

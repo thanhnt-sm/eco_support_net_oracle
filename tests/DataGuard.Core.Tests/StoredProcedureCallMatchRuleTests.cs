@@ -432,4 +432,23 @@ public class StoredProcedureCallMatchRuleTests
 
     private static StoredProcedureDescriptor Sp(string schema, string name, string package, string id, params ParameterDescriptor[] parameters)
         => new(id, name, schema, package, parameters, new List<ColumnDescriptor>(), false);
+
+    [Fact]
+    public async Task Oracle_TwoPartName_RecordedAsPackage_FallsBackToOwnerSchema()
+    {
+        // The extractor records "APP.GET_ORDERS" inside a BEGIN block as package APP; the catalog only has the
+        // standalone procedure owned by schema APP. The call must still resolve and report the missing parameter.
+        var call = Call("BEGIN APP.GET_ORDERS(:p_customer_id); END;", Arg("p_customer_id", "int")) with
+        {
+            IsStoredProcedure = true,
+            ProcedureName = "GET_ORDERS",
+            ProcedurePackage = "APP",
+        };
+        var sp = Sp("APP", "GET_ORDERS", string.Empty, "oracle:APP._.GET_ORDERS#1",
+            P("P_CUSTOMER_ID", "NUMBER", 1), P("P_STATUS", "VARCHAR2", 2));
+
+        var violations = await RunAsync(new ParameterCountRule("oracle"), call, sp);
+
+        violations.Should().ContainSingle(v => v.RuleId == "DG101" && v.Message.Contains("P_STATUS"));
+    }
 }
