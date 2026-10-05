@@ -1,5 +1,6 @@
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.TypeCompatibility;
 using DataGuard.MySql.Adapter;
 using DataGuard.Oracle.Adapter;
 using DataGuard.PostgreSql.Adapter;
@@ -41,14 +42,20 @@ public static class ProviderRuleCatalog
     /// <param name="provider">Provider key (sqlserver, oracle, postgresql, mysql).</param>
     /// <param name="connectionString">Connection used by connection-bound rules; null registers their offline variants.</param>
     /// <param name="progress">Optional progress sink for long-running rules.</param>
+    /// <param name="strictProcedureContracts">Config <c>StrictProcedureContracts</c>: catalog-resolved DG101/DG002/DG003 findings are errors.</param>
+    /// <param name="defaultSchema">Config <c>DefaultSchema</c>: schema assumed for unqualified stored-procedure calls.</param>
+    /// <param name="defaultPackage">Config <c>DefaultPackage</c>: Oracle package assumed for unqualified stored-procedure calls.</param>
     public static IReadOnlyList<ProviderRuleRegistration> Get(
         string provider,
         string? connectionString = null,
-        ProgressEmitter? progress = null)
+        ProgressEmitter? progress = null,
+        bool strictProcedureContracts = false,
+        string? defaultSchema = null,
+        string? defaultPackage = null)
     {
         var rules = new List<ProviderRuleRegistration>();
 
-        AddCoreRules(rules, connectionString, provider, progress);
+        AddCoreRules(rules, connectionString, provider, progress, new ProcedureRuleSettings(strictProcedureContracts, defaultSchema, defaultPackage));
         if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
         {
             Add(rules, new NonOracleFunctionInOracleContextRule());
@@ -90,11 +97,15 @@ public static class ProviderRuleCatalog
         List<ProviderRuleRegistration> rules,
         string? connectionString = null,
         string? provider = null,
-        ProgressEmitter? progress = null)
+        ProgressEmitter? progress = null,
+        ProcedureRuleSettings? procedures = null)
     {
-        Add(rules, new ParameterCountRule());
-        Add(rules, new ParameterTypeMatchRule());
-        Add(rules, new ParameterDirectionRule());
+        var sp = procedures ?? new ProcedureRuleSettings(false, null, null);
+        var typeCompatibility = CreateTypeCompatibility(provider);
+        var providerKey = typeCompatibility.Provider;
+        Add(rules, new ParameterCountRule(providerKey, typeCompatibility, sp.Strict, sp.DefaultSchema, sp.DefaultPackage));
+        Add(rules, new ParameterTypeMatchRule(providerKey, typeCompatibility, sp.Strict, sp.DefaultSchema, sp.DefaultPackage));
+        Add(rules, new ParameterDirectionRule(providerKey, typeCompatibility, sp.Strict, sp.DefaultSchema, sp.DefaultPackage));
         Add(rules, new ColumnShapeMatchRule());
         Add(rules, new NullableMismatchRule());
         Add(rules, new NamingConventionRule());
@@ -120,6 +131,26 @@ public static class ProviderRuleCatalog
             Add(rules, new LiveSqlShapeValidationRule());
         }
     }
+
+    /// <summary>
+    /// Returns the provider's CLR ↔ database type table and registers it for Core code that resolves tables by provider key
+    /// (live result-shape checks, the legacy <c>ParameterTypeMatchRule.IsTypeCompatible</c> shim).
+    /// </summary>
+    private static ITypeCompatibility CreateTypeCompatibility(string? provider)
+    {
+        ITypeCompatibility table = TypeCompatibilityRegistry.NormalizeProvider(provider) switch
+        {
+            "oracle" => OracleTypeCompatibility.Instance,
+            "postgresql" => PostgreSqlTypeCompatibility.Instance,
+            "mysql" => MySqlTypeCompatibility.Instance,
+            _ => SqlServerTypeCompatibility.Instance,
+        };
+        TypeCompatibilityRegistry.Register(table);
+        return table;
+    }
+
+    private sealed record ProcedureRuleSettings(bool Strict, string? DefaultSchema, string? DefaultPackage);
+
     private static void Add(List<ProviderRuleRegistration> rules, IContractRule rule, RuleAvailability availability = RuleAvailability.Ready, string? reason = null) =>
         rules.Add(new ProviderRuleRegistration(rule, availability, reason));
 }

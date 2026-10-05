@@ -232,7 +232,8 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
                 {
                     var normalizedClr = NormalizeClrType(prop.ClrTypeName);
                     if (!string.IsNullOrEmpty(normalizedClr) &&
-                        !ParameterTypeMatchRule.IsTypeCompatible(normalizedClr, matchedCol.DataType, isOracle: _provider.Equals("oracle", StringComparison.OrdinalIgnoreCase)))
+                        TypeCompatibility.TypeCompatibilityRegistry.Resolve(_provider)
+                            .Check(normalizedClr, matchedCol.DataType, matchedCol.Precision, matchedCol.Scale, matchedCol.MaxLength) == TypeCompatibility.TypeCompatibilityResult.Incompatible)
                     {
                         violations.Add(CreateViolation(
                             MismatchRuleId,

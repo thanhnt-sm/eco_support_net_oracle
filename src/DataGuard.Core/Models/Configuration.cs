@@ -66,6 +66,13 @@ public record DataGuardConfiguration(
 
     /// <summary>When true, unknown top-level configuration keys are an error (exit 2) instead of a warning.</summary>
     public bool StrictConfig { get; init; }
+
+    /// <summary>
+    /// When true, DG101/DG002/DG003 findings produced by resolving stored-procedure calls against the catalog are errors.
+    /// Default false: they are warnings in this release. Unqualified calls use <see cref="DefaultSchema"/> and
+    /// <see cref="DefaultPackage"/> (Oracle) for resolution.
+    /// </summary>
+    public bool StrictProcedureContracts { get; init; }
 }
 
 /// <summary>

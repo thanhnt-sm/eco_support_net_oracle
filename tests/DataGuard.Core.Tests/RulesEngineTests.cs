@@ -151,14 +151,31 @@ public class RulesEngineTests
     }
 
     [Fact]
-    public async Task DG002_NoSubstringFalsePositive()
+    public async Task DG002_NoSubstringMatch_UnknownDbTypeIsNotAFinding()
     {
+        // "POINT" must never substring-match "int" (that would hide a mismatch), and since 3.1 a database type the
+        // provider table does not know is Unknown, which never produces a finding (red-team H6).
+        ParameterTypeMatchRule.IsTypeCompatible("int", "POINT", isOracle: false).Should().BeFalse();
         var parameter = new ParameterDescriptor("Loc", "POINT", ParameterDirection.Input, null, null, null, false, 1)
         {
             ClrType = "int",
         };
         var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetPoint @Loc", parameter));
-        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG002");
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DG002_KnownIncompatiblePair_FlagsWithStructuredProperties()
+    {
+        var parameter = new ParameterDescriptor("Id", "uniqueidentifier", ParameterDirection.Input, null, null, null, false, 1)
+        {
+            ClrType = "System.Int32",
+        };
+        var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetCustomer @Id", parameter));
+        var violation = violations.Should().ContainSingle().Which;
+        violation.RuleId.Should().Be("DG002");
+        violation.Properties!["clrType"].Should().Be("System.Int32");
+        violation.Properties!["dbType"].Should().Be("uniqueidentifier");
     }
 
     [Fact]

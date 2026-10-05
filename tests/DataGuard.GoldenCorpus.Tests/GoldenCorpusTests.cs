@@ -181,6 +181,30 @@ public class GoldenCorpusTests
             contracts.AddRange(sqlContracts);
         }
 
+        // Stored-procedure catalog (SP_Contract cases): the rules resolve the SQL call against these.
+        foreach (var sp in input.StoredProcedures)
+        {
+            contracts.Add(new StoredProcedureDescriptor(
+                Id: $"golden-sp:{sp.Schema}.{sp.Package}.{sp.Name}#{sp.Overload}",
+                Name: sp.Name,
+                Schema: sp.Schema,
+                PackageName: sp.Package,
+                Parameters: sp.Parameters.Select((p, i) => new ParameterDescriptor(
+                    p.Name,
+                    p.Type,
+                    Enum.Parse<ParameterDirection>(p.Direction, ignoreCase: true),
+                    null,
+                    null,
+                    null,
+                    true,
+                    i + 1)
+                {
+                    HasDefault = p.HasDefault,
+                }).ToList(),
+                ResultColumns: new List<ColumnDescriptor>(),
+                ReturnsRefCursor: false));
+        }
+
         // Build database schema ground-truth contract (for length/dialect rules)
         var schemaTables = input.DatabaseSchema.Tables
             .Select(t => new DatabaseTableDescriptor(
@@ -342,6 +366,32 @@ public class GoldenCorpusInput
     public string Provider { get; set; } = "Oracle";
 
     public string LengthSemantics { get; set; } = "CHAR";
+
+    public List<GoldenCorpusStoredProcedure> StoredProcedures { get; set; } = new();
+}
+
+public class GoldenCorpusStoredProcedure
+{
+    public string Schema { get; set; } = "";
+
+    public string Package { get; set; } = "";
+
+    public string Name { get; set; } = "";
+
+    public int Overload { get; set; }
+
+    public List<GoldenCorpusSpParameter> Parameters { get; set; } = new();
+}
+
+public class GoldenCorpusSpParameter
+{
+    public string Name { get; set; } = "";
+
+    public string Type { get; set; } = "";
+
+    public string Direction { get; set; } = "Input";
+
+    public bool HasDefault { get; set; }
 }
 
 public class GoldenCorpusEntity
