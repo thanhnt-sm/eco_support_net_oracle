@@ -37,6 +37,12 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     /// <summary>Diagnostic property containing a verifier-approved positive maximum length.</summary>
     public const string VerifiedMaxLengthProperty = "DataGuard.VerifiedMaxLength";
 
+    // Same select-list shapes the analyzer reports: SELECT *, SELECT DISTINCT|ALL *, SELECT TOP n [PERCENT] *,
+    // SELECT t.* (the qualifier is dropped together with the star). COUNT(*) never matches.
+    private static readonly System.Text.RegularExpressions.Regex SelectStarPattern = new(
+        @"\bSELECT(\s+(?:(?:DISTINCT|ALL)\s+|TOP\s*(?:\(\s*\d+\s*\)|\d+)\s+(?:PERCENT\s+)?)*)(?:(?:\w+|\[[^\]]+\]|""[^""]+"")\.)?\*",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
     public sealed override ImmutableArray<string> FixableDiagnosticIds
         => ImmutableArray.Create(
@@ -106,53 +112,44 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     private async Task<Document> ReplaceSelectStarAsync(Document document, LiteralExpressionSyntax literal, string? explicitColumns, CancellationToken cancellationToken)
     {
         var text = literal.Token.ValueText;
-        var prefix = string.Empty;
-        var suffix = string.Empty;
-        if (literal.Token.Text.StartsWith("@\""))
-        {
-            prefix = "@\"";
-            suffix = "\"";
-        }
-        else if (literal.Token.Text.StartsWith("\"\"\""))
-        {
-            prefix = "\"\"\"";
-            suffix = "\"\"\"";
-        }
-        else if (literal.Token.Text.StartsWith("\""))
-        {
-            prefix = "\"";
-            suffix = "\"";
-        }
-
         var replacementColumns = !string.IsNullOrEmpty(explicitColumns) ? explicitColumns : "/* TODO: Replace with specific columns */";
 
-        // Try to replace "SELECT * FROM" to be safe.
-        var newText = System.Text.RegularExpressions.Regex.Replace(
-            text,
-            @"\bSELECT\s+\*\s+FROM\b",
-            $"SELECT {replacementColumns} FROM",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
-
+        string ReplaceStar(string value) => SelectStarPattern.Replace(value, match => "SELECT" + match.Groups[1].Value + replacementColumns);
+        var newText = ReplaceStar(text);
         if (newText == text)
         {
-            // Fallback: replace "SELECT *"
-            newText = System.Text.RegularExpressions.Regex.Replace(
-                text,
-                @"\bSELECT\s+\*",
-                $"SELECT {replacementColumns}",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+            return document;
         }
 
-        var newLiteral = SyntaxFactory.LiteralExpression(
-            SyntaxKind.StringLiteralExpression,
-            SyntaxFactory.Literal(prefix + newText + suffix, newText));
+        var tokenText = literal.Token.Text;
+        SyntaxToken newToken;
+        if (tokenText.StartsWith("\"\"\"", StringComparison.Ordinal))
+        {
+            // Raw string literal: the content is verbatim, so the token text is rewritten in place.
+            newToken = SyntaxFactory.ParseToken(ReplaceStar(tokenText));
+        }
+        else if (tokenText.StartsWith("@\"", StringComparison.Ordinal))
+        {
+            newToken = SyntaxFactory.Literal("@\"" + newText.Replace("\"", "\"\"") + "\"", newText);
+        }
+        else
+        {
+            newToken = SyntaxFactory.Literal(newText);
+        }
 
+        var newLiteral = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, newToken).WithTriviaFrom(literal);
         var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
         var newRoot = root!.ReplaceNode(literal, newLiteral);
         return document.WithSyntaxRoot(newRoot);
     }
 
-    private static AttributeListSyntax CreateSkipContractCheckAttribute(string reason)
+    /// <summary>Default reason written by the "Add [SkipContractCheck]" fixes.</summary>
+    internal const string DefaultSkipReason = "Dynamic SQL - manual review required";
+
+    /// <summary>Creates <c>[global::DataGuard.Contracts.SkipContractCheck(Reason = "...")]</c>.</summary>
+    /// <param name="reason">Reason text.</param>
+    /// <returns>The attribute list.</returns>
+    internal static AttributeListSyntax CreateSkipContractCheckAttribute(string reason)
     {
         var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
             .WithArgumentList(SyntaxFactory.AttributeArgumentList(
@@ -276,7 +273,7 @@ public class DataGuardCodeFixProvider : CodeFixProvider
             return document;
         }
 
-        editor.AddAttribute(target, CreateSkipContractCheckAttribute("Dynamic SQL - manual review required"));
+        editor.AddAttribute(target, CreateSkipContractCheckAttribute(DefaultSkipReason));
         return editor.GetChangedDocument();
     }
 
@@ -482,11 +479,8 @@ public class SkipContractCheckFixProvider : CodeFixProvider
             return document;
         }
 
-        var attr = SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
-            .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-                SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-                    SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("Dynamic SQL - manual review required"))))));
-        editor.AddAttribute(target, SyntaxFactory.AttributeList(SyntaxFactory.SingletonSeparatedList(attr)));
+        // SkipContractCheckAttribute has only a parameterless constructor; the reason is the named Reason property.
+        editor.AddAttribute(target, DataGuardCodeFixProvider.CreateSkipContractCheckAttribute(DataGuardCodeFixProvider.DefaultSkipReason));
         return editor.GetChangedDocument();
     }
 }

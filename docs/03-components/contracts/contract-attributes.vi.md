@@ -116,7 +116,7 @@ public class LegacyRepository { ... }
 | Thành phần | Hành động |
 |------------|-----------|
 | Roslyn Analyzer | Ẩn diagnostic DG001 cho method được trang trí |
-| CI Heavy Layer | Bỏ qua phân tích ngữ nghĩa cho method được trang trí |
+| ContractValidationAnalyzer | Bỏ qua heuristic SQL literal cho call site nằm trong method/type được trang trí (so khớp syntax theo tên attribute) |
 | CLI | Không kiểm tra (CLI xác thực contract, không phải call site) |
 
 ### Tích hợp Code Fix

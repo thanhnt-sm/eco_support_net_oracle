@@ -96,8 +96,9 @@ Which adapter rules run depends on `--provider` (`src/DataGuard.Cli/ProviderRule
 | ID | Rule | Description |
 |----|------|------|
 | DG001 | Track Unvalidated SQL Calls | Marks SQL calls that haven't been validated against database schema. Run full validation in CI. |
+| DG097 | Stored procedure command text form | A text command that only names a procedure must start with EXEC/EXECUTE/CALL; a CommandType.StoredProcedure command must name the procedure without that prefix. |
 | DG098 | Raw SQL query missing FROM clause | Raw SQL SELECT query is missing a FROM clause. |
-| DG099 | Potential SQL injection pattern | Raw SQL contains a pattern that may indicate SQL injection. |
+| DG099 | Potential SQL injection pattern | Raw SQL contains a pattern that may indicate SQL injection, or is built by concatenation/interpolation into a raw SQL API. |
 
 ### Assessment (`dataguard assess`)
 

@@ -191,14 +191,14 @@ graph TD
 |------------|---------|
 | **Target** | `netstandard2.0` |
 | **Phụ Thuộc** | `DataGuard.Contracts`, `Microsoft.CodeAnalysis.CSharp` 5.9.0 |
-| **Vai Trò** | Roslyn analyzers — tầng IDE nhẹ + tầng CI nặng |
+| **Vai Trò** | Roslyn analyzers — tầng IDE chỉ dùng syntax (generator + analyzer syntax-node); kiểm tra cần database chạy trong CLI |
 
 **Types Chính:**
 
 | Type | Loại | Mục Đích |
 |------|------|---------|
 | `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | Tầng IDE nhẹ: phân tích syntax có giới hạn khi gõ phím; biểu diễn call site bằng value type |
-| `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | Tầng CI nặng: phân tích semantic đầy đủ với kết nối DB |
+| `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | Syntax-node action trên invocation: heuristic SQL literal DG004/DG017/DG097/DG098/DG099, báo tại đối số SQL; không bind symbol, không database |
 | `DiagnosticIds` | Static class | Diagnostic IDs chia sẻ (DG001–DG016) |
 | `DiagnosticDescriptors` | Static class | Instances `DiagnosticDescriptor` chia sẻ |
 

@@ -60,4 +60,32 @@ public sealed class SqlClassifierPropertyTests
             first.Zip(second, static (a, b) =>
                 a.Start == b.Start && a.Length == b.Length && a.Kind == b.Kind).All(static same => same);
     }
+
+    [Property]
+    public bool ClassifyCSharp_NeverThrowsAndStaysWithinSourceBounds(NonNull<string> source)
+    {
+        var results = SqlClassifier.ClassifyCSharp(source.Item, DummyDocument, "1");
+        return results.All(result =>
+            result.Start >= 0 &&
+            result.Length > 0 &&
+            result.Start + result.Length <= source.Item.Length &&
+            string.Equals(source.Item.Substring(result.Start, result.Length), result.Kind, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Property]
+    public bool ClassifyCSharp_FindsSqlInsideArbitraryStringLiteral(NonNull<string> prefix)
+    {
+        // Whatever C#-ish text precedes it (unless it opens a comment or string), a later SQL literal is found.
+        var safePrefix = new string(prefix.Item.Where(char.IsLetterOrDigit).ToArray());
+        var source = safePrefix + "; var sql = \"SELECT Id FROM Orders\";";
+        var results = SqlClassifier.ClassifyCSharp(source, DummyDocument, "1");
+        return results.Count == 1 && results[0].Start == source.IndexOf("SELECT", StringComparison.Ordinal);
+    }
+
+    [Property]
+    public bool LooksLikeSql_NeverThrows(NonNull<string> source)
+    {
+        SqlClassifier.LooksLikeSql(source.Item);
+        return true;
+    }
 }

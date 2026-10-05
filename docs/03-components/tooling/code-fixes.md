@@ -56,7 +56,7 @@ graph TB
 
 ## DataGuardCodeFixProvider
 
-The primary code-fix provider handles DG001, DG002, and DG007. Naming and provider-option transformations are implemented by their dedicated providers.
+The primary code-fix provider handles DG001, DG002 and DG017. Length, naming and provider-option transformations are implemented by their dedicated providers (`AddMaxLengthAttributeFixProvider` for DG007/DG009, `NamingConventionFixProvider` for DG006, `UseOracleCodeFixProvider` for DG012); `SkipContractCheckFixProvider` offers the same `[SkipContractCheck(Reason = "...")]` fix for DG001.
 
 Its advertised `FixableDiagnosticIds` are limited to the diagnostics listed below;
 diagnostics without a safe registered transformation are intentionally absent.
@@ -67,7 +67,7 @@ diagnostics without a safe registered transformation are intentionally absent.
 |------------|-------------|
 | DG001 | Add `[SkipContractCheck]`, `[DataContract]`, or `[SqlParameter]` declarations |
 | DG002 | Apply verifier-approved SQL replacement (only with valid manifest properties) |
-| DG007 | Add `[MaxLength]` attribute |
+| DG017 | Replace `SELECT *` (also `SELECT TOP n *`, `SELECT DISTINCT *`, `SELECT t.*`) with the analyzer's `ExplicitColumns`, or a TODO placeholder |
 
 ### Fix Registration Flow
 
@@ -76,11 +76,11 @@ flowchart TD
     A[Diagnostic Received] --> B{Diagnostic ID?}
     B -->|DG001| C[RegisterUnvalidatedSqlCallFixes]
     B -->|DG002| D[RegisterParameterMismatchFixes]
-    B -->|DG007| G[RegisterLengthFixes]
+    B -->|DG017| G[RegisterReplaceSelectStarFix]
 
     C --> C1[Add contract declaration or SkipContractCheck]
     D --> D1[Apply verified SQL replacement]
-    G --> G1[Add [MaxLength]]
+    G --> G1[Replace SELECT * with explicit columns]
 ```
 
 ### Fix Implementations
@@ -95,6 +95,19 @@ public IQueryable<Customer> Search(string query) { ... }
 ```
 
 **Implementation:** Uses `DocumentEditor.AddAttribute()` on the `MemberDeclarationSyntax` ancestor.
+`SkipContractCheckAttribute` has only a parameterless constructor, so both providers emit the reason as the named
+`Reason` property (the positional form did not compile, CS1729); a round-trip test compiles the fixed code.
+
+#### Replace SELECT * (DG017)
+
+`ContractValidationAnalyzer` reports DG017 at the SQL literal and, when the mapped type is declared in the
+compilation, adds an `ExplicitColumns` property (column names, `[Column]` honored). The fix rewrites the literal
+(regular, verbatim or raw) and keeps `TOP n` / `DISTINCT` modifiers:
+
+```csharp
+// Before: connection.Query<Customer>("SELECT TOP 10 c.* FROM Customers c")
+// After:  connection.Query<Customer>("SELECT TOP 10 Id, Name FROM Customers c")
+```
 
 #### Add manual contract declarations
 

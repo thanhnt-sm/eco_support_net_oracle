@@ -15,9 +15,10 @@ using Xunit;
 using static DataGuard.Analyzers.Tests.Verification.AnalyzerTestHarness;
 
 /// <summary>
-/// Microsoft.CodeAnalysis.Testing coverage for every descriptor <see cref="ContractValidationAnalyzer"/> can emit
-/// from literal SQL (AnalyzeEfCoreFromSql / AnalyzeExecuteSql / AnalyzeDapperQuery): DG002, DG004, DG017, DG098,
-/// DG099. Every test asserts the complete diagnostic set, so a new or missing diagnostic fails it.
+/// Microsoft.CodeAnalysis.Testing coverage for every descriptor the syntax-only <see cref="ContractValidationAnalyzer"/>
+/// can emit from literal SQL (EF Core, ExecuteSql and Dapper calls): DG004, DG017, DG097, DG098, DG099. Every test
+/// asserts the complete diagnostic set, and every expected diagnostic is located on the SQL argument with
+/// <c>{|#0:...|}</c> markup, so a new, missing or misplaced diagnostic fails it.
 /// </summary>
 public class ContractValidationAnalyzerTests
 {
@@ -30,10 +31,10 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public void Ping(DbContext db) => db.Database.ExecuteSqlRaw("SELECT 1");
+                public void Ping(DbContext db) => db.Database.ExecuteSqlRaw({|#0:"SELECT 1"|});
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.MissingFromClause).WithMessage("Raw SQL query missing FROM clause"));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.MissingFromClause).WithLocation(0).WithMessage("Raw SQL query missing FROM clause"));
         await test.RunAsync();
     }
 
@@ -46,10 +47,10 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public int Now(IDbConnection connection) => connection.Execute("SELECT GETDATE()");
+                public int Now(IDbConnection connection) => connection.Execute({|#0:"SELECT GETDATE()"|});
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.MissingFromClause));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.MissingFromClause).WithLocation(0));
         await test.RunAsync();
     }
 
@@ -93,10 +94,10 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public void Run(DbContext db) => db.Database.ExecuteSqlRaw("{{sql}}");
+                public void Run(DbContext db) => db.Database.ExecuteSqlRaw({|#0:"{{sql}}"|});
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithMessage("Potential SQL injection pattern detected"));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0).WithMessage("Potential SQL injection pattern detected"));
         await test.RunAsync();
     }
 
@@ -110,10 +111,10 @@ public class ContractValidationAnalyzerTests
             public class Repo
             {
                 public int Run(IDbConnection connection, string statement)
-                    => connection.Execute("EXEC sp_executesql @statement", new { statement });
+                    => connection.Execute({|#0:"EXEC sp_executesql @statement"|}, new { statement });
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0));
         await test.RunAsync();
     }
 
@@ -130,10 +131,10 @@ public class ContractValidationAnalyzerTests
             public class Repo
             {
                 public IEnumerable<Account> All(IDbConnection connection)
-                    => connection.Query<Account>("SELECT Id FROM Users UNION SELECT Id FROM Admins");
+                    => connection.Query<Account>({|#0:"SELECT Id FROM Users UNION SELECT Id FROM Admins"|});
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0));
         await test.RunAsync();
     }
 
@@ -153,10 +154,10 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public IEnumerable<Order> All(ShopContext db) => db.Orders.FromSqlRaw("SELECT Id FROM Orders WHERE 1=1");
+                public IEnumerable<Order> All(ShopContext db) => db.Orders.FromSqlRaw({|#0:"SELECT Id FROM Orders WHERE 1=1"|});
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0));
         await test.RunAsync();
     }
 
@@ -190,49 +191,102 @@ public class ContractValidationAnalyzerTests
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task Dg099_StringConcatenationWithParameter_IsNotReported_KnownGap()
+    public async Task Dg099_StringConcatenationWithParameter_IsReported()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG099 for "... '" + name + "'" passed to ExecuteSqlRaw;
-        // ExtractSqlFromArguments only reads constant strings or interpolated syntax, so concatenation (the actual
-        // injection shape) yields no SQL text and no diagnostic; fixed in Phase 4.3.
-        // Phase 4.3: add test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern)).
-        await Analyzer("""
+        var test = Analyzer("""
             using Microsoft.EntityFrameworkCore;
 
             public class Repo
             {
                 public void Find(DbContext db, string name)
-                    => db.Database.ExecuteSqlRaw("SELECT Id FROM Users WHERE Name = '" + name + "'");
+                    => db.Database.ExecuteSqlRaw({|#0:"SELECT Id FROM Users WHERE Name = '" + name + "'"|});
             }
-            """).RunAsync();
+            """);
+        test.ExpectedDiagnostics.Add(
+            Contract(DiagnosticIds.SqlInjectionPattern)
+                .WithLocation(0)
+                .WithMessage("Potential SQL injection: SQL text passed to 'ExecuteSqlRaw' is built by string concatenation or interpolation; pass values as parameters"));
+        await test.RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task Dg099_InterpolationIntoExecuteSqlRaw_IsNotReported_KnownGap()
+    public async Task Dg099_ConcatenatedSqlThroughLocalVariable_IsReportedAtTheArgument()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG099; $"...{name}..." passed to ExecuteSqlRaw is inlined (not
-        // parameterized) but the analyzer only pattern-matches the literal text; fixed in Phase 4.3 (mark Dynamic).
+        var test = Analyzer("""
+            using Microsoft.EntityFrameworkCore;
+
+            public class Repo
+            {
+                public void Purge(DbContext db, string table)
+                {
+                    var sql = "DELETE FROM " + table;
+                    db.Database.ExecuteSqlRaw({|#0:sql|});
+                }
+            }
+            """);
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0));
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg099_ConcatenationOfConstants_IsNotReported()
+    {
         await Analyzer("""
             using Microsoft.EntityFrameworkCore;
 
             public class Repo
             {
-                public void Find(DbContext db, string name)
-                    => db.Database.ExecuteSqlRaw($"SELECT Id FROM Users WHERE Name = '{name}'");
+                private const string Table = "Orders";
+
+                public void Purge(DbContext db)
+                {
+                    var where = " WHERE Archived = 1";
+                    db.Database.ExecuteSqlRaw("DELETE FROM " + Table + where);
+                }
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task Dg099_EfFromSqlRawStoredProcedureWithSpExecuteSql_IsNotReported_KnownGap()
+    public async Task Dg099_InterpolationIntoExecuteSqlRaw_IsReported()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG099 like the Dapper/ExecuteSql paths; ValidateEntityContract
-        // skips the injection check whenever the SQL starts with EXEC, so sp_executesql through FromSqlRaw is silent;
-        // fixed in Phase 4.3.
-        await Analyzer("""
+        var test = Analyzer("""
+            using Microsoft.EntityFrameworkCore;
+
+            public class Repo
+            {
+                public void Find(DbContext db, string name)
+                    => db.Database.ExecuteSqlRaw({|#0:$"SELECT Id FROM Users WHERE Name = '{name}'"|});
+            }
+            """);
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0));
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg099_InterpolationIntoDapperQuery_IsReported()
+    {
+        var test = Analyzer("""
+            using System.Collections.Generic;
+            using System.Data;
+            using Dapper;
+
+            public class Account { public int Id { get; set; } }
+
+            public class Repo
+            {
+                public IEnumerable<Account> Find(IDbConnection connection, string name)
+                    => connection.Query<Account>({|#0:$"SELECT Id FROM Users WHERE Name = '{name}'"|});
+            }
+            """);
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0));
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg099_EfFromSqlRawStoredProcedureWithSpExecuteSql_IsReported()
+    {
+        var test = Analyzer("""
             using System.Collections.Generic;
             using Microsoft.EntityFrameworkCore;
 
@@ -245,14 +299,16 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public IEnumerable<Order> All(ShopContext db) => db.Orders.FromSqlRaw("EXEC sp_executesql N'SELECT Id FROM Orders'");
+                public IEnumerable<Order> All(ShopContext db) => db.Orders.FromSqlRaw({|#0:"EXEC sp_executesql N'SELECT Id FROM Orders'"|});
             }
-            """).RunAsync();
+            """);
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SqlInjectionPattern).WithLocation(0));
+        await test.RunAsync();
     }
 
-    // ---- DG002 stored-procedure prefix ----
+    // ---- DG097 stored-procedure command text form (the analyzer's former DG002 heuristic) ----
     [Fact]
-    public async Task Dg002_StoredProcedureCallWithExecPrefix_IsNotReported()
+    public async Task Dg097_StoredProcedureCallWithExecPrefix_IsNotReported()
     {
         await Analyzer("""
             using System.Data;
@@ -266,13 +322,9 @@ public class ContractValidationAnalyzerTests
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task Dg002_StoredProcedureCallWithLeadingWhitespace_IsReported_KnownGap()
+    public async Task Dg097_StoredProcedureCallWithLeadingWhitespace_IsNotReported()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected no diagnostic; isStoredProc is computed on TrimStart() but the
-        // EXEC-prefix check in ValidateRawSqlContract uses the untrimmed text, so "  EXEC ..." raises a false DG002
-        // (Error); fixed in Phase 4.3. Phase 4.3: remove the expectation below.
-        var test = Analyzer("""
+        await Analyzer("""
             using System.Data;
             using Dapper;
 
@@ -280,11 +332,70 @@ public class ContractValidationAnalyzerTests
             {
                 public int Archive(IDbConnection connection) => connection.Execute("  EXEC dbo.ArchiveOrders");
             }
+            """).RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg097_BareProcedureNameAsTextCommand_IsReported()
+    {
+        var test = Analyzer("""
+            using Microsoft.EntityFrameworkCore;
+
+            public class Repo
+            {
+                public void Archive(DbContext db, int id) => db.Database.ExecuteSqlRaw({|#0:"dbo.ArchiveOrders @id"|}, id);
+            }
             """);
         test.ExpectedDiagnostics.Add(
-            Contract(DiagnosticIds.ParameterMismatch, DiagnosticSeverity.Error)
+            Contract(DiagnosticIds.StoredProcedureCommandText)
+                .WithLocation(0)
                 .WithMessage("Stored procedure call must start with EXEC or EXECUTE"));
         await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg097_ExecPrefixWithStoredProcedureCommandType_IsReported()
+    {
+        var test = Analyzer("""
+            using System.Data;
+            using Dapper;
+
+            public class Repo
+            {
+                public int Archive(IDbConnection connection)
+                    => connection.Execute({|#0:"EXEC dbo.ArchiveOrders"|}, commandType: CommandType.StoredProcedure);
+            }
+            """);
+        test.ExpectedDiagnostics.Add(
+            Contract(DiagnosticIds.StoredProcedureCommandText)
+                .WithLocation(0)
+                .WithMessage("CommandType.StoredProcedure expects a bare procedure name; remove the EXEC/EXECUTE/CALL prefix"));
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg097_BareNameWithStoredProcedureCommandType_IsNotReported()
+    {
+        await Analyzer("""
+            using System.Data;
+            using Dapper;
+
+            public class Repo
+            {
+                public int Archive(IDbConnection connection)
+                    => connection.Execute("PKG_ORDERS.ARCHIVE", commandType: CommandType.StoredProcedure);
+            }
+            """).RunAsync();
+    }
+
+    [Fact]
+    public void Dg097_IsAnalyzerOnlyAndDg002KeepsTheEngineMeaning()
+    {
+        var analyzer = new ContractValidationAnalyzer();
+        analyzer.SupportedDiagnostics.Should().ContainSingle(d => d.Id == "DG097")
+            .Which.Title.ToString().Should().Be("Stored procedure command text form");
+        analyzer.SupportedDiagnostics.Should().ContainSingle(d => d.Id == DiagnosticIds.ParameterMismatch)
+            .Which.Title.ToString().Should().Be("Parameter Type Match");
     }
 
     // ---- DG004 result-set shape ----
@@ -305,11 +416,12 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public IEnumerable<Customer> All(IDbConnection connection) => connection.Query<Customer>("SELECT Id, Name FROM Customers");
+                public IEnumerable<Customer> All(IDbConnection connection) => connection.Query<Customer>({|#0:"SELECT Id, Name FROM Customers"|});
             }
             """);
         test.ExpectedDiagnostics.Add(
             Contract(DiagnosticIds.ColumnShapeMismatch, DiagnosticSeverity.Error)
+                .WithLocation(0)
                 .WithMessage("Result set is missing required columns: Email"));
         await test.RunAsync();
     }
@@ -330,11 +442,12 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public IEnumerable<Customer> All(IDbConnection connection) => connection.Query<Customer>("SELECT Id, Name, Legacy FROM Customers");
+                public IEnumerable<Customer> All(IDbConnection connection) => connection.Query<Customer>({|#0:"SELECT Id, Name, Legacy FROM Customers"|});
             }
             """);
         test.ExpectedDiagnostics.Add(
             Contract(DiagnosticIds.ColumnShapeMismatch, DiagnosticSeverity.Error)
+                .WithLocation(0)
                 .WithMessage("Result set has 1 extra columns not mapped to entity properties: Legacy"));
         await test.RunAsync();
     }
@@ -342,7 +455,7 @@ public class ContractValidationAnalyzerTests
     [Fact]
     public async Task Dg004_EfFromSqlRawOnDbSetProperty_ReportsMissingColumn()
     {
-        // Unlike the DG001 generator, the operation-based analyzer does see FromSqlRaw on a DbSet property.
+        // The DbSet<Order> property is found syntactically through the compilation's type-shape index.
         var test = Analyzer("""
             using System.Collections.Generic;
             using Microsoft.EntityFrameworkCore;
@@ -360,13 +473,73 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public IEnumerable<Order> All(ShopContext db) => db.Orders.FromSqlRaw("SELECT Id FROM Orders");
+                public IEnumerable<Order> All(ShopContext db) => db.Orders.FromSqlRaw({|#0:"SELECT Id FROM Orders"|});
             }
             """);
         test.ExpectedDiagnostics.Add(
             Contract(DiagnosticIds.ColumnShapeMismatch, DiagnosticSeverity.Error)
+                .WithLocation(0)
                 .WithMessage("Result set is missing required columns: Total"));
         await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg004_EfFromSqlRawOnDbSetParameter_ReportsMissingColumn()
+    {
+        var test = Analyzer("""
+            using System.Collections.Generic;
+            using Microsoft.EntityFrameworkCore;
+
+            public class Order
+            {
+                public int Id { get; set; }
+                public decimal Total { get; set; }
+                public List<Order> Children { get; set; }
+            }
+
+            public class Repo
+            {
+                public IEnumerable<Order> All(DbSet<Order> orders) => orders.FromSqlRaw({|#0:"SELECT Id FROM Orders"|});
+            }
+            """);
+        test.ExpectedDiagnostics.Add(
+            Contract(DiagnosticIds.ColumnShapeMismatch, DiagnosticSeverity.Error)
+                .WithLocation(0)
+                .WithMessage("Result set is missing required columns: Total"));
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg004_TargetTypeNotDeclaredInCompilation_IsNotChecked()
+    {
+        await Analyzer("""
+            using System.Collections.Generic;
+            using System.Data;
+            using Dapper;
+
+            public class Repo
+            {
+                public IEnumerable<System.Uri> All(IDbConnection connection) => connection.Query<System.Uri>("SELECT Id, Name FROM Links");
+            }
+            """).RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg004_AmbiguousTypeName_IsNotChecked()
+    {
+        await Analyzer("""
+            using System.Collections.Generic;
+            using System.Data;
+            using Dapper;
+
+            namespace A { public class Customer { public int Id { get; set; } public string Email { get; set; } } }
+            namespace B { public class Customer { public int Id { get; set; } } }
+
+            public class Repo
+            {
+                public IEnumerable<A.Customer> All(IDbConnection connection) => connection.Query<A.Customer>("SELECT Id FROM Customers");
+            }
+            """).RunAsync();
     }
 
     [Fact]
@@ -405,11 +578,12 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public void Copy(DbContext db) => db.Database.ExecuteSqlRaw("INSERT INTO Archive SELECT * FROM Orders");
+                public void Copy(DbContext db) => db.Database.ExecuteSqlRaw({|#0:"INSERT INTO Archive SELECT * FROM Orders"|});
             }
             """);
         test.ExpectedDiagnostics.Add(
             Contract(DiagnosticIds.SelectStarUsage)
+                .WithLocation(0)
                 .WithMessage("Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation."));
         await test.RunAsync();
     }
@@ -426,11 +600,74 @@ public class ContractValidationAnalyzerTests
 
             public class Repo
             {
-                public IEnumerable<Order> All(IDbConnection connection) => connection.Query<Order>("SELECT o.* FROM Orders o");
+                public IEnumerable<Order> All(IDbConnection connection) => connection.Query<Order>({|#0:"SELECT o.* FROM Orders o"|});
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SelectStarUsage));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SelectStarUsage).WithLocation(0));
         await test.RunAsync();
+    }
+
+    [Theory]
+    [InlineData("SELECT TOP 10 * FROM Orders")]
+    [InlineData("SELECT DISTINCT * FROM Orders")]
+    [InlineData("SELECT TOP (5) PERCENT * FROM [dbo].[Orders]")]
+    public async Task Dg017_SelectStarAfterModifiers_IsReported(string sql)
+    {
+        var test = Analyzer($$"""
+            using System.Collections.Generic;
+            using System.Data;
+            using Dapper;
+
+            public class Order { public int Id { get; set; } }
+
+            public class Repo
+            {
+                public IEnumerable<Order> All(IDbConnection connection) => connection.Query<Order>({|#0:"{{sql}}"|});
+            }
+            """);
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SelectStarUsage).WithLocation(0));
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg017_MultiLineRawStringSelectStar_IsReported()
+    {
+        var test = Analyzer(""""
+            using System.Collections.Generic;
+            using System.Data;
+            using Dapper;
+
+            public class Order { public int Id { get; set; } }
+
+            public class Repo
+            {
+                public IEnumerable<Order> All(IDbConnection connection) => connection.Query<Order>({|#0:"""
+                    SELECT
+                        *
+                    FROM Orders
+                    """|});
+            }
+            """");
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.SelectStarUsage).WithLocation(0));
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task Dg017_StarInsideSqlComment_IsNotReported()
+    {
+        await Analyzer("""
+            using System.Collections.Generic;
+            using System.Data;
+            using Dapper;
+
+            public class Order { public int Id { get; set; } }
+
+            public class Repo
+            {
+                public IEnumerable<Order> All(IDbConnection connection)
+                    => connection.Query<Order>("SELECT Id /* was SELECT * */ FROM Orders");
+            }
+            """).RunAsync();
     }
 
     [Fact]
@@ -477,11 +714,11 @@ public class ContractValidationAnalyzerTests
                 {
                     // DataGuard: reviewed, health probe
                     db.Database.ExecuteSqlRaw("SELECT 1");
-                    db.Database.ExecuteSqlRaw("SELECT 2");
+                    db.Database.ExecuteSqlRaw({|#0:"SELECT 2"|});
                 }
             }
             """);
-        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.MissingFromClause));
+        test.ExpectedDiagnostics.Add(Contract(DiagnosticIds.MissingFromClause).WithLocation(0));
         await test.RunAsync();
     }
 
@@ -526,21 +763,16 @@ public class ContractValidationAnalyzerTests
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task Diagnostics_AreReportedWithoutSourceLocation_KnownGap()
+    public async Task Diagnostics_AreReportedAtTheSqlArgument()
     {
-        // KNOWN GAP (redteam-261004 rec 18): expected every ContractValidationAnalyzer diagnostic at the invocation
-        // (or SQL literal) span; AnalyzerViolation is created with Location.None and `violation.Location ??
-        // invocation.Syntax.GetLocation()` never falls back, so the IDE shows no squiggle, #pragma cannot suppress,
-        // and code fixes (DG017 -> DataGuardCodeFixProvider) are never offered; fixed in Phase 4.3.
-        // Phase 4.3: assert diagnostic.Location.IsInSource and the span of the ExecuteSqlRaw invocation.
         const string source = """
             public static class Db { public static int ExecuteSqlRaw(this object db, string sql) => 0; }
             public static class Usage { public static int Run(object db) => db.ExecuteSqlRaw("SELECT * FROM Orders WHERE 1=1"); }
             """;
+        var tree = CSharpSyntaxTree.ParseText(source);
         var compilation = CSharpCompilation.Create(
             "LocationProbe",
-            [CSharpSyntaxTree.ParseText(source)],
+            [tree],
             [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
@@ -550,6 +782,37 @@ public class ContractValidationAnalyzerTests
 
         diagnostics.Select(d => d.Id).Should().BeEquivalentTo(
             new[] { DiagnosticIds.SqlInjectionPattern, DiagnosticIds.SelectStarUsage });
-        diagnostics.Should().OnlyContain(d => d.Location == Location.None);
+        var literalStart = source.IndexOf("\"SELECT *", StringComparison.Ordinal);
+        var literalLength = "\"SELECT * FROM Orders WHERE 1=1\"".Length;
+        diagnostics.Should().OnlyContain(d => d.Location.IsInSource
+            && d.Location.SourceTree == tree
+            && d.Location.SourceSpan.Start == literalStart
+            && d.Location.SourceSpan.Length == literalLength);
+    }
+
+    [Fact]
+    public async Task AnalyzerOnlyLooksAtSyntax_NoDiagnosticForUnrelatedSqlLookingCalls()
+    {
+        // Name-only receivers: a QueryXxx/ExecuteXxx method without SQL text is not a SQL call.
+        await Analyzer("""
+            public class SearchIndex
+            {
+                public string[] QueryTerms(string text) => new string[0];
+            }
+
+            public class Jobs
+            {
+                public void Execute(string job) { }
+            }
+
+            public class Usage
+            {
+                public void Run(SearchIndex index, Jobs jobs)
+                {
+                    index.QueryTerms("selected products");
+                    jobs.Execute("nightly-report");
+                }
+            }
+            """).RunAsync();
     }
 }

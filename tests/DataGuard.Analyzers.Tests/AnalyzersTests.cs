@@ -34,7 +34,7 @@ public class AnalyzersTests
     }
 
     [Fact]
-    public void IsPotentialSqlCall_RecognizesAdoNetStoredProcedureInvocation()
+    public void IsPotentialSqlCall_AdoNetExecuteWithoutCommandTextInScope_IsNotSqlCall()
     {
         const string code = """
             class Repo
@@ -50,7 +50,29 @@ public class AnalyzersTests
         var invocation = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().First();
 
         var isSql = UnvalidatedSqlCallGenerator.IsPotentialSqlCall(invocation);
-        isSql.Should().BeTrue("ADO.NET ExecuteNonQuery calls must be recognized as potential SQL calls");
+        isSql.Should().BeFalse("without CommandText in the enclosing member there is no SQL text to flag");
+    }
+
+    [Fact]
+    public void IsPotentialSqlCall_RecognizesAdoNetStoredProcedureInvocation()
+    {
+        const string code = """
+            class Repo
+            {
+                void Call(System.Data.IDbCommand cmd)
+                {
+                    cmd.CommandText = "PKG_ORDERS.ARCHIVE";
+                    cmd.CommandType = System.Data.CommandType.StoredProcedure;
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            """;
+
+        var tree = CSharpSyntaxTree.ParseText(code);
+        var invocation = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().Single();
+
+        var isSql = UnvalidatedSqlCallGenerator.IsPotentialSqlCall(invocation);
+        isSql.Should().BeTrue("ADO.NET ExecuteNonQuery with CommandText/CommandType in scope must be recognized");
     }
 
     [Fact]

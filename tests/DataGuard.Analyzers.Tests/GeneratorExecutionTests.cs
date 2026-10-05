@@ -14,7 +14,7 @@ namespace DataGuard.Analyzers.Tests;
 
 /// <summary>
 /// Executes the incremental generator against real C# source and asserts the
-/// DG001 "SQL call not validated" diagnostic is produced for raw SQL calls.
+/// DG001 "Track Unvalidated SQL Calls" diagnostic is produced for raw SQL calls.
 /// </summary>
 public class GeneratorExecutionTests
 {

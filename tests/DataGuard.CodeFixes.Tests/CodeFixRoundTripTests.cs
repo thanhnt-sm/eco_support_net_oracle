@@ -21,7 +21,8 @@ using Xunit;
 /// Analyzer -> code fix round trips through <c>CSharpCodeFixTest</c>: the diagnostic is produced by an analyzer or
 /// generator (not built by hand), the provider's action is applied, the result must equal <c>FixedCode</c>, compile,
 /// and leave no fixable diagnostic behind. The framework also replays every fix through Fix All (document, project,
-/// solution). One round trip per provider in CodeFixProviders.cs, plus the negative and known-gap cases.
+/// solution). One round trip per provider in CodeFixProviders.cs, plus the negative cases. Stub analyzers stand in only
+/// for the CLI-only IDs (DG002, DG006, DG007, DG009, DG012); DG001 and DG017 come from the real generator/analyzer.
 /// </summary>
 public class CodeFixRoundTripTests
 {
@@ -44,6 +45,26 @@ public class CodeFixRoundTripTests
             public class DatabaseFacade
             {
             }
+        }
+        """;
+
+    private const string DapperModel = """
+        using System.Collections.Generic;
+
+        public class Customer
+        {
+            public int Id { get; set; }
+
+            public string Name { get; set; }
+        }
+
+        public interface IDbConnection
+        {
+        }
+
+        public static class SqlMapper
+        {
+            public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql, object param = null) => null;
         }
         """;
 
@@ -114,13 +135,10 @@ public class CodeFixRoundTripTests
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task SkipContractCheckFixProvider_Dg001FromGenerator_EmitsUncompilableAttribute_KnownGap()
+    public async Task SkipContractCheckFixProvider_Dg001FromGenerator_EmitsCompilableReasonAttribute()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected [SkipContractCheck(Reason = "...")] that compiles; the provider
-        // passes the reason positionally but SkipContractCheckAttribute only has a parameterless constructor and a
-        // Reason property, so the fix introduces CS1729; fixed in Phase 4.3.
-        // Phase 4.3: use `Reason = "..."` in FixedCode and drop the CS1729 markup.
+        // SkipContractCheckAttribute has only a parameterless constructor: the reason must be the named Reason
+        // property, otherwise the fix introduces CS1729 (redteam-261004 H9/R23).
         var test = new GeneratorCodeFixTest<SkipContractCheckFixProvider>
         {
             TestCode = """
@@ -139,7 +157,7 @@ public class CodeFixRoundTripTests
 
                 public class Repo
                 {
-                    [{|CS1729:global::DataGuard.Contracts.SkipContractCheck("Dynamic SQL - manual review required")|}]
+                    [global::DataGuard.Contracts.SkipContractCheck(Reason = "Dynamic SQL - manual review required")]
                     public void Purge(DbContext db)
                     {
                         db.Database.ExecuteSqlRaw("DELETE FROM Orders");
@@ -188,66 +206,63 @@ public class CodeFixRoundTripTests
         await CodeFix<UnverifiedSqlStubAnalyzer, DataGuardCodeFixProvider>(source, source).RunAsync();
     }
 
-    // ---- DG017 (SELECT *) ----
+    // ---- DG017 (SELECT *, real ContractValidationAnalyzer) ----
     [Fact]
     public async Task DataGuardCodeFixProvider_Dg017WithExplicitColumns_ReplacesStar()
     {
-        var test = CodeFix<SelectStarStubAnalyzer, DataGuardCodeFixProvider>(
+        var test = AnalyzerCodeFix(
             """
             public class Repo
             {
-                public void Run() => Query({|DG017:"SELECT * FROM Customers WHERE Id = @id"|});
-
-                private static void Query(string sql) { }
+                public IEnumerable<Customer> Find(IDbConnection connection, int id)
+                    => connection.Query<Customer>({|DG017:"SELECT * FROM Customers WHERE Id = @id"|}, new { id });
             }
             """,
             """
             public class Repo
             {
-                public void Run() => Query("SELECT Id, Name FROM Customers WHERE Id = @id");
-
-                private static void Query(string sql) { }
+                public IEnumerable<Customer> Find(IDbConnection connection, int id)
+                    => connection.Query<Customer>("SELECT Id, Name FROM Customers WHERE Id = @id", new { id });
             }
             """);
         await test.RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task DataGuardCodeFixProvider_Dg017FromContractValidationAnalyzer_IsNeverFixed_KnownGap()
+    public async Task DataGuardCodeFixProvider_Dg017FromContractValidationAnalyzer_RoundTrips()
     {
-        // KNOWN GAP (redteam-261004 rec 18): expected the real ContractValidationAnalyzer DG017 to round-trip into
-        // "SELECT Id, Name FROM Customers"; the analyzer reports at Location.None, so no code fix can be registered
-        // and FixedCode equals TestCode; fixed in Phase 4.3.
-        // Phase 4.3: put {|DG017:...|} on the literal (or invocation) and set FixedCode to the explicit column list.
-        const string source = """
-            using System.Collections.Generic;
-
-            public class Customer
-            {
-                public int Id { get; set; }
-                public string Name { get; set; }
-            }
-
-            public interface IDbConnection { }
-
-            public static class SqlMapper
-            {
-                public static IEnumerable<T> Query<T>(this IDbConnection cnn, string sql) => null;
-            }
-
+        var test = AnalyzerCodeFix(
+            """
             public class Repo
             {
-                public IEnumerable<Customer> All(IDbConnection connection) => connection.Query<Customer>("SELECT * FROM Customers");
+                public IEnumerable<Customer> All(IDbConnection connection) => connection.Query<Customer>({|DG017:"SELECT * FROM Customers"|});
             }
-            """;
-        var test = new CSharpCodeFixTest<ContractValidationAnalyzer, DataGuardCodeFixProvider, DefaultVerifier>
-        {
-            ReferenceAssemblies = CodeFixTestHarness.ReferenceAssemblies,
-            TestCode = source,
-            FixedCode = source,
-        };
-        test.ExpectedDiagnostics.Add(new DiagnosticResult(DiagnosticIds.SelectStarUsage, DiagnosticSeverity.Warning));
+            """,
+            """
+            public class Repo
+            {
+                public IEnumerable<Customer> All(IDbConnection connection) => connection.Query<Customer>("SELECT Id, Name FROM Customers");
+            }
+            """);
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task DataGuardCodeFixProvider_Dg017TopAndQualifiedStar_KeepsModifiers()
+    {
+        var test = AnalyzerCodeFix(
+            """
+            public class Repo
+            {
+                public IEnumerable<Customer> Top(IDbConnection connection) => connection.Query<Customer>({|DG017:"SELECT TOP 10 c.* FROM Customers c"|});
+            }
+            """,
+            """
+            public class Repo
+            {
+                public IEnumerable<Customer> Top(IDbConnection connection) => connection.Query<Customer>("SELECT TOP 10 Id, Name FROM Customers c");
+            }
+            """);
         await test.RunAsync();
     }
 
@@ -395,6 +410,24 @@ public class CodeFixRoundTripTests
         };
         test.TestState.AdditionalReferences.Add(CodeFixTestHarness.ContractsReference);
         test.FixedState.AdditionalReferences.Add(CodeFixTestHarness.ContractsReference);
+        return test;
+    }
+
+    /// <summary>
+    /// Round trip through the real <see cref="ContractValidationAnalyzer"/> with a Dapper-shaped stub and a
+    /// <c>Customer { Id, Name }</c> entity in a second document.
+    /// </summary>
+    private static CSharpCodeFixTest<ContractValidationAnalyzer, DataGuardCodeFixProvider, DefaultVerifier> AnalyzerCodeFix(string source, string fixedSource)
+    {
+        const string usings = "using System.Collections.Generic;\n\n";
+        var test = new CSharpCodeFixTest<ContractValidationAnalyzer, DataGuardCodeFixProvider, DefaultVerifier>
+        {
+            ReferenceAssemblies = CodeFixTestHarness.ReferenceAssemblies,
+            TestCode = usings + source,
+            FixedCode = usings + fixedSource,
+        };
+        test.TestState.Sources.Add(("Model.cs", DapperModel));
+        test.FixedState.Sources.Add(("Model.cs", DapperModel));
         return test;
     }
 

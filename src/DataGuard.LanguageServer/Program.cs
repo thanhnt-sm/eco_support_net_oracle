@@ -58,10 +58,17 @@ async Task PublishDebouncedAsync(Uri uri, string text, string version, Cancellat
     try
     {
         await Task.Delay(DiagnosticDebounceMilliseconds, pending.Token);
-        var diagnostics = SqlClassifier.Classify(text, uri, version)
+
+        // C# documents: only string literals that start like SQL are classified (comments and LINQ .Select( are not);
+        // plain .sql documents are classified as SQL text.
+        var classifications = uri.AbsolutePath.EndsWith(".sql", StringComparison.OrdinalIgnoreCase)
+            ? SqlClassifier.Classify(text, uri, version)
+            : SqlClassifier.ClassifyCSharp(text, uri, version);
+        var lineStarts = ComputeLineStarts(text);
+        var diagnostics = classifications
             .Select(item => new
             {
-                range = new { start = Position(text, item.Start), end = Position(text, item.Start + item.Length) },
+                range = new { start = Position(lineStarts, item.Start), end = Position(lineStarts, item.Start + item.Length) },
                 severity = item.IsSelectStar ? 2 : 3,
                 code = item.IsSelectStar ? "DG017" : "DGSQL001",
                 source = "DataGuard",
@@ -84,23 +91,30 @@ async Task PublishDebouncedAsync(Uri uri, string text, string version, Cancellat
     }
 }
 
-static object Position(string text, int offset)
+static int[] ComputeLineStarts(string text)
 {
-    var line = 0;
-    var character = 0;
-    for (var index = 0; index < offset; index++)
+    var starts = new List<int> { 0 };
+    for (var index = 0; index < text.Length; index++)
     {
         if (text[index] == '\n')
         {
-            line++;
-            character = 0;
-        }
-        else
-        {
-            character++;
+            starts.Add(index + 1);
         }
     }
-    return new { line, character };
+
+    return starts.ToArray();
+}
+
+// O(log lines) per lookup: binary search over the precomputed line starts (was an O(offset) scan per position).
+static object Position(int[] lineStarts, int offset)
+{
+    var line = Array.BinarySearch(lineStarts, offset);
+    if (line < 0)
+    {
+        line = ~line - 1;
+    }
+
+    return new { line, character = offset - lineStarts[line] };
 }
 
 static async Task<string?> ReadMessageAsync(Stream stream)

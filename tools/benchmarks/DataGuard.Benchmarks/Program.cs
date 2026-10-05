@@ -4,7 +4,8 @@ using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
 
 var fullRun = args.Contains("--full", StringComparer.Ordinal);
-var job = (fullRun ? Job.Default : Job.Dry).WithToolchain(InProcessEmitToolchain.Instance);
+var shortRun = args.Contains("--short", StringComparer.Ordinal);
+var job = (fullRun ? Job.Default : shortRun ? Job.ShortRun : Job.Dry).WithToolchain(InProcessEmitToolchain.Instance);
 var config = DefaultConfig.Instance
     .AddJob(job)
     .WithArtifactsPath(BenchmarkRunMetadata.ArtifactDirectory);
@@ -18,6 +19,8 @@ var benchmarkTypes = args.Contains("--classifier-only", StringComparer.Ordinal)
                 ? new[] { typeof(SarifExportBenchmarks) }
                 : args.Contains("--generator-only", StringComparer.Ordinal)
                     ? new[] { typeof(IncrementalGeneratorBenchmarks) }
+                : args.Contains("--keystroke-only", StringComparer.Ordinal)
+                    ? new[] { typeof(GeneratorKeystrokeBenchmark) }
         : new[]
         {
             typeof(ModelSnapshotBenchmarks),
@@ -26,8 +29,9 @@ var benchmarkTypes = args.Contains("--classifier-only", StringComparer.Ordinal)
             typeof(SemanticAnalyzerBenchmarks),
             typeof(SarifExportBenchmarks),
             typeof(IncrementalGeneratorBenchmarks),
+            typeof(GeneratorKeystrokeBenchmark),
         };
-BenchmarkRunMetadata.Write(fullRun ? "Default" : "Dry", fullRun, benchmarkTypes);
+BenchmarkRunMetadata.Write(fullRun ? "Default" : shortRun ? "Short" : "Dry", fullRun, benchmarkTypes);
 BenchmarkRunner.Run(
     benchmarkTypes,
     config);
