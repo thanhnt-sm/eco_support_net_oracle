@@ -1,0 +1,46 @@
+#nullable enable
+using System.Data;
+using Microsoft.Data.SqlClient;
+using Oracle.ManagedDataAccess.Client;
+
+namespace Fixture.Ado;
+
+public class TotalsRepository
+{
+    public int LastCommandTextWins(SqlConnection conn, int customerId)
+    {
+        using var cmd = new SqlCommand("usp_OldName", conn);
+        cmd.CommandText = "sales.usp_GetTotals";
+        cmd.CommandType = CommandType.StoredProcedure;
+        cmd.Parameters.AddWithValue("@CustomerId", customerId);
+        cmd.Parameters.Add(new SqlParameter("@Total", SqlDbType.Int) { Direction = ParameterDirection.Output });
+        var rc = cmd.Parameters.Add("@Rc", SqlDbType.Int);
+        rc.Direction = ParameterDirection.ReturnValue;
+        cmd.Parameters.Add("@Flag", SqlDbType.Bit).Direction = ParameterDirection.InputOutput;
+        cmd.ExecuteNonQuery();
+        return (int)cmd.Parameters["@Total"].Value;
+    }
+
+    public void TargetTyped(SqlConnection conn)
+    {
+        SqlCommand cmd = new("usp_TargetTyped", conn);
+        cmd.CommandType = CommandType.StoredProcedure;
+        cmd.ExecuteNonQuery();
+    }
+
+    public void OracleBlock(OracleConnection conn, int empId, decimal pct)
+    {
+        var cmd = new OracleCommand("BEGIN hr.emp_pkg.raise_salary(:p_emp_id, p_pct => :p_pct); END;", conn);
+        cmd.Parameters.Add("p_emp_id", OracleDbType.Int32, empId, ParameterDirection.Input);
+        cmd.Parameters.Add("p_pct", OracleDbType.Decimal).Value = pct;
+        cmd.ExecuteNonQuery();
+    }
+
+    public void OraclePackageProcedure(OracleConnection conn)
+    {
+        var cmd = new OracleCommand("EMP_PKG.GET_EMPLOYEES", conn);
+        cmd.CommandType = CommandType.StoredProcedure;
+        cmd.Parameters.Add("p_cursor", OracleDbType.RefCursor).Direction = ParameterDirection.Output;
+        cmd.ExecuteNonQuery();
+    }
+}

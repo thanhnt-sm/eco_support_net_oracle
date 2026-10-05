@@ -231,6 +231,14 @@ public static class ConnectionDiscovery
         return null;
     }
 
+    /// <summary>
+    /// Infers the provider from connection-string keys by scoring keys that only one provider uses (weight 2) and weak
+    /// hints (weight 1): PostgreSQL <c>Host</c>, <c>Search Path</c>; SQL Server <c>Initial Catalog</c>, <c>Encrypt</c>,
+    /// <c>TrustServerCertificate</c>, <c>Trusted_Connection</c>, <c>MultipleActiveResultSets</c>; MySQL <c>Uid</c>,
+    /// <c>SslMode</c>, <c>AllowPublicKeyRetrieval</c>; Oracle a <c>(DESCRIPTION=</c> or EZConnect <c>host:port/service</c>
+    /// data source, <c>SERVICE_NAME</c>/<c>SID</c>, or <c>User Id</c> with neither <c>Initial Catalog</c>, <c>Server</c>,
+    /// <c>Host</c> nor <c>Database</c>. The highest score wins; no signal or a tie is <c>unknown</c>.
+    /// </summary>
     public static string InferProviderFromConnectionString(string connectionString)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -238,27 +246,90 @@ public static class ConnectionDiscovery
             return "unknown";
         }
 
-        var lower = connectionString.ToLowerInvariant();
-        if (lower.Contains("user id") && (lower.Contains("data source") || lower.Contains("service_name")))
-        {
-            return "oracle";
-        }
-
-        if (lower.Contains("host=") || lower.Contains("port=5432") || lower.Contains("searchpath="))
+        var trimmed = connectionString.Trim();
+        if (trimmed.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) || trimmed.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
         {
             return "postgresql";
         }
 
-        if (lower.Contains("server=") || lower.Contains("initial catalog=") || lower.Contains("trusted_connection=") || lower.Contains("integrated security="))
-        {
-            return "sqlserver";
-        }
-
-        if (lower.Contains("port=3306") || lower.Contains("uid=") || lower.Contains("sslmode="))
+        if (trimmed.StartsWith("mysql://", StringComparison.OrdinalIgnoreCase))
         {
             return "mysql";
         }
 
-        return "unknown";
+        var pairs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var segment in trimmed.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = segment.IndexOf('=', StringComparison.Ordinal);
+            if (eq <= 0)
+            {
+                continue;
+            }
+
+            var key = Regex.Replace(segment.Substring(0, eq).Trim(), @"\s+", " ").ToLowerInvariant();
+            pairs[key] = segment.Substring(eq + 1).Trim();
+        }
+
+        var scores = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["postgresql"] = 0,
+            ["sqlserver"] = 0,
+            ["mysql"] = 0,
+            ["oracle"] = 0,
+        };
+
+        void Score(string provider, int weight, params string[] keys)
+        {
+            if (keys.Any(pairs.ContainsKey))
+            {
+                scores[provider] += weight;
+            }
+        }
+
+        Score("postgresql", 2, "host", "search path", "searchpath", "server compatibility mode");
+        Score("sqlserver", 2, "initial catalog", "encrypt", "trustservercertificate", "trust server certificate", "trusted_connection", "multipleactiveresultsets", "multiple active result sets");
+        Score("sqlserver", 1, "server", "integrated security");
+        Score("mysql", 2, "uid", "sslmode", "allowpublickeyretrieval", "allowuservariables", "convertzerodatetime");
+
+        if (pairs.TryGetValue("port", out var port))
+        {
+            if (port == "5432")
+            {
+                scores["postgresql"] += 1;
+            }
+            else if (port == "3306")
+            {
+                scores["mysql"] += 1;
+            }
+            else if (port == "1433")
+            {
+                scores["sqlserver"] += 1;
+            }
+        }
+
+        var dataSource = pairs.TryGetValue("data source", out var ds) ? ds : string.Empty;
+        if (dataSource.Contains("(DESCRIPTION", StringComparison.OrdinalIgnoreCase) ||
+            Regex.IsMatch(dataSource, @"^[\w.\-]+:\d+/[\w.\-]+$", RegexOptions.None, TimeSpan.FromSeconds(1)) ||
+            trimmed.Contains("SERVICE_NAME", StringComparison.OrdinalIgnoreCase) ||
+            pairs.ContainsKey("sid") ||
+            pairs.ContainsKey("dba privilege"))
+        {
+            scores["oracle"] += 2;
+        }
+
+        if (pairs.ContainsKey("user id") &&
+            !pairs.ContainsKey("initial catalog") && !pairs.ContainsKey("server") && !pairs.ContainsKey("host") && !pairs.ContainsKey("database"))
+        {
+            scores["oracle"] += 1;
+        }
+
+        var best = scores.Values.Max();
+        if (best == 0)
+        {
+            return "unknown";
+        }
+
+        var winners = scores.Where(kv => kv.Value == best).Select(kv => kv.Key).ToList();
+        return winners.Count == 1 ? winners[0] : "unknown";
     }
 }

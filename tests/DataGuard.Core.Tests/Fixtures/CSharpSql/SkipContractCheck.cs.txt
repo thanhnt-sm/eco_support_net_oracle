@@ -1,0 +1,40 @@
+#nullable enable
+using System.Data;
+using Dapper;
+using DataGuard.Contracts;
+
+namespace Fixture.Skip;
+
+public class MixedRepository
+{
+    [SkipContractCheck(Reason = "dynamic report")]
+    public void Skipped(IDbConnection conn)
+    {
+        conn.Execute("DELETE FROM AuditLog WHERE Id = @Id", new { Id = 1 });
+    }
+
+    public void Checked(IDbConnection conn)
+    {
+        conn.Execute("DELETE FROM Orders WHERE Id = @Id", new { Id = 1 });
+    }
+}
+
+[SkipContractCheckAttribute]
+public class LegacyRepository
+{
+    public class Nested
+    {
+        public void Run(IDbConnection conn) => conn.Execute("UPDATE Legacy SET Flag = 1 WHERE Id = 2");
+    }
+}
+
+// The attribute sits on another part of this partial class (semantic match).
+public partial class SplitRepository
+{
+    public void Run(IDbConnection conn) => conn.Execute("INSERT INTO Split (Id) VALUES (1)");
+}
+
+[SkipContractCheck]
+public partial class SplitRepository
+{
+}

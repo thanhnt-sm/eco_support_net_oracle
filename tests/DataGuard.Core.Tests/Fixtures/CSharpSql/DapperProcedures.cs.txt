@@ -1,0 +1,46 @@
+#nullable enable
+using System.Data;
+using Dapper;
+
+namespace Fixture.Dapper;
+
+public enum OrderStatus { Open = 1, Closed = 2 }
+
+public enum LongCode : long { A = 1 }
+
+public class OrderRepository
+{
+    public void Save(IDbConnection conn, int id, string name, int? parentId, OrderStatus status, LongCode code)
+    {
+        conn.Execute(
+            "dbo.usp_SaveOrder",
+            new { Id = id, Name = name, ParentId = parentId, Status = status, code },
+            commandType: CommandType.StoredProcedure);
+    }
+
+    public int Create(IDbConnection conn, string name)
+    {
+        var p = new DynamicParameters(new { Tenant = 7 });
+        p.Add("@Name", name);
+        p.Add("@NewId", dbType: DbType.Int32, direction: ParameterDirection.Output);
+        p.Add("@Audit", null, DbType.String, ParameterDirection.InputOutput);
+        conn.Execute("usp_CreateOrder", p, commandType: CommandType.StoredProcedure);
+        return p.Get<int>("@NewId");
+    }
+
+    public Order? Find(IDbConnection? conn, int id)
+    {
+        return conn?.QueryFirstOrDefault<Order>("SELECT Id, Name FROM Orders WHERE Id = @Id", new { Id = id });
+    }
+
+    public Order First(IDbConnection conn, decimal min)
+    {
+        return conn.QueryFirst<Order>("SELECT Id, Name FROM Orders WHERE Total > @min", new { min });
+    }
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}

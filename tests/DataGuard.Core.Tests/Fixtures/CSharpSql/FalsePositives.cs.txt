@@ -1,0 +1,43 @@
+#nullable enable
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Data;
+using Dapper;
+
+namespace Fixture.FalsePositives;
+
+// CQRS message: the type name ends with "Command" and the text contains "update", but it is not SQL.
+public sealed class UpdateProfileCommand
+{
+    public UpdateProfileCommand(string message) { Message = message; }
+    public string Message { get; }
+}
+
+public class BaseRepository
+{
+    public BaseRepository(string connectionName) { }
+}
+
+// A connection-string name passed to a repository base class is not a table.
+public class CustomerRepository : BaseRepository
+{
+    public CustomerRepository() : base("DefaultConnection") { }
+
+    public UpdateProfileCommand Notify() => new UpdateProfileCommand("Please update your profile");
+
+    public string? FindName(IDbConnection conn) => conn.QueryFirst<string>("SELECT Name FROM Customers WHERE Id = 1");
+
+    public CustomerRow Load(IDbConnection conn) => conn.QueryFirst<CustomerRow>("SELECT Id, Name, Email FROM Customers");
+}
+
+public class CustomerRow
+{
+    public int Id { get; set; }
+    public string Name { get; init; } = string.Empty;
+    public string? Email { get; private set; }
+    [NotMapped]
+    public string DisplayName { get; set; } = string.Empty;
+    public string Upper => Name.ToUpperInvariant();
+    public int Computed { get; }
+    internal int Hidden { get; set; }
+    public static int Shared { get; set; }
+}
