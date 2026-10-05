@@ -1,0 +1,29 @@
+{
+  "testCase": "NEG_005",
+  "category": "Negative",
+  "description": "FROM inside EXTRACT(YEAR FROM ...) is not a table reference",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT id, EXTRACT(YEAR FROM order_date) AS order_year FROM orders WHERE customer_id = :cid",
+    "provider": "Oracle",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "ORDERS",
+          "columns": [
+            "ID",
+            "CUSTOMER_ID",
+            "ORDER_DATE",
+            "TOTAL_AMOUNT",
+            "STATUS"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

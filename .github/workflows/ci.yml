@@ -87,8 +87,19 @@ jobs:
       - name: Enforce formatting (dotnet format gate)
         run: timeout --signal=TERM --kill-after=30s 5m dotnet format ${{ env.CROSS_PLATFORM_SOLUTION }} --verify-no-changes --no-restore
 
+      # Public-API consumer fixture (outside the slnf because it needs BaselineCoreAssembly). Compiling it
+      # against the DataGuard.Core.dll built above fails when a public type, constructor or Deconstruct
+      # shape the fixture uses is removed or changed. The retained-baseline binary run stays a manual check.
+      - name: Build binary-compatibility fixture against current Core
+        run: >-
+          dotnet build tests/DataGuard.BinaryCompatibilityFixture/DataGuard.BinaryCompatibilityFixture.csproj
+          --configuration Release
+          -p:RestoreLockedMode=true
+          -p:BaselineCoreAssembly="$GITHUB_WORKSPACE/src/DataGuard.Core/bin/Release/net9.0/DataGuard.Core.dll"
+
+      # Category=LiveDb tests (Testcontainers, real databases) run in the live-db-integration job below.
       - name: Run tests (fail-fast)
-        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
 
       - name: Code Coverage Gate (Fail under 60%)
         run: |
@@ -137,6 +148,107 @@ jobs:
         with:
           name: coverage
           path: "**/coverage.cobertura.xml"
+
+  # Real-database integration tests (Testcontainers: Oracle, SQL Server, PostgreSQL, MySQL). The two env
+  # vars make a fixture whose container cannot start fail instead of skip, so this job cannot go green
+  # without the databases actually running. Required job: no continue-on-error.
+  live-db-integration:
+    name: Live DB Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      DATAGUARD_REQUIRE_LIVE_RELATIONAL: "1"
+      DATAGUARD_REQUIRE_LIVE_SQLSERVER: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
+
+      - name: Build solution
+        run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
+
+      - name: Run live database tests
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category=LiveDb" --logger "trx;LogFileName=live_db_results.trx"
+
+      - name: Upload live DB test results
+        if: ${{ always() && env.ACT != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-db-test-results
+          path: "**/TestResults/live_db_results.trx"
+          if-no-files-found: ignore
+
+  # TypeScript unit tests of the VS Code extension plus a production-dependency audit. No .NET here:
+  # `npm test` compiles and runs node --test; prepare-lsp (dotnet publish) is a packaging step only.
+  vscode-extension:
+    name: VS Code Extension Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/DataGuard.VSCode
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: src/DataGuard.VSCode/package-lock.json
+
+      - name: Install from lockfile
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  # Shell tests of the local git tooling (tools/git-tools). Each test builds throw-away bare/clone
+  # repositories under mktemp; no network, no TTY (stdin is /dev/null, so prompts take their
+  # non-interactive branch).
+  scripts-tests:
+    name: Scripts Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Git tooling tests
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
+        run: |
+          set -euo pipefail
+          git config --global init.defaultBranch main
+          for test in tests/git-tools/test_*.sh; do
+            echo "::group::$test"
+            bash "$test" < /dev/null
+            echo "::endgroup::"
+          done
 
   visual-studio-build-and-test:
     name: Visual Studio Build and Test
@@ -246,7 +358,7 @@ jobs:
       - name: TruffleHog full git history (verified secrets, fail)
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
-          docker run --rm -v "$PWD:/pwd" -e "TARGET=/pwd" ghcr.io/trufflesecurity/trufflehog:3.97.0 git file:///pwd --no-update --only-verified --fail
+          docker run --rm -v "$PWD:/pwd" -e "TARGET=/pwd" ghcr.io/trufflesecurity/trufflehog:3.97.0@sha256:ff4c95e9df7d645daf2140e3ca1039031c63106268d5fbb25feb43ceca1bcc33 git file:///pwd --no-update --only-verified --fail
         continue-on-error: false
 
   generate-sbom:
@@ -320,6 +432,12 @@ jobs:
 
       - name: Validate benchmark metadata
         run: python3 tools/benchmarks/DataGuard.Benchmarks/scripts/validate_benchmark_claim.py tools/benchmarks/DataGuard.Benchmarks/BenchmarkDotNet.Artifacts/benchmark-metadata.json
+
+      - name: Restore observability benchmark project
+        run: dotnet restore tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj --locked-mode
+
+      - name: Build observability benchmark project
+        run: dotnet build tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj --configuration Release --no-restore
 
       - name: Upload benchmark artifacts
         if: ${{ always() }}

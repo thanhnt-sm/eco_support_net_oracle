@@ -17,7 +17,7 @@ Scope: implemented seams only; no recommendations. Every claim cites path + symb
 
 - Contract sources: `src/DataGuard.Core/Abstractions/Contracts.cs`: `IContractSource`; implementations `src/DataGuard.Core/Sources/EfModelSource.cs`: `EfModelSource`, `src/DataGuard.Core/Sources/ManualContractSource.cs`: `ManualContractSource`, `src/DataGuard.Core/Sources/SqlServerParsers.cs`: `SqlServerStoredProcedureParser`, `RawSqlParser`.
 - Rule model: `src/DataGuard.Core/Abstractions/Contracts.cs`: `IContractRule`, `ContractDescriptor`, `ContractType`; ordering `src/DataGuard.Core/Rules/RuleDependencyGraph.cs`: `RuleDependencyGraph`, `BuiltInRuleDependencies.CreateDefault`.
-- Built-in rules: `src/DataGuard.Core/Rules/ContractRules.cs`: `ParameterCountRule`, `ParameterTypeMatchRule`, `ParameterDirectionRule`, `ColumnShapeMatchRule`, `NullableMismatchRule`, `NamingConventionRule`.
+- Built-in rules: `src/DataGuard.Core/Rules/ (one file per rule; `ContractRuleBase.cs`, `ParameterCountRule.cs`, …)`: `ParameterCountRule`, `ParameterTypeMatchRule`, `ParameterDirectionRule`, `ColumnShapeMatchRule`, `NullableMismatchRule`, `NamingConventionRule`.
 - Provider-specific seams: `src/DataGuard.Oracle.Adapter/LengthMismatch.cs`: `LengthExceedsColumnRule`, `ByteLengthOverflowRiskRule`, `InferredSizeFallbackRule`; `src/DataGuard.Oracle.Adapter/OracleDialectChecker.cs`: `OracleDialectChecker`; `src/DataGuard.MySql.Adapter/MySqlDialectChecker.cs`, `src/DataGuard.MySql.Adapter/MySqlLengthMismatchDetector.cs`; PostgreSQL equivalents in `src/DataGuard.PostgreSql.Adapter/`.
 
 ## Extension, config, state

@@ -288,14 +288,34 @@ public class MySqlDialectCheckerTests
     [Fact]
     public void CheckMySqlLengthLimits_LongTextColumn_EntityWithinMax_NoViolation()
     {
-        // LONGTEXT max = 4294967295, int.MaxValue = 2147483647 < max → no violation
+        // LONGTEXT max = 4294967295 bytes; 1,000,000,000 chars × 3 bytes (utf8mb4 per UTF-16 unit) = 3e9 bytes < max
         var entity = new EntityDescriptor("e1", "User", "User", "Users",
-            new[] { new PropertyDescriptor("Content", "string", "content", "longtext", true, 2147483647, false, false, null) });
+            new[] { new PropertyDescriptor("Content", "string", "content", "longtext", true, 1_000_000_000, false, false, null) });
         var columns = new[] { new ColumnDescriptor("content", "LONGTEXT", null, null, null, true, null) };
 
         var violations = _checker.CheckMySqlLengthLimits(entity, columns);
 
         violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckMySqlLengthLimits_TextLimitsAreBytes_ConsistentWithMy006()
+    {
+        // 30,000 characters fit TEXT's 65,535 when counted as characters, but need 90,000 bytes in utf8mb4: MY003 and
+        // MY006 (MySqlLengthMismatchDetector) must agree that this overflows.
+        var entity = new EntityDescriptor("e1", "User", "User", "Users",
+            new[] { new PropertyDescriptor("Body", "string", "body", "text", true, 30_000, false, false, null) });
+        var utf8 = new[] { new ColumnDescriptor("body", "TEXT", null, null, null, true, null, Charset: "utf8mb4") };
+        var latin1 = new[] { new ColumnDescriptor("body", "TEXT", null, null, null, true, null, Charset: "latin1") };
+
+        var my003 = _checker.CheckMySqlLengthLimits(entity, utf8).Should().ContainSingle(v => v.RuleId == "MY003").Subject;
+        my003.Message.Should().Contain("90000 bytes").And.Contain("65535 bytes");
+        my003.Properties!["entityMaxBytes"].Should().Be(90_000L);
+        new MySqlLengthMismatchDetector().Detect(entity, utf8).Should().Contain(v => v.RuleId == "MY006");
+
+        // latin1: 1 byte per character, 30,000 bytes fit.
+        _checker.CheckMySqlLengthLimits(entity, latin1).Should().BeEmpty();
+        new MySqlLengthMismatchDetector().Detect(entity, latin1).Should().NotContain(v => v.RuleId == "MY006");
     }
 
     [Fact]
@@ -497,16 +517,27 @@ public class MySqlLengthMismatchDetectorTests
     }
 
     [Fact]
-    public void Detect_LongTextColumn_EntityExceedsMax_ReturnsMy006()
+    public void Detect_LongTextColumn_EntityWithinByteMax_NoMy006()
     {
-        // LONGTEXT max = 4294967295, int.MaxValue = 2147483647 < max → no MY006
+        // LONGTEXT holds 4294967295 BYTES; 1e9 chars × 3 bytes (utf8mb4 per UTF-16 unit) = 3e9 fits.
         var entity = new EntityDescriptor("e1", "User", "Users", "dbo",
-            new[] { new PropertyDescriptor("Content", "string", "content", "longtext", true, 2147483647, false, false, null) });
+            new[] { new PropertyDescriptor("Content", "string", "content", "longtext", true, 1_000_000_000, false, false, null) });
         var columns = new[] { new ColumnDescriptor("content", "LONGTEXT", null, null, null, true, null) };
 
         var violations = _detector.Detect(entity, columns);
 
         violations.Should().NotContain(v => v.RuleId == "MY006");
+    }
+
+    [Fact]
+    public void Detect_LongTextColumn_IntMaxCharsExceedByteMax_ReturnsMy006()
+    {
+        // int.MaxValue chars × 3 bytes = 6.4e9 > 4294967295 bytes: the limit is bytes, not characters.
+        var entity = new EntityDescriptor("e1", "User", "Users", "dbo",
+            new[] { new PropertyDescriptor("Content", "string", "content", "longtext", true, int.MaxValue, false, false, null) });
+        var columns = new[] { new ColumnDescriptor("content", "LONGTEXT", null, null, null, true, null) };
+
+        _detector.Detect(entity, columns).Should().Contain(v => v.RuleId == "MY006");
     }
 
     [Fact]
@@ -523,29 +554,29 @@ public class MySqlLengthMismatchDetectorTests
     }
 
     [Fact]
-    public void Detect_TextColumn_NoEntityMaxLength_ReturnsMy007()
+    public void Detect_TextColumn_NoEntityMaxLength_NoMy007()
     {
-        // Entity has no MaxLength, column is TEXT → EF Core infers VARCHAR(255)
+        // Pomelo maps an unbounded string to longtext: a TEXT column behind it is not a truncation risk.
         var entity = new EntityDescriptor("e1", "User", "Users", "dbo",
             new[] { new PropertyDescriptor("Body", "string", "body", "text", true, null, false, false, null) });
         var columns = new[] { new ColumnDescriptor("body", "TEXT", null, null, null, true, null) };
 
         var violations = _detector.Detect(entity, columns);
 
-        violations.Should().Contain(v => v.RuleId == "MY007" && v.Message.Contains("VARCHAR(255)"));
+        violations.Should().NotContain(v => v.RuleId == "MY007");
     }
 
     [Fact]
-    public void Detect_VarcharColumn_NoEntityMaxLength_NoMy007()
+    public void Detect_VarcharColumn_NoEntityMaxLength_ReturnsMy007()
     {
-        // Entity has no MaxLength, column is VARCHAR → no inferred fallback risk
+        // Unbounded string (longtext in the model) over VARCHAR(255): values over 255 chars fail at runtime.
         var entity = new EntityDescriptor("e1", "User", "Users", "dbo",
             new[] { new PropertyDescriptor("Name", "string", "name", "varchar", true, null, false, false, null) });
         var columns = new[] { new ColumnDescriptor("name", "VARCHAR", 255, null, null, true, null) };
 
         var violations = _detector.Detect(entity, columns);
 
-        violations.Should().NotContain(v => v.RuleId == "MY007");
+        violations.Should().ContainSingle(v => v.RuleId == "MY007" && v.Message.Contains("longtext") && v.Message.Contains("VARCHAR(255)"));
     }
 
     [Fact]
@@ -561,4 +592,128 @@ public class MySqlLengthMismatchDetectorTests
 
         violations.Should().NotContain(v => v.RuleId == "MY004");
     }
+}
+
+/// <summary>
+/// MySQL byte semantics, row size, charset placement and catalog keys.
+/// </summary>
+public class MySqlLengthSemanticsTests
+{
+    private readonly MySqlLengthMismatchDetector _detector = new();
+
+    [Theory]
+    [InlineData(21845, false)] // 21845 × 3 = 65535 bytes: fits TEXT exactly
+    [InlineData(21846, true)] // 65538 > 65535
+    public void TextLimitIsBytes_Utf8mb4UsesThreeBytesPerUtf16Unit(int maxLength, bool expectMy006)
+    {
+        var entity = Entity(new PropertyDescriptor("Body", "string", "body", null, true, maxLength, false, false, null));
+        var columns = new[] { new ColumnDescriptor("body", "TEXT", 65535, null, null, true, null, Charset: "utf8mb4") };
+
+        _detector.Detect(entity, columns).Any(v => v.RuleId == "MY006").Should().Be(expectMy006);
+        _detector.Detect(entity, columns).Should().NotContain(v => v.RuleId == "MY004");
+    }
+
+    [Fact]
+    public void TextLimit_Latin1CountsOneBytePerCharacter()
+    {
+        var entity = Entity(new PropertyDescriptor("Body", "string", "body", null, true, 65535, false, false, null));
+        var columns = new[] { new ColumnDescriptor("body", "TEXT", 65535, null, null, true, null, Charset: "latin1") };
+
+        _detector.Detect(entity, columns).Should().NotContain(v => v.RuleId == "MY006");
+    }
+
+    [Theory]
+    [InlineData("utf8mb3", 21845, false)] // 21845 x 3 = 65535: fits (utf8mb3 is 3 bytes, not 4)
+    [InlineData("utf8mb4", 21845, true)] // 87380 > 65535
+    [InlineData("latin1", 60000, false)]
+    public void My003_UsesColumnCharsetAndMaxCharacterWidth(string charset, int length, bool expectMy003)
+    {
+        var entity = Entity(new PropertyDescriptor("Name", "string", "name", null, true, length, false, false, null));
+        var columns = new[] { new ColumnDescriptor("name", "VARCHAR", length, null, null, true, null, Charset: charset) };
+
+        new MySqlDialectChecker().CheckMySqlLengthLimits(entity, columns)
+            .Any(v => v.RuleId == "MY003" && v.Message.Contains("65535-byte")).Should().Be(expectMy003);
+    }
+
+    [Theory]
+    [InlineData("utf8mb4", 3)]
+    [InlineData("utf8mb3", 3)]
+    [InlineData("utf16", 2)]
+    [InlineData("latin1", 1)]
+    [InlineData("nonsense", 3)]
+    public void BytesPerUtf16Unit_FollowsCharset(string charset, int expected)
+    {
+        MySqlLengthMismatchDetector.BytesPerUtf16Unit(charset).Should().Be(expected);
+    }
+
+    [Fact]
+    public void My005_RowSizeSumsAllVarcharColumnsWithCharset()
+    {
+        // Three VARCHAR(6000) utf8mb4 columns: 3 × (24000 + 2) = 72006 > 65535 even though each fits alone.
+        var entity = Entity(
+            new PropertyDescriptor("A", "string", "a", null, true, 6000, false, false, null),
+            new PropertyDescriptor("B", "string", "b", null, true, 6000, false, false, null));
+        var columns = new[]
+        {
+            new ColumnDescriptor("a", "VARCHAR", 6000, null, null, true, null, Charset: "utf8mb4"),
+            new ColumnDescriptor("b", "VARCHAR", 6000, null, null, true, null, Charset: "utf8mb4"),
+            new ColumnDescriptor("c", "VARCHAR", 6000, null, null, true, null, Charset: "utf8mb4"),
+        };
+
+        var violation = _detector.Detect(entity, columns).Should().ContainSingle(v => v.RuleId == "MY005").Subject;
+        Convert.ToInt64(violation.Properties!["rowBytes"]).Should().Be(72006);
+    }
+
+    [Fact]
+    public void My005_SameWidthsInLatin1FitTheRow()
+    {
+        var entity = Entity(new PropertyDescriptor("A", "string", "a", null, true, 6000, false, false, null));
+        var columns = new[]
+        {
+            new ColumnDescriptor("a", "VARCHAR", 6000, null, null, true, null, Charset: "latin1"),
+            new ColumnDescriptor("b", "VARCHAR", 6000, null, null, true, null, Charset: "latin1"),
+        };
+
+        _detector.Detect(entity, columns).Should().NotContain(v => v.RuleId == "MY005");
+    }
+
+    [Fact]
+    public void LegacySnapshotCharsetInCharUsedIsStillHonored()
+    {
+        var entity = Entity(new PropertyDescriptor("Body", "string", "body", null, true, 65535, false, false, null));
+        var columns = new[] { new ColumnDescriptor("body", "TEXT", 65535, null, null, true, "latin1") };
+
+        _detector.Detect(entity, columns).Should().NotContain(v => v.RuleId == "MY006");
+    }
+
+    [Theory]
+    [InlineData(0, "Shop.Orders")]
+    [InlineData(1, "shop.orders")]
+    [InlineData(2, "shop.orders")]
+    public void TableKey_HonorsLowerCaseTableNames(int lowerCaseTableNames, string expected)
+    {
+        MySqlStoredProcedureParser.TableKey("Shop", "Orders", lowerCaseTableNames).Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task Rule_ExactCaseTableWinsAndSchemaIsRespected()
+    {
+        var entity = new EntityDescriptor("e1", "Order", "Order", "shop.Orders",
+            new[] { new PropertyDescriptor("Code", "string", "code", null, true, 50, false, false, null) });
+        var schema = new DatabaseSchemaDescriptor(
+            "mysql:schema:shop",
+            new[]
+            {
+                new DatabaseTableDescriptor("orders", new[] { new ColumnDescriptor("code", "VARCHAR", 100, null, null, true, null) }, "shop"),
+                new DatabaseTableDescriptor("Orders", new[] { new ColumnDescriptor("code", "VARCHAR", 10, null, null, true, null) }, "shop"),
+            },
+            "CHAR");
+
+        var violations = await new MySqlLengthExceedsColumnRule().ValidateAsync(entity, new ContractDescriptor[] { entity, schema });
+
+        violations.Should().ContainSingle(v => v.RuleId == "MY004" && (int)v.Properties!["columnMaxLength"]! == 10);
+    }
+
+    private static EntityDescriptor Entity(params PropertyDescriptor[] properties)
+        => new("e1", "Doc", "Doc", "docs", properties);
 }

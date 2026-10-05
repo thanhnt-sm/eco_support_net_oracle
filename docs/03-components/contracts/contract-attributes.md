@@ -116,7 +116,7 @@ public class LegacyRepository { ... }
 | Component | Action |
 |-----------|--------|
 | Roslyn Analyzer | Suppresses DG001 diagnostic for decorated methods |
-| CI Heavy Layer | Skips semantic analysis for decorated methods |
+| ContractValidationAnalyzer | Skips the literal-SQL heuristics for call sites inside decorated methods/types (matched syntactically by attribute name) |
 | CLI | Not checked (CLI validates contracts, not call sites) |
 
 ### Code Fix Integration
@@ -305,8 +305,8 @@ sequenceDiagram
     participant REF as Reflection
 
     CLI->>MS: ExtractContractsAsync()
-    MS->>ASM: Assembly.LoadFrom(path)
-    MS->>REF: GetTypes() → GetProperties()
+    MS->>ASM: MetadataLoadContext.LoadFromAssemblyPath(path) (metadata only)
+    MS->>REF: GetTypes() → GetProperties() → GetCustomAttributesData()
     REF-->>MS: [ExpectedColumn] attributes
     MS->>REF: GetTypes() → GetMethods()
     REF-->>MS: [ExpectedSpParameter] attributes

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
 using DataGuard.Core.Sources;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
@@ -101,15 +102,16 @@ public class BaselineMigrationTests
                 violations: Array.Empty<Abstractions.ContractViolation>(),
                 schemaVersion: "1.0",
                 groundTruthMode: "Snapshot",
-                schemaHash: BaselineManager.ComputeSchemaHash(schema),
                 schema: schema);
 
             var reloaded = await manager.LoadAsync();
             reloaded!.Schema.Should().NotBeNull();
             reloaded.Schema.Should().ContainSingle(t => t.Name == "CUSTOMERS");
-            reloaded.Version.Should().Be(3);
-            reloaded.SchemaHashKind.Should().Be("canonical-schema-v1");
-            reloaded.SchemaHash.Should().Be(BaselineManager.ComputeSchemaHash(schema));
+            reloaded.Version.Should().Be(SnapshotFormat.WithStoredProceduresVersion);
+            reloaded.StoredProcedures.Should().NotBeNull().And.BeEmpty();
+            reloaded.SchemaHashKind.Should().Be(SnapshotFormat.CanonicalSchemaV2HashKind);
+            reloaded.SchemaHash.Should().Be(baseline.SchemaHash);
+            BaselineManager.VerifySnapshotIntegrity(reloaded).Status.Should().Be(SnapshotIntegrityStatus.Verified);
         }
         finally
         {
@@ -132,7 +134,7 @@ public class BaselineMigrationTests
     }
 
     [Fact]
-    public async Task CreateBaselineAsync_SchemaWithoutExplicitHashUsesCanonicalSchemaHash()
+    public async Task CreateBaselineAsync_SchemaIgnoresExplicitLegacyHash_AndUsesCanonicalSchemaV2Hash()
     {
         var path = Path.GetTempFileName();
         try
@@ -140,10 +142,13 @@ public class BaselineMigrationTests
             var schema = new[] { new SnapshotTable("CUSTOMERS", Array.Empty<SnapshotColumn>()) };
             var baseline = await new BaselineManager(path).CreateBaselineAsync(
                 Array.Empty<Abstractions.ContractViolation>(), "1.0", "Snapshot", schema: schema,
+                schemaHash: BaselineManager.ComputeSchemaHash(schema, "sqlserver", "dbo", "v1"),
+                schemaHashKind: SnapshotFormat.CanonicalSchemaV1HashKind,
                 provider: "sqlserver", schemaScope: "dbo");
 
-            baseline.SchemaHash.Should().Be(BaselineManager.ComputeSchemaHash(schema, "sqlserver", "dbo", "v1"));
-            baseline.SchemaHashKind.Should().Be("canonical-schema-v1");
+            baseline.SchemaHash.Should().Be(BaselineManager.ComputeSnapshotHash(schema, null, "sqlserver", "dbo", null, null));
+            baseline.SchemaHashKind.Should().Be(SnapshotFormat.CanonicalSchemaV2HashKind);
+            BaselineManager.VerifySnapshotIntegrity(baseline).Status.Should().Be(SnapshotIntegrityStatus.Verified);
         }
         finally
         {
@@ -245,6 +250,56 @@ public class EfModelSourceTests
         act.Should().Throw<EfModelExtractionException>().WithMessage("*No supported*");
     }
 
+    private const string PartialModelSnapshot = """
+        class Snapshot { void Build(ModelBuilder modelBuilder) {
+          modelBuilder.Entity<Customer>(b => { b.ToTable("CUSTOMERS"); b.Property(x => x.Name).HasMaxLength(120); });
+          modelBuilder.Entity("Shop.Order", b => { b.ToTable("ORDERS"); });
+        }}
+        """;
+
+    [Fact]
+    public void ParseModelSnapshotWithDiagnostics_PartialParseKeepsEntitiesAndExposesDiagnostics()
+    {
+        var extraction = EfModelSource.ParseModelSnapshotWithDiagnostics(PartialModelSnapshot, sourcePath: "Migrations/AppModelSnapshot.cs");
+
+        extraction.Entities.Should().ContainSingle().Which.TableName.Should().Be("CUSTOMERS");
+        var diagnostic = extraction.Diagnostics.Should().ContainSingle().Subject;
+        diagnostic.Kind.Should().Be(EfModelSource.ModelSnapshotPartialParseKind);
+        diagnostic.Path.Should().Be("Migrations/AppModelSnapshot.cs");
+        diagnostic.Message.Should().Contain("DG1304").And.Contain("line 3").And.Contain("skipped");
+
+        // The list-only API still returns the parsed entities (unchanged contract for existing callers).
+        EfModelSource.ParseModelSnapshot(PartialModelSnapshot).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ExtractFromModelSnapshotWithDiagnosticsAsync_ReportsFilePathAndCleanSnapshotHasNoDiagnostics()
+    {
+        var dir = Directory.CreateTempSubdirectory("dg-ef-partial").FullName;
+        try
+        {
+            var partial = Path.Combine(dir, "PartialModelSnapshot.cs");
+            await File.WriteAllTextAsync(partial, PartialModelSnapshot);
+            var clean = Path.Combine(dir, "CleanModelSnapshot.cs");
+            await File.WriteAllTextAsync(clean, """
+                class Snapshot { void Build(ModelBuilder modelBuilder) {
+                  modelBuilder.Entity<Customer>(b => { b.ToTable("CUSTOMERS"); });
+                }}
+                """);
+
+            var partialExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(partial);
+            var cleanExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(clean);
+
+            partialExtraction.Diagnostics.Should().ContainSingle().Which.Path.Should().Be(partial);
+            cleanExtraction.Entities.Should().ContainSingle();
+            cleanExtraction.Diagnostics.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ExtractFromTrustedCompiledModelSnapshotAsync_UsesExactType()
     {
@@ -284,4 +339,103 @@ public sealed class TrustedSnapshotEntity
 {
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Manual mode reads attributes through MetadataLoadContext (red-team Medium: Assembly.LoadFrom): a compiled assembly on
+/// disk is inspected without running any of its code and without entering the default load context.
+/// </summary>
+public class ManualContractSourceMetadataTests
+{
+    private const string Source = """
+        using System.Runtime.CompilerServices;
+        using DataGuard.Contracts;
+
+        namespace Hostile.Fixture;
+
+        public static class Trap
+        {
+            [ModuleInitializer]
+            public static void Init() => System.IO.File.WriteAllText(System.Environment.GetEnvironmentVariable("DG_MLC_MARKER") ?? "dg-mlc-marker.txt", "executed");
+        }
+
+        [DataContract("ORDERS")]
+        public class Order
+        {
+            static Order() => Trap.Init();
+
+            [ExpectedColumn("order_id", "long", IsNullable = false)]
+            public long Id { get; set; }
+
+            public decimal? Total { get; set; }
+
+            [ExpectedSpParameter("p_id", "NUMBER", "InputOutput", MaxLength = 12, ClrType = "long")]
+            [ResultSet("ORDER_TOTAL", "decimal", IsNullable = true)]
+            public void GetOrder([SqlParameter("p_tenant", "VARCHAR2", MaxLength = 30, Direction = ParameterDirection.Output)] string tenant) { }
+        }
+        """;
+
+    private static string CompileFixture(string directory)
+    {
+        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator)
+            .Where(path => Path.GetFileName(path).StartsWith("System.", StringComparison.Ordinal) || Path.GetFileName(path) is "netstandard.dll" or "mscorlib.dll")
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Append(MetadataReference.CreateFromFile(typeof(global::DataGuard.Contracts.ExpectedColumnAttribute).Assembly.Location))
+            .ToList();
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
+            "Hostile.Fixture." + Guid.NewGuid().ToString("N"),
+            new[] { Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(Source) },
+            references,
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var path = Path.Combine(directory, compilation.AssemblyName + ".dll");
+        var emit = compilation.Emit(path);
+        emit.Success.Should().BeTrue(string.Join(Environment.NewLine, emit.Diagnostics));
+        File.Copy(typeof(global::DataGuard.Contracts.ExpectedColumnAttribute).Assembly.Location, Path.Combine(directory, "DataGuard.Contracts.dll"));
+        return path;
+    }
+
+    [Fact]
+    public async Task ExtractContractsAsync_CompiledAssemblyOnDisk_ReadsAttributesWithoutExecutingOrLoadingIt()
+    {
+        var directory = Directory.CreateTempSubdirectory("dg-mlc").FullName;
+        try
+        {
+            var assemblyPath = CompileFixture(directory);
+            var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+            var contracts = await new ManualContractSource(assemblyPath).ExtractContractsAsync();
+
+            var entity = contracts.OfType<global::DataGuard.Core.Abstractions.EntityDescriptor>().Should().ContainSingle().Subject;
+            entity.TableName.Should().Be("ORDERS");
+            entity.Properties.Should().ContainSingle(p => p.ColumnName == "order_id" && p.ClrTypeName == "long" && !p.IsNullable);
+            entity.Properties.Should().ContainSingle(p => p.Name == "Total" && p.IsNullable, "Nullable<T> is recognized without the runtime type");
+
+            var procedure = contracts.OfType<global::DataGuard.Core.Abstractions.StoredProcedureDescriptor>().Should().ContainSingle().Subject;
+            procedure.Parameters.Should().ContainSingle(p => p.Name == "p_id" && p.Direction == global::DataGuard.Core.Abstractions.ParameterDirection.InputOutput && p.MaxLength == 12 && p.ClrType == "long");
+            procedure.Parameters.Should().ContainSingle(p => p.Name == "p_tenant" && p.DataType == "VARCHAR2" && p.Direction == global::DataGuard.Core.Abstractions.ParameterDirection.Output && p.MaxLength == 30);
+            procedure.ResultColumns.Should().ContainSingle(c => c.Name == "ORDER_TOTAL" && c.IsNullable);
+
+            System.Runtime.Loader.AssemblyLoadContext.All
+                .SelectMany(context => context.Assemblies)
+                .Should().NotContain(loaded => loaded.GetName().Name == assemblyName, "metadata inspection never loads the assembly for execution");
+            File.Exists(Path.Combine(directory, "dg-mlc-marker.txt")).Should().BeFalse();
+            File.Exists("dg-mlc-marker.txt").Should().BeFalse("no module initializer or static constructor ran");
+
+            // The context is disposed: the file is not held open (deletable on every OS).
+            File.Delete(assemblyPath);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractContractsAsync_MissingAssembly_ThrowsFileNotFound()
+    {
+        var act = () => new ManualContractSource(Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll")).ExtractContractsAsync();
+
+        await act.Should().ThrowAsync<FileNotFoundException>();
+    }
 }

@@ -59,10 +59,10 @@ public class DataGuardRulesOptionsPage : DialogPage
     [Description("Detects references to tables or views in SQL queries that do not exist in the database schema or committed schema snapshot.")]
     public bool EnablePhantomTable { get; set; } = true;
 
-    /// <summary>Gets or sets a value indicating whether DG016 (Phantom Column Reference &amp; Raw SQL Parse Status) is enabled.</summary>
+    /// <summary>Gets or sets a value indicating whether DG016 (Phantom Column Reference) is enabled. Raw SQL parse errors are DG019.</summary>
     [Category("1. Contract & Schema Alignment")]
-    [DisplayName("DG016: Phantom Column & Raw SQL Parse Status")]
-    [Description("Detects references to columns in SQL queries that do not exist on the target tables, and flags malformed raw SQL syntax or un-parsable statements.")]
+    [DisplayName("DG016: Phantom Column Reference")]
+    [Description("Detects references to columns in SQL queries that do not exist on the target tables. Malformed raw SQL is reported separately as DG019 (Raw SQL Parse Error).")]
     public bool EnablePhantomColumn { get; set; } = true;
 
     // =========================================================================
@@ -293,7 +293,7 @@ public class DataGuardRulesOptionsPage : DialogPage
             new ("DG010-013", "SQL Dialect Leaks & Compatibility", "SQL Dialect & Portability", "Detects vendor-specific SQL syntax or functions used against the wrong provider.", this.EnableDialectSyntaxLeak),
             new ("DG014", "Unmapped Type Usage", "SQL Dialect & Portability", "Detects usage of DB types or C# types without safe mapping definitions.", this.EnableUnmappedTypeUsage),
             new ("DG015", "Phantom Table Reference", "Contract & Schema Alignment", "Detects references to tables/views that do not exist in the DB schema.", this.EnablePhantomTable),
-            new ("DG016", "Phantom Column Reference & Raw SQL Parse Status", "Contract & Schema Alignment", "Detects non-existent columns and malformed raw SQL syntax.", this.EnablePhantomColumn),
+            new ("DG016", "Phantom Column Reference", "Contract & Schema Alignment", "Detects references to columns that do not exist on the referenced tables.", this.EnablePhantomColumn),
             new ("DG017", "Avoid SELECT * (Performance)", "Performance", "Warns against SELECT * to reduce bandwidth and ensure stable result shapes.", this.EnableSelectStar),
         };
     }

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -71,7 +72,8 @@ public class RulesEngineTests
 
         var violations = await RunAsync(new RawSqlParseStatusRule(), invalid, invalid);
 
-        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG016");
+        // DG019 (was DG016 before the H11 fix: DG016 is Phantom Column Reference).
+        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG019");
     }
 
     [Fact]
@@ -122,7 +124,7 @@ public class RulesEngineTests
         {
             ClrType = "int",
         };
-        var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetCustomer @Id", parameter));
+        var violations = await RunAsync(new ParameterTypeMatchRule("sqlserver", SqlServerTypeCompatibility.Instance), RawSql("EXEC dbo.GetCustomer @Id", parameter));
         violations.Should().ContainSingle().Which.RuleId.Should().Be("DG002");
     }
 
@@ -150,14 +152,31 @@ public class RulesEngineTests
     }
 
     [Fact]
-    public async Task DG002_NoSubstringFalsePositive()
+    public async Task DG002_NoSubstringMatch_UnknownDbTypeIsNotAFinding()
     {
+        // "POINT" must never substring-match "int" (that would hide a mismatch), and since 3.1 a database type the
+        // provider table does not know is Unknown, which never produces a finding (red-team H6).
+        ParameterTypeMatchRule.IsTypeCompatible("int", "POINT", isOracle: false).Should().BeFalse();
         var parameter = new ParameterDescriptor("Loc", "POINT", ParameterDirection.Input, null, null, null, false, 1)
         {
             ClrType = "int",
         };
         var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetPoint @Loc", parameter));
-        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG002");
+        violations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DG002_KnownIncompatiblePair_FlagsWithStructuredProperties()
+    {
+        var parameter = new ParameterDescriptor("Id", "uniqueidentifier", ParameterDirection.Input, null, null, null, false, 1)
+        {
+            ClrType = "System.Int32",
+        };
+        var violations = await RunAsync(new ParameterTypeMatchRule("sqlserver", SqlServerTypeCompatibility.Instance), RawSql("EXEC dbo.GetCustomer @Id", parameter));
+        var violation = violations.Should().ContainSingle().Which;
+        violation.RuleId.Should().Be("DG002");
+        violation.Properties!["clrType"].Should().Be("System.Int32");
+        violation.Properties!["dbType"].Should().Be("uniqueidentifier");
     }
 
     [Fact]
@@ -193,7 +212,8 @@ public class RulesEngineTests
     [Fact]
     public async Task NullableMismatchRule_RequiredPropertyAgainstNullableColumn_Flags()
     {
-        var entity = Entity("Customer", Prop("Name", "name", new Dictionary<string, object?> { ["Required"] = true }));
+        // The entity must map to the catalog table: DG005 no longer merges columns across tables (C5).
+        var entity = Entity("Customer", Prop("Name", "name", new Dictionary<string, object?> { ["Required"] = true })) with { TableName = "Customers" };
         var schema = Schema(("Customers", "name", true));
         var violations = await RunAsync(new NullableMismatchRule(), entity, entity, schema);
         violations.Should().ContainSingle().Which.RuleId.Should().Be("DG005");
@@ -208,11 +228,11 @@ public class RulesEngineTests
     }
 
     [Fact]
-    public async Task PhantomIdentifierRule_UnknownTable_Flags()
+    public async Task PhantomTableRule_UnknownTable_Flags()
     {
         var schema = Schema(("Orders", "Id", false));
         var sql = RawSql("SELECT Id FROM Ghost");
-        var violations = await RunAsync(new PhantomIdentifierRule(), sql, sql, schema);
+        var violations = await RunAsync(new PhantomTableRule(), sql, sql, schema);
         violations.Should().Contain(v => v.RuleId == "DG015");
     }
 

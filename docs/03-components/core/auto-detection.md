@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/AutoDetection/AutoDetectionEngine.cs`
 
-The auto-detection engine scans a .NET project to automatically configure DataGuard with zero manual setup. It detects database providers, ORMs, connection strings, naming conventions, and EF Core contexts.
+The auto-detection engine scans a .NET project to suggest a DataGuard configuration: database provider, ORMs, connection string, naming convention and the EF Core context name. Its CLI caller is the `dataguard init --wizard` setup wizard (`InteractiveConfigBuilder`); plain `dataguard init` writes fixed defaults and does not scan.
 
 ## Auto-Detection Flow
 
@@ -12,196 +12,106 @@ flowchart TB
         ROOT[Project Root]
     end
 
+    subgraph Scan["One pruned enumeration (cached)"]
+        FILES[*.cs, *.csproj, *.json, *.yml<br/>skip bin/ obj/ node_modules/ .git/ .vs/<br/>skip reparse points, ignore inaccessible]
+    end
+
     subgraph Detection Steps
-        D1[1. Detect Provider<br/>from config files]
-        D2[2. Detect EF Core<br/>DbContext + packages]
-        D3[3. Detect Dapper<br/>packages + usage]
-        D4[4. Detect Connection String<br/>env vars → config → yaml]
-        D5[5. Detect Naming Convention<br/>snake_case vs PascalCase]
-        D6[6. Detect EF Context<br/>class name]
+        D1[1. Provider<br/>.dataguard.yml → DATAGUARD_PROVIDER → scored evidence]
+        D2[2. EF Core<br/>packages + DbContext]
+        D3[3. Dapper<br/>packages + usage]
+        D4[4. Connection String<br/>env vars → appsettings → yaml]
+        D5[5. Naming Convention<br/>snake_case vs PascalCase]
+        D6[6. EF Context<br/>class name]
     end
 
     subgraph Output
         CONFIG[DataGuardConfiguration]
     end
 
-    ROOT --> D1
-    D1 --> D2
-    D2 --> D3
-    D3 --> D4
-    D4 --> D5
-    D5 --> D6
-    D6 --> CONFIG
+    ROOT --> FILES --> D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> CONFIG
 ```
+
+## File enumeration
+
+The project tree is enumerated **once** per engine instance with `EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = ReparsePoint }` (a `FileSystemEnumerable` whose recurse predicate prunes `bin`, `obj`, `node_modules`, `.git` and `.vs` before descending). Only `*.cs`, `*.csproj`, `*.json` and `*.yml` files are kept, paths are ordered by depth and then ordinally (so the shallowest `appsettings.json` wins, deterministically), at most 50,000 files are listed, and each file's content is read at most once (files over 4 MB are treated as empty) and shared by every detection step.
 
 ## AutoDetectionEngine
 
 ```csharp
 public sealed class AutoDetectionEngine
 {
-    private readonly string _projectRoot;
-    private readonly ILogger? _logger;
+    public AutoDetectionEngine(string? projectRoot = null, ILogger? logger = null);
 
-    public AutoDetectionEngine(string? projectRoot = null, ILogger? logger = null) { ... }
+    public Task<DataGuardConfiguration> DetectAsync(CancellationToken cancellationToken = default);
+    public Task<DatabaseProvider?> DetectProviderAsync(CancellationToken cancellationToken = default);
+    public Task<bool> DetectEfCoreAsync(CancellationToken cancellationToken = default);
+    public Task<bool> DetectDapperAsync(CancellationToken cancellationToken = default);
 
-    public async Task<DataGuardConfiguration> DetectAsync(
-        CancellationToken cancellationToken = default) { ... }
+    public static DatabaseProvider? ParseProviderName(string? value); // sqlserver/mssql, oracle, postgresql/postgres/npgsql, mysql/mariadb
+    public static string? ToProviderKey(DatabaseProvider provider);   // sqlserver, oracle, postgresql, mysql
 }
 ```
 
 ### Detection Process
 
-| Step | Method | Sources | Priority |
-|------|--------|---------|----------|
-| 1 | `DetectProviderFromConfigAsync` | appsettings.json, appsettings.Development.json, .dataguard.yml, env vars | Highest |
-| 2 | `DetectEfCoreAsync` | *.csproj packages, *.cs DbContext references | — |
-| 3 | `DetectDapperAsync` | *.csproj packages, *.cs Dapper usage | — |
-| 4 | `DetectConnectionStringAsync` | env vars → appsettings → .dataguard.yml | — |
-| 5 | `DetectNamingConventionAsync` | snake_case vs PascalCase ratio in *.cs | — |
-| 6 | `DetectEfCoreContextAsync` | `class X : DbContext` pattern | — |
+| Step | Method | Sources |
+|------|--------|---------|
+| 1 | `DetectProviderAsync` | `DefaultProvider:`/`provider:` in `.dataguard.yml`, then `DATAGUARD_PROVIDER`, then scored evidence |
+| 2 | `DetectEfCoreAsync` | `*.csproj` containing `EntityFrameworkCore`, then `DbContext` in `*.cs` |
+| 3 | `DetectDapperAsync` | `*.csproj` containing `Dapper`, then `using Dapper` / `Dapper.` in `*.cs` |
+| 4 | `DetectConnectionStringAsync` | env vars → `appsettings.json` → `appsettings.Development.json` → `.dataguard.yml` |
+| 5 | `DetectNamingConventionAsync` | snake_case identifiers vs PascalCase public members in `*.cs` |
+| 6 | `DetectEfCoreContextAsync` | `class X : DbContext` (generic and namespace-qualified bases included); logged only |
 
-## DatabaseProvider Detection
+The detected provider sets `DefaultProvider` (`sqlserver`, `oracle`, `postgresql`, `mysql`) and, for SQL Server and Oracle, the provider configuration block.
 
-```csharp
-public enum DatabaseProvider
-{
-    Unknown,
-    SqlServer,
-    Oracle,
-    PostgreSQL,
-    MySQL,
-}
-```
-
-### Detection Strategy
-
-**From connection strings:**
-```csharp
-// Oracle signatures checked first (more specific)
-if (connStr.Contains("oracle") || connStr.Contains("service_name") ||
-    connStr.Contains("connect_data"))
-    return DatabaseProvider.Oracle;
-
-// SQL Server
-if (connStr.Contains("data source") || connStr.Contains("server="))
-    return DatabaseProvider.SqlServer;
-```
-
-**From config files:**
-- Parses `ConnectionStrings` section in appsettings.json
-- Checks for `UseSqlServer`, `UseOracle` patterns
-- Reads `provider:` from .dataguard.yml
-
-**From environment variables:**
-```csharp
-var envProvider = Environment.GetEnvironmentVariable("DATAGUARD_PROVIDER");
-if (Enum.TryParse<DatabaseProvider>(envProvider, true, out var parsed))
-    return parsed;
-```
-
-## EF Core Detection
-
-Scans for EF Core presence in two ways:
-
-1. **Package references** — checks *.csproj for `Microsoft.EntityFrameworkCore`
-2. **Source code** — checks *.cs files for `DbContext` usage
+## Provider detection
 
 ```csharp
-private async Task<bool> DetectEfCoreAsync(CancellationToken ct)
-{
-    var csprojFiles = Directory.GetFiles(_projectRoot, "*.csproj", SearchOption.AllDirectories);
-    foreach (var csproj in csprojFiles)
-    {
-        var content = await File.ReadAllTextAsync(csproj, ct);
-        if (content.Contains("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase))
-            return true;
-    }
-    return false;
-}
+public enum DatabaseProvider { Unknown, SqlServer, Oracle, PostgreSQL, MySQL }
 ```
 
-## Dapper Detection
+Explicit settings win: `DefaultProvider:` (or the legacy `provider:`) in `.dataguard.yml`, then the `DATAGUARD_PROVIDER` environment variable. Otherwise every piece of evidence adds to a per-provider score and the single highest score wins; a tie, or no evidence, is "not detected" (`null`).
 
-Similar to EF Core detection:
+| Evidence | Weight | Recognized |
+|----------|--------|------------|
+| Each `ConnectionStrings` value in `appsettings.json` / `appsettings.Development.json` | 3 | `ConnectionDiscovery.InferProviderFromConnectionString` (keys such as `Host`/`Search Path`, `Initial Catalog`/`Encrypt`, `Uid`/`SslMode`, Oracle `Data Source=host:port/service`, `postgres://`, `mysql://`, well-known ports) |
+| Each `*.csproj` package reference | 2 | `Npgsql*` ⇒ PostgreSQL; `MySqlConnector`, `MySql.Data`, `Pomelo.EntityFrameworkCore.MySql`, `MySql.EntityFrameworkCore` ⇒ MySQL; `Oracle.ManagedDataAccess*`, `Oracle.EntityFrameworkCore` ⇒ Oracle; `Microsoft.EntityFrameworkCore.SqlServer`, `Microsoft.Data.SqlClient`, `System.Data.SqlClient` ⇒ SQL Server |
+| Each `*.cs` file | 2 | `UseNpgsql(`/`NpgsqlConnection`, `UseMySql(`/`UseMySQL(`/`MySqlConnection`, `UseOracle(`/`OracleConnection`, `UseSqlServer(`/`new SqlConnection(` |
 
-1. **Package references** — checks *.csproj for `Dapper`
-2. **Source code** — checks *.cs files for `Dapper.` usage
+## EF Core and Dapper detection
 
+Both check package references first and source usage second, over the cached file list.
 
 ### Stored Procedure Auto-Detection (Dapper & ADO.NET)
 
 In addition to raw SQL string queries, the contract extraction engine auto-detects stored procedure calls without requiring SQL dialect prefixes:
 - **Dapper Invocations**: Detects calls passing `commandType: CommandType.StoredProcedure` (e.g. `conn.QueryAsync<T>("SP_NAME", commandType: CommandType.StoredProcedure)`). Even if `"SP_NAME"` does not contain standard SQL query keywords (like `SELECT`), the proc name is captured, creating a `RawSqlDescriptor` with `IsStoredProcedure = true` and `ProcedureName = "SP_NAME"`.
 - **ADO.NET Command Invocations**: Recognizes `cmd.CommandType = CommandType.StoredProcedure` assignments and back-fills the corresponding `SqlCommand` / `OracleCommand` / `NpgsqlCommand` `CommandText` as a stored procedure descriptor.
+
 ## Connection String Detection
 
-Priority order:
-
-| Priority | Source | Environment Variable |
-|----------|--------|---------------------|
+| Priority | Source | Key |
+|----------|--------|-----|
 | 1 | Environment variable | `DATAGUARD_CONNECTION_STRING` |
 | 2 | Environment variable | `ConnectionStrings__DefaultConnection` |
 | 3 | Environment variable | `ConnectionStrings__Default` |
-| 4 | appsettings.json | `ConnectionStrings.DefaultConnection` |
-| 5 | appsettings.Development.json | `ConnectionStrings.DefaultConnection` |
+| 4 | appsettings.json (shallowest first) | first `ConnectionStrings` value that looks like a connection string (`Server=`, `Data Source=`, `Host=` or a recognized provider) |
+| 5 | appsettings.Development.json | same |
 | 6 | .dataguard.yml | `connectionString:` |
 
 ## Naming Convention Detection
 
-Analyzes codebase to determine naming patterns:
-
-```csharp
-private async Task<NamingConvention?> DetectNamingConventionAsync(CancellationToken ct)
-{
-    var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
-    var snakeCaseCount = 0;
-    var pascalCaseCount = 0;
-
-    foreach (var csFile in csFiles)
-    {
-        var content = await File.ReadAllTextAsync(csFile, ct);
-        snakeCaseCount += Regex.Matches(content, @"\b[a-z]+_[a-z]+\b").Count;
-        pascalCaseCount += Regex.Matches(content, @"public\s+\w+\s+[A-Z][a-z]+[A-Z][a-z]+\s*\{").Count;
-    }
-
-    if (snakeCaseCount > pascalCaseCount * 2)
-        return NamingConvention.SnakeCaseToPascalCase;
-    if (pascalCaseCount > snakeCaseCount * 2)
-        return NamingConvention.PascalCaseToSnakeCase;
-    return null; // Could not determine
-}
-```
-
-## EF Core Context Detection
-
-Finds DbContext class names by scanning for inheritance patterns:
-
-```csharp
-private async Task<string?> DetectEfCoreContextAsync(CancellationToken ct)
-{
-    var csFiles = Directory.GetFiles(_projectRoot, "*.cs", SearchOption.AllDirectories);
-    foreach (var csFile in csFiles)
-    {
-        var content = await File.ReadAllTextAsync(csFile, ct);
-        var matches = Regex.Matches(content, @"class\s+(\w+)\s*:\s*DbContext");
-        if (matches.Count > 0)
-            return matches[0].Groups[1].Value;
-    }
-    return null;
-}
-```
+Counts snake_case identifiers (`\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b`) against PascalCase public members with **any number of humps** (`Id`, `Name`, `CustomerOrderId`), including generic, nullable and array member types (`List<OrderLine>`, `int?`, `byte[]`) and `static`/`virtual`/`override`/`required` modifiers. A count more than twice the other decides: snake_case ⇒ `SnakeCaseToPascalCase`, PascalCase ⇒ `PascalCaseToSnakeCase`; otherwise the default is kept. Regexes run with a 2-second timeout.
 
 ## InteractiveConfigBuilder
-
-Zero-config setup wizard for legacy onboarding.
 
 ```csharp
 public static class InteractiveConfigBuilder
 {
-    public static async Task<DataGuardConfiguration> RunWizardAsync(
-        string projectRoot,
-        IConsole console,
-        CancellationToken cancellationToken = default) { ... }
+    public static Task<DataGuardConfiguration> RunWizardAsync(string projectRoot, IConsole console, CancellationToken cancellationToken = default);
+    public static Task<DataGuardConfiguration> RunWizardAsync(string projectRoot, IConsole console, string configPath, CancellationToken cancellationToken = default);
 }
 ```
 
@@ -209,19 +119,19 @@ public static class InteractiveConfigBuilder
 
 ```mermaid
 flowchart LR
-    S1[1. Detect Provider] --> S2[2. Get Connection String]
+    S1[1. Detect Provider] --> S2[2. Connection String]
     S2 --> S3[3. Scan ORMs]
     S3 --> S4[4. Naming Convention]
-    S4 --> S5[5. Baseline Mode]
+    S4 --> S5[5. Ground truth / baseline]
     S5 --> S6[6. Save Config]
 ```
 
-**Step 1:** Auto-detect database provider (default: SQL Server)
-**Step 2:** Prompt for connection string or use `DATAGUARD_CONNECTION_STRING` env var
-**Step 3:** Scan for EF Core and Dapper packages
-**Step 4:** Choose naming convention (snake_case ↔ PascalCase, PascalCase ↔ snake_case, exact match)
-**Step 5:** Choose ground truth mode (Snapshot, Baseline, Manual)
-**Step 6:** Save `.dataguard.yml` configuration file
+1. Detect the provider with `AutoDetectionEngine.DetectProviderAsync`.
+2. Prompt for a connection string (Enter = `DATAGUARD_CONNECTION_STRING`). It is used **only** to infer the provider when step 1 found nothing (fallback: SQL Server) and is never written to the config file.
+3. Scan for EF Core and Dapper with the same cached engine.
+4. Naming convention: `1` snake_case ↔ PascalCase (default), `2` PascalCase ↔ snake_case, `3` exact match. The answer is written to the config.
+5. Ground truth: `1` (default) ⇒ `GroundTruthMode: Snapshot`, `EnableBaseline: false`; `2` ⇒ `Snapshot` **plus** `EnableBaseline: true` (freeze current violations, fail only on new drift); `3` ⇒ `Manual`, `EnableBaseline: false`.
+6. Write `GroundTruthMode`, `EnableSmartDefaults`, `EnableBaseline`, `NamingConvention`, `DefaultProvider`, plus `SnapshotFilePath: .dataguard-snapshot.json` (snapshot mode) and `BaselineFilePath: .dataguard-baseline.json` (baseline on) to the explicit config path.
 
 ### Console Abstraction
 
@@ -237,44 +147,16 @@ public interface IConsole
 
 Allows testing the wizard without real console I/O.
 
-## Provider-Specific Defaults
-
-When a provider is detected, appropriate defaults are applied:
-
-```csharp
-private DataGuardConfiguration ApplyProviderDefaults(
-    DataGuardConfiguration config, DatabaseProvider provider)
-{
-    return provider switch
-    {
-        DatabaseProvider.SqlServer => config with { SqlServer = new SqlServerConfiguration() },
-        DatabaseProvider.Oracle => config with { Oracle = new OracleConfiguration() },
-        _ => config
-    };
-}
-```
-
 ## Usage
-
-### Automatic Detection
 
 ```csharp
 var engine = new AutoDetectionEngine(projectRoot);
 var config = await engine.DetectAsync();
-// config is ready to use with DataGuardApi.CreatePipeline(config)
+
+var wizardConfig = await InteractiveConfigBuilder.RunWizardAsync(projectRoot, new SystemConsole(), configPath);
 ```
-
-### Interactive Wizard
-
-```csharp
-var config = await InteractiveConfigBuilder.RunWizardAsync(
-    projectRoot, new SystemConsole());
-// .dataguard.yml saved to projectRoot
-```
-
-### CLI Integration
 
 ```bash
-dataguard init          # Runs auto-detection
-dataguard init --wizard # Runs interactive wizard
+dataguard init                              # writes default configuration (no scan)
+dataguard init --wizard --output .dataguard.yml  # interactive wizard backed by auto-detection
 ```

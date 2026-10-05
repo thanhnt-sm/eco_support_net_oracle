@@ -92,7 +92,7 @@ graph TD
 | Property | Value |
 |----------|-------|
 | **Target** | `net9.0` |
-| **Dependencies** | Contracts, EF Core 9.0.19, Roslyn 5.9.0, ScriptDom 180.102.0, AWSSDK.SecretsManager, System.Composition.Hosting |
+| **Dependencies** | Contracts, EF Core, Roslyn 5.9.0, AWSSDK.SecretsManager, System.Composition.Hosting (no SqlClient/ScriptDom since red-team A1/R33) |
 | **Role** | Core validation engine — zero vendor-specific database dependencies |
 
 **Internal Modules:**
@@ -100,7 +100,7 @@ graph TD
 | Module | Key Types | Purpose |
 |--------|-----------|---------|
 | **Abstractions** | `IContractSource`, `IContractRule`, `ContractViolation`, `EntityDescriptor`, `StoredProcedureDescriptor`, `RawSqlDescriptor`, `DatabaseSchemaDescriptor`, `PropertyDescriptor`, `ParameterDescriptor`, `ColumnDescriptor` | Domain model and interfaces |
-| **Rules** | `ContractRuleBase`, parameter/type/direction/shape/nullability/naming rules (DG001–DG007), length & dialect rules (DG008–DG014), `PhantomIdentifierRule` (DG015/DG016) | Rule implementations |
+| **Rules** | `ContractRuleBase`, parameter/type/direction/shape/nullability/naming rules (DG001–DG007), length & dialect rules (DG008–DG014), `PhantomTableRule` (DG015), `PhantomColumnRule` (DG016), `RawSqlParseStatusRule` (DG019) | Rule implementations |
 | **Rules** | `RuleDependencyGraph`, `BuiltInRuleDependencies`, `ValidationResult` | Topological sort for optimal rule execution order |
 | **Sources** | `EfModelSource` (runtime IModel + design-time snapshot), `SqlServerStoredProcedureParser`, `RawSqlParser`, `SqlParameterVisitor` | Contract extraction from EF Core and SQL Server |
 | **Security** | `ZeroTrustCredentialProvider`, `CredentialHandle`, `CredentialManager`, `IAuditLogger`, `FileAuditLogger`, `AuditEntry` | Zero-trust credential handling and tamper-evident audit trail |
@@ -143,18 +143,21 @@ graph TD
 | Property | Value |
 |----------|-------|
 | **Target** | `net9.0` |
-| **Dependencies** | Core, `Microsoft.Data.SqlClient` 7.0.2, ScriptDom |
-| **Role** | SQL Server-specific contract extraction |
+| **Dependencies** | Core, `Microsoft.Data.SqlClient` 7.1.1, ScriptDom 180.117.0 |
+| **Role** | All SQL Server-specific code: catalog extraction, live describe, type table, T-SQL parsing |
 
 **Key Types:**
 
 | Type | Purpose |
 |------|---------|
-| SP parser | Reads procedure metadata and result-set shapes over `SqlConnection` (catalog views) |
-| `RawSqlParser` (Core) | Parses raw T-SQL using ScriptDom AST; visitor extracts parameters |
+| `SqlServerStoredProcedureParser` | Reads procedure metadata and result-set shapes over `SqlConnection` (catalog views) |
+| `RawSqlParser` | Parses raw T-SQL using ScriptDom AST; visitor extracts parameters |
 | `SqlParameterVisitor` | `TSqlFragmentVisitor` implementation for parameter extraction |
+| `SqlServerLiveQuerySchemaProvider` | `ILiveQuerySchemaProvider` via `sp_describe_first_result_set` |
+| `SqlServerTypeCompatibility` | `ITypeCompatibility` CLR ↔ SQL Server table |
+| `TSqlStatementParser`, `TSqlPhantomAnalyzer` | ScriptDom `ISqlStatementParser` (DG019) and `IPhantomReferenceAnalyzer` (DG015/DG016) |
 
-Note: the raw-SQL parsing surface lives in `DataGuard.Core/Sources/SqlServerParsers.cs`; this adapter project supplies the SQL Server-specific readers used by the CLI composition root.
+Note: everything lives in `src/DataGuard.SqlServer.Adapter/` (namespace `DataGuard.SqlServer.Adapter`); `ProviderRuleCatalog` injects it into the Core rules for `sqlserver`.
 
 ---
 
@@ -201,15 +204,15 @@ Note: the raw-SQL parsing surface lives in `DataGuard.Core/Sources/SqlServerPars
 | **Target** | `netstandard2.0` |
 | **Dependencies** | Contracts; Roslyn 5.9.0 (PrivateAssets) |
 | **Packaging** | Assemblies bundled into both `analyzers/dotnet/cs` and `generators/dotnet/cs` |
-| **Role** | Roslyn analyzers — IDE light layer + CI heavy layer |
+| **Role** | Roslyn analyzers — syntax-only IDE layer (generator + syntax-node analyzer); database checks run in the CLI |
 
 **Key Types:**
 
 | Type | Kind | Purpose |
 |------|------|---------|
-| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | IDE light layer: bounded syntax-only analysis on keystroke; value-type call-site representation |
-| `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | CI heavy layer: full semantic analysis |
-| `DiagnosticIds` / `DiagnosticDescriptors` | Static classes | Shared DG-prefixed diagnostic identities |
+| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | DG001 on keystroke: syntax-only, equatable `SqlCallModel` (path, span, method, kind, SQL; no `Location`/syntax nodes) |
+| `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | Syntax-node action on invocations: literal-SQL heuristics DG004/DG017/DG097/DG098/DG099, reported at the SQL argument; no symbol binding, no database |
+| `DiagnosticIds` / `DiagnosticDescriptors` | Static classes | Single source of analyzer IDs/titles; shared IDs carry the CLI `ProviderRuleCatalog.RuleTitles` text (tested) |
 
 **Packaging note:** The compiler does not resolve NuGet dependencies of analyzer/generator assemblies, so `DataGuard.Contracts.dll` is explicitly bundled next to the analyzer assembly so quick-fix attribute types resolve at load time.
 

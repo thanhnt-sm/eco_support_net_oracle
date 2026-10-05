@@ -285,6 +285,7 @@ Phát hiện vấn đề cú pháp SQL cross-dialect. Sử dụng regex word-bou
 | **Kích hoạt** | Từ khóa/toán tử Oracle trong SQL không phải Oracle |
 | **Thông báo** | `[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)` |
 | **Properties Bag** | `keyword`, `migration`, `targetProvider` |
+| **Ngữ cảnh / đích** | `ConnectionProviderHint` của descriptor, hoặc provider của catalog mà rule được tạo cùng (`ProviderRuleCatalog` truyền vào). Rule không làm gì khi ngữ cảnh là `oracle`. Ngược lại `{targetProvider}` chính là ngữ cảnh đó (`Oracle -> postgresql` dưới PostgreSQL, `Oracle -> mysql` dưới MySQL); là `sqlserver` khi không biết cả hai. Với đích `postgresql` hoặc `mysql`, các gợi ý nhắc tới cấu trúc SQL Server được thay bằng gợi ý của chính đích đó (ví dụ `SYSDATE` ⇒ `Use CURRENT_TIMESTAMP or NOW() (PostgreSQL)`). |
 
 #### Từ Điển Gợi Ý Di Chuyển (Migration Dictionary)
 
@@ -359,3 +360,16 @@ Lệnh `oracle-check` chạy toàn bộ pipeline xác thực Oracle:
 2. Đọc toàn bộ schema (tất cả bảng, tất cả cột)
 3. Chạy kiểm tra phương ngữ với kiểu cột
 4. Báo cáo sử dụng kiểu không ánh xạ
+
+## Cập nhật catalog và length semantics (Phase 3.2/3.7)
+
+- `AllArgumentsReader.GetProceduresAsync(owner, packageFilter?)` đọc catalog bằng một câu lệnh trên `ALL_ARGUMENTS` (`DATA_LEVEL = 0`) kết hợp các dòng header của `ALL_PROCEDURES`. Kết quả được nhóm theo `(package_name, object_name, subprogram_id)`, giữ mọi overload và cả subprogram 0 tham số. Oracle 18c+ không ghi dòng `ALL_ARGUMENTS` nào cho procedure 0 tham số. `DEFAULTED = 'Y'` cho `HasDefault`. Dòng `POSITION = 0` không có tên là `ReturnType` của function.
+- `ALL_PROCEDURES` không có cột `PACKAGE_NAME`, nên subprogram trong package được nhận diện bằng `OBJECT_TYPE = 'PACKAGE'` và `PROCEDURE_NAME`; filter cũ gây lỗi ORA-00904. Với `GetParametersAsync`/`GetOverloadsAsync`/`GetProcedureNamesAsync`, package rỗng nghĩa là procedure độc lập (`package_name IS NULL`).
+- `StoredProcedureDescriptor.Id = oracle:{OWNER}.{PACKAGE hoặc _}.{NAME}#{SUBPROGRAM_ID}`, có `PackageName`. CLI gọi `OracleCatalogBuilder.BuildAsync`, và `DefaultPackage` không còn lọc catalog.
+- `NlsSessionReader.GetNlsParametersAsync()` đọc `NLS_CHARACTERSET`/`NLS_NCHAR_CHARACTERSET` từ `nls_database_parameters`. `MAX_STRING_SIZE` được đọc từ `v$parameter`, mặc định `STANDARD` nếu không có quyền. Các giá trị này nằm trong `OracleDatabaseSchemaDescriptor`, và mỗi cột ký tự có `ColumnDescriptor.Charset`.
+- `Oracle.DescribeRefCursors: true` (mặc định `false`) **thực thi** từng procedure/function trả REF CURSOR, với tham số IN bằng NULL, để `RefCursorDescriber` lấy `ResultColumns`. Chỉ bật với tài khoản chỉ đọc. `ReturnsRefCursor` luôn lấy từ catalog.
+- DG008 tính số byte phía entity bằng `MaxLength × BytesPerUtf16Unit(charset, IsUnicode)`: AL32UTF8/UTF8 = 3, AL16UTF16 = 2, single-byte (`WE8*`, `US7*`...) = 1, không rõ = 3. `IsUnicode` lấy từ `Annotations["IsUnicode"]` do `EfModelSource` sinh, mặc định true.
+  - Cột BYTE dùng dung lượng `DATA_LENGTH`.
+  - Cột CHAR dùng dung lượng `min(CHAR_LENGTH × maxBytesPerChar, 2000|4000|32767)`.
+  - Tìm cột theo thứ tự: tên cột EF, rồi `CUSTOMERID`, rồi `CUSTOMER_ID`. Tìm bảng theo `(schema, name)`.
+

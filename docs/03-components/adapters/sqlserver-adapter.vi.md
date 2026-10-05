@@ -6,10 +6,13 @@ Bộ Adapter SQL Server là adapter chính của DataGuard, cung cấp xác th�
 
 ```mermaid
 graph TB
-    subgraph "DataGuard.SqlServer.Adapter + Core.Sources"
+    subgraph "DataGuard.SqlServer.Adapter"
         SPSp[SqlServerStoredProcedureParser]
         RSP[RawSqlParser]
         SV[SqlParameterVisitor]
+        TSP[TSqlStatementParser]
+        LQ[SqlServerLiveQuerySchemaProvider]
+        TC[SqlServerTypeCompatibility]
     end
 
     subgraph "SQL Server System Views"
@@ -42,23 +45,31 @@ graph TB
 
     SPSp --> DG001-DG006
     RSP --> DG001-DG006
+    TSP --> P
+    TSP -->|ISqlStatementParser| DG019[DG019 Raw SQL Parse Error]
+    LQ -->|ILiveQuerySchemaProvider| SDRS
+    TC -->|ITypeCompatibility| DG001-DG006
 ```
 
 ## File nguồn
 
-| File | Vị trí | Dòng | Mục đích |
-|------|--------|------|----------|
-| `SqlServerParsers.cs` | `DataGuard.Core/Sources/` | 346 | SqlServerStoredProcedureParser, RawSqlParser, SqlParameterVisitor |
-| `DataGuard.SqlServer.Adapter.csproj` | `DataGuard.SqlServer.Adapter/` | — | File project với phụ thuộc |
+Mọi file nằm trong `src/DataGuard.SqlServer.Adapter/` (namespace `DataGuard.SqlServer.Adapter`). Từ red-team A1/R33, `DataGuard.Core` không còn tham chiếu `Microsoft.Data.SqlClient` hay ScriptDOM.
+
+| File | Mục đích |
+|------|----------|
+| `SqlServerParsers.cs` | `SqlServerStoredProcedureParser`, `RawSqlParser`, `SqlParameterVisitor` |
+| `SqlServerLiveQuerySchemaProvider.cs` | `ILiveQuerySchemaProvider` qua `sys.sp_describe_first_result_set` (DG018/DG020) |
+| `SqlServerTypeCompatibility.cs` | Bảng `ITypeCompatibility` CLR ↔ kiểu SQL Server (DG002, DG018) |
+| `TSqlStatementParser.cs` | `ISqlStatementParser` dùng `TSql160Parser`, được inject vào DG019 |
+| `TSqlPhantomAnalyzer.cs`, `TSqlPhantomScopeVisitor.cs` | `IPhantomReferenceAnalyzer` trên AST ScriptDOM (DG015/DG016) |
+| `DataGuard.SqlServer.Adapter.csproj` | Driver + ScriptDOM + `ProjectReference` Core; không gì khác |
 
 ## Phụ thuộc
 
 ```xml
-<PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
-<PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.102.0" />
-<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.19" />
-<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.19" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
+<PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+<PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.117.0" />
 ```
 
 ## SqlServerStoredProcedureParser
@@ -90,9 +101,10 @@ sequenceDiagram
 Truy vấn `sys.procedures` kết hợp với `sys.schemas` để lấy tất cả stored procedure do người dùng định nghĩa:
 
 ```sql
-SELECT p.object_id, p.name, s.name AS schema_name
+SELECT p.object_id, p.name, s.name AS schema_name, m.definition
 FROM sys.procedures p
 INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+LEFT JOIN sys.sql_modules m ON m.object_id = p.object_id
 WHERE p.is_ms_shipped = 0
 ```
 
@@ -102,7 +114,8 @@ Cho mỗi procedure, đọc tham số từ `sys.parameters` kết hợp với `s
 
 ```sql
 SELECT p.name, t.name AS DataType, p.max_length, p.precision,
-       p.scale, p.is_nullable, p.parameter_id, p.is_output
+       p.scale, p.is_nullable, p.parameter_id, p.is_output,
+       t.system_type_id, p.has_default_value
 FROM sys.parameters p
 INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
 WHERE p.object_id = @ObjectId
@@ -112,6 +125,7 @@ ORDER BY p.parameter_id
 **Chi tiết quan trọng:**
 - `max_length = -1` biểu thị kiểu `MAX` (ví dụ: `varchar(max)`) — chuẩn hóa thành `null`
 - `is_output = true` ánh xạ thành `ParameterDirection.InputOutput` (SQL Server dùng từ khóa `OUTPUT`)
+- **Giá trị mặc định** (`ParameterDescriptor.HasDefault`): `sys.parameters.has_default_value` chỉ được điền cho procedure CLR, nên định nghĩa procedure trong `sys.sql_modules` được parse bằng ScriptDOM (`TSql160Parser`) và mọi tham số `@name type = <default>` (`ProcedureParameter.Value != null`) có `HasDefault = true` (`SqlServerStoredProcedureParser.ParseDefaultedParameters`). Vì vậy DG101 không báo tham số có mặc định bị bỏ qua là thiếu. Định nghĩa bị mã hóa hoặc không parse được thì không có mặc định T-SQL.
 - Direction được đơn giản hóa: SQL Server chỉ có `INPUT` và `OUTPUT` (không có `IN OUT` như Oracle)
 
 ### Khám phá cột bộ kết quả
@@ -239,3 +253,32 @@ Khi `--provider sqlserver` (hoặc không chỉ định provider), CLI:
 2. Đọc tham số qua `sys.parameters`
 3. Mô tả bộ kết quả qua `sp_describe_first_result_set`
 4. Chạy core rules (DG001-DG006) với các contract đã trích xuất
+
+## Cập nhật (Phase 3.3)
+
+- `max_length` được chuẩn hóa về số ký tự ở cả `sys.parameters` và `sp_describe_first_result_set`: `nchar`/`nvarchar` chia 2, còn `-1` (MAX) thành `null`. Ví dụ `nvarchar(50)` cho `MaxLength = 50`.
+- Lỗi describe của một procedure không còn dừng toàn bộ quá trình trích xuất: procedure đó có `ResultColumns` rỗng và `ReturnType = "unknown:<mã lỗi>"`.
+- `DatabaseTableDescriptor.Name` là tên bảng trần, và `Schema` là owner.
+
+## Kết nối thành phần (red-team A1/R33)
+
+`ProviderRuleCatalog` (CLI) gắn adapter vào các rule của Core khi `--provider sqlserver`; Core chỉ giữ điểm nối và mặc định
+trung lập với provider:
+
+| Điểm nối trong Core | Mặc định của Core | Triển khai trong adapter SQL Server |
+|---------------------|-------------------|-------------------------------------|
+| `ILiveQuerySchemaProvider` (DG018/DG020) | không có: connection mà không có provider được báo là chưa đánh giá (DG020) | `SqlServerLiveQuerySchemaProvider` |
+| `ITypeCompatibility` + `TypeCompatibilityRegistry` | `UnknownTypeCompatibility` (không báo lỗi) | `SqlServerTypeCompatibility` (đăng ký cho `sqlserver`) |
+| `IPhantomReferenceAnalyzer` (DG015/DG016) | `PhantomSqlAnalyzer` (tokenizer) | `TSqlPhantomAnalyzer` |
+| `ISqlStatementParser` (DG019) | `NoOpSqlStatementParser` (chấp nhận mọi thứ) | `TSqlStatementParser` |
+
+DG019 (`RawSqlParseStatusRule`) parse từng contract raw SQL bằng parser được inject và báo lỗi ScriptDOM đầu tiên
+(`Line L, column C: message`) ở mức Error. Placeholder phía client (`:name`, `?`, `{0}`) được đổi thành biến `@` trước khi
+parse; lời gọi stored procedure và raw SQL có connection hint của provider khác không bị parse. Các provider khác không có
+parser, nên DG019 chỉ báo trạng thái parse do nguồn thu thập đặt.
+
+Code thư viện từng dùng `DataGuard.Core.Sources.SqlServerStoredProcedureParser`, `RawSqlParser`,
+`DataGuard.Core.Rules.SqlServerLiveQuerySchemaProvider` hoặc `DataGuard.Core.Rules.TypeCompatibility.SqlServerTypeCompatibility`
+cần tham chiếu package `DataGuard.SqlServer.Adapter` và đổi `using` sang `DataGuard.SqlServer.Adapter` (không có type
+forwarder). Code resolve bảng SQL Server qua `TypeCompatibilityRegistry` mà không đăng ký giờ nhận `UnknownTypeCompatibility`;
+hãy gọi `TypeCompatibilityRegistry.Register(SqlServerTypeCompatibility.Instance)` hoặc inject bảng trực tiếp.

@@ -1,0 +1,42 @@
+{
+  "testCase": "SS_005",
+  "category": "SqlServer",
+  "description": "AI joins a dbo.OrderLines table that does not exist (catalog has dbo.Orders only)",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT o.Id, l.Quantity FROM dbo.Orders o JOIN dbo.OrderLines l ON l.OrderId = o.Id",
+    "provider": "SqlServer",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "dbo.Orders",
+          "columns": [
+            "Id",
+            "CustomerId",
+            "OrderDate",
+            "Status"
+          ]
+        },
+        {
+          "name": "dbo.Customers",
+          "columns": [
+            "Id",
+            "FullName",
+            "Email"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG015",
+      "messageContains": "ORDERLINES",
+      "severity": "Error"
+    }
+  ]
+}

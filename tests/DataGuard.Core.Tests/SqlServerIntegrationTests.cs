@@ -1,5 +1,5 @@
 using DataGuard.Core.Models;
-using DataGuard.Core.Sources;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Testcontainers.MsSql;
 using Xunit;
@@ -7,36 +7,31 @@ using Xunit;
 namespace DataGuard.Core.Tests;
 
 /// <summary>
-/// Live SQL Server integration via Testcontainers. Skips automatically when
-/// the SQL Server container cannot start so local/offline runs stay green; CI
-/// with Docker will execute the real path.
+/// Live SQL Server integration via Testcontainers. Gated by <see cref="LiveDbFactAttribute"/>: reported as Skipped
+/// unless DATAGUARD_REQUIRE_LIVE_SQLSERVER=1, and the fixture fails loudly when that variable is set and the container
+/// cannot start.
 /// </summary>
 public class SqlServerIntegrationTests : IAsyncLifetime
 {
-    private const string RequireLiveSqlServerVariable = "DATAGUARD_REQUIRE_LIVE_SQLSERVER";
-    private const string RunLiveSqlServerVariable = "DATAGUARD_RUN_SQLSERVER_INTEGRATION";
+    private const string Image = "mcr.microsoft.com/mssql/server:2022-latest";
     private MsSqlContainer? _container;
-    private string? _skipReason;
 
     public async Task InitializeAsync()
     {
+        if (!LiveDbGate.IsEnabled(LiveDbTarget.SqlServer))
+        {
+            return; // Gated tests are Skipped and never construct this class; this only guards direct use.
+        }
+
         try
         {
-            _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest")
+            _container = new MsSqlBuilder(Image)
                 .Build();
             await _container.StartAsync();
         }
         catch (Exception ex)
         {
-            if (IsLiveSqlServerRequired())
-            {
-                throw new InvalidOperationException("Live SQL Server was required but the Testcontainers fixture could not start.", ex);
-            }
-
-            // Any infrastructure failure (daemon down, image pull blocked,
-            // health-check timeout) degrades to a documented skip instead of
-            // failing the whole fixture class — mirrors SqlServerParserIntegrationTests.
-            _skipReason = $"SQL Server Testcontainers path skipped: {ex.Message}";
+            throw LiveDbGate.ContainerStartFailed(LiveDbTarget.SqlServer, Image, ex);
         }
     }
 
@@ -48,15 +43,11 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [LiveDbFact(LiveDbTarget.SqlServer)]
     public async Task SqlServerStoredProcedureParser_ExtractsCreatedProcedure()
     {
-        if (_skipReason != null)
-        {
-            return; // xUnit 2.9 has no supported dynamic skip API.
-        }
-
-        var connectionString = _container!.GetConnectionString();
+        Assert.NotNull(_container);
+        var connectionString = _container.GetConnectionString();
         await using (var conn = new Microsoft.Data.SqlClient.SqlConnection(connectionString))
         {
             await conn.OpenAsync();
@@ -82,15 +73,11 @@ public class SqlServerIntegrationTests : IAsyncLifetime
         proc.Parameters.Should().Contain(p => p.Name == "@FullName");
     }
 
-    [Fact]
-    public void Parser_SkipReason_IsSetOnlyWhenDockerMissing()
+    [LiveDbFact(LiveDbTarget.SqlServer)]
+    public void Fixture_WhenGateEnabled_StartsContainer()
     {
-        // Documents the skip contract: either the container started, or we
-        // recorded a skip reason. Both are valid outcomes of this fixture.
-        (_container != null || _skipReason != null).Should().BeTrue();
+        // The gate has no "degrade to skip" path: when the test runs, the container is up (or InitializeAsync threw).
+        _container.Should().NotBeNull();
+        _container!.State.Should().Be(DotNet.Testcontainers.Containers.TestcontainersStates.Running);
     }
-
-    private static bool IsLiveSqlServerRequired()
-        => string.Equals(Environment.GetEnvironmentVariable(RequireLiveSqlServerVariable), "1", StringComparison.Ordinal)
-            || string.Equals(Environment.GetEnvironmentVariable(RunLiveSqlServerVariable), "1", StringComparison.Ordinal);
 }

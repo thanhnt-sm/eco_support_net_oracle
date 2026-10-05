@@ -47,6 +47,25 @@ public class ConnectionDiscoveryTests
         ConnectionDiscovery.InferProviderFromTypeName("MySqlConnection").Should().Be("mysql");
     }
 
+    // Previously misclassified: "User Id" + "Data Source" was read as Oracle even with Initial Catalog (SQL Server),
+    // and any "Server=" was read as SQL Server even with MySQL-only keys.
+    [Theory]
+    [InlineData("Data Source=sql01;Initial Catalog=Shop;User Id=app;Password=x;TrustServerCertificate=True", "sqlserver")]
+    [InlineData("Server=localhost;Port=3306;Database=shop;Uid=root;Pwd=secret;SslMode=Required", "mysql")]
+    [InlineData("Server=localhost;Database=testdb;User Id=sa;Password=x;", "sqlserver")]
+    [InlineData("Data Source=oracle.local;User Id=app;Password=x;", "oracle")]
+    [InlineData("Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=db)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCL)));User Id=hr;Password=x", "oracle")]
+    [InlineData("Data Source=db.example.com:1521/ORCLPDB1;User Id=hr;Password=x", "oracle")]
+    [InlineData("Host=localhost;Port=5432;Database=app;Username=postgres;Password=x;Search Path=public", "postgresql")]
+    [InlineData("Server=localhost;Database=app;User Id=postgres;Password=x;AllowPublicKeyRetrieval=true", "mysql")]
+    [InlineData("postgres://user:pw@localhost:5432/app", "postgresql")]
+    [InlineData("Server=localhost;Port=5432;Database=app", "unknown")]
+    [InlineData("Database=app;Password=x", "unknown")]
+    public void InferProviderFromConnectionString_ScoresDistinguishingKeys(string connectionString, string expected)
+    {
+        ConnectionDiscovery.InferProviderFromConnectionString(connectionString).Should().Be(expected);
+    }
+
     [Fact]
     public async Task DiscoverConnections_ScansAppSettingsAndSyntax()
     {

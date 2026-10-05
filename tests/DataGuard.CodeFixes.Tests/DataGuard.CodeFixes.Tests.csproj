@@ -26,5 +26,12 @@
     <PackageReference Include="FluentAssertions" Version="7.2.2" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
+    <!-- Microsoft.CodeAnalysis.Testing (rec 19): framework-neutral packages + DefaultVerifier
+         (the .XUnit flavours are deprecated since 1.1.2). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
+    <!-- The Microsoft.CodeAnalysis.*.Testing 1.1.4 packages pull System.Private.Uri 4.3.0 transitively, which
+         NuGet audit (CI Security Scan, NuGetAuditMode=all) flags as vulnerable (GHSA-5f2m-466j-3848,
+         GHSA-x5qj-9vmx-7g6g, GHSA-xhfc-gr8f-ffwc). Pin the patched version until the testing packages move. -->
+    <PackageReference Include="System.Private.Uri" Version="4.3.2" />
   </ItemGroup>
 </Project>

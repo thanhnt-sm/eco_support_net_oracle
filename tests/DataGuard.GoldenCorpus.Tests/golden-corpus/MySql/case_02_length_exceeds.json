@@ -1,0 +1,58 @@
+{
+  "testCase": "MY_002",
+  "category": "MySql",
+  "description": "Entity MaxLength exceeds MySQL VARCHAR character length",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "entity": {
+      "name": "Customer",
+      "tableName": "customers",
+      "properties": [
+        {
+          "name": "Id",
+          "type": "int",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "FullName",
+          "type": "string",
+          "maxLength": 200,
+          "isNullable": false
+        }
+      ]
+    },
+    "provider": "MySql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "customers",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INT",
+              "nullable": false
+            },
+            {
+              "name": "full_name",
+              "type": "VARCHAR",
+              "nullable": false,
+              "char_length": 100
+            }
+          ]
+        }
+      ]
+    },
+    "lengthSemantics": "CHAR"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "MY004",
+      "messageContains": "MaxLength=200",
+      "severity": "Error"
+    }
+  ]
+}

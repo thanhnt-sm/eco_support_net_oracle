@@ -61,7 +61,18 @@ public sealed class HealthHostIntegrationTests
         startInfo.ArgumentList.Add("true");
 
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start DataGuard.Host.");
-        await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(15)));
+        using (var exitTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+        {
+            try
+            {
+                await process.WaitForExitAsync(exitTimeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Asserted below: the host did not exit within the timeout.
+            }
+        }
+
         var exitedPromptly = process.HasExited;
         if (!process.HasExited)
         {
@@ -82,17 +93,16 @@ public sealed class HealthHostIntegrationTests
         var service = new HealthRefreshService(coordinator, TimeSpan.FromMilliseconds(10));
 
         await service.StartAsync(CancellationToken.None);
-        var timeoutUtc = DateTime.UtcNow.AddSeconds(5);
-        while (probe.Calls < 2 && DateTime.UtcNow < timeoutUtc)
-        {
-            await Task.Delay(10);
-        }
-        var callsBeforeStop = probe.Calls;
+        (await WaitUntilAsync(() => probe.Calls >= 2, TimeSpan.FromSeconds(5)))
+            .Should().BeTrue("the refresh loop must tick at least twice at a 10 ms interval");
+
+        // StopAsync awaits the refresh loop, so once it returns no further probe call may happen. Any late call is
+        // observed as soon as it occurs (polling), instead of sleeping a fixed time and hoping it was long enough.
         await service.StopAsync(CancellationToken.None);
         var callsAfterStop = probe.Calls;
-        await Task.Delay(40);
+        var lateCall = await WaitUntilAsync(() => probe.Calls != callsAfterStop, TimeSpan.FromMilliseconds(100));
 
-        callsBeforeStop.Should().BeGreaterThanOrEqualTo(2);
+        lateCall.Should().BeFalse("no refresh may run after StopAsync completed");
         probe.Calls.Should().Be(callsAfterStop);
     }
 
@@ -166,6 +176,24 @@ public sealed class HealthHostIntegrationTests
         throw new TimeoutException("DataGuard.Host did not report its loopback listening address.");
     }
 
+    /// <summary>Polls <paramref name="condition"/> until it holds or <paramref name="timeout"/> elapses.</summary>
+    /// <returns><see langword="true"/> when the condition held before the timeout.</returns>
+    private static async Task<bool> WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (!condition())
+        {
+            if (elapsed.Elapsed >= timeout)
+            {
+                return condition();
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(5));
+        }
+
+        return true;
+    }
+
     private static async Task<HttpResponseMessage> GetWhenAvailableAsync(HttpClient client, string url)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
@@ -197,11 +225,13 @@ public sealed class HealthHostIntegrationTests
     {
         public string Name => "counting";
 
-        public int Calls { get; private set; }
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
 
         public Task<DataGuard.Core.Health.HealthComponentStatus> ProbeAsync(CancellationToken cancellationToken = default)
         {
-            Calls++;
+            Interlocked.Increment(ref _calls);
             return Task.FromResult(new DataGuard.Core.Health.HealthComponentStatus(Name, DataGuard.Core.Health.HealthComponentState.Healthy));
         }
     }

@@ -94,15 +94,25 @@ GroundTruthMode: Snapshot          # Snapshot | Full | Manual
 EnableSmartDefaults: true          # Tự động phát hiện provider/EF/Dapper
 EnableBaseline: true               # Bật baseline cho legacy
 NamingConvention: SnakeCaseToPascalCase  # SnakeCaseToPascalCase | PascalCaseToSnakeCase | ExactMatch
-DefaultProvider: SqlServer         # SqlServer | Oracle
+DefaultProvider: sqlserver         # sqlserver | oracle | mysql | postgresql (postgres); giá trị khác => exit 2
 SnapshotFilePath: .dataguard-snapshot.json
+FailOnUnavailableRules: false      # true = exit 3 khi rule không khả dụng (như --fail-on-unavailable)
+StrictConfig: false                # true = key top-level không biết => exit 2 (mặc định chỉ cảnh báo)
+StrictProcedureContracts: false    # true = DG101/DG002/DG003 từ catalog stored procedure là Error (exit 1) thay vì Warning
+DefaultSchema: dbo                 # schema cho lời gọi stored procedure không qualify (cũng là scope snapshot)
+DefaultPackage: ""                 # Oracle: package cho lời gọi không qualify
 BaselineFilePath: .dataguard-baseline.json
+
+# Rule plugins (chỉ dùng với validate --plugins-dir)
+Plugins:
+  AllowUnsignedLocal: false        # true = nạp plugin không có signed provenance (vẫn kiểm manifest, SHA-256, dependency, rule ID)
 EnableTelemetry: false             # Opt-in telemetry
 
 # Oracle-specific (nếu dùng Oracle)
 Oracle:
   Owner: MY_SCHEMA                 # Schema owner
-  UseRefCursorDescribe: true       # Dùng DBMS_SQL.DESCRIBE_COLUMNS
+  UseRefCursorDescribe: false      # Không còn dùng cho catalog; xem DescribeRefCursors
+  DescribeRefCursors: false        # true = THỰC THI procedure trả REF CURSOR (IN = NULL) để đọc cột kết quả; chỉ dùng account read-only
   UseAllArguments: true            # Dùng ALL_ARGUMENTS
   UseAllTabColumns: true           # Dùng ALL_TAB_COLUMNS
 
@@ -114,10 +124,15 @@ SqlServer:
 # Bảo mật / Security
 EnableCredentialRotationDetection: true
 CredentialRotationWarningDays: 30
-EncryptConnectionStringAtRest: false
+EncryptConnectionStringAtRest: true   # mặc định: DPAPI / Keychain / Secret Service; không có backend => plaintext + cảnh báo
+RequireEncryptedCredentialStore: false # true = từ chối lưu khi không có backend mã hoá
 KeyVaultUri: ""                    # Azure Key Vault URI (nếu có)
+AwsRegion: ""                      # AWS Secrets Manager (CLI đăng ký store)
+VaultAddress: ""                   # HashiCorp Vault (https, VAULT_TOKEN)
+AllowPlaintextConfigFallback: false # true = cho phép dùng ConnectionString plaintext trong file này (chỉ dev)
 EnableAuditLogging: true
 AuditLogPath: ""                   # Tùy chọn custom path
+AuditKeyFile: ""                   # File chứa khoá HMAC cho audit chain (hoặc env DATAGUARD_AUDIT_KEY); đặt ngoài repo
 ```
 
 ---
@@ -127,17 +142,27 @@ AuditLogPath: ""                   # Tùy chọn custom path
 ### 1. `dataguard validate` - Xác Thực Hợp Đồng
 
 ```bash
-# Cơ bản
+# Cơ bản: connection lấy từ biến môi trường do bạn đặt tên (không lộ trên process listing)
+export ORACLE_CI="User Id=...;Password=...;Data Source=..."
+dataguard validate --connection-env ORACLE_CI
+
+# --connection vẫn chạy nhưng in cảnh báo: chuỗi trên dòng lệnh hiện trong process listing
 dataguard validate --connection "Server=...;Database=...;"
 
-# Chế độ offline (nhanh, không cần DB)
+# Chế độ offline (không DB): dùng snapshot đã commit (.dataguard-snapshot.json)
 dataguard validate --offline --format text
+
+# Offline Manual mode: đọc attribute [ExpectedColumn]/[ExpectedSpParameter] từ assembly
+dataguard validate --offline --assembly bin/Release/net9.0/MyApp.dll
+
+# Chỉ lint cú pháp SQL inline, không có ground truth (nếu không có cờ này => exit 3)
+dataguard validate --project src/MyApp --allow-syntactic-only
 
 # Output SARIF cho GitHub Code Scanning
 dataguard validate --connection "..." --format sarif --output results.sarif
 
 # Chỉ định provider
-dataguard validate --connection "..." --provider Oracle
+dataguard validate --connection "..." --provider oracle
 
 # Verbose logging
 dataguard validate --connection "..." --verbose
@@ -146,23 +171,41 @@ dataguard validate --connection "..." --verbose
 **Options / Tùy Chọn**:
 | Option | Mô Tả | Mặc Định |
 |--------|-------|----------|
-| `--connection` | Connection string | Từ config/env |
-| `--config` | Đường dẫn .dataguard.yml | `.dataguard.yml` |
+| `--connection` | Connection string (deprecated: in `warning: a connection string on the command line is visible to process listings; prefer --connection-env`) | - |
+| `--connection-env` | **Tên** biến môi trường chứa connection string; biến chưa đặt/rỗng => exit `2`. Dưới `--ide-safe` chỉ được dùng cùng `--allow-env-connection` | - |
+| `--allow-assembly-from-config` | Cho phép Manual mode đọc `ManualAssemblyPath` trong file config (thiếu cờ => exit `2`); `--offline --assembly` không cần cờ; luôn bị từ chối dưới `--ide-safe`. Có ở `validate` và `baseline` | `false` |
+| `--config` | Đường dẫn .dataguard.yml; file không tồn tại => exit `2` (không tự dùng mặc định) | - (mặc định cấu hình built-in) |
 | `--output` | File output SARIF/JSON | Stdout |
 | `--format` | `sarif` \| `json` \| `text` | `sarif` |
-| `--offline` | Chế độ offline (không DB) | `false` |
+| `--offline` | Không DB. Không có `--assembly` => Snapshot mode (dùng snapshot đã commit); có `--assembly` => Manual mode | `false` |
+| `--assembly` | Assembly cho Manual mode (cùng `--offline`) | - |
 | `--verbose` | Log chi tiết | `false` |
-| `--provider` | `SqlServer` \| `Oracle` | Từ config |
+| `--provider` | `sqlserver` \| `oracle` \| `mysql` \| `postgresql` (`postgres`), không phân biệt hoa thường; giá trị khác => exit `2` kèm danh sách hợp lệ | Từ config, rồi `sqlserver` |
 | `--schema` | Schema/owner name | Từ config |
 | `--package` | Oracle package name | Từ config |
 | `--project` | `.csproj` / `.sln` / thư mục để trích SQL inline và model C# | - |
-| `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`) | - |
+| `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`); áp dụng trước kiểm tra rule không khả dụng | - |
+| `--fail-on-unavailable` | Exit `3` khi có rule không khả dụng cho provider (config `FailOnUnavailableRules`) | `false` |
+| `--allow-syntactic-only` | Cho phép chạy khi không có ground truth: cảnh báo thay vì exit `3` | `false` |
+| `--allow-unevaluated` | Vẫn in contract chưa đánh giá (`UNEVALUATED:`) và chẩn đoán acquisition (`ACQUISITION:`), nhưng exit theo violation thay vì `3`; `--ide-safe` ngầm bật | `false` |
 | `--progress` | Ghi JSON progress event từng dòng ra stderr (IDE dùng) | `false` |
 | `--ide-safe` | Chế độ IDE-safe cho repo chưa tin cậy (xem dưới) | `false` |
 | `--allow-env-connection` | Chỉ với `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp (chỉ `validate`) | `false` |
+| `--plugins-dir` | Thư mục rule plugin (`*.dll` + manifest `<dll>.dataguard-plugin.json`). Plugin qua `PluginAdmission` (manifest, SHA-256, dependency closure, rule ID manifest = `[ExportRule]` = runtime) rồi chạy cùng provider rules trong cùng pipeline. Mặc định bắt buộc signed provenance và CLI không có verifier, nên plugin bị từ chối (`Plugin X.dll not loaded: ...`, như rule không khả dụng) trừ khi config `Plugins.AllowUnsignedLocal: true`. Thư mục không tồn tại => exit `2`; bị từ chối với `--ide-safe` (exit `2`). Ví dụ: `samples/plugins/DataGuard.Samples.NamingPlugin` | - |
+
+**Một pipeline / One pipeline**: `validate`, `baseline`, `snapshot refresh` và `snapshot diff --legacy-violation-diff` chạy cùng danh sách rule (`ProviderRuleCatalog`, cấu hình bởi `StrictProcedureContracts`/`DefaultSchema`/`DefaultPackage`) qua cùng executor với API `ValidationPipeline`. Contract chưa đánh giá luôn được liệt kê (`UNEVALUATED:`), không bao giờ ghi vào baseline/snapshot như finding; `snapshot diff --legacy-violation-diff` thoát `3` khi có contract chưa đánh giá.
+
+**Thứ tự resolve connection** (mọi lệnh dùng database: `validate`, `baseline`, `snapshot refresh/diff`, `oracle-check`, `verify-shape`, `preflight`):
+1. `--connection <value>` (kèm cảnh báo deprecated)
+2. `--connection-env NAME`
+3. `DATAGUARD_CONNECTION_STRING`
+4. Credential provider: Azure Key Vault (`KeyVaultUri`) → AWS Secrets Manager (`AwsRegion`) → HashiCorp Vault (`VaultAddress` + `VAULT_TOKEN`) → biến `DATAGUARD_DATABASECONNECTION` → file credential đã mã hoá (`ApplicationData/DataGuard/credentials.json`). Store lỗi => một dòng `warning: Secret store <Name> lookup ... failed` (không bao giờ in secret) rồi thử nguồn kế tiếp. Bỏ qua hoàn toàn với `--offline`/`--ide-safe`.
+5. `ConnectionString` trong `.dataguard.yml` **chỉ khi** `AllowPlaintextConfigFallback: true`; mặc định key này bị bỏ qua kèm `warning: ignoring the plaintext ConnectionString key in the configuration file ...`.
+
+Khi credential provider được dùng, mọi truy cập được ghi vào audit log (`AuditLogPath`) qua một writer duy nhất; đặt `DATAGUARD_AUDIT_KEY` (hoặc `AuditKeyFile`, ≥ 16 byte) để chuỗi được khoá bằng HMAC-SHA256 — xem `SECURITY.md`.
 
 **`--ide-safe` (IDE hosts / untrusted repositories — chỉ `validate` và `assess`)**:
-`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--ef-snapshot`, `--ef-project`, `--ef-context` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`.
+`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--allow-assembly-from-config`, `--ef-snapshot`, `--ef-project`, `--ef-context`, `--connection-env` khi thiếu `--allow-env-connection` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`. Dưới `--ide-safe`, `--plugins-dir` cũng bị từ chối (exit 2).
 
 - **Handshake**: dòng stderr **đầu tiên** luôn là `ide-safe: active` (in trước cả dòng từ chối option). Host chỉ chấp nhận kết quả khi thấy dòng này; CLI cũ (≤ 0.2.2) không biết cờ, in `Unrecognized command or argument '--ide-safe'` và **exit `1`** — host báo "CLI quá cũ" và không bao giờ chạy lại mà thiếu cờ.
 - **`--allow-env-connection`** (chỉ `validate`, không có tác dụng nếu thiếu `--ide-safe`): giữ lại đúng một credential là `DATAGUARD_CONNECTION_STRING` do host đặt; `ConnectionString` trong file config **luôn** bị xoá. Khi giữ, stderr in `ide-safe: kept environment connection (--allow-env-connection)`; `GroundTruthMode: Manual` bị ép về `Snapshot`. Credential được giữ **chỉ dùng để đọc catalog ground-truth** (schema, định nghĩa stored procedure); `validate` không gửi hay describe SQL trích từ repo lên database — rule live SQL shape (`sp_describe_first_result_set` trên SQL của repo) vẫn tắt dưới `--ide-safe` (stderr liệt kê `live SQL shape rule disabled (use verify-shape)`), chỉ `verify-shape` (có xác nhận) mới thực hiện. VS Code chỉ truyền cờ này khi có credential trong SecretStorage.
@@ -170,11 +213,26 @@ dataguard validate --connection "..." --verbose
 - **Baseline**: vẫn được áp dụng, nhưng mọi suppression đều hiển thị: stderr `baseline: <n> violations suppressed by <path>` và progress event `BaselineApplied` (`--progress`); host echo thành `[WARN]`.
 - **Gia cố regex**: mọi regex trong tiến trình CLI có match timeout 1 giây; input bệnh hoạn làm regex vượt timeout được **báo là rule failure** (rule đó không bị bỏ qua âm thầm) thay vì treo tiến trình; SQL literal dài hơn 256 KiB bị bỏ qua với `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`.
 
+**Cổng chống "PASS rỗng" (empty-pass gate)**:
+- **Snapshot mặc định**: khi không có connection và config không đặt `SnapshotFilePath`, `validate` tìm `.dataguard-snapshot.json` cạnh file `--config`, rồi trong thư mục hiện tại (nơi `snapshot refresh` ghi mặc định); nếu thấy, stdout in `Using snapshot <path>`.
+- **Ground truth bắt buộc**: nếu sau khi thu thập không có schema (snapshot/connection), stored procedure, hay entity (assembly Manual / EF `--ef-snapshot`/`--ef-project`) — tức chỉ có SQL inline từ `--project` — stderr in `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` và exit `3`. `--allow-syntactic-only` hạ xuống cảnh báo. Không áp dụng cho `--format contracts|yaml|typescript`. Dưới `--ide-safe` cổng này luôn chỉ là cảnh báo (IDE-safe đã cố ý tắt mọi nguồn nạp code/kết nối), và `--config` thiếu file chỉ là cảnh báo vì host luôn truyền đường dẫn config chuẩn của workspace.
+- **Contract chưa đánh giá** (red-team H1/H2): describe live lỗi hoặc bị từ chối (DB không kết nối được, thiếu quyền, temp table, câu lệnh không chỉ-đọc hoặc nhiều câu lệnh) không còn sinh cảnh báo `DG020` exit `0` và Oracle/PostgreSQL không còn bịa cột `VARCHAR2`/`text` từ text SQL. Sau validate, stderr in `UNEVALUATED: <n> contract(s) could not be evaluated:` rồi mỗi dòng `<ruleId> <contractId>: <reason>` (`DG020` = shape query không xác định). ModelSnapshot parse một phần (`--ef-snapshot`/`--ef-project`) giữ entity đã parse và in `ACQUISITION: <path>: <message>` cho từng cấu hình bị bỏ qua. Có một trong hai => exit `3`, trừ khi `--allow-unevaluated` (hoặc `--ide-safe`) => exit theo violation. MySQL giờ có describer live (`CommandBehavior.SchemaOnly` + `GetColumnSchema()`, wrapper `WHERE 1=0 LIMIT 0`, session read-only).
+- **Rule không khả dụng** (ví dụ `DG012` Oracle, `PG004` PostgreSQL cần metadata DbContext từ analyzer): in một lần ra stderr `Rule <id> not evaluated: <reason>` và **không** chặn run. `--fail-on-unavailable` / `FailOnUnavailableRules: true` khôi phục exit `3`; rule nằm trong `--skip-rules` không được tính.
+- **Config**: key top-level không biết => stderr `Warning: unknown configuration keys: a, b`; `StrictConfig: true` => exit `2`. Giá trị sai kiểu (ví dụ `EnableBaseline: maybe`) => exit `2`.
+
+**Kiểm tra snapshot khi `validate` (red-team H4)**: khi `validate` đọc snapshot (không có connection):
+- `Provider` trong snapshot khác `--provider`/`DefaultProvider` (`postgres` = `postgresql`) => stderr `UNEVALUATED: snapshot provider 'x' does not match 'y'`, exit `3`.
+- `SchemaHash` được tính lại trên nội dung đã nạp; khác giá trị lưu (file bị sửa tay trong PR, hoặc hỏng) => `UNEVALUATED: snapshot integrity check failed: ...`, exit `3`. `snapshot diff` cũng kiểm tra trước khi kết nối.
+- Snapshot cũ hơn `SnapshotMaxAgeDays` (config, mặc định `90`; `0` tắt) => `Warning: snapshot is N days old ...` (không chặn).
+- Snapshot định dạng cũ (v2/v3, chỉ có bảng) vẫn đọc được, kèm `Warning: snapshot has no stored procedures; run 'dataguard snapshot refresh' to enable procedure checks`.
+- `LengthSemantics` và charset của cột lấy từ file (không còn cứng `CHAR`; snapshot cũ mới mặc định `CHAR`); stored procedure trong snapshot v4 được nạp làm ground truth.
+- Baseline còn entry cũ (không có fingerprint) => stderr `baseline contains N legacy entries; run 'dataguard baseline' to upgrade`; các entry này vẫn suppress theo `RuleId:Message`.
+
 **Exit Codes**:
 - `0` = Pass (không violation mới)
 - `1` = Fail (có violation mới, hoặc CLI lỗi trước khi in summary)
-- `2` = Sai tham số / config (kể cả option bị `--ide-safe` từ chối; lưu ý CLI ≤ 0.2.2 không biết `--ide-safe` thì exit `1`)
-- `3` = Validation incomplete (rule không khả dụng cho provider, hoặc không có nguồn contract)
+- `2` = Sai tham số / config: `--provider` hoặc `DefaultProvider` ngoài danh sách, `--config` trỏ tới file không tồn tại, config sai kiểu hoặc có key lạ khi `StrictConfig: true` (kể cả option bị `--ide-safe` từ chối; lưu ý CLI ≤ 0.2.2 không biết `--ide-safe` thì exit `1`)
+- `3` = Validation incomplete: không có nguồn contract, không có ground truth (trừ khi `--allow-syntactic-only`), rule không khả dụng khi bật `--fail-on-unavailable`, hoặc có contract chưa đánh giá / chẩn đoán acquisition (trừ khi `--allow-unevaluated`)
 - `130` = Bị huỷ (Ctrl+C)
 
 ---
@@ -185,14 +243,25 @@ dataguard validate --connection "..." --verbose
 # Tạo baseline từ validation hiện tại
 dataguard baseline --connection "Oracle CI Schema" --output .dataguard-baseline.json
 
+# Không có connection: dùng cùng snapshot mà validate dùng (.dataguard-snapshot.json)
+dataguard baseline
+
 # Baseline sẽ chứa:
 # - Version: 2
 # - SchemaVersion: "1.0"
 # - GroundTruthMode: "Snapshot"
 # - DatabaseVersion: "Oracle Database 19c..."
 # - SchemaHash: "a1b2c3d4e5f67890" (SHA256-64bit)
-# - Violations: [] (tất cả violations hiện tại)
+# - Violations: mỗi entry có Fingerprint (dataguard/v2), Count và Properties
 ```
+
+**Fingerprint v2 (red-team H3)**: `Fingerprint` = SHA-256 của `ruleId | subject | location`. Subject là các `Properties` có cấu trúc (`table`, `column`, `columns`, `entity`, `property`, ...) sắp xếp theo key, bỏ key dễ đổi (số dòng, số đếm, message); không có property thì dùng message. Location là đường dẫn tương đối với thư mục chạy lệnh (dấu `/`) cộng `sqlHash` khi rule có. Hệ quả:
+- Dời finding sang dòng khác => vẫn khớp; **đổi tên/di chuyển file => finding mới** (chạy lại `dataguard baseline`).
+- Chạy `baseline` và `validate` từ cùng thư mục gốc repo.
+- Baseline là multiset: `Count: 1` mà hiện có 2 finding cùng fingerprint => 1 finding mới được báo.
+- Hai `SELECT *` khác nhau, hoặc DG004 thiếu `[A..E]` và `[A..F]`, là hai finding khác nhau (message vẫn cắt 5 cột để hiển thị, `Properties` giữ đủ danh sách).
+- Entry cũ không có `Fingerprint` vẫn khớp theo `RuleId:Message`; chạy lại `dataguard baseline` để ghi lại thành v2 (lệnh luôn đánh giá mọi finding, không lọc qua baseline cũ).
+- SARIF: mỗi result có `partialFingerprints: { "dataguard/v2": <fingerprint> }`, cùng giá trị với baseline.
 
 **Khi nào dùng / When to use**:
 - ✅ **Bắt buộc** khi onboarding legacy codebase
@@ -214,6 +283,8 @@ dataguard snapshot show
 dataguard snapshot diff --connection "CI Schema"
 ```
 
+**Định dạng snapshot v4** (plan gọi là "snapshot v3"; trên đĩa `Version: 4`): `refresh` ghi bảng (kèm `Schema` và `Charset` của cột), `StoredProcedures` (tham số với direction/độ dài/`HasDefault`/overload, cột kết quả, ref cursor, `ReturnType`), `LengthSemantics`, `Charset`, `Provider`, `DatabaseVersion`. `SchemaHash` (`canonical-schema-v2`) phủ toàn bộ nội dung đó. `show` in số bảng/cột/procedure/tham số và kết quả kiểm tra integrity. `diff` so sánh cả procedure (thêm/xoá/đổi tham số), in danh sách bảng/procedure thay đổi, và cảnh báo khi major.minor của database khác snapshot.
+
 **Snapshot vs Baseline**:
 | | Snapshot | Baseline |
 |---|---|---|
@@ -230,7 +301,7 @@ dataguard snapshot diff --connection "CI Schema"
 dataguard init --wizard
 
 # Tự động với provider
-dataguard init --provider Oracle --output .dataguard.yml
+dataguard init --provider oracle --output .dataguard.yml
 ```
 
 **Wizard Steps**:
@@ -705,7 +776,9 @@ protected override void OnConfiguring(DbContextOptionsBuilder options)
 
 | Variable | Mô Tả | Ví Dụ |
 |----------|-------|-------|
-| `DATAGUARD_CONNECTION_STRING` | Connection string chính | `Server=...;Database=...` |
+| `DATAGUARD_CONNECTION_STRING` | Connection string chính (sau `--connection-env`) | `Server=...;Database=...` |
+| `DATAGUARD_DATABASECONNECTION` | Connection string đọc bởi credential provider | `Server=...;Database=...` |
+| `DATAGUARD_AUDIT_KEY` | Khoá HMAC (≥ 16 byte) cho audit hash chain; thắng `AuditKeyFile` | (secret) |
 | `DATAGUARD_PROVIDER` | Provider mặc định | `Oracle` / `SqlServer` |
 | `DATAGUARD_CONFIG` | Config file path | `.dataguard.yml` |
 | `DATAGUARD_BASELINE_PATH` | Baseline file path | `.dataguard-baseline.json` |

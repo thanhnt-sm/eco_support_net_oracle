@@ -32,6 +32,10 @@ graph TB
     H --> HU[uninstall]
 ```
 
+## Source Layout
+
+`src/DataGuard.Cli/Program.cs` only builds the root command and runs it. Each top-level command lives in its own file under `src/DataGuard.Cli/Commands/` (`ValidateCommand.cs`, `ScanCommand.cs`, `VerifyShapeCommand.cs`, `PreflightCommand.cs`, `BaselineCommand.cs`, `SnapshotCommands.cs`, `InitCommand.cs`, `HookCommand.cs`, `ConfigCommands.cs`, `OracleCheckCommand.cs`, `MigrateCommand.cs`, `AssessCommand.cs`, `VersionCommand.cs`; options shared by several commands are in `CommonOptions.cs`). Shared logic is in `src/DataGuard.Cli/Services/`: `ConfigLoader.cs` (`.dataguard.yml` loading and binding through `ConfigDocument.cs`, provider and connection resolution), `ContractAcquisition.cs`, `ValidationRunner.cs` (the single validation path), `SnapshotGuard.cs` (snapshot checks), `DatabaseVersionReader.cs` and `OutputSinks.cs` (write-path policy, atomic writes). The contract rules are one file per rule under `src/DataGuard.Core/Rules/`; the SQL text helpers of `ColumnShapeMatchRule` are in `src/DataGuard.Core/Rules/Sql/SqlTextScanner.cs` (index-based scanning, linear in the SQL length).
+
 ## Commands
 
 ### `validate`
@@ -44,13 +48,15 @@ dataguard validate [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--connection` | — | Database connection string |
-| `--config` | — | Path to `.dataguard.yml` config file |
+| `--connection` | — | Database connection string (deprecated: prints `warning: a connection string on the command line is visible to process listings; prefer --connection-env`) |
+| `--connection-env` | — | **Name** of the environment variable holding the connection string; unset/empty => exit 2. Under `--ide-safe` only together with `--allow-env-connection` |
+| `--allow-assembly-from-config` | `false` | Let Manual mode read `ManualAssemblyPath` from the config file (otherwise exit 2); `--offline --assembly` needs no flag; rejected with `--ide-safe` (`validate`, `baseline`) |
+| `--config` | — | Path to `.dataguard.yml` config file; a path that does not exist exits 2 |
 | `--output` | — | Output file path (required for sarif/evidence) |
 | `--format` | `text` | Output format: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
-| `--offline` | `false` | Run in offline mode (no DB connection, requires `--assembly` or `--project`) |
+| `--offline` | `false` | No DB connection: Snapshot mode (committed snapshot); with `--assembly`, Manual mode |
 | `--verbose` | `false` | Enable verbose output |
-| `--provider` | Config `DefaultProvider`, then `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` |
+| `--provider` | Config `DefaultProvider`, then `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` (alias `postgres`), case-insensitive; any other value exits 2 |
 | `--schema` | — | Database schema/owner name |
 | `--assembly` | — | Path to compiled assembly for Manual ground-truth mode |
 | `--ef-snapshot` | — | Explicit `ModelSnapshot.cs` source parsed with Roslyn; no assembly is loaded or executed |
@@ -60,11 +66,19 @@ dataguard validate [options]
 | `--project` | — | Path to C# project (`.csproj`), solution (`.sln`), or directory to extract inline SQL queries and C# models |
 | `--progress` | `false` | Stream safe line-delimited JSON progress events to stderr |
 | `--ide-safe` | `false` | Run under IDE-safe execution policy: suppresses assembly loading, secret-manager connections, and arbitrary file writes |
-| `--allow-env-connection` | `false` | With `--ide-safe`: retain host-supplied `DATAGUARD_CONNECTION_STRING` while still ignoring config-file connection strings |
+| `--allow-env-connection` | `false` | With `--ide-safe`: retain host-supplied `DATAGUARD_CONNECTION_STRING` (or the `--connection-env` variable) while still ignoring config-file connection strings |
+| `--fail-on-unavailable` | `false` | Exit 3 when a provider rule cannot be evaluated (config `FailOnUnavailableRules: true`) |
+| `--allow-syntactic-only` | `false` | Run without ground truth: warn instead of exiting 3 |
+| `--allow-unevaluated` | `false` | Still list unevaluated contracts and acquisition diagnostics, but exit by violations (0/1) instead of 3; implied by `--ide-safe` |
 
 **Behavior:**
-- Without `--connection`: validates against committed snapshot (Snapshot mode)
-- With `--offline`: runs validation without database access. Requires either `--assembly` (Manual ground-truth mode with attributes) or `--project` (Roslyn AST extraction mode for inline SQL and models). No compiled binary is required when using `--project`.
+- Without any connection (`--connection`, `--connection-env`, `DATAGUARD_CONNECTION_STRING`, credential provider, or an opted-in plaintext config value): validates against committed snapshot (Snapshot mode)
+- Without a connection and without `SnapshotFilePath`: uses `.dataguard-snapshot.json` next to `--config`, else in the current directory, and prints `Using snapshot <path>` to stdout
+- With `--offline`: never connects. Bare `--offline` is Snapshot mode (same default snapshot discovery); `--offline --assembly <path>` is Manual ground-truth mode with attributes (unchanged)
+- Ground-truth gate: when the acquired contracts hold no schema, stored procedure or entity descriptor (only inline SQL from `--project`), `validate` prints `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` and exits 3. `--allow-syntactic-only` downgrades it to a warning; `--format contracts|yaml|typescript` is not gated; under `--ide-safe` it is always a warning
+- Unevaluated contracts (red-team H1/H2): when a live describe fails or is refused (connection/permission/compile error, temp tables, non read-only or stacked statement) the query is **not** compared against fabricated columns and is **not** a `DG020` warning any more. After validation stderr prints `UNEVALUATED: <n> contract(s) could not be evaluated:` and one line `<ruleId> <contractId>: <reason>` each (`DG020` for an undetermined query shape; reasons are sanitized). Acquisition problems print `ACQUISITION: <path>: <message>` (today: a partially parsed `--ef-snapshot`/`--ef-project` ModelSnapshot, whose skipped entity configurations are listed while the parsed entities are kept). A SQL literal over 256 KiB is reported once, as `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`, and is not repeated as an `ACQUISITION:` line; it still makes the result incomplete. Either makes the run exit 3 unless `--allow-unevaluated` (or `--ide-safe`); output files are still written. Live describers exist for SQL Server (`sp_describe_first_result_set`), Oracle, PostgreSQL and MySQL (`CommandBehavior.SchemaOnly` on a `WHERE 1=0` wrapper; MySQL also `LIMIT 0` on a read-only session)
+- Unavailable rules (for example `DG012` on Oracle, `PG004` on PostgreSQL) print `Rule <id> not evaluated: <reason>` once to stderr and do not change the exit code unless `--fail-on-unavailable` is set; `--skip-rules` is applied first
+- Configuration: unknown top-level keys print `Warning: unknown configuration keys: a, b` (exit 2 with `StrictConfig: true`); a value of the wrong type exits 2. Nested `Oracle:`/`SqlServer:`/`Plugins:` blocks and the `ExcludedProcedures`/`ExcludedEntities` lists are bound (see [Configuration File](#configuration-file)) Under `--ide-safe` a missing `--config` file is a warning, because IDE hosts always pass the workspace path
 - `--project`: discovers C# source contracts and inline SQL queries (Dapper, ADO.NET) directly from source code (`.csproj`, `.sln`, or directory) via Roslyn AST without requiring a pre-compiled assembly
 - `--progress`: outputs real-time step progress events as newline-delimited JSON (NDJSON) lines to `stderr` for tooling and IDE integration (e.g., VS Code extension)
 - `--verbose`: prints detailed scan report including discovered connection strings/hints, detected SQL queries with line numbers, AST operation types, referenced tables, target DTO mappings, and unmapped column/property diagnostics
@@ -186,7 +200,8 @@ dataguard verify-shape --connection <conn-string> --provider <provider> --projec
 - **Dynamic SQL & Anonymous PL/SQL Block Guards**: Statements invoking dynamic execution (`EXEC`, `EXECUTE`, `EXECUTE IMMEDIATE`, `sp_executesql`), procedural anonymous blocks (`BEGIN ... END;`, `DO $$ ... $$`), or administrative control operations (`CALL`, `DO`, `COPY`, `VACUUM`, `LOCK`, `REINDEX`) are blocked from live execution to eliminate arbitrary code execution and unpredictable side effects.
 - **Single-Pass Comment & String Literal Stripping (with Oracle Q-Quotes & Nested Comment Depth Tracking)**: SQL comments (`-- ...` and `/* ... */`) and string literals are stripped in a single lexical pass (`ColumnShapeMatchRule.StripCommentsAndLiterals`) before semicolon and statement keyword inspection. The parser preserves characters within bracket identifiers (`[My--Column]`, including escaped `]]`), backtick identifiers (`` `user_orders` ``), and standard ANSI double-quoted identifiers (`"column_name"`), preventing hyphens or slashes within delimited column and table identifiers from being mistakenly treated as comments. The comment stripper tracks nested block comment depth (`commentDepth`) up to balanced termination, preventing comment-hiding injection and ReDoS vulnerabilities in dialects supporting nested block comments (such as T-SQL and PostgreSQL). In addition to standard single-quoted literals (`'(?:''|[^'])*'`) and PostgreSQL dollar-quoted strings (`$(?<tag>[A-Za-z0-9_]*)$.*?$\k<tag>$`), the lexical engine provides comprehensive support for Oracle alternative quoting (Q-quotes: `q'...'` and `Q'...'`) across dialect checking and live query validation. It dynamically pairs brackets, braces, parentheses, angle brackets (`q'[...]'`, `q'{...}'`, `q'(...)'`, `q'<...>'`), and arbitrary single-character delimiters (`q'!...!^'`), replacing them with safe empty literal tokens (`''`). This prevents unescaped apostrophes inside Q-quoted literals from corrupting tokenizer state, prevents live query breakout, and prevents parameter sniffers or dialect checkers from mistaking literal contents for query parameters or SQL keywords.
 - **Quote-Safe Set Branch Splitting**: Query set operations (`UNION`, `UNION ALL`, `INTERSECT`, `EXCEPT`) are split into discrete sub-branches (`ColumnShapeMatchRule.SplitTopLevelSetBranches`) using a quote-aware, comment-aware lexical scanner. The scanner tracks quote states (`'...'`, `"..."`, `[...]`, `` `...` ``), parenthetical nesting depths (`depth == 0`), and comment blocks (`--` and `/* ... */`), ensuring that set keywords appearing within string literals, quoted identifiers, or comments are never mistaken for branch boundaries.
-- **Sanitized Error Messages**: Diagnostic warnings generated when shape determination encounters database errors (`LiveSqlShapeValidationRule`) sanitize exception messages using `SanitizeErrorMessage`. Connection string parameters (`password=`, `pwd=`, `user id=`, `uid=`, `secret=`, `token=`) and URI credentials (`protocol://user:password@host`) are redacted to `[REDACTED]` to prevent credential leakage into SARIF findings, editor diagnostics, or logs.
+- **Sanitized Error Messages**: Unevaluated-contract reasons recorded when shape determination encounters database errors (`LiveSqlShapeValidationRule`, `LiveSchemaResult.Error`) sanitize exception messages using `SanitizeErrorMessage`. Connection string parameters (`password=`, `pwd=`, `user id=`, `uid=`, `secret=`, `token=`) and URI credentials (`protocol://user:password@host`) are redacted to `[REDACTED]` to prevent credential leakage into SARIF findings, editor diagnostics, or logs.
+- **MySQL**: `--provider mysql` describes queries with `MySqlLiveQuerySchemaProvider` (read-only session, `LIMIT 0` wrapper); earlier versions exited 2 with `provider 'mysql' does not support live query schema verification`.
 - **Table-Prefixed Wildcard Support**: Fallback wildcard analysis (`SelectStarUsageRule.ContainsSelectStar`) accurately detects and resolves table-prefixed wildcards (`SELECT T.*`, `SELECT [tbl].*`, ``SELECT `db`.`tbl`.*``) across top-level and inner subqueries, preventing missing property false alarms when querying tables via wildcards.
 - **Oracle LOB & Large Numeric Parsing Safeguards**: When inspecting Oracle schema metadata (e.g. `CLOB`, `NCLOB`, `BLOB`, `LONG`, or high-precision `NUMBER`), numeric attributes such as column size, precision, and scale are converted using non-overflowing parsing (`int.TryParse` with bounds checking). This prevents runtime `OverflowException` errors when Oracle metadata exceeds standard 32-bit integer ranges or reports special unbounded sentinel values.
 - **Stacked Query Guard**: Queries containing unquoted semicolons (stacked statements) are strictly rejected from live execution.
@@ -344,6 +359,7 @@ dataguard baseline [options]
 - Violation list with rule IDs and messages
 - Database version (from `@@VERSION` or `V$VERSION`)
 - Schema hash (SHA-256, first 16 hex chars)
+- Provider (`Provider`), like the snapshot written by `snapshot refresh`
 
 ### `preflight`
 
@@ -388,6 +404,11 @@ dataguard snapshot refresh [options]
 This command requires a configured database connection. Without a fresh live
 acquisition it returns `UNEVALUATED` (exit code 3) and does not create a
 snapshot.
+
+The snapshot always records `Provider`. `validate` treats a format-4 snapshot
+with an empty `Provider` as unusable (`UNEVALUATED: snapshot format version 4
+records no provider ...`, exit 3); format 2/3 files without a provider are
+still accepted.
 
 #### `snapshot show`
 
@@ -443,7 +464,7 @@ dataguard init [--output <path>] [--provider <name>] [--wizard]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output` | `.dataguard.yml` | Output config file path |
-| `--provider` | `sqlserver` | Default provider |
+| `--provider` | `sqlserver` | Default provider (same whitelist as `validate`; other values exit 2) |
 | `--wizard` | `false` | Prompt for setup choices interactively and write to `--output` |
 
 The wizard reads from the terminal and writes only to the explicit `--output` path (default `.dataguard.yml`). It does not put a connection string in generated configuration; use `DATAGUARD_CONNECTION_STRING` for credentials.
@@ -556,7 +577,8 @@ dataguard version
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--connection` | — | Database connection string |
+| `--connection` | — | Database connection string (deprecated; prefer `--connection-env`) |
+| `--connection-env` | — | Name of the environment variable holding the connection string |
 | `--config` | `-c` | Path to `.dataguard.yml` |
 | `--output` | `-o` | Output file path |
 | `--format` | `-f` | Output format |
@@ -632,11 +654,27 @@ BaselineFilePath: .dataguard-baseline.json
 SnapshotFilePath: .dataguard-snapshot.json
 EnableConcurrentValidation: true
 MaxDegreeOfParallelism: 4
+SnapshotMaxAgeDays: 90
+StrictProcedureContracts: false
+AuditKeyFile: /etc/dataguard/audit.key
+RequireEncryptedCredentialStore: false
+ExcludedProcedures:
+  - dbo.LegacyImport
+ExcludedEntities: [AuditRow]
+Oracle:
+  Owner: HR
+  DescribeRefCursors: false
+SqlServer:
+  Schema: dbo
+Plugins:
+  AllowUnsignedLocal: false
 ```
+
+Every key of `DataGuardConfiguration` is bound, including the nested `Oracle:`, `SqlServer:` and `Plugins:` blocks and the list keys; a key that is absent or empty keeps its default. Only when the typed binding rejects the file (for example a scalar where a block is expected) does the loader fall back to reading the top-level scalar keys.
 
 **Security note:** Never commit connection strings to source control. Use environment variable `DATAGUARD_CONNECTION_STRING` instead.
 
-For every database-backed command, connection resolution is deterministic: `--connection` takes precedence, then `DATAGUARD_CONNECTION_STRING`, then `ConnectionString` from the selected config file. Provider resolution is `--provider`, then the config's persisted `DefaultProvider`, then `sqlserver`. `dataguard init --provider oracle` writes that fallback without storing a credential.
+For every database-backed command, connection resolution is deterministic (red-team D1): `--connection` (with a one-time process-listing warning), then `--connection-env NAME`, then `DATAGUARD_CONNECTION_STRING`, then the credential provider (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault when configured, `DATAGUARD_DATABASECONNECTION`, then the encrypted credential file; a failing store prints `warning: Secret store <Name> lookup ... failed` and the next source is tried; skipped under `--offline` and `--ide-safe`), then `ConnectionString` from the selected config file **only** with `AllowPlaintextConfigFallback: true` — by default that key is ignored with `warning: ignoring the plaintext ConnectionString key in the configuration file ...`. Credential-provider access is recorded in the audit log (HMAC-SHA256 chain when `DATAGUARD_AUDIT_KEY` or `AuditKeyFile` is set). A `ManualAssemblyPath` from the config file requires `--allow-assembly-from-config`; Manual mode reads attributes through `MetadataLoadContext` and never executes the assembly. Provider resolution is `--provider`, then the config's persisted `DefaultProvider`, then `sqlserver`. `dataguard init --provider oracle` writes that fallback without storing a credential.
 
 When a selected provider includes a rule whose required analyzer context is unavailable, `validate` reports the rule ID and prerequisite, exits with code `3`, and suppresses normal text/SARIF/evidence/contracts/TypeScript success output. This is an incomplete run, not a clean result.
 
@@ -644,6 +682,8 @@ When a selected provider includes a rule whose required analyzer context is unav
 
 | Variable | Purpose |
 |----------|---------|
-| `DATAGUARD_CONNECTION_STRING` | Database connection string (overrides config) |
+| `DATAGUARD_CONNECTION_STRING` | Database connection string (after `--connection`/`--connection-env`; overrides config) |
+| `DATAGUARD_DATABASECONNECTION` | Connection string read by the credential provider |
+| `DATAGUARD_AUDIT_KEY` | HMAC key (at least 16 bytes) for the audit hash chain; wins over `AuditKeyFile` |
 | `CI` | Detected for CI-specific behavior |
 | `GITHUB_ACTIONS` | Detected for GitHub Actions-specific behavior |

@@ -15,6 +15,7 @@ using Xunit;
 
 namespace DataGuard.Core.Tests;
 
+[Collection(ConsoleCollection.Name)]
 public class DiagnosticEmitterFullTests : IDisposable
 {
     private readonly string _tempDir;
@@ -665,6 +666,56 @@ public class DiagnosticEmitterFullTests : IDisposable
 
         sarifSink.Tokens.Should().Contain(cts.Token);
         diagnosticSink.Tokens.Should().Contain(cts.Token);
+    }
+
+    [Fact]
+    public void CreateSarifLog_EveryResultCarriesTheBaselineFingerprintAsPartialFingerprint()
+    {
+        var violations = new[]
+        {
+            new ContractViolation("DG017", "Avoid SELECT *", DiagnosticSeverity.Warning, CreateLocation(0, 0, 0, 5, Path.Combine(_tempDir, "A.cs")), new Dictionary<string, object?> { ["sqlHash"] = "0123456789abcdef" }),
+            new ContractViolation("DG017", "Avoid SELECT *", DiagnosticSeverity.Warning, CreateLocation(0, 0, 0, 5, Path.Combine(_tempDir, "B.cs")), new Dictionary<string, object?> { ["sqlHash"] = "0123456789abcdef" }),
+            new ContractViolation("DG006", "no location", DiagnosticSeverity.Info),
+        };
+
+        var log = DiagnosticEmitter.CreateSarifLog(violations, _tempDir);
+
+        var results = log.Runs.Single().Results;
+        results.Should().HaveCount(3).And.OnlyContain(result => result.PartialFingerprints != null && result.PartialFingerprints.ContainsKey("dataguard/v2"));
+        results[0].PartialFingerprints!["dataguard/v2"].Should().Be(DataGuard.Core.Baseline.BaselineManager.ComputeFingerprint(violations[0], _tempDir));
+        results[0].PartialFingerprints!["dataguard/v2"].Should().NotBe(results[1].PartialFingerprints!["dataguard/v2"], "two SELECT * sites are two findings");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FileSarifSink_WritesPartialFingerprints(bool streaming)
+    {
+        var path = Path.Combine(_tempDir, $"fp-{streaming}.sarif");
+        var violation = new ContractViolation("DG015", "Table 'T' does not exist in database", DiagnosticSeverity.Error, CreateLocation(0, 0, 0, 5), new Dictionary<string, object?> { ["table"] = "T" });
+        var emitter = new DiagnosticEmitter();
+        emitter.AddSarifSink(new FileSarifSink(path, streaming));
+
+        await emitter.EmitAsync(new[] { violation });
+
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var result = doc.RootElement.GetProperty("runs").EnumerateArray().Single().GetProperty("results").EnumerateArray().Single();
+        result.GetProperty("partialFingerprints").GetProperty("dataguard/v2").GetString()
+            .Should().MatchRegex("^[0-9a-f]{64}$");
+    }
+
+    [Fact]
+    public async Task StreamingSarifSink_WritesPartialFingerprints()
+    {
+        var path = Path.Combine(_tempDir, "fp-stream.sarif");
+        var violation = new ContractViolation("DG015", "Table 'T' does not exist in database", DiagnosticSeverity.Error, null, new Dictionary<string, object?> { ["table"] = "T" });
+
+        await new StreamingSarifSink(path, sourceRoot: _tempDir).WriteAsync(new[] { violation });
+
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var result = doc.RootElement.GetProperty("runs").EnumerateArray().Single().GetProperty("results").EnumerateArray().Single();
+        result.GetProperty("partialFingerprints").GetProperty("dataguard/v2").GetString()
+            .Should().Be(DataGuard.Core.Baseline.BaselineManager.ComputeFingerprint(violation, _tempDir));
     }
 
     private sealed class RecordingSarifSink : ISarifSink

@@ -6,10 +6,13 @@ The SQL Server Adapter is DataGuard's primary adapter, providing contract valida
 
 ```mermaid
 graph TB
-    subgraph "DataGuard.SqlServer.Adapter + Core.Sources"
+    subgraph "DataGuard.SqlServer.Adapter"
         SPSp[SqlServerStoredProcedureParser]
         RSP[RawSqlParser]
         SV[SqlParameterVisitor]
+        TSP[TSqlStatementParser]
+        LQ[SqlServerLiveQuerySchemaProvider]
+        TC[SqlServerTypeCompatibility]
     end
 
     subgraph "SQL Server System Views"
@@ -42,23 +45,33 @@ graph TB
 
     SPSp --> DG001-DG006
     RSP --> DG001-DG006
+    TSP --> P
+    TSP -->|ISqlStatementParser| DG019[DG019 Raw SQL Parse Error]
+    LQ -->|ILiveQuerySchemaProvider| SDRS
+    TC -->|ITypeCompatibility| DG001-DG006
 ```
 
 ## Source Files
 
 | File | Location | Lines | Purpose |
 |------|----------|-------|---------|
-| `SqlServerParsers.cs` | `DataGuard.Core/Sources/` | 346 | SqlServerStoredProcedureParser, RawSqlParser, SqlParameterVisitor |
-| `DataGuard.SqlServer.Adapter.csproj` | `DataGuard.SqlServer.Adapter/` | — | Project file with dependencies |
+All files live in `src/DataGuard.SqlServer.Adapter/` (namespace `DataGuard.SqlServer.Adapter`). Since red-team A1/R33, `DataGuard.Core` references neither `Microsoft.Data.SqlClient` nor ScriptDOM.
+
+| File | Purpose |
+|------|---------|
+| `SqlServerParsers.cs` | `SqlServerStoredProcedureParser`, `RawSqlParser`, `SqlParameterVisitor` |
+| `SqlServerLiveQuerySchemaProvider.cs` | `ILiveQuerySchemaProvider` via `sys.sp_describe_first_result_set` (DG018/DG020) |
+| `SqlServerTypeCompatibility.cs` | `ITypeCompatibility` CLR ↔ SQL Server type table (DG002, DG018) |
+| `TSqlStatementParser.cs` | `ISqlStatementParser` on `TSql160Parser`, injected into DG019 |
+| `TSqlPhantomAnalyzer.cs`, `TSqlPhantomScopeVisitor.cs` | `IPhantomReferenceAnalyzer` on the ScriptDOM AST (DG015/DG016) |
+| `DataGuard.SqlServer.Adapter.csproj` | Driver + ScriptDOM + `ProjectReference` Core; nothing else |
 
 ## Dependencies
 
 ```xml
-<PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
-<PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.102.0" />
-<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.19" />
-<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.19" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
+<PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+<PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.117.0" />
 ```
 
 ## SqlServerStoredProcedureParser
@@ -90,9 +103,10 @@ sequenceDiagram
 Queries `sys.procedures` joined with `sys.schemas` to get all user-defined stored procedures:
 
 ```sql
-SELECT p.object_id, p.name, s.name AS schema_name
+SELECT p.object_id, p.name, s.name AS schema_name, m.definition
 FROM sys.procedures p
 INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+LEFT JOIN sys.sql_modules m ON m.object_id = p.object_id
 WHERE p.is_ms_shipped = 0
 ```
 
@@ -102,7 +116,8 @@ For each procedure, reads parameters from `sys.parameters` joined with `sys.type
 
 ```sql
 SELECT p.name, t.name AS DataType, p.max_length, p.precision,
-       p.scale, p.is_nullable, p.parameter_id, p.is_output
+       p.scale, p.is_nullable, p.parameter_id, p.is_output,
+       t.system_type_id, p.has_default_value
 FROM sys.parameters p
 INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
 WHERE p.object_id = @ObjectId
@@ -111,7 +126,9 @@ ORDER BY p.parameter_id
 
 **Key details:**
 - `max_length = -1` indicates `MAX` types (e.g., `varchar(max)`) — normalized to `null`
+- `max_length` is in bytes; `nchar`/`nvarchar` (system type 239/231, including `sysname`) are divided by 2 so `nvarchar(50)` ⇒ `MaxLength = 50` (characters, like `INFORMATION_SCHEMA`). The same normalization applies to `sp_describe_first_result_set` result columns (`SqlServerStoredProcedureParser.NormalizeMaxLength`).
 - `is_output = true` maps to `ParameterDirection.InputOutput` (SQL Server uses `OUTPUT` keyword)
+- **Defaults** (`ParameterDescriptor.HasDefault`): `sys.parameters.has_default_value` is set only for CLR procedures, so the procedure definition from `sys.sql_modules` is parsed with ScriptDOM (`TSql160Parser`) and every `@name type = <default>` parameter (`ProcedureParameter.Value != null`) gets `HasDefault = true` (`SqlServerStoredProcedureParser.ParseDefaultedParameters`). DG101 therefore does not report an omitted defaulted parameter as missing. An encrypted or unparsable definition yields no T-SQL defaults.
 - Direction is simplified: SQL Server only has `INPUT` and `OUTPUT` (no `IN OUT` like Oracle)
 
 ### Result Column Discovery
@@ -135,7 +152,9 @@ EXEC sp_describe_first_result_set N'EXEC [schema].[proc]', NULL, 1
 | 7 | `precision` | Precision |
 | 8 | `scale` | Scale |
 
-**Error handling:** SQL errors 11512/11513 indicate the procedure returns no result set — these are silently caught and return an empty column list.
+**Error handling:** SQL errors 11512/11513 indicate the procedure returns no result set; they are caught and return an empty column list. Any other `SqlException` for one procedure, such as 11526 for a temp-table result, no longer aborts extraction. The procedure is kept with an empty result shape and `ReturnType = "unknown:<error number>"`.
+
+**Schema tables:** `DatabaseTableDescriptor.Name` is the bare table name and `Schema` holds the owner (`Orders` + `dbo`). The rules' table index resolves both `dbo.Orders` and `Orders`.
 
 ### SQL Name Escaping
 
@@ -239,3 +258,26 @@ When `--provider sqlserver` (or no provider specified), the CLI:
 2. Reads parameters via `sys.parameters`
 3. Describes result sets via `sp_describe_first_result_set`
 4. Runs core rules (DG001-DG006) against the extracted contracts
+
+## Composition (red-team A1/R33)
+
+`ProviderRuleCatalog` (CLI) wires the adapter into the Core rules for `--provider sqlserver`; Core only holds the seams and
+provider-neutral defaults:
+
+| Core seam | Core default | SQL Server adapter implementation |
+|-----------|--------------|-----------------------------------|
+| `ILiveQuerySchemaProvider` (DG018/DG020) | none: a connection without a provider is reported unevaluated (DG020) | `SqlServerLiveQuerySchemaProvider` |
+| `ITypeCompatibility` + `TypeCompatibilityRegistry` | `UnknownTypeCompatibility` (no findings) | `SqlServerTypeCompatibility` (registered for `sqlserver`) |
+| `IPhantomReferenceAnalyzer` (DG015/DG016) | `PhantomSqlAnalyzer` (tokenizer) | `TSqlPhantomAnalyzer` |
+| `ISqlStatementParser` (DG019) | `NoOpSqlStatementParser` (accepts everything) | `TSqlStatementParser` |
+
+DG019 (`RawSqlParseStatusRule`) parses each raw SQL contract with the injected parser and reports the first ScriptDOM error
+(`Line L, column C: message`) as an Error. Client placeholders (`:name`, `?`, `{0}`) are rewritten to `@` variables before
+parsing; stored-procedure call sites and raw SQL whose connection hint names another provider are not parsed. Other
+providers have no parser, so DG019 only reports a parse status set by an acquisition source.
+
+Library callers that used `DataGuard.Core.Sources.SqlServerStoredProcedureParser`, `RawSqlParser`,
+`DataGuard.Core.Rules.SqlServerLiveQuerySchemaProvider` or `DataGuard.Core.Rules.TypeCompatibility.SqlServerTypeCompatibility`
+reference the `DataGuard.SqlServer.Adapter` package and change the `using` to `DataGuard.SqlServer.Adapter` (no type
+forwarders). Code that resolved the SQL Server table through `TypeCompatibilityRegistry` without registering it now gets
+`UnknownTypeCompatibility`; call `TypeCompatibilityRegistry.Register(SqlServerTypeCompatibility.Instance)` or inject the table.

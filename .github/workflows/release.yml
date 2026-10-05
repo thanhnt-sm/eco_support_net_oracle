@@ -63,10 +63,89 @@ jobs:
           echo "release_tag=$REF_NAME" >> "$GITHUB_OUTPUT"
           echo "release_version=$version" >> "$GITHUB_OUTPUT"
 
+  # Release gate: the commit being released must already be on main and its latest ci.yml
+  # `Build and Test` check-run must be green. release.yml has its own job with the same display
+  # name on the same commit, so each candidate check-run is mapped back to its workflow file
+  # through its check suite. Enforced for every publishing run (tag push, or dispatch with
+  # dry_run=false); a dry run reports the same findings as warnings so branches can be dry-run.
+  verify-ci:
+    name: Verify main ancestry and green CI
+    runs-on: ubuntu-latest
+    needs: validate-version
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    outputs:
+      sha: ${{ steps.gate.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Commit is on main and CI build-and-test succeeded
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.release_tag }}
+          ENFORCE: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+          CI_WORKFLOW_PATH: .github/workflows/ci.yml
+          CI_CHECK_NAME: Build and Test
+        run: |
+          set -euo pipefail
+          problems=()
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$COMMIT_SHA" origin/main; then
+            problems+=("commit $COMMIT_SHA is not an ancestor of origin/main")
+          fi
+          # A manual run may name a tag that already exists; it must point at the commit released.
+          if tag_sha="$(git rev-parse -q --verify "refs/tags/$RELEASE_TAG^{commit}")"; then
+            if [[ "$tag_sha" != "$COMMIT_SHA" ]]; then
+              problems+=("tag $RELEASE_TAG points at $tag_sha, not at $COMMIT_SHA")
+            fi
+          fi
+
+          # Newest first; filter=latest drops attempts superseded by a re-run of the same suite.
+          check_runs="$(gh api "repos/$GH_REPO/commits/$COMMIT_SHA/check-runs?check_name=${CI_CHECK_NAME// /%20}&filter=latest&per_page=100" \
+            -q '.check_runs | sort_by(.started_at) | reverse | .[] | [.check_suite.id, .status, (.conclusion // "none"), .html_url] | @tsv')"
+          verdict=""
+          while IFS=$'\t' read -r suite_id status conclusion url; do
+            [[ -n "$suite_id" ]] || continue
+            path="$(gh api "repos/$GH_REPO/actions/runs?check_suite_id=$suite_id" -q '.workflow_runs[0].path // ""')"
+            if [[ "$path" == "$CI_WORKFLOW_PATH" || "$path" == "$CI_WORKFLOW_PATH@"* ]]; then
+              verdict="$status/$conclusion"
+              echo "Latest $CI_WORKFLOW_PATH '$CI_CHECK_NAME' check-run: $verdict ($url)"
+              break
+            fi
+          done <<< "$check_runs"
+          if [[ -z "$verdict" ]]; then
+            problems+=("no '$CI_CHECK_NAME' check-run from $CI_WORKFLOW_PATH on $COMMIT_SHA")
+          elif [[ "$verdict" != "completed/success" ]]; then
+            problems+=("latest $CI_WORKFLOW_PATH '$CI_CHECK_NAME' check-run on $COMMIT_SHA is $verdict, expected completed/success")
+          fi
+
+          if (( ${#problems[@]} > 0 )); then
+            for problem in "${problems[@]}"; do
+              if [[ "$ENFORCE" == "true" ]]; then
+                echo "::error::Release gate: $problem"
+              else
+                echo "::warning::Release gate (dry run, not enforced): $problem"
+              fi
+            done
+            if [[ "$ENFORCE" == "true" ]]; then
+              exit 1
+            fi
+          fi
+          echo "sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
-    needs: validate-version
+    needs: [validate-version, verify-ci]
     permissions:
       contents: read
     outputs:
@@ -96,9 +175,10 @@ jobs:
       - name: Build solution
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
+      # LiveDb tests ran in ci.yml's live-db-integration job on this commit (verify-ci gate).
       - name: Run tests (fail-fast)
         run: |
-          dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
+          dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
 
       - name: Upload test results
         if: always()
@@ -130,7 +210,7 @@ jobs:
   security-scan:
     name: Security Scan (vulnerabilities + secrets)
     runs-on: ubuntu-latest
-    needs: validate-version
+    needs: [validate-version, verify-ci]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -377,7 +457,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
 
@@ -395,6 +475,7 @@ jobs:
 
       # prepare-lsp must run before vsce so the VSIX carries server/DataGuard.LanguageServer.dll
       # (loaded by extension.ts); `npm run package` does the same but has no --out control here.
+      # `--no-install`: vsce comes from package-lock.json via `npm ci`, never a fresh download.
       - name: Package VSIX
         working-directory: ${{ env.VSCODE_DIR }}
         env:
@@ -403,8 +484,9 @@ jobs:
           set -euo pipefail
           npm pkg set version="$VERSION"
           npm run prepare-lsp
-          npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
-          sha256sum "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix" > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
+          npx --no-install @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
+          # Bare file name in the checksum line, so users can run `sha256sum -c` next to the download.
+          (cd "$RUNNER_TEMP" && sha256sum "dataguard-vscode-$VERSION.vsix" > "dataguard-vscode-$VERSION.vsix.sha256")
 
       - name: Upload VS Code VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -565,13 +647,17 @@ jobs:
             ${{ runner.temp }}/DataGuard.VisualStudio.vsix
             ${{ runner.temp }}/DataGuard.VisualStudio.vsix.sha256
 
+  # The release is created as a DRAFT and stays one until NuGet, Docker and the provenance
+  # attestations have all succeeded; publish-release (last job) flips it to published. A failure
+  # anywhere in between leaves an unpublished draft instead of a half-published release.
   create-github-release:
-    name: Create GitHub Release
+    name: Create GitHub Release (draft)
     runs-on: ubuntu-latest
     # Manual runs are a dry run unless dry_run=false: every build/package job
     # above still runs and uploads artifacts, but nothing is published.
     if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
-    needs: [build-and-test, sign-packages, generate-sbom, cli-package, vscode-package, visual-studio-package]
+    needs: [verify-ci, build-and-test, sign-packages, generate-sbom, cli-package, vscode-package, visual-studio-package]
+    environment: release
     permissions:
       contents: write
     steps:
@@ -612,6 +698,7 @@ jobs:
           GH_REPO: ${{ github.repository }}  # no checkout in this job; gh cannot infer the repo from git
           RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
           RELEASE_VERSION: ${{ needs.build-and-test.outputs.release_version }}
+          TARGET_SHA: ${{ needs.verify-ci.outputs.sha }}
         run: |
           set -euo pipefail
           # A SemVer pre-release (0.3.0-rc.1) is published as a GitHub
@@ -646,7 +733,7 @@ jobs:
             echo "::warning::No SBOM files found to attach."
           fi
           gh release create "$RELEASE_TAG" \
-            --target "${{ github.sha }}" \
+            --target "$TARGET_SHA" \
             "${release_flags[@]}" \
             --title "$RELEASE_TAG" \
             --notes "Release $RELEASE_TAG of DataGuard (NuGet packages, CLI packages per RID with SHA-256, Visual Studio Extension, and VS Code Extension)." \
@@ -658,19 +745,16 @@ jobs:
             ./artifacts/*.vsix.sha256 \
             "${sbom_assets[@]}"
 
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}  # no checkout in this job; gh cannot infer the repo from git
-          RELEASE_TAG: ${{ needs.build-and-test.outputs.release_tag }}
-        run: gh release edit "$RELEASE_TAG" --draft=false
-
+  # No continue-on-error: a failed push blocks publish-release, so the GitHub release is never
+  # published while NuGet is missing. When no NuGet credential is configured at all, the push is
+  # skipped with a warning (NuGet publishing not set up for this repository yet); a configured but
+  # failing credential is an error.
   publish-nuget:
-    name: Publish to NuGet.org (Optional)
+    name: Publish to NuGet.org
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
     needs: [create-github-release]
-    continue-on-error: true
+    environment: release
     permissions:
       id-token: write # Trusted Publishing (OIDC)
       contents: read
@@ -684,13 +768,19 @@ jobs:
           name: signed-nupkgs
           path: ./artifacts
 
+      # Trusted Publishing first; the step may fail only so the NUGET_API_KEY fallback below can be
+      # tried. The publish step fails when neither credential works, so this never hides a failure.
       - name: NuGet login (Trusted Publishing, OIDC)
         id: login
-        if: ${{ env.NUGET_USER != '' || env.NUGET_API_KEY != '' }}
+        if: ${{ env.NUGET_USER != '' }}
         continue-on-error: true
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
           user: ${{ env.NUGET_USER }}
+
+      - name: NuGet publishing not configured
+        if: ${{ env.NUGET_USER == '' && env.NUGET_API_KEY == '' }}
+        run: echo "::warning::Neither NUGET_USER nor NUGET_API_KEY is configured; NuGet push skipped for this release."
 
       - name: Publish to NuGet.org
         if: ${{ env.NUGET_USER != '' || env.NUGET_API_KEY != '' }}
@@ -705,15 +795,20 @@ jobs:
             KEY="${NUGET_API_KEY}"
             echo "Using NUGET_API_KEY fallback."
           else
-            echo "::warning::No valid NuGet credentials. Skipping push."
-            exit 0
+            echo "::error::NUGET_USER is configured but Trusted Publishing login failed and no NUGET_API_KEY fallback is set." >&2
+            exit 1
           fi
           shopt -s nullglob
-          for pkg in ./artifacts/*.nupkg; do
+          packages=(./artifacts/*.nupkg)
+          if (( ${#packages[@]} == 0 )); then
+            echo "::error::No .nupkg found in the signed-nupkgs artifact." >&2
+            exit 1
+          fi
+          for pkg in "${packages[@]}"; do
             echo "Publishing $pkg..."
             dotnet nuget push "$pkg" \
               --api-key "$KEY" \
-              --source "${{ env.NUGET_SOURCE }}" \
+              --source "$NUGET_SOURCE" \
               --timeout 600
           done
 
@@ -721,7 +816,8 @@ jobs:
     name: Publish Build Provenance Attestations
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
-    needs: [create-github-release]
+    needs: [validate-version, create-github-release]
+    environment: release
     permissions:
       contents: write
       id-token: write
@@ -761,21 +857,26 @@ jobs:
             ./artifacts/*.vsix
             ./artifacts/dataguard-*.zip
 
+      # The tag comes from validate-version (normalized, v-prefixed) rather than github.ref_name,
+      # which on workflow_dispatch is the branch name (the old `gh release upload main` bug).
       - name: Upload provenance bundle to GitHub Release assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.release_tag }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          tag="${{ github.ref_name }}"
-          provenance_file="./artifacts/dataguard-${tag}.intoto.jsonl"
-          cp "${{ steps.attest.outputs.bundle-path }}" "$provenance_file"
-          gh release upload "$tag" "$provenance_file" --clobber
+          provenance_file="./artifacts/dataguard-${RELEASE_TAG}.intoto.jsonl"
+          cp "$BUNDLE_PATH" "$provenance_file"
+          gh release upload "$RELEASE_TAG" "$provenance_file" --clobber
+
   docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
     needs: [build-and-test, security-scan, create-github-release]
+    environment: release
     permissions:
       contents: read
       packages: write
@@ -828,6 +929,38 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Last step of a publishing run: the draft created above becomes a published release only after
+  # NuGet, the provenance attestations and the Docker image all succeeded (default `needs`
+  # semantics skip this job when any of them failed, leaving the draft for inspection).
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+    needs: [validate-version, create-github-release, publish-nuget, publish-attestations, docker]
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Flip draft to published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}  # no checkout in this job; gh cannot infer the repo from git
+          RELEASE_TAG: ${{ needs.validate-version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          is_draft="$(gh release view "$RELEASE_TAG" --json isDraft -q .isDraft)"
+          if [[ "$is_draft" != "true" ]]; then
+            echo "::error::Release $RELEASE_TAG is not a draft (isDraft=$is_draft); refusing to touch a published release." >&2
+            exit 1
+          fi
+          assets="$(gh release view "$RELEASE_TAG" --json assets -q '.assets[].name')"
+          if ! grep -q '\.intoto\.jsonl$' <<< "$assets"; then
+            echo "::error::Release $RELEASE_TAG has no .intoto.jsonl provenance asset; not publishing." >&2
+            exit 1
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false
+          gh release view "$RELEASE_TAG" --json url,isDraft,isPrerelease
 
   dry-run-summary:
     name: Dry Run Summary (nothing published)

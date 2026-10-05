@@ -18,10 +18,13 @@ public class CredentialManagerFullTests : IDisposable
 {
     private const string EnvVar = "DATAGUARD_CONNECTION_STRING";
 
+    // Explicit plaintext opt-out keeps these tests independent of the host's DPAPI/Keychain/Secret Service; the
+    // encrypt-at-rest default is covered by the injected-platform tests below.
     private static readonly DataGuardConfiguration Config = new()
     {
         ExcludedProcedures = Array.Empty<string>(),
         ExcludedEntities = Array.Empty<string>(),
+        EncryptConnectionStringAtRest = false,
     };
 
     public void Dispose()
@@ -222,47 +225,95 @@ public class CredentialManagerFullTests : IDisposable
     }
 
     [Fact]
-    public async Task StoreConnectionString_EncryptAtRest_UsesAvailablePlatformStoreOrFailsClosed()
+    public async Task StoreConnectionString_EncryptAtRestWithoutBackend_FallsBackToPlaintextWithWarning()
     {
         var storePath = NewTempStorePath();
+        var logger = new CapturingLogger();
         try
         {
-            var manager = new CredentialManager(Config with { EncryptConnectionStringAtRest = true }, credentialStorePath: storePath);
+            var manager = new CredentialManager(
+                Config with { EncryptConnectionStringAtRest = true },
+                logger: logger,
+                credentialStorePath: storePath,
+                protectionAvailable: () => false);
 
-            var act = () => manager.StoreConnectionStringAsync("Server=plain;Database=Db");
+            await manager.StoreConnectionStringAsync("Server=fallback;Database=Db");
 
-            if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
-            {
-                await act.Should().NotThrowAsync();
-                (await manager.GetStoredConnectionStringAsync()).Should().Be("Server=plain;Database=Db");
-            }
-            else if (OperatingSystem.IsLinux())
-            {
-                try
-                {
-                    await act();
-                    (await manager.GetStoredConnectionStringAsync()).Should().Be("Server=plain;Database=Db");
-                }
-                catch (PlatformNotSupportedException)
-                {
-                    File.Exists(storePath).Should().BeFalse();
-                }
-                catch (InvalidOperationException)
-                {
-                    File.Exists(storePath).Should().BeFalse();
-                }
-            }
-            else
-            {
-                await act.Should().ThrowAsync<PlatformNotSupportedException>();
-                File.Exists(storePath).Should().BeFalse();
-            }
+            var json = await File.ReadAllTextAsync(storePath);
+            json.Should().Contain("\"IsEncrypted\": false");
+            (await manager.GetStoredConnectionStringAsync()).Should().Be("Server=fallback;Database=Db");
+            logger.Warnings.Should().ContainSingle(message => message.Contains("no credential protection backend is available"));
+            logger.Warnings.Should().NotContain(message => message.Contains("Server=fallback"));
         }
         finally
         {
             TryDelete(storePath);
-            DeleteMacKeychainEntry(storePath);
         }
+    }
+
+    [Fact]
+    public async Task StoreConnectionString_RequireEncryptedStoreWithoutBackend_FailsClosed()
+    {
+        var storePath = NewTempStorePath();
+        try
+        {
+            var manager = new CredentialManager(
+                Config with { EncryptConnectionStringAtRest = true, RequireEncryptedCredentialStore = true },
+                credentialStorePath: storePath,
+                protectionAvailable: () => false);
+
+            var act = () => manager.StoreConnectionStringAsync("Server=must-not-persist;Database=Db");
+
+            await act.Should().ThrowAsync<PlatformNotSupportedException>().WithMessage("*RequireEncryptedCredentialStore*");
+            File.Exists(storePath).Should().BeFalse();
+        }
+        finally
+        {
+            TryDelete(storePath);
+        }
+    }
+
+    [Fact]
+    public async Task StoreConnectionString_DefaultConfigurationWithAvailableBackend_Encrypts()
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        // Default configuration (EncryptConnectionStringAtRest = true) and an available backend: never plaintext.
+        var storePath = NewTempStorePath();
+        var secretStore = new FakeSecretStore(OperatingSystem.IsMacOS() ? "KEYCHAIN:" : "SECRET-SERVICE:");
+        try
+        {
+            var manager = new CredentialManager(
+                new DataGuardConfiguration(),
+                credentialStorePath: storePath,
+                secretStore: secretStore,
+                auditLogger: new NullAuditLogger(),
+                protectionAvailable: () => true);
+
+            await manager.StoreConnectionStringAsync("Server=default-encrypted;Database=Db");
+
+            var json = await File.ReadAllTextAsync(storePath);
+            json.Should().NotContain("Server=default-encrypted");
+            json.Should().Contain("\"IsEncrypted\": true");
+            secretStore.StoredValue.Should().Be("Server=default-encrypted;Database=Db");
+        }
+        finally
+        {
+            TryDelete(storePath);
+        }
+    }
+
+    [Fact]
+    public void IsPlatformProtectionAvailable_MatchesDocumentedBackends()
+    {
+        var expected = OperatingSystem.IsWindows()
+            || OperatingSystem.IsMacOS()
+            || (OperatingSystem.IsLinux() && File.Exists("/usr/bin/secret-tool"));
+
+        CredentialManager.IsPlatformProtectionAvailable().Should().Be(expected);
     }
 
     [Fact]
@@ -550,6 +601,24 @@ public class CredentialManagerFullTests : IDisposable
             ArgumentList = { "delete-generic-password", "-s", service, "-a", "connection-string" },
         });
         process?.WaitForExit();
+    }
+
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<CredentialManager>
+    {
+        public List<string> Warnings { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
     }
 
     private sealed class FakeSecretStore(string prefix) : ICredentialSecretStore

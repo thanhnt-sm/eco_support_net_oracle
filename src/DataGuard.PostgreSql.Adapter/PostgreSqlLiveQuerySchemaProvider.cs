@@ -11,6 +11,8 @@ namespace DataGuard.PostgreSql.Adapter;
 
 /// <summary>
 /// PostgreSQL live query schema provider using CommandBehavior.SchemaOnly and Npgsql column schema.
+/// Database errors are reported as <see cref="LiveSchemaStatus.Failed"/> and refused statements as
+/// <see cref="LiveSchemaStatus.Unsupported"/>; columns are never fabricated as a described result (red-team H1).
 /// </summary>
 public sealed class PostgreSqlLiveQuerySchemaProvider : ILiveQuerySchemaProvider
 {
@@ -18,32 +20,40 @@ public sealed class PostgreSqlLiveQuerySchemaProvider : ILiveQuerySchemaProvider
         new(@"\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|MERGE|CALL|CREATE|EXEC|EXECUTE|BEGIN|DO|GRANT|REVOKE|COPY|LOCK|VACUUM|REINDEX|COMMIT|ROLLBACK|SAVEPOINT|SET|RESET|DISCARD|EXPLAIN)\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
     private readonly string _connectionString;
+    private readonly bool _allowSyntacticFallback;
 
-    public PostgreSqlLiveQuerySchemaProvider(string connectionString)
+    /// <summary>Initializes a new instance of the <see cref="PostgreSqlLiveQuerySchemaProvider"/> class.</summary>
+    /// <param name="connectionString">Npgsql connection string.</param>
+    /// <param name="allowSyntacticFallback">
+    /// Non-live, opt-in: when true, a failed or unsupported describe also carries column names extracted from the SQL text
+    /// with placeholder <c>text</c> types. The status stays <see cref="LiveSchemaStatus.Failed"/> or
+    /// <see cref="LiveSchemaStatus.Unsupported"/>, so these columns are never treated as database ground truth. Default false.
+    /// </param>
+    public PostgreSqlLiveQuerySchemaProvider(string connectionString, bool allowSyntacticFallback = false)
     {
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+        _allowSyntacticFallback = allowSyntacticFallback;
     }
 
-    public async Task<IReadOnlyList<ColumnDescriptor>> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
+    public async Task<LiveSchemaResult> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
     {
-        var columns = new List<ColumnDescriptor>();
         if (string.IsNullOrWhiteSpace(sqlText))
         {
-            return columns;
+            return LiveSchemaResult.NotSupported("Empty SQL text cannot be described.");
         }
 
         var trimmed = sqlText.Trim().TrimEnd(';');
         var sanitizedSql = DataGuard.Core.Rules.ColumnShapeMatchRule.StripCommentsAndLiterals(trimmed);
         if (sanitizedSql.Contains(';'))
         {
-            // Reject stacked queries
-            return columns;
+            // Reject stacked queries; no syntactic hint either, the statement boundary is unknown.
+            return LiveSchemaResult.NotSupported("Stacked statements are not described live.");
         }
 
         if (DataGuard.Core.Rules.ColumnShapeMatchRule.HasUnclosedBlockComment(trimmed))
         {
             // Reject unclosed block comment breakout attempts
-            return ExtractSyntacticColumns(sqlText);
+            return NotDescribed(LiveSchemaStatus.Unsupported, "Unclosed block comment; statement not described live.", sqlText);
         }
 
         var parenDepth = 0;
@@ -59,22 +69,23 @@ public sealed class PostgreSqlLiveQuerySchemaProvider : ILiveQuerySchemaProvider
                 if (parenDepth < 0)
                 {
                     // Premature closing parenthesis breakout attempt
-                    return ExtractSyntacticColumns(sqlText);
+                    return NotDescribed(LiveSchemaStatus.Unsupported, "Unbalanced closing parenthesis; statement not described live.", sqlText);
                 }
             }
         }
 
         if (parenDepth != 0)
         {
-            // Unbalanced parentheses
-            return ExtractSyntacticColumns(sqlText);
+            return NotDescribed(LiveSchemaStatus.Unsupported, "Unbalanced parentheses; statement not described live.", sqlText);
         }
 
         if (DisallowedLiveCommandsRegex.IsMatch(sanitizedSql))
         {
-            // Do not execute data-modifying queries live; fall back to syntactic extraction
-            return ExtractSyntacticColumns(sqlText);
+            // Never execute data-modifying or procedural statements live.
+            return NotDescribed(LiveSchemaStatus.Unsupported, "Statement is not a read-only query; not described live.", sqlText);
         }
+
+        var columns = new List<ColumnDescriptor>();
         try
         {
             using var connection = new NpgsqlConnection(_connectionString);
@@ -82,6 +93,9 @@ public sealed class PostgreSqlLiveQuerySchemaProvider : ILiveQuerySchemaProvider
 
             using var command = connection.CreateCommand();
             command.CommandTimeout = 5;
+
+            // codeql[dataguard/sql-injection-pattern]: by design. The wrapped text is the scanned repository's own SQL,
+            // compiled schema-only (WHERE 1=0, every parameter bound to NULL, 5 s timeout) against the developer's database.
             command.CommandText = $"SELECT * FROM (\n{trimmed}\n) AS _dg_subq WHERE 1=0";
 
             // Bind dummy parameters to prevent 42P02 / unbound parameter exceptions during SchemaOnly query compilation
@@ -144,23 +158,30 @@ public sealed class PostgreSqlLiveQuerySchemaProvider : ILiveQuerySchemaProvider
                     ColumnId: ordinal++));
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            // Graceful fallback if live connection or query describe fails
+            // Connection, permission or compile error: the shape is unknown, not "whatever the SQL text suggests".
+            return NotDescribed(LiveSchemaStatus.Failed, ex.Message, sqlText);
         }
 
-        if (columns.Count == 0)
-        {
-            return ExtractSyntacticColumns(sqlText);
-        }
-
-        return columns;
+        return columns.Count == 0
+            ? NotDescribed(LiveSchemaStatus.Failed, "The database returned no result-set columns for the statement.", sqlText)
+            : LiveSchemaResult.FromColumns(columns);
     }
 
+    private LiveSchemaResult NotDescribed(LiveSchemaStatus status, string reason, string sqlText)
+    {
+        var hint = _allowSyntacticFallback ? ExtractSyntacticColumns(sqlText) : null;
+        return status == LiveSchemaStatus.Failed
+            ? LiveSchemaResult.Fail(reason, hint)
+            : LiveSchemaResult.NotSupported(reason, hint);
+    }
+
+    /// <summary>Non-live hint: column names from the SQL text with placeholder types. Never ground truth.</summary>
     private static IReadOnlyList<ColumnDescriptor> ExtractSyntacticColumns(string sqlText)
     {
         var columns = new List<ColumnDescriptor>();

@@ -17,19 +17,61 @@ on:
         default: false
         type: boolean
 
+# Least-privilege floor. id-token/attestations: write are granted only to the two packaging jobs
+# that attest, and their attest steps never run on pull_request.
 permissions:
   contents: read
-  attestations: write
-  id-token: write
 
 env:
+  DOTNET_VERSION: "9.0.x"
+  CROSS_PLATFORM_SOLUTION: DataGuard.CrossPlatform.slnf
   VSCODE_DIR: src/DataGuard.VSCode
   VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
 
 jobs:
+  # Same C# test gate as ci.yml's build-and-test (LiveDb excluded). Both packaging jobs need it, so
+  # nothing is attested or published from a red suite (scripts/check-workflow-policy.py rule f).
+  test:
+    name: Build and test (C#)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
+
+      - name: Build solution
+        run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb"
+
   vscode-package:
     name: Package VS Code Extension
     runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      id-token: write      # attest-build-provenance (Sigstore OIDC)
+      attestations: write  # attest-build-provenance (attestation store)
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,14 +96,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
 
-      - name: Setup .NET for SBOM
+      # prepare-lsp (dotnet publish of the language server) and the SBOM tool need .NET.
+      - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Install and test
         working-directory: ${{ env.VSCODE_DIR }}
@@ -93,8 +136,10 @@ jobs:
           npm pkg set version="$VERSION"
           # prepare-lsp publishes server/DataGuard.LanguageServer.dll (loaded by extension.ts) before vsce.
           npm run prepare-lsp
-          npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
-          sha256sum "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix" > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
+          # --no-install: vsce comes from package-lock.json via `npm ci`, never a fresh download.
+          npx --no-install @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
+          # Bare file name in the checksum line, so `sha256sum -c` works wherever the pair is downloaded.
+          (cd "$RUNNER_TEMP" && sha256sum "dataguard-vscode-$VERSION.vsix" > "dataguard-vscode-$VERSION.vsix.sha256")
 
       - name: Generate VS Code extension SBOM
         env:
@@ -124,7 +169,9 @@ jobs:
             ${{ runner.temp }}/dataguard-vscode-sbom/**/*
           if-no-files-found: error
 
+      # No attestation for pull requests: a PR build is never published.
       - name: Attest VS Code VSIX
+        if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/dataguard-vscode-*.vsix
@@ -132,6 +179,11 @@ jobs:
   visual-studio-package:
     name: Package Visual Studio Extension
     runs-on: windows-latest
+    needs: test
+    permissions:
+      contents: read
+      id-token: write      # attest-build-provenance (Sigstore OIDC)
+      attestations: write  # attest-build-provenance (attestation store)
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,8 +203,20 @@ jobs:
           if (-not [string]::IsNullOrWhiteSpace($env:RELEASE_TAG)) {
             $tagCommit = git rev-list -n 1 $env:RELEASE_TAG
             $headCommit = git rev-parse HEAD
-            if ($tagCommit -ne $headCommit) { throw \"Checked-out commit does not match tag $env:RELEASE_TAG\" }
+            if ($tagCommit -ne $headCommit) { throw "Checked-out commit does not match tag $env:RELEASE_TAG" }
           }
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Same unit-test gate as ci.yml/release.yml, before the manifest patch and packaging.
+      - name: Restore Visual Studio tests
+        run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
+
+      - name: Run Visual Studio tests
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
 
       - name: Derive VSIX version
         id: version
@@ -249,30 +313,80 @@ jobs:
             ${{ runner.temp }}/dataguard-visualstudio-sbom/**/*
           if-no-files-found: error
 
+      # No attestation for pull requests: a PR build is never published.
       - name: Attest Visual Studio VSIX
+        if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/DataGuard.VisualStudio.vsix
 
+  # vsce comes from the extension's package-lock.json (`npm ci` + `npx --no-install`), never an
+  # unpinned download inside the job that holds the Marketplace PAT. The VSIX is published only
+  # after its checksum and its build-provenance attestation (made by vscode-package in this
+  # repository) both verify.
   publish-vscode:
     name: Publish VS Code Marketplace
     needs: [vscode-package, visual-studio-package]
     if: github.event_name == 'workflow_dispatch' && inputs.publish
     runs-on: ubuntu-latest
     environment: marketplace-production
+    permissions:
+      contents: read
+      attestations: read
     steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
+
+      - name: Install pinned tooling from lockfile
+        working-directory: ${{ env.VSCODE_DIR }}
+        run: npm ci
+
       - name: Download VS Code VSIX
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dataguard-vscode-vsix
-          path: artifacts
+          path: ${{ runner.temp }}/vsix
 
+      - name: Verify checksum and provenance attestation
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/vsix"
+          shopt -s nullglob
+          vsix_files=(dataguard-vscode-*.vsix)
+          if (( ${#vsix_files[@]} != 1 )); then
+            echo "::error::Expected exactly one dataguard-vscode-*.vsix, found ${#vsix_files[@]}: ${vsix_files[*]}" >&2
+            exit 1
+          fi
+          vsix="${vsix_files[0]}"
+          test -f "$vsix.sha256" || { echo "::error::Missing $vsix.sha256" >&2; exit 1; }
+          sha256sum -c "$vsix.sha256"
+          gh attestation verify "$vsix" --repo "$GH_REPO"
+          echo "path=$RUNNER_TEMP/vsix/$vsix" >> "$GITHUB_OUTPUT"
+
+      # vsce reads the PAT from the VSCE_PAT environment variable, so it never appears on argv.
       - name: Publish verified artifact
+        working-directory: ${{ env.VSCODE_DIR }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          VSIX_PATH: ${{ steps.verify.outputs.path }}
         run: |
+          set -euo pipefail
           test -n "$VSCE_PAT" || { echo "::error::VSCE_PAT Marketplace Manage credential is required"; exit 1; }
-          npx @vscode/vsce publish --packagePath artifacts/*.vsix --pat "$VSCE_PAT"
+          npx --no-install @vscode/vsce publish --packagePath "$VSIX_PATH"
 
   publish-visualstudio:
     name: Publish Visual Studio Marketplace

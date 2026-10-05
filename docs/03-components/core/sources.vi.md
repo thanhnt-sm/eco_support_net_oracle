@@ -1,6 +1,6 @@
 # Contract Sources
 
-> Nguồn: `src/DataGuard.Core/Sources/EfModelSource.cs`, `SqlServerParsers.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`
+> Nguồn: `src/DataGuard.Core/Sources/EfModelSource.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`; nguồn SQL Server nằm trong `src/DataGuard.SqlServer.Adapter/SqlServerParsers.cs` (namespace `DataGuard.SqlServer.Adapter`; từ red-team A1/R33 Core không tham chiếu driver database nào)
 
 Contract sources là lớp thu thập dữ liệu của DataGuard. Chúng trích xuất các thể hiện `ContractDescriptor` từ nhiều nguồn: mô hình EF Core, metadata database, văn bản SQL thô, và các annotation thuộc tính thủ công.
 
@@ -85,10 +85,22 @@ public class EfModelSource : IContractSource
 
 `ModelSnapshot.cs` từ source có thể được parse mà không load assembly bằng
 `ModelSnapshotCSharpParser` có giới hạn. Nó hỗ trợ fluent-API subset được sinh cho
-`Entity<T>`, table, property, key, column name/type, length và requiredness. Parser
+`Entity<T>`, table, property, key, column name/type, length và requiredness. Property lấy từ
+`b.Property<T>("Name")` (CLR type = `T`, chuẩn hóa: `System.Int32` ⇒ `int`, `Nullable<DateTime>` ⇒ `DateTime?`,
+`string?` ⇒ `string`) hoặc `b.Property(x => x.Name)` (không có type cú pháp: chỉ là `string` khi cấu hình
+`HasMaxLength`/`IsUnicode`/`IsFixedLength`, ngược lại là `object` và rule length bỏ qua). `.IsUnicode(bool)` thành
+`Annotations["IsUnicode"]` (Oracle DG008 đọc); nullability theo `.IsRequired(bool)` nếu có, nếu không thì
+`T?`/reference type là nullable còn value type đã biết thì không. Key lấy từ `HasKey(x => x.Id)`,
+`HasKey(x => new { x.A, x.B })` hoặc `HasKey("A", "B")`. Parser
 giới hạn source-size và syntax-node, trả diagnostic hiển thị khi syntax lỗi hoặc đầu
 vào unsupported, và không khởi tạo `DbContext`, factory, host hay application code.
 Tự động discovery project/assembly vẫn unsupported.
+
+Khi chỉ một phần cấu hình entity parse được, các entity đã parse được giữ lại và
+`EfModelSource.ParseModelSnapshotWithDiagnostics` / `ExtractFromModelSnapshotWithDiagnosticsAsync`
+trả một `AcquisitionDiagnostic(Kind, Path, Message)` cho mỗi cấu hình bị bỏ qua
+(`Kind = ModelSnapshotPartialParse`). `validate` in chúng dạng `ACQUISITION: <path>: <message>`
+và exit 3 trừ khi có `--allow-unevaluated`. Khi không parse được gì, ném `EfModelExtractionException`.
 
 ```csharp
 var entities = await EfModelSource.ExtractFromTrustedCompiledModelSnapshotAsync(
@@ -102,11 +114,11 @@ Caller chọn tường minh một DLL không phải link và đúng concrete `Mo
 
 ### Trạng thái parse raw SQL
 
-`RawSqlParser` ghi `RawSqlParseStatus.Invalid` và nội dung lỗi ScriptDOM cho input malformed. Built-in rule `DG016` báo trạng thái đó là Error, nên lỗi parser không thể xuất hiện như kết quả validation clean.
+`RawSqlParser` ghi `RawSqlParseStatus.Invalid` và nội dung lỗi ScriptDOM cho input malformed. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 là Phantom Column Reference) báo trạng thái đó là Error, nên lỗi parser không thể xuất hiện như kết quả validation clean. Raw SQL thu thập từ C# (`ProjectCSharpSqlSource`) không tự có trạng thái parse: với `sqlserver`, `ProviderRuleCatalog` inject `TSqlStatementParser` (`ISqlStatementParser`) của adapter vào DG019, rule này báo SQL mà ngữ pháp T-SQL từ chối. Provider khác không có parser (`NoOpSqlStatementParser` của Core).
 
 ## SqlServerStoredProcedureParser
 
-Trích xuất stored procedure contracts từ system views SQL Server.
+Trích xuất stored procedure contracts từ system views SQL Server. Nằm trong `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class SqlServerStoredProcedureParser : IContractSource
@@ -147,7 +159,7 @@ sequenceDiagram
 
 ## RawSqlParser
 
-Phân tích văn bản SQL thô bằng thư viện ScriptDOM của Microsoft.
+Phân tích văn bản SQL thô bằng thư viện ScriptDOM của Microsoft. Nằm trong `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class RawSqlParser : IContractSource
@@ -208,48 +220,51 @@ public void GetOrder(int id) { }
 
 ### Quy Trình Reflection
 
-1. `Assembly.LoadFrom(assemblyPath)` — tải assembly người dùng
+1. Mở assembly người dùng trong `MetadataLoadContext` (resolver: thư mục assembly, framework đang chạy, DataGuard.Contracts) — chỉ đọc metadata: không module initializer, static constructor hay attribute constructor nào của assembly được chạy, và assembly không vào default load context. Attribute được dựng lại từ `CustomAttributeData` thành instance của DataGuard.Contracts. `ManualAssemblyPath` lấy từ `.dataguard.yml` cần `--allow-assembly-from-config` trên CLI
 2. Duyệt tất cả types, quét properties cho `[ExpectedColumn]` và methods cho `[ExpectedSpParameter]`
 3. Ánh xạ `DataGuard.Contracts.ParameterDirection` → `DataGuard.Core.Abstractions.ParameterDirection`
 4. Tạo các thể hiện `EntityDescriptor` và `StoredProcedureDescriptor`
 
 ## ProjectCSharpSqlSource
 
-Trích xuất các truy vấn SQL và contract thực thi stored procedure từ mã nguồn C# thông qua phân tích cây cú pháp Roslyn AST qua nhiều pass.
+Trích xuất câu lệnh SQL và call-site stored procedure từ mã nguồn C# bằng Roslyn (cú pháp và semantic model). Mã nằm ở `Sources/ProjectCSharpSqlSource.cs` và các phần partial trong `Sources/CSharp/`.
 
-### Heuristic phát hiện Stored Procedure & SQL (`IsSqlString`)
+### Call-site
 
-Khi đánh giá một biểu thức hoặc chuỗi ký tự có đại diện cho một contract SQL cần kiểm tra hay không, `ProjectCSharpSqlSource.IsSqlString` áp dụng kiểm tra từ khóa và quy ước đặt tên:
+| Dạng | Nhận diện |
+|------|-----------|
+| Dapper | `Query*` (gồm `QueryFirst*`, `QuerySingle*`, `QueryMultiple*`, `QueryUnbufferedAsync`), `Execute*`, `ExecuteScalar*`, `ExecuteReader*`; `conn?.Query<T>(...)`; `commandType: CommandType.StoredProcedure` (đặt tên hoặc theo vị trí) |
+| EF Core | `FromSqlRaw/FromSqlInterpolated/FromSql`, `ExecuteSqlRaw*/ExecuteSqlInterpolated*/ExecuteSql*`, `SqlQuery/SqlQueryRaw` |
+| ADO.NET | `cmd.CommandText = ...`, `new XCommand("...")` và target-typed `XCommand cmd = new("...")`, `CommandType = CommandType.StoredProcedure` (lấy command text **cuối cùng** được gán trước khi command thực thi) |
+| Hằng | field `const`/`static readonly` chứa SQL chưa được tham chiếu (chỉ khi có dạng câu lệnh) |
 
-1. **Từ khóa SQL**: Khớp biểu thức chính quy trực tiếp với các câu lệnh SQL chuẩn (`SELECT`, `INSERT`, `UPDATE`, `DELETE`,...).
-2. **Quy ước đặt tên Stored Procedure**: So khớp tiền tố không phân biệt hoa thường hỗ trợ:
-   - `SP_` (Quy ước Stored Procedure chuẩn)
-   - `USP_` (Quy ước User Stored Procedure)
-   - `PROC_` (Quy ước tiền tố Procedure)
-   - `FNC_` (Quy ước tiền tố Function)
-   - `P_` (Quy ước tham số hoá/thủ tục gói)
-3. **Oracle Package Procedures**: Ký hiệu dấu chấm gói (ví dụ `CUSTOMER_PKG.GET_CUSTOMERS`).
+`base("...")` trong lớp repository chỉ là SQL khi chính đối số có dạng câu lệnh; tên bảng hoặc tên connection (`base("DefaultConnection")`) không còn sinh `SELECT * FROM ...` tổng hợp.
 
-```csharp
-internal static bool IsSqlString(string text)
-{
-    var trimmed = text.Trim();
-    if (SqlKeywordRegex.IsMatch(trimmed))
-        return true;
+### Nhận diện câu lệnh (`IsSqlString`, `IsProcedureName`)
 
-    if (trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("proc_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("fnc_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("p_", StringComparison.OrdinalIgnoreCase))
-        return true;
+`IsSqlString` yêu cầu phần đầu có dạng câu lệnh (sau comment): `SELECT|INSERT|UPDATE|DELETE|MERGE|WITH|EXEC|EXECUTE|CALL|BEGIN|DECLARE`. Từ khóa DML cần thêm mệnh đề `FROM|INTO|SET|VALUES|JOIN`, `WITH` cần `AS (`, `EXEC` cần đích, `CALL` cần `name(`, `BEGIN`/`DECLARE` cần `END` hoặc một câu lệnh bên trong. Chuỗi như `"Please update your profile"` không phải SQL. Tên procedure trần (`usp_GetUser`, `PKG.PROC`, `[dbo].[Get User]`) được nhận diện riêng bởi `IsProcedureName` và chỉ dùng cho lời gọi `CommandType.StoredProcedure`.
 
-    if (trimmed.Contains('.') && !trimmed.Contains(' ') && Regex.IsMatch(trimmed, @"^[A-Za-z_][\w]*\.[A-Za-z_][\w]*$"))
-        return true;
+### Descriptor stored procedure
 
-    return false;
-}
-```
+`RawSqlDescriptor` của một lời gọi procedure mang:
+
+- `ProcedureName` (tên trần), `ProcedureSchema`, `ProcedurePackage`, tách bằng `SchemaObjectName.Parse`. Kiểu Oracle (provider hint `oracle` hoặc khối PL/SQL): `pkg.proc` ⇒ package, `owner.pkg.proc` ⇒ schema + package. Provider khác: `schema.proc` ⇒ schema, `db.schema.proc` ⇒ schema (bỏ database).
+- `IsStoredProcedure = true` chỉ cho lời gọi `CommandType.StoredProcedure`, có `SqlText` tổng hợp là `EXEC {name}`. Lời gọi dạng văn bản (`EXEC dbo.p @a = {0}`, `CALL s.p(?, ?)`, `BEGIN pkg.p(:a, p_b => :b); END;`) giữ nguyên văn bản thật và `IsStoredProcedure = false` để rule dialect vẫn kiểm tra; nhận biết chúng qua `ProcedureName != null`.
+- Mỗi đối số của lời gọi là một `ParameterDescriptor`, theo thứ tự gọi (`OrdinalPosition` bắt đầu từ 1): `Name` như được viết (`@Id`, `p_id`, `Id` cho thuộc tính object Dapper) hoặc `#n` (bắt đầu từ 0) cho đối số theo vị trí; `ClrType` từ semantic model (`int?` ⇒ `int`, enum ⇒ `enum:<underlying>`, không xác định ⇒ null); `CallSiteDirection` từ `ParameterDirection.*` (Dapper `DynamicParameters.Add`, ADO `Direction`), đối số `out`/`ref` và T-SQL `OUTPUT`, nếu không thì `Input` khi có giá trị được gắn và null khi không biết; `DataType` là kiểu provider được viết (`SqlDbType.Int` ⇒ `Int`) hoặc `unknown`; `HasDefault = false`.
+
+Nguồn đối số: object vô danh của Dapper, `DynamicParameters` (template của constructor, `Add`, `AddDynamicParams`), object khác (các thuộc tính public); ADO `Parameters.Add/AddWithValue/AddRange` với `new XParameter(...) { ... }`, biến cục bộ, `.Direction/.Value` nối chuỗi, `Parameters["x"].Direction`; đối số thêm của EF và object `*Parameter`.
+
+### Placeholder và SQL động
+
+Placeholder được quét sau khi che comment và literal: `@name`, `:name`, `$n` giữ nguyên dạng viết; `{n}` (EF) và `?` (ODBC/MySQL) là vị trí `#n`; bỏ qua `::cast`, `:=`, biến hệ thống `@@SYSTEM` và toán tử JSON `?|`/`?&`. Lỗ interpolation và toán hạng nối chuỗi không phải hằng trở thành placeholder `@name` (không bao giờ inline giá trị biến cục bộ) và được liệt kê trong `Parameters` kèm `ClrType`, kể cả khi nằm trong dấu nháy.
+
+### Thuộc tính kỳ vọng, id, bỏ qua và chẩn đoán
+
+- `ExpectedProperties`: thuộc tính public của instance có setter hoặc `init`, không có `[NotMapped]`; rỗng với kiểu đích vô hướng (`string`, kiểu nguyên thủy, kiểu ngày giờ, `Guid`, `decimal`, enum, `byte[]`).
+- `Id` = `project-sql:{đường dẫn tương đối repo}:{span start}:{8 ký tự hex đầu của SHA-256 của SQL đã chuẩn hóa khoảng trắng}`.
+- `[SkipContractCheck]` trên method, kiểu chứa nó hoặc kiểu bao ngoài (kể cả ở phần partial khác) bỏ qua call-site; `SkippedContractCount` đếm số lần bỏ qua.
+- `Diagnostics` (`AcquisitionDiagnostic(Kind, Path, Message)`) liệt kê `UnreadableFile`, `ParseFailed`, `OversizedLiteral` (> 256 KB) và `SkippedByAttribute` của lần chạy gần nhất.
+- Reference biên dịch lấy từ `obj/project.assets.json` của project được quét (compile asset trong `NUGET_PACKAGES` hoặc `~/.nuget/packages`, cộng shared framework đang chạy) khi project đã restore, nếu không thì lấy trusted platform assemblies của host, theo thứ tự đã sắp xếp.
 
 ## SqlKeywordMatcher
 
@@ -262,7 +277,7 @@ Sources được đăng ký với validation pipeline:
 var sources = new IContractSource[]
 {
     new EfModelSource(dbContext, config),
-    new SqlServerStoredProcedureParser(connectionString, config),
+    new SqlServerStoredProcedureParser(connectionString, config), // DataGuard.SqlServer.Adapter
     new ManualContractSource(assemblyPath),
 };
 
@@ -278,7 +293,7 @@ foreach (var source in sources)
 | Source | SourceId | Đầu vào | Đầu ra | Cần Database |
 |--------|----------|---------|--------|--------------|
 | `EfModelSource` | `ef-model` | DbContext / ModelSnapshot | `EntityDescriptor[]` | Runtime: Có, Design-time: Không |
-| `SqlServerStoredProcedureParser` | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Có |
-| `RawSqlParser` | `raw-sql` | Văn bản SQL + đường dẫn file | `RawSqlDescriptor[]` | Không |
+| `SqlServerStoredProcedureParser` (adapter SQL Server) | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Có |
+| `RawSqlParser` (adapter SQL Server) | `raw-sql` | Văn bản SQL + đường dẫn file | `RawSqlDescriptor[]` | Không |
 | `ManualContractSource` | `manual` | Đường dẫn assembly | `EntityDescriptor[]` + `StoredProcedureDescriptor[]` | Không |
 | `ProjectCSharpSqlSource` | `csharp-source` | Thư mục mã nguồn / project C# | `RawSqlDescriptor[]` + `StoredProcedureDescriptor[]` | Không |

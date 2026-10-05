@@ -1,0 +1,532 @@
+using DataGuard.Core.Abstractions;
+using DataGuard.Core.Models;
+using DataGuard.Core.Sources;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
+using Microsoft.Data.SqlClient;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
+
+namespace DataGuard.SqlServer.Adapter;
+
+/// <summary>
+/// Parses stored procedures and raw SQL for SQL Server.
+/// </summary>
+public class SqlServerStoredProcedureParser : IContractSource
+{
+    private readonly string _connectionString;
+    private readonly DataGuardConfiguration _config;
+
+    public SqlServerStoredProcedureParser(string connectionString, DataGuardConfiguration config)
+    {
+        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+        _config = config ?? throw new ArgumentNullException(nameof(config));
+    }
+
+    public string SourceId => "sqlserver-sp";
+
+    public string DisplayName => "SQL Server Stored Procedures";
+
+    public async Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(CancellationToken cancellationToken = default)
+    {
+        var contracts = new List<ContractDescriptor>();
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        // Get all stored procedures, with the T-SQL definition (null for encrypted and CLR procedures): it is the only
+        // source of parameter defaults, because sys.parameters.has_default_value is populated for CLR procedures only.
+        const string procSql = @"
+            SELECT
+                p.object_id,
+                p.name,
+                s.name AS schema_name,
+                m.definition
+            FROM sys.procedures p
+            INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+            LEFT JOIN sys.sql_modules m ON m.object_id = p.object_id
+            WHERE p.is_ms_shipped = 0";
+
+        var procedures = new List<(int ObjectId, string Name, string Schema, string? Definition)>();
+        {
+            await using var cmd = new SqlCommand(procSql, connection);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                procedures.Add((
+                    reader.GetInt32(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3)));
+            }
+        }
+
+        // Process each procedure. One procedure whose metadata cannot be read (sp_describe_first_result_set
+        // rejects temp tables, dynamic SQL, missing objects, ...) must not abort the extraction: it is kept with
+        // an empty result shape and ReturnType "unknown:<error number>" so rules can treat it as unevaluated.
+        foreach (var (objectId, name, schema, definition) in procedures)
+        {
+            List<ParameterDescriptor> parameters;
+            List<ColumnDescriptor> resultColumns;
+            string? unknownMarker = null;
+            try
+            {
+                parameters = await GetParametersAsync(connection, objectId, ParseDefaultedParameters(definition), cancellationToken);
+            }
+            catch (SqlException ex)
+            {
+                parameters = new List<ParameterDescriptor>();
+                unknownMarker = UnknownMarker(ex);
+            }
+
+            try
+            {
+                resultColumns = await GetResultColumnsAsync(connection, name, schema, cancellationToken);
+            }
+            catch (SqlException ex)
+            {
+                resultColumns = new List<ColumnDescriptor>();
+                unknownMarker ??= UnknownMarker(ex);
+            }
+
+            contracts.Add(new StoredProcedureDescriptor(
+                Id: $"{schema}.{name}",
+                Name: name,
+                Schema: schema,
+                PackageName: string.Empty,
+                Parameters: parameters,
+                ResultColumns: resultColumns,
+                ReturnsRefCursor: false,
+                Location: Location.None,
+                ReturnType: unknownMarker));
+        }
+
+        // Include the live relational schema so snapshot refresh can persist
+        // structural ground truth instead of hashing violations as a fallback.
+        contracts.Add(await GetSchemaAsync(connection, cancellationToken));
+
+        return contracts;
+    }
+
+    private async Task<DatabaseSchemaDescriptor> GetSchemaAsync(
+        SqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        const string schemaSql = @"
+            SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE,
+                   CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE,
+                   IS_NULLABLE, COLUMN_DEFAULT, ORDINAL_POSITION
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE (@Schema = '' OR TABLE_SCHEMA = @Schema)
+            ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION";
+
+        await using var command = new SqlCommand(schemaSql, connection);
+        command.Parameters.AddWithValue("@Schema", _config.DefaultSchema ?? string.Empty);
+        var tables = new Dictionary<string, List<ColumnDescriptor>>(StringComparer.OrdinalIgnoreCase);
+        var tableNames = new Dictionary<string, (string Schema, string Name)>(StringComparer.OrdinalIgnoreCase);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var schema = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+            var table = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+            var tableKey = string.IsNullOrEmpty(schema) ? table : $"{schema}.{table}";
+            tableNames[tableKey] = (schema, table);
+            var column = new ColumnDescriptor(
+                Name: reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                DataType: reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                MaxLength: reader.IsDBNull(4) ? null : Convert.ToInt32(reader.GetValue(4)),
+                Precision: reader.IsDBNull(5) ? null : Convert.ToInt32(reader.GetValue(5)),
+                Scale: reader.IsDBNull(6) ? null : Convert.ToInt32(reader.GetValue(6)),
+                IsNullable: !reader.IsDBNull(7) && string.Equals(reader.GetString(7), "YES", StringComparison.OrdinalIgnoreCase),
+                CharUsed: null,
+                DataDefault: reader.IsDBNull(8) ? null : reader.GetValue(8)?.ToString(),
+                ColumnId: reader.IsDBNull(9) ? 0 : reader.GetInt32(9));
+
+            if (!tables.TryGetValue(tableKey, out var columns))
+            {
+                columns = new List<ColumnDescriptor>();
+                tables[tableKey] = columns;
+            }
+
+            columns.Add(column);
+        }
+
+        // Name is the bare table name; Schema carries the owner (rules index both the bare and qualified forms).
+        return new DatabaseSchemaDescriptor(
+            Id: "sqlserver-schema",
+            Tables: tables.Select(pair => new DatabaseTableDescriptor(
+                tableNames[pair.Key].Name,
+                pair.Value,
+                string.IsNullOrEmpty(tableNames[pair.Key].Schema) ? null : tableNames[pair.Key].Schema)).ToList(),
+            LengthSemantics: "CHAR");
+    }
+
+    /// <summary>
+    /// Returns the names (with <c>@</c>, case-insensitive) of the parameters that declare a default
+    /// (<c>@name type = value</c>) in a <c>CREATE</c>/<c>ALTER</c>/<c>CREATE OR ALTER PROCEDURE</c> definition, parsed with
+    /// ScriptDOM (<c>ProcedureParameter.Value</c> is not null). Empty for a null definition (encrypted or CLR
+    /// procedure) or one that does not parse.
+    /// </summary>
+    /// <param name="definition">The <c>sys.sql_modules.definition</c> text.</param>
+    /// <returns>The defaulted parameter names.</returns>
+    public static IReadOnlySet<string> ParseDefaultedParameters(string? definition)
+    {
+        var defaulted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(definition))
+        {
+            return defaulted;
+        }
+
+        var parser = new TSql160Parser(initialQuotedIdentifiers: true);
+        using var reader = new StringReader(definition);
+        var fragment = parser.Parse(reader, out var errors);
+        if (fragment is null || errors.Count > 0)
+        {
+            return defaulted;
+        }
+
+        var visitor = new ProcedureParameterDefaultVisitor();
+        fragment.Accept(visitor);
+        foreach (var parameter in visitor.Parameters)
+        {
+            if (parameter.Value is not null && parameter.VariableName?.Value is { Length: > 0 } parameterName)
+            {
+                defaulted.Add(parameterName);
+            }
+        }
+
+        return defaulted;
+    }
+
+    private async Task<List<ParameterDescriptor>> GetParametersAsync(
+        SqlConnection connection,
+        int objectId,
+        IReadOnlySet<string> defaultedParameters,
+        CancellationToken cancellationToken)
+    {
+        var parameters = new List<ParameterDescriptor>();
+
+        const string paramSql = @"
+            SELECT
+                p.name,
+                t.name AS DataType,
+                p.max_length,
+                p.precision,
+                p.scale,
+                p.is_nullable,
+                p.parameter_id,
+                p.is_output,
+                t.system_type_id,
+                p.has_default_value
+            FROM sys.parameters p
+            INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
+            WHERE p.object_id = @ObjectId
+            ORDER BY p.parameter_id";
+
+        await using var cmd = new SqlCommand(paramSql, connection);
+        cmd.Parameters.AddWithValue("@ObjectId", objectId);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var name = reader.GetString(0);
+            var dataType = reader.GetString(1);
+            var maxLength = reader.IsDBNull(2) ? (int?)null : (int)reader.GetInt16(2);
+            var precision = reader.IsDBNull(3) ? (byte?)null : reader.GetByte(3);
+            var scale = reader.IsDBNull(4) ? (byte?)null : reader.GetByte(4);
+            var isNullable = reader.GetBoolean(5);
+            var ordinal = reader.GetInt32(6);
+            var isOutput = reader.GetBoolean(7);
+            var systemTypeId = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetValue(8), System.Globalization.CultureInfo.InvariantCulture);
+
+            // has_default_value covers CLR procedures; T-SQL defaults come from the parsed definition.
+            var hasDefault = (!reader.IsDBNull(9) && reader.GetBoolean(9)) || defaultedParameters.Contains(name);
+
+            var direction = isOutput
+                ? DataGuard.Core.Abstractions.ParameterDirection.InputOutput
+                : DataGuard.Core.Abstractions.ParameterDirection.Input;
+
+            parameters.Add(new ParameterDescriptor(
+                Name: name,
+                DataType: dataType,
+                Direction: direction,
+                MaxLength: NormalizeMaxLength(maxLength, systemTypeId),
+                Precision: precision,
+                Scale: scale,
+                IsNullable: isNullable,
+                OrdinalPosition: ordinal,
+                HasDefault: hasDefault));
+        }
+
+        return parameters;
+    }
+
+    private async Task<List<ColumnDescriptor>> GetResultColumnsAsync(
+        SqlConnection connection,
+        string procName,
+        string schemaName,
+        CancellationToken cancellationToken)
+    {
+        var columns = new List<ColumnDescriptor>();
+
+        // sp_describe_first_result_set requires @tsql to be a valid batch: 'EXEC [schema].[proc]'. The batch travels as
+        // an NVARCHAR parameter (never inside an N'...' literal), so a catalog identifier containing a quote cannot
+        // break out of it; the identifiers themselves are bracket-quoted with ']' doubled.
+        // Result-set ordinals: is_hidden(0), column_ordinal(1), name(2), is_nullable(3),
+        // system_type_id(4), system_type_name(5), max_length(6), precision(7), scale(8).
+        const string describeSql = "EXEC sys.sp_describe_first_result_set @tsql = @batch, @params = NULL, @browse_information_mode = 1";
+        var batch = $"EXEC [{EscapeSqlName(schemaName)}].[{EscapeSqlName(procName)}]";
+
+        await using var cmd = new SqlCommand(describeSql, connection);
+        cmd.Parameters.Add(new SqlParameter("@batch", System.Data.SqlDbType.NVarChar, -1) { Value = batch });
+        try
+        {
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var isHidden = !reader.IsDBNull(0) && reader.GetBoolean(0);
+                if (isHidden || reader.IsDBNull(2))
+                {
+                    continue;
+                }
+
+                var name = reader.GetString(2);
+                var isNullable = reader.GetBoolean(3);
+                var systemTypeId = reader.IsDBNull(4) ? 0 : Convert.ToInt32(reader.GetValue(4), System.Globalization.CultureInfo.InvariantCulture);
+                var systemType = reader.IsDBNull(5) ? "" : reader.GetString(5);
+                var maxLength = reader.IsDBNull(6) ? (int?)null : (int)reader.GetInt16(6); // smallint
+                var precision = reader.IsDBNull(7) ? (byte?)null : reader.GetByte(7);
+                var scale = reader.IsDBNull(8) ? (byte?)null : reader.GetByte(8);
+
+                columns.Add(new ColumnDescriptor(
+                    Name: name,
+                    DataType: systemType,
+                    MaxLength: NormalizeMaxLength(maxLength, systemTypeId),
+                    Precision: precision,
+                    Scale: scale,
+                    IsNullable: isNullable,
+                    CharUsed: null)); // SQL Server doesn't have CHAR/BYTE semantics
+            }
+        }
+        catch (SqlException ex) when (ex.Number is 11512 or 11513)
+        {
+            // Procedure returns no result set - nothing to describe, skip.
+        }
+
+        return columns;
+    }
+
+    private static string EscapeSqlName(string name) => name.Replace("]", "]]");
+
+    /// <summary>
+    /// Converts <c>sys.parameters.max_length</c> / <c>sp_describe_first_result_set.max_length</c> (bytes) to the
+    /// character count used by INFORMATION_SCHEMA and the length rules: <c>-1</c> (MAX) ⇒ null, <c>nchar</c>/<c>nvarchar</c>
+    /// (system type 239/231, also <c>sysname</c>) ⇒ bytes / 2; other types unchanged.
+    /// </summary>
+    /// <param name="maxLength">Byte length as reported by SQL Server.</param>
+    /// <param name="systemTypeId">The column/parameter <c>system_type_id</c>.</param>
+    /// <returns>The length in characters, or null for MAX/unknown.</returns>
+    public static int? NormalizeMaxLength(int? maxLength, int systemTypeId)
+    {
+        if (maxLength is null or -1)
+        {
+            return null;
+        }
+
+        return systemTypeId is 231 or 239 ? maxLength.Value / 2 : maxLength.Value;
+    }
+
+    private static string UnknownMarker(SqlException ex)
+        => "unknown:" + ex.Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+/// <summary>Collects the parameters of every procedure body (<c>CREATE</c>, <c>ALTER</c>, <c>CREATE OR ALTER</c>).</summary>
+internal sealed class ProcedureParameterDefaultVisitor : TSqlFragmentVisitor
+{
+    public List<ProcedureParameter> Parameters { get; } = new();
+
+    public override void Visit(ProcedureStatementBody node)
+    {
+        Parameters.AddRange(node.Parameters);
+        base.Visit(node);
+    }
+}
+
+/// <summary>
+/// Parses raw SQL using ScriptDOM.
+/// </summary>
+public class RawSqlParser : IContractSource
+{
+    private readonly string _sqlText;
+    private readonly string _filePath;
+
+    public RawSqlParser(string sqlText, string filePath)
+    {
+        _sqlText = sqlText ?? throw new ArgumentNullException(nameof(sqlText));
+        _filePath = filePath ?? throw new ArgumentNullException(nameof(filePath));
+    }
+
+    public string SourceId => "raw-sql";
+
+    public string DisplayName => "Raw SQL";
+
+    public Task<IReadOnlyList<ContractDescriptor>> ExtractContractsAsync(CancellationToken cancellationToken = default)
+    {
+        var parser = new TSql160Parser(true);
+        IList<ParseError> errors = new List<ParseError>();
+        var fragment = parser.Parse(new StringReader(_sqlText), out errors);
+
+        // Extract parameters from the parsed fragment
+        var parameters = SqlParameterVisitor.Extract(fragment);
+
+        // Create a location from the file path and text span
+        var lineSpan = new LinePositionSpan(
+            new LinePosition(0, 0),
+            new LinePosition(0, 0));
+        var location = Location.Create(_filePath, new TextSpan(0, _sqlText.Length), lineSpan);
+
+        var parseError = errors.Count == 0
+            ? null
+            : string.Join("; ", errors.Select(error => error.Message));
+        var contracts = new List<ContractDescriptor>
+        {
+            new RawSqlDescriptor(
+                Id: $"raw-sql:{_filePath}",
+                SqlText: _sqlText,
+                Parameters: parameters,
+                ResultColumns: new List<ColumnDescriptor>(),
+                Location: location)
+            {
+                ParseStatus = errors.Count == 0 ? RawSqlParseStatus.Parsed : RawSqlParseStatus.Invalid,
+                ParseError = parseError,
+            },
+        };
+
+        return Task.FromResult<IReadOnlyList<ContractDescriptor>>(contracts);
+    }
+}
+
+internal class SqlParameterVisitor : TSqlFragmentVisitor
+{
+    public List<SqlParameterInfo> Parameters { get; } = new();
+
+    /// <summary>Returns the declared (<c>CREATE PROCEDURE</c>/function) parameters of <paramref name="fragment"/>.</summary>
+    /// <param name="fragment">Parsed fragment; null yields no parameters.</param>
+    /// <returns>Parameter descriptors in declaration order.</returns>
+    public static List<ParameterDescriptor> Extract(TSqlFragment? fragment)
+    {
+        if (fragment is null)
+        {
+            return new List<ParameterDescriptor>();
+        }
+
+        var visitor = new SqlParameterVisitor();
+        fragment.Accept(visitor);
+        return visitor.Parameters.Select(p => new ParameterDescriptor(
+            Name: p.Name,
+            DataType: p.DataType,
+            Direction: DataGuard.Core.Abstractions.ParameterDirection.Input,
+            MaxLength: p.MaxLength,
+            Precision: p.Precision,
+            Scale: p.Scale,
+            IsNullable: true,
+            OrdinalPosition: p.Ordinal)).ToList();
+    }
+
+    public override void Visit(ProcedureParameter parameter)
+    {
+        // Use the SQL-facing type name (e.g. "varchar(50)"), never the .NET
+        // type name of the ScriptDOM AST node ("SqlDataTypeReference").
+        var dataTypeName = GetSqlTypeName(parameter.DataType);
+        int? maxLength = null;
+        byte? precision = null;
+        byte? scale = null;
+
+        if (parameter.DataType is SqlDataTypeReference sqlDataType)
+        {
+            // ScriptDOM stores length/precision/scale as literal parameters in Parameters collection:
+            //   varchar(50)   -> Parameters[0] = 50 (char/binary length)
+            //   decimal(10,2) -> Parameters[0] = 10 (precision), Parameters[1] = 2 (scale)
+            //   varchar(max)  -> Parameters[0] is a special max literal
+            // Dispatch on type category: char/binary take a length; numeric take precision/scale.
+            var literals = sqlDataType.Parameters;
+            var isNumeric = sqlDataType.SqlDataTypeOption is
+                SqlDataTypeOption.Decimal or SqlDataTypeOption.Numeric or
+                SqlDataTypeOption.Money or SqlDataTypeOption.SmallMoney or
+                SqlDataTypeOption.Float or SqlDataTypeOption.Real;
+
+            if (literals.Count > 0 && literals[0] is IntegerLiteral firstLiteral
+                && int.TryParse(firstLiteral.Value, out var first))
+            {
+                if (isNumeric)
+                {
+                    precision = first > 0 ? (byte)first : (byte?)null;
+                }
+                else
+                {
+                    maxLength = first > 0 ? first : (int?)null;
+                }
+            }
+
+            if (isNumeric && literals.Count > 1 && literals[1] is IntegerLiteral scaleLiteral
+                && int.TryParse(scaleLiteral.Value, out var sc))
+            {
+                scale = sc >= 0 ? (byte)sc : (byte?)null; // scale 0 is valid
+            }
+        }
+
+        Parameters.Add(new SqlParameterInfo(
+            parameter.VariableName.Value,
+            dataTypeName,
+            maxLength,
+            precision,
+            scale,
+            Parameters.Count + 1));
+
+        base.Visit(parameter);
+    }
+
+    /// <summary>
+    /// Builds the SQL-facing type name from a ScriptDOM DataTypeReference:
+    /// "int", "varchar(50)", "decimal(10,2)", "varchar(max)". Returns "unknown"
+    /// for null or unmapped references (e.g. user-defined types fall back to
+    /// their three-part name when available).
+    /// </summary>
+    private static string GetSqlTypeName(DataTypeReference? dataType)
+    {
+        if (dataType == null)
+        {
+            return "unknown";
+        }
+
+        var baseName = dataType.Name?.Identifiers.Count > 0
+            ? string.Join(".", dataType.Name.Identifiers.Select(i => i.Value)).ToLowerInvariant()
+            : null;
+        if (string.IsNullOrEmpty(baseName))
+        {
+            return "unknown";
+        }
+
+        if (dataType is SqlDataTypeReference sqlType && sqlType.Parameters.Count > 0)
+        {
+            var args = string.Join(
+                ",",
+                sqlType.Parameters.Select(p => p switch
+                {
+                    IntegerLiteral integer => integer.Value,
+                    Literal literal => literal.Value,
+                    _ => p.ToString(),
+                }));
+            return $"{baseName}({args})".ToLowerInvariant();
+        }
+
+        return baseName;
+    }
+}
+
+internal record SqlParameterInfo(
+    string Name,
+    string DataType,
+    int? MaxLength,
+    byte? Precision,
+    byte? Scale,
+    int Ordinal);

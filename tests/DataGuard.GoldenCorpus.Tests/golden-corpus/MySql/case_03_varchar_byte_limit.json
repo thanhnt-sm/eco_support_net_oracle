@@ -1,0 +1,64 @@
+{
+  "testCase": "MY_003",
+  "category": "MySql",
+  "description": "VARCHAR(20000) with utf8mb4 needs 80000 bytes, over MySQL's 65535-byte limit",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "entity": {
+      "name": "Article",
+      "tableName": "articles",
+      "properties": [
+        {
+          "name": "Id",
+          "type": "int",
+          "isPrimaryKey": true
+        },
+        {
+          "name": "Body",
+          "type": "string",
+          "maxLength": 20000,
+          "isNullable": false
+        }
+      ]
+    },
+    "provider": "MySql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "articles",
+          "columns": [
+            {
+              "name": "id",
+              "type": "INT",
+              "nullable": false
+            },
+            {
+              "name": "body",
+              "type": "VARCHAR",
+              "nullable": false,
+              "char_length": 20000
+            }
+          ]
+        }
+      ]
+    },
+    "lengthSemantics": "CHAR"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "MY003",
+      "messageContains": "65535-byte row limit",
+      "severity": "Error"
+    },
+    {
+      "ruleId": "MY005",
+      "messageContains": "Row size risk",
+      "severity": "Warning"
+    }
+  ],
+  "notes": "MY005 is the row-size check since 2026-10-05 (red-team H8): the model implies 80002 bytes of VARCHAR data, over the 65535-byte row limit."
+}

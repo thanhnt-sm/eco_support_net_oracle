@@ -79,9 +79,10 @@ public class ParameterTypeMatchRuleTests
     [InlineData("string", "int", false, false)]
     [InlineData("int", "POINT", false, false)]
     [InlineData("string", "CHART", false, false)]
-    [InlineData("bool", "NUMBER(1)", true, true)]
     public void IsTypeCompatible_SqlServer_ReturnsExpected(string clrType, string dbType, bool isOracle, bool expected)
     {
+        // The SQL Server table lives in the adapter; the shim resolves whatever is registered for "sqlserver".
+        DataGuard.Core.Rules.TypeCompatibility.TypeCompatibilityRegistry.Register(DataGuard.SqlServer.Adapter.SqlServerTypeCompatibility.Instance);
         var result = ParameterTypeMatchRule.IsTypeCompatible(clrType, dbType, isOracle);
         result.Should().Be(expected);
     }
@@ -92,8 +93,11 @@ public class ParameterTypeMatchRuleTests
     [InlineData("DateTime", "DATE", true, true)]
     [InlineData("Guid", "RAW(16)", true, true)]
     [InlineData("string", "NUMBER", true, false)]
+    [InlineData("bool", "NUMBER(1)", true, true)]
     public void IsTypeCompatible_Oracle_ReturnsExpected(string clrType, string dbType, bool isOracle, bool expected)
     {
+        // Core has no Oracle table (the pre-3.1 fallback map was removed): the caller registers the adapter table.
+        DataGuard.Core.Rules.TypeCompatibility.TypeCompatibilityRegistry.Register(DataGuard.Oracle.Adapter.OracleTypeCompatibility.Instance);
         var result = ParameterTypeMatchRule.IsTypeCompatible(clrType, dbType, isOracle);
         result.Should().Be(expected);
     }
@@ -298,7 +302,7 @@ public class AuditLoggerTests
             await logger.LogCredentialAccessAsync("test", "provider", "hash1");
             await logger.LogCredentialAccessAsync("test", "provider", "hash2");
 
-            (await logger.VerifyIntegrityAsync()).Should().BeTrue();
+            (await logger.VerifyIntegrityAsync()).IsIntact.Should().BeTrue();
         }
         finally
         {
@@ -322,7 +326,7 @@ public class AuditLoggerTests
                 tempFile,
                 "{\"Timestamp\":\"2020-01-01T00:00:00+00:00\",\"EventType\":\"Forged\",\"Hash\":\"deadbeef\",\"PreviousHash\":null}\n");
 
-            (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+            (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Tampered);
         }
         finally
         {
@@ -351,7 +355,7 @@ public class AuditLoggerTests
             lines.RemoveAt(lines.Count - 1);
             File.WriteAllLines(tempFile, lines);
 
-            (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+            (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Tampered);
         }
         finally
         {

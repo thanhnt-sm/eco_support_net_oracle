@@ -1,0 +1,33 @@
+{
+  "testCase": "H3_003",
+  "category": "H3_Dialect_Confusion",
+  "description": "AI writes a SQL Server PIVOT with bracket-quoted identifiers ([Q1]) in an Oracle query; Oracle needs IN ('Q1' AS Q1) and double-quoted identifiers",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT region, q1, q2 FROM (SELECT region, quarter, amount FROM sales) PIVOT (SUM(amount) FOR quarter IN ([Q1], [Q2]))",
+    "provider": "Oracle",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "SALES",
+          "columns": [
+            "REGION",
+            "QUARTER",
+            "AMOUNT"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG013",
+      "messageContains": "bracket",
+      "severity": "Warning"
+    }
+  ]
+}

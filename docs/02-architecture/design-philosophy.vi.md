@@ -202,7 +202,8 @@ DataGuard sử dụng **kiến trúc analyzer tầng kép**:
 | Tầng | Công Nghệ | Tốc Độ | Phạm Vi |
 |------|-----------|--------|---------|
 | **IDE Nhẹ** | `IIncrementalGenerator` | ~ms mỗi phím | Chỉ syntax: calls SQL chưa validate, attributes thiếu |
-| **CI Nặng** | `DiagnosticAnalyzer` | Giây | Semantic đầy đủ: validate kết nối database |
+| **Heuristic IDE** | `DiagnosticAnalyzer` (syntax-node action) | ~ms mỗi call site | Heuristic SQL literal chỉ dùng syntax (DG004/DG017/DG097-DG099); không symbol, không database |
+| **CLI** | `dataguard validate` | Giây | Ground truth database (DG002-DG020, DG101); do operator chạy, không chạy từ build IDE |
 
 Tầng IDE chạy trên từng phím và đánh dấu SQL call chưa validate bằng gạch chân sóng. Nó dùng phân tích syntax local tăng dần. Allocation và GC được đo theo hot-path corpus đã khai báo; không có claim zero-allocation phổ quát cho compiler-host setup hay tài liệu tùy ý.
 
@@ -212,12 +213,12 @@ Analyzer CI chạy trong pipeline build chỉ với offline metadata. Full datab
 flowchart TD
     subgraph "IDE (Khi Gõ Phím)"
         A["IIncrementalGenerator<br/>Chỉ syntax · ~ms"]
-        A --> B["DG001: Call chưa validate<br/>DG002: Thiếu attribute"]
+        A --> B["DG001: Call chưa validate<br/>DG004/DG017/DG097-099: heuristic SQL literal"]
     end
 
-    subgraph "CI (Khi Build)"
-        C["DiagnosticAnalyzer<br/>Semantic + DB ground truth"]
-        C --> D["DG001–DG016: Validate đầy đủ"]
+    subgraph "CI (bước CLI)"
+        C["dataguard validate (CLI)<br/>DB ground truth / snapshot"]
+        C --> D["DG002–DG020, DG101: Validate đầy đủ"]
     end
 
     B -->|"Cùng diagnostic IDs"| D

@@ -1,6 +1,6 @@
 # Rules Engine
 
-> Source: `src/DataGuard.Core/Rules/ContractRules.cs`, `PhantomIdentifierRule.cs`, `RuleDependencyGraph.cs`
+> Source: `src/DataGuard.Core/Rules/ (one file per rule; `ContractRuleBase.cs`, `ParameterCountRule.cs`, …)`, `PhantomTableRule.cs`, `PhantomColumnRule.cs`, `Sql/`, `RuleDependencyGraph.cs`
 
 The rules engine is the heart of DataGuard. It contains 11 built-in validation rules (DG001–DG009, DG015–DG016), a dependency graph for optimal execution ordering, and the abstract base class that all rules extend.
 
@@ -19,7 +19,9 @@ flowchart TB
         CRB --> OLR1[OracleLengthRule<br/>DG007]
         CRB --> OLR2[OracleCharSemanticsRule<br/>DG008]
         CRB --> ISF[InferredSizeFallbackRule<br/>DG009]
-        CRB --> PIR[PhantomIdentifierRule<br/>DG015/DG016]
+        CRB --> PTB[PhantomTableRule<br/>DG015]
+        CRB --> PCL[PhantomColumnRule<br/>DG016]
+        CRB --> RPS[RawSqlParseStatusRule<br/>DG019]
     end
 
     subgraph Dependency Graph
@@ -63,6 +65,8 @@ public abstract class ContractRuleBase : IContractRule
 ```
 
 The base class also provides a static `CreateViolation` helper for consistent violation construction.
+
+`ContractRuleBase` implements `IContractEvaluationStatusReporter`. A rule that cannot obtain ground truth for a contract (for example a failed live describe) calls `protected void MarkUnevaluated(ContractDescriptor contract, string reason)`; the entry is neither a finding nor a pass. Override `UnevaluatedRuleId` (default `RuleId`) and `NormalizeUnevaluatedReason` (default: one trimmed line) when needed; `LiveSqlShapeValidationRule` reports `DG020` and sanitizes driver text. Every executor drains these entries after each run (see [One validation pipeline](#one-validation-pipeline)).
 
 ## Built-in Rules
 
@@ -117,9 +121,9 @@ Uses regex-based column extraction that handles `AS` aliases, skips expressions,
 **Severity:** Warning
 **Scope:** `EntityDescriptor` + `DatabaseSchemaDescriptor`
 
-Compares entity property nullability annotations against database column nullability:
-- `[Required]` property + nullable DB column → violation
-- Optional property + `NOT NULL` DB column → violation
+Compares `PropertyDescriptor.IsNullable` (a `Required` annotation forces non-nullable) against the nullability of the column resolved by `(entity.TableName, property.ColumnName)`. `SCHEMA.TABLE` entity names resolve by full key first, then bare name; a bare name shared by several schemas, an unknown table or an unknown column produces no finding. Columns are never merged across tables. Both directions are Warnings with distinct messages and `Properties` `{entity, property, table, column}`:
+- Non-nullable property + nullable DB column → violation (reading NULL fails at runtime)
+- Nullable property + `NOT NULL` DB column → violation (writing null fails with a constraint violation)
 
 ### DG006 — NamingConventionRule
 
@@ -144,12 +148,13 @@ Oracle-specific rules validating `VARCHAR2`/`NVARCHAR2` length semantics:
 
 Flags properties where `MaxLength` is inferred from CLR type defaults rather than explicitly configured — a common source of truncation bugs when the database column is smaller than the default.
 
-### DG015/DG016 — PhantomIdentifierRule
+### DG015 — PhantomTableRule / DG016 — PhantomColumnRule
 
 **Severity:** Error
 **Scope:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
+**Source:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, analyzer contract `Sql/IPhantomReferenceAnalyzer.cs`, default tokenizer analyzer `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, catalog lookup `Sql/SchemaTableIndex.cs`, names `Sql/SqlIdentifier.cs`); SQL Server AST analyzer `src/DataGuard.SqlServer.Adapter/TSqlPhantomAnalyzer.cs` + `TSqlPhantomScopeVisitor.cs`
 
-Detects table/column references in raw SQL that do not exist in the database schema — a common **AI hallucination failure mode** when LLMs generate SQL queries.
+Detects table/column references in raw SQL that do not exist in the database schema — a common **AI hallucination failure mode** when LLMs generate SQL queries. The two IDs are separate rules, so `--skip-rules DG015` or `--skip-rules DG016` disables exactly one finding kind. Raw SQL parse errors are a different rule, **DG019** (`RawSqlParseStatusRule`): for `sqlserver` it parses each raw SQL contract (not stored-procedure calls) with the SQL Server adapter's ScriptDOM `TSqlStatementParser` (Core seam `Sql/ISqlStatementParser.cs`, injected by `ProviderRuleCatalog`); other providers report only a parse status set during acquisition.
 
 ```mermaid
 flowchart LR
@@ -162,11 +167,23 @@ flowchart LR
     CHECK --> |column missing| DG016[DG016: Phantom Column]
 ```
 
-**Detection strategy:**
-1. Collect CTE names (`WITH X AS (...)`) to exclude from phantom checks
-2. Extract table references from `FROM`/`JOIN` clauses (strips schema qualifiers)
-3. Check qualified column references (`alias.column`) against known table columns
-4. Check unqualified columns in `SELECT` list against the primary table
+**Detection strategy (token-based, no regex):**
+1. Tokenize with comments (`--`, `/* */`) and string literals masked, so `FROM`/identifiers inside them are never scanned
+2. Index catalog tables by both `(schema, name)` and bare `name` (catalog keys such as `dbo.Orders` are split with `SchemaObjectName.Parse`); a reference resolves by full key first, then bare name. Table names fold per dialect through `SchemaObjectName.Canonical(provider, name)` when the raw SQL carries a provider hint (from the C# connection type): PostgreSQL lower-cases and Oracle upper-cases an **unquoted** name, and a **quoted** name keeps its exact case and must equal the stored catalog name (`"Orders"` does not resolve to `orders`); SQL Server, MySQL and an unknown provider compare case-insensitively. Column matching stays case-insensitive. `SchemaObjectName.Canonical(name)` is the provider-neutral upper-case key
+3. Collect every CTE name of `WITH [RECURSIVE] a AS (...), b AS (...)`
+4. Extract table references from `FROM`/`JOIN`, ignoring the `FROM` inside `EXTRACT(`, `TRIM(`, `SUBSTRING(`, `OVERLAY(` and `IS [NOT] DISTINCT FROM`
+5. Treat as unknown (never phantom, columns not checked): CTEs, derived tables, table-valued functions (`name(`), `#temp`, `@table` variables, three-part cross-database names, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`
+6. Check qualified `alias.column` against the nearest table reference in scope (innermost subquery first, so an alias reused in a subquery resolves to the subquery's table)
+7. Check single-identifier items of each `SELECT` list (parenthesis-aware split) against the union of all tables that `SELECT` references; `AS alias` and implicit trailing aliases are output names, never column references
+
+Both rules take an optional `IPhantomReferenceAnalyzer` (default: the tokenizer above); one result per raw SQL contract is cached and shared by DG015 and DG016. `ProviderRuleCatalog` passes `TSqlPhantomAnalyzer` for `--provider sqlserver`; every other provider keeps the tokenizer (AST parsing of non-T-SQL dialects is out of scope).
+
+**SQL Server (`TSqlPhantomAnalyzer`, ScriptDOM `TSql160Parser`, quoted identifiers on):**
+1. Client placeholders that are not T-SQL (`:name`, `{0}`, `?`) are rewritten to `@` variables outside literals/comments; any remaining parse error ⇒ `ParseFailed`, no DG015/DG016 (DG019 reports the parse error)
+2. One scope per query specification and per DML statement. Base tables: `NamedTableReference` and DML targets (`INSERT INTO t`, `UPDATE t`, `DELETE FROM t`, `MERGE INTO t`; `UPDATE o … FROM dbo.Orders o` resolves `o` to the FROM source). Unqualified names default to schema `dbo`; lookup uses `(schema, name)` then bare name like the tokenizer
+3. Opaque sources (never reported; columns not checked): CTE names of the statement's `WITH` (also inside recursive CTE bodies), derived and `VALUES` tables, TVFs (`dbo.fn_X(@id)`, `STRING_SPLIT`), `OPENJSON`/`OPENROWSET`/`OPENQUERY`, `PIVOT`/`UNPIVOT` output, `#temp`/`##temp`, `@table` variables, three/four-part names, `sys.*`, `INFORMATION_SCHEMA.*`, legacy `sysobjects`-style views. Synonyms and views are checked as tables unless the catalog contains them
+4. `alias.column` / `schema.table.column` resolve through the scope chain, innermost first; an unknown qualifier (`inserted`, `deleted`) is skipped
+5. Unqualified columns: skipped when any scope on the chain holding sources has an opaque source; otherwise found in the innermost scope's tables (union for joins) or an outer scope (correlated subquery), else reported against the innermost scope's tables. Output aliases (`AS x`, `x = expr`, alias without `AS`), `SELECT *`/`o.*`, date-part arguments, and `ORDER BY` of a `UNION` are never column references
 
 ## RuleDependencyGraph
 
@@ -179,7 +196,8 @@ graph TD
     DG002[DG002<br/>ParameterType] --> DG005[DG005<br/>NullableMismatch]
     DG101 --> DG006[DG006<br/>NamingConvention]
     DG004 --> DG006
-    DG015[DG015<br/>PhantomIdentifier]
+    DG015[DG015<br/>PhantomTable]
+    DG016[DG016<br/>PhantomColumn]
 
     style DG101 fill:#e1f5fe
     style DG002 fill:#e1f5fe
@@ -198,38 +216,16 @@ graph TD
 | **Parallel groups** | `GetParallelGroups()` returns rules that can run concurrently at each level |
 | **Cycle detection** | `Validate()` detects circular dependencies |
 | **Transitive queries** | `GetTransitiveDependents()` / `GetTransitiveDependencies()` for impact analysis |
-| **Placeholder nodes** | Dependencies on unregistered rules create placeholder nodes |
+| **Unique rule IDs** | `RegisterRule` throws `InvalidOperationException` when a *different* rule instance reuses a registered ID; registering the same instance again is idempotent |
+| **Placeholders, never no-op rules** | `RegisterDependencies` / `WithDependency` declare edges with a null placeholder; a graph with unresolved placeholders fails `Validate()` and cannot produce a plan until a real rule with that ID is registered |
+| **Deterministic plans** | Nodes, dependencies, levels and transitive queries iterate in `StringComparer.Ordinal` order, independent of registration order |
 
 ### BuiltInRuleDependencies
 
-Pre-configured dependency graph for all built-in rules:
+`BuiltInRuleDependencies.Edges` holds the built-in edges by rule ID (`DG003 → DG101`, `DG004 → DG101`, `DG005 → DG002`, `DG006 → DG004, DG101`). `CreateDefaultRules()` returns the provider-neutral core rules (DG101, DG002–DG006, DG015–DG017, DG019 and the connectionless DG018); `Create(rules)` composes any rule list with those edges, applying an edge only when both rules are present (so `--skip-rules` never leaves a placeholder). `CreateDefault()` is `Create(CreateDefaultRules())`. A test keeps the core rule IDs equal to the core rules every provider gets from the CLI `ProviderRuleCatalog`.
 
 ```csharp
-public static RuleDependencyGraph CreateDefault()
-{
-    var graph = new RuleDependencyGraph();
-
-    // Level 1: Basic parameter checks (no dependencies)
-    graph.AddRule(new ParameterCountRule());        // DG101
-    graph.AddRule(new ParameterTypeMatchRule());    // DG002
-
-    // Level 2: Parameter direction (depends on parameter existence)
-    graph.AddRule(new ParameterDirectionRule(), "DG101");
-
-    // Level 3: Column shape (depends on parameter existence)
-    graph.AddRule(new ColumnShapeMatchRule(), "DG101");
-
-    // Level 4: Nullable and type matching (depends on parameter type info)
-    graph.AddRule(new NullableMismatchRule(), "DG002");
-
-    // Level 5: Naming convention (depends on parameter/column names)
-    graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
-
-    // Level 6: Phantom identifiers (schema ground truth)
-    graph.AddRule(new PhantomIdentifierRule());
-
-    return graph;
-}
+var graph = BuiltInRuleDependencies.Create(rules); // throws on duplicate rule IDs
 ```
 
 ### Fluent API
@@ -238,8 +234,25 @@ public static RuleDependencyGraph CreateDefault()
 var graph = new RuleDependencyGraph()
     .AddRule(new ParameterCountRule())
     .AddRule(new ParameterDirectionRule(), "DG101")
-    .WithDependency("DG006", "DG101", "DG004");
+    .WithDependency("DG006", "DG004"); // placeholder until a DG006 and a DG004 rule are registered
 ```
+
+## One validation pipeline
+
+The CLI and the library API compose and execute rules the same way (red-team B4/D3):
+
+1. **Rule list.** `ProviderRuleCatalog.GetReadyRules(provider, connection, progress, strictProcedureContracts, defaultSchema, defaultPackage)` (CLI) returns every ready registration for the provider, configured from `.dataguard.yml` (`StrictProcedureContracts`, `DefaultSchema`, `DefaultPackage`). Rules registered `Unavailable` are reported, not executed.
+2. **Plugins.** `validate --plugins-dir <dir>` admits plugin DLLs through `PluginAdmission` and appends their rules (see [Plugins](plugins.md)). `ValidationPipeline.WithPlugins` does the same for library callers.
+3. **Composition.** `BuiltInRuleDependencies.Create` (`ProviderRuleCatalog.Compose`) builds one `RuleDependencyGraph`; duplicate rule IDs are an error.
+4. **Execution.** `GraphValidationExecutor.ValidateAsync(graph, contracts, concurrent, maxDegreeOfParallelism, maxViolationQueueSize)` runs the graph level by level with bounded concurrency when `EnableConcurrentValidation` is true, otherwise `ValidateSequentialAsync`. Both return violations ordered by rule ID and message, per-rule outcomes (a throwing rule is `Failed` and the result incomplete) and `UnevaluatedContracts`, drained from every rule after the run.
+
+Library callers get the CLI composition with `ProviderRuleCatalog.CreatePipeline(provider, configuration)` or with `DataGuardApi.CreatePipeline(config).WithProviderRules(rules)`, which replaces the built-in defaults and keeps rules added with `WithRules`/`WithPlugins`. `ValidationPipeline.Rules` lists the composed rules; a test asserts that the CLI plan and the pipeline plan are identical for every provider. `ValidationResult.UnevaluatedContracts` carries the unevaluated entries, and a result with any of them is not `IsClean`. `ConcurrentValidationEngine.StreamAsync(contracts, rules, unevaluated, ct)` passes each unevaluated contract to the callback before the stream completes.
+
+Every CLI command that validates uses this path: `validate` lists unevaluated contracts and exits 3 unless `--allow-unevaluated`; `baseline` and `snapshot refresh` list them and never persist them as findings; `snapshot diff --legacy-violation-diff` lists them and exits 3 because the violation comparison is incomplete.
+
+### Dialect analyzers
+
+The dialect rules DG010/DG011 (Oracle), MY001/MY002 (MySQL) and PG001/PG002 (PostgreSQL) delegate to their adapter's checker through `IDialectAnalyzer.Analyze(sql, isTargetDialect, location)`: the "syntax of this dialect elsewhere" rules pass `isTargetDialect: false`, the "foreign syntax in this dialect" rules pass `true`.
 
 ## Rule Summary Table
 

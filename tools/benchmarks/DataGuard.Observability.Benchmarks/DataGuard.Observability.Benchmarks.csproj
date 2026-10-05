@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Observability wrapper overhead microbenchmark (moved from the removed root benchmarks/ duplicate).
+       Isolated like tools/benchmarks/DataGuard.Benchmarks: not part of DataGuard.sln, restored with a lock file. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <AssemblyName>DataGuard.Observability.Benchmarks</AssemblyName>
+    <RootNamespace>DataGuard.Observability.Benchmarks</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/DataGuard.Observability/DataGuard.Observability.csproj" />
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+</Project>

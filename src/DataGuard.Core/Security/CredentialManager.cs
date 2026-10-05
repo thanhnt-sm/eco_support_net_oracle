@@ -25,22 +25,38 @@ public sealed class CredentialManager
     private readonly string _credentialStorePath;
     private readonly string _keychainService;
     private readonly ICredentialSecretStore? _secretStore;
+    private readonly Func<bool> _protectionAvailable;
     private static readonly byte[] _entropy = "DataGuard.Credential.Protection"u8.ToArray();
+    private IAuditLogger? _auditLogger;
 
+    /// <summary>Initializes a new instance of the <see cref="CredentialManager"/> class.</summary>
+    /// <param name="config">Configuration (encryption, audit and rotation settings).</param>
+    /// <param name="logger">Optional diagnostics logger.</param>
+    /// <param name="credentialStorePath">Credential file; default <see cref="DefaultCredentialStorePath"/>.</param>
+    /// <param name="secretStore">Explicit OS secret store; when given, protection is treated as available.</param>
+    /// <param name="auditLogger">
+    /// Audit sink. Every audit event goes through it, so the manager and other components share one hash chain.
+    /// Null creates <see cref="FileAuditLogger.Create"/> for <paramref name="config"/> on first use (when audit logging is enabled).
+    /// </param>
+    /// <param name="protectionAvailable">
+    /// Platform decision used when <see cref="DataGuardConfiguration.EncryptConnectionStringAtRest"/> is set; default
+    /// <see cref="IsPlatformProtectionAvailable"/> (or true when <paramref name="secretStore"/> is given). Injected by tests.
+    /// </param>
     public CredentialManager(
         DataGuardConfiguration config,
         ILogger<CredentialManager>? logger = null,
         string? credentialStorePath = null,
-        ICredentialSecretStore? secretStore = null)
+        ICredentialSecretStore? secretStore = null,
+        IAuditLogger? auditLogger = null,
+        Func<bool>? protectionAvailable = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _logger = logger;
-        _credentialStorePath = credentialStorePath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DataGuard",
-            "credentials.json");
+        _credentialStorePath = credentialStorePath ?? DefaultCredentialStorePath;
         _keychainService = "DataGuard.Credential." + ComputeHash(Path.GetFullPath(_credentialStorePath));
         _secretStore = secretStore;
+        _auditLogger = auditLogger;
+        _protectionAvailable = protectionAvailable ?? (secretStore is not null ? static () => true : IsPlatformProtectionAvailable);
 
         var storeDirectory = Path.GetDirectoryName(_credentialStorePath)!;
 
@@ -51,6 +67,22 @@ public sealed class CredentialManager
         Directory.CreateDirectory(storeDirectory);
         ValidateCredentialStorePath();
     }
+
+    /// <summary>Default credential file: ApplicationData/DataGuard/credentials.json.</summary>
+    public static string DefaultCredentialStorePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "DataGuard",
+        "credentials.json");
+
+    /// <summary>
+    /// True when this OS has a credential protection backend: DPAPI on Windows, the login Keychain on macOS, the Secret
+    /// Service through <c>/usr/bin/secret-tool</c> on Linux. False elsewhere.
+    /// </summary>
+    /// <returns>Whether encrypt-at-rest can be honored.</returns>
+    public static bool IsPlatformProtectionAvailable() =>
+        OperatingSystem.IsWindows()
+        || OperatingSystem.IsMacOS()
+        || (OperatingSystem.IsLinux() && File.Exists("/usr/bin/secret-tool"));
 
     /// <summary>
     /// Gets the connection string, checking for rotation and decrypting if needed.
@@ -120,27 +152,45 @@ public sealed class CredentialManager
         }
 
         string storedValue = connectionString;
+        var encrypt = _config.EncryptConnectionStringAtRest;
 
-        if (_config.EncryptConnectionStringAtRest && !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
+        if (encrypt && !_protectionAvailable())
+        {
+            if (_config.RequireEncryptedCredentialStore)
+            {
+                throw new PlatformNotSupportedException(
+                    "Encrypted credential storage is required (RequireEncryptedCredentialStore) but no protection backend is available "
+                    + "(Windows DPAPI, macOS Keychain, or Linux Secret Service via /usr/bin/secret-tool).");
+            }
+
+            const string warning = "warning: no credential protection backend is available (Windows DPAPI, macOS Keychain, or Linux "
+                + "Secret Service via /usr/bin/secret-tool); storing the connection string in plaintext with owner-only permissions. "
+                + "Set EncryptConnectionStringAtRest: false to acknowledge, or RequireEncryptedCredentialStore: true to refuse.";
+            _logger?.LogWarning(warning);
+            Console.Error.WriteLine(warning);
+            encrypt = false;
+        }
+
+        if (encrypt && !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
         {
             throw new PlatformNotSupportedException("Encrypted credential storage requires the Windows DPAPI backend. Disable EncryptConnectionStringAtRest only when explicit plaintext storage is authorized.");
         }
 
-        if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsMacOS())
+        if (encrypt && OperatingSystem.IsMacOS())
         {
             var secretStore = _secretStore ?? PlatformCredentialSecretStore.Create();
             var reference = BuildProtectedReference(secretStore);
             secretStore.Store(_keychainService, KeychainAccount, connectionString);
             storedValue = reference;
         }
-        else if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsLinux())
+        else if (encrypt && OperatingSystem.IsLinux())
         {
             var secretStore = _secretStore ?? PlatformCredentialSecretStore.Create();
             var reference = BuildProtectedReference(secretStore);
             secretStore.Store(_keychainService, KeychainAccount, connectionString);
             storedValue = reference;
         }
-        else if (_config.EncryptConnectionStringAtRest && OperatingSystem.IsWindows())
+        else if (encrypt && OperatingSystem.IsWindows())
         {
             storedValue = EncryptConnectionString(connectionString);
         }
@@ -154,7 +204,7 @@ public sealed class CredentialManager
         };
 
         await SaveToCredentialStoreAsync(credentialData, cancellationToken);
-        await LogAuditAsync("ConnectionStringStored", new { IsEncrypted = _config.EncryptConnectionStringAtRest }, cancellationToken);
+        await LogAuditAsync("ConnectionStringStored", new { IsEncrypted = encrypt }, cancellationToken);
     }
 
     /// <summary>
@@ -174,10 +224,12 @@ public sealed class CredentialManager
                 _logger?.LogWarning(warning);
                 Console.Error.WriteLine(warning);
 
+                // Salted per audit-log file: equal values correlate within this log only (never an unsalted digest).
+                var audit = GetAuditLogger();
                 await LogAuditAsync("CredentialRotationDetected", new
                 {
-                    OldHash = ComputeHash(stored),
-                    NewHash = ComputeHash(currentConnectionString),
+                    OldHash = audit.HashSensitiveValue(stored),
+                    NewHash = audit.HashSensitiveValue(currentConnectionString),
                 });
             }
         }
@@ -389,6 +441,11 @@ public sealed class CredentialManager
         }
     }
 
+    private IAuditLogger GetAuditLogger() =>
+        _auditLogger ??= _config.EnableAuditLogging ? FileAuditLogger.Create(_config) : new NullAuditLogger();
+
+    // Single writer (red-team D2): every event goes through the injected IAuditLogger so it joins the same hash chain;
+    // the manager never appends raw lines to the audit file.
     private async Task LogAuditAsync(string eventType, object details, CancellationToken cancellationToken = default)
     {
         if (!_config.EnableAuditLogging)
@@ -396,23 +453,7 @@ public sealed class CredentialManager
             return;
         }
 
-        var auditEntry = new AuditLogEntry(
-            DateTimeOffset.UtcNow,
-            eventType,
-            JsonSerializer.Serialize(details),
-            Environment.MachineName,
-            Environment.UserName,
-            Environment.ProcessId);
-
-        var logPath = _config.AuditLogPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DataGuard",
-            "audit.log");
-
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-
-        var logLine = JsonSerializer.Serialize(auditEntry);
-        await File.AppendAllTextAsync(logPath, logLine + Environment.NewLine, cancellationToken);
+        await GetAuditLogger().LogSecurityEventAsync(eventType, nameof(CredentialManager), JsonSerializer.Serialize(details), cancellationToken);
     }
 }
 

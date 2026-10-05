@@ -1,4 +1,5 @@
 using DataGuard.Core.Abstractions;
+using DataGuard.Core.Rules.Sql;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -6,7 +7,7 @@ namespace DataGuard.PostgreSql.Adapter;
 
 /// <summary>
 /// Reads PostgreSQL stored procedures and functions from pg_proc + pg_type.
-/// Also reads table columns from information_schema.columns for length/dialect rules.
+/// Also reads table, view and materialized-view columns for length/dialect rules.
 /// </summary>
 public sealed class PostgreSqlStoredProcedureParser : IContractSource
 {
@@ -42,7 +43,8 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 p.oid                                           AS proc_oid,
                 p.prokind                                       AS proc_kind,
                 p.pronargs                                      AS num_args,
-                p.pronargdefaults                               AS num_defaults
+                p.pronargdefaults                               AS num_defaults,
+                p.proretset                                     AS returns_set
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = @schema
@@ -57,14 +59,14 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
         await connection.OpenAsync(cancellationToken);
 
         // Step 1: Read all routines.
-        var routines = new List<RoutineInfo>();
+        var routines = new List<PostgreSqlRoutineInfo>();
         await using (var cmd = new NpgsqlCommand(routineSql, connection))
         {
             cmd.Parameters.AddWithValue("schema", _schema);
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                var routine = new RoutineInfo
+                var routine = new PostgreSqlRoutineInfo
                 {
                     Name = reader.GetString(0),
                     Schema = reader.GetString(1),
@@ -76,6 +78,8 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                     Oid = reader.GetFieldValue<uint>(7),
                     Kind = reader.GetFieldValue<char>(8),
                     NumArgs = reader.GetInt32(9),
+                    NumDefaults = reader.IsDBNull(10) ? 0 : reader.GetInt32(10),
+                    ReturnsSet = !reader.IsDBNull(11) && reader.GetBoolean(11),
                 };
                 routines.Add(routine);
             }
@@ -127,17 +131,7 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
         // Step 3: Build StoredProcedureDescriptor for each routine.
         foreach (var routine in routines)
         {
-            var parameters = BuildParameters(routine, typeMap);
-            var returnTypeName = typeMap.TryGetValue(routine.ReturnType, out var rt) ? rt : "unknown";
-
-            result.Add(new StoredProcedureDescriptor(
-                Id: $"postgres:{_schema}.{routine.Oid}",
-                Name: routine.Name,
-                Schema: _schema,
-                PackageName: "",
-                Parameters: parameters,
-                ResultColumns: new List<ColumnDescriptor>(),
-                ReturnsRefCursor: string.Equals(returnTypeName, "refcursor", StringComparison.OrdinalIgnoreCase)));
+            result.Add(BuildDescriptor(routine, typeMap, _schema));
         }
 
         // Persist structural ground truth alongside routine contracts so callers
@@ -148,15 +142,47 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
     }
 
     /// <summary>
+    /// Builds the descriptor of one pg_proc row. The Id carries the IN-argument signature
+    /// (<c>postgres:{schema}.{name}(int4,text)</c>) so overloads stay distinct and stable across dump/restore (OIDs are not).
+    /// </summary>
+    /// <param name="routine">The pg_proc row.</param>
+    /// <param name="typeMap">Type OID to <c>typname</c>.</param>
+    /// <param name="schema">Schema the routine was read from.</param>
+    /// <returns>The descriptor.</returns>
+    public static StoredProcedureDescriptor BuildDescriptor(PostgreSqlRoutineInfo routine, IReadOnlyDictionary<uint, string> typeMap, string schema)
+    {
+        ArgumentNullException.ThrowIfNull(routine);
+        ArgumentNullException.ThrowIfNull(typeMap);
+        var (parameters, resultColumns) = BuildParameters(routine, typeMap);
+        string? returnTypeName = routine.ReturnType != 0 && typeMap.TryGetValue(routine.ReturnType, out var rt) ? rt : null;
+        var signature = string.Join(",", (routine.InArgTypes ?? Array.Empty<uint>()).Select(oid => TypeName(typeMap, oid)));
+
+        return new StoredProcedureDescriptor(
+            Id: $"postgres:{schema}.{routine.Name}({signature})",
+            Name: routine.Name,
+            Schema: schema,
+            PackageName: "",
+            Parameters: parameters,
+            ResultColumns: resultColumns,
+            ReturnsRefCursor: string.Equals(returnTypeName, "refcursor", StringComparison.OrdinalIgnoreCase),
+            ReturnType: routine.Kind == 'p' ? null : returnTypeName);
+    }
+
+    /// <summary>
     /// Builds parameter descriptors from pg_proc fields.
     /// PostgreSQL has three representations:
     ///   - proargtypes: oidvector of IN-only params (older style)
     ///   - proallargtypes: array of ALL param types (when modes are mixed)
-    ///   - proargmodes: array of 'i'/'o'/'b'/'v' chars (IN/OUT/INOUT/VARIADIC)
+    ///   - proargmodes: 'i' IN, 'o' OUT, 'b' INOUT, 'v' VARIADIC, 't' TABLE (RETURNS TABLE output column).
+    /// 't' arguments are result columns, not parameters. <c>pronargdefaults</c> marks the trailing N input
+    /// (i/b/v) parameters <see cref="ParameterDescriptor.HasDefault"/>. Unnamed arguments are named <c>p{i}</c>.
     /// </summary>
-    private static List<ParameterDescriptor> BuildParameters(RoutineInfo routine, Dictionary<uint, string> typeMap)
+    internal static (List<ParameterDescriptor> Parameters, List<ColumnDescriptor> ResultColumns) BuildParameters(
+        PostgreSqlRoutineInfo routine,
+        IReadOnlyDictionary<uint, string> typeMap)
     {
         var parameters = new List<ParameterDescriptor>();
+        var resultColumns = new List<ColumnDescriptor>();
 
         // Determine which type array to use.
         uint[]? typeOids;
@@ -172,26 +198,38 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
         }
         else
         {
-            return parameters; // No parameters.
+            return (parameters, resultColumns); // No parameters.
         }
 
         var argNames = routine.ArgNames;
-        var argModes = routine.ArgModes;
+        var argModes = hasExplicitModes ? routine.ArgModes : null;
 
         for (int i = 0; i < typeOids.Length; i++)
         {
-            var typeOid = typeOids[i];
-            var typeName = typeMap.TryGetValue(typeOid, out var tn) ? tn : $"oid_{typeOid}";
-            var paramName = (argNames != null && i < argNames.Length) ? argNames[i] : $"p{i + 1}";
+            var typeName = TypeName(typeMap, typeOids[i]);
+            var rawName = (argNames != null && i < argNames.Length) ? argNames[i] : null;
+            var paramName = string.IsNullOrEmpty(rawName) ? $"p{i + 1}" : rawName;
             var mode = (argModes != null && i < argModes.Length) ? argModes[i] : 'i';
+
+            if (mode == 't')
+            {
+                resultColumns.Add(new ColumnDescriptor(
+                    Name: paramName,
+                    DataType: typeName,
+                    MaxLength: null,
+                    Precision: null,
+                    Scale: null,
+                    IsNullable: true,
+                    CharUsed: null,
+                    ColumnId: resultColumns.Count + 1));
+                continue;
+            }
 
             var direction = mode switch
             {
-                'i' => ParameterDirection.Input,
                 'o' => ParameterDirection.Output,
                 'b' => ParameterDirection.InputOutput,
-                'v' => ParameterDirection.Input, // VARIADIC treated as input
-                _ => ParameterDirection.Input,
+                _ => ParameterDirection.Input, // 'i' and 'v' (VARIADIC is an input array)
             };
 
             // Resolve length/precision from pg_type for known types.
@@ -208,8 +246,22 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
                 OrdinalPosition: i + 1));
         }
 
-        return parameters;
+        // pg_proc.pronargdefaults counts defaults on the trailing input arguments.
+        var remaining = routine.NumDefaults;
+        for (var i = parameters.Count - 1; i >= 0 && remaining > 0; i--)
+        {
+            if (parameters[i].Direction is ParameterDirection.Input or ParameterDirection.InputOutput)
+            {
+                parameters[i] = parameters[i] with { HasDefault = true };
+                remaining--;
+            }
+        }
+
+        return (parameters, resultColumns);
     }
+
+    private static string TypeName(IReadOnlyDictionary<uint, string> typeMap, uint oid)
+        => typeMap.TryGetValue(oid, out var name) ? name : $"oid_{oid}";
 
     /// <summary>
     /// Returns typical length/precision attributes for well-known PostgreSQL types.
@@ -290,7 +342,10 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
     }
 
     /// <summary>
-    /// Reads all tables' columns in the schema, grouped by table name.
+    /// Reads all tables', views' and materialized views' columns in the schema, grouped by relation name.
+    /// Keys are the exact (case-sensitive) catalog names compared ordinally, because PostgreSQL can hold
+    /// <c>"Orders"</c> and <c>orders</c> side by side; callers fold references with
+    /// <see cref="SchemaObjectName.Canonical(string?, string?)"/> only as a fallback.
     /// </summary>
     public async Task<Dictionary<string, List<ColumnDescriptor>>> GetAllTableColumnsAsync(
         CancellationToken cancellationToken = default)
@@ -310,35 +365,62 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
             WHERE table_schema = @schema
             ORDER BY table_name, ordinal_position";
 
-        var result = new Dictionary<string, List<ColumnDescriptor>>(StringComparer.OrdinalIgnoreCase);
+        // information_schema.columns does not list materialized views; read them from pg_attribute.
+        const string matviewSql = @"
+            SELECT
+                c.relname::text                                                        AS table_name,
+                a.attname::text                                                        AS column_name,
+                pg_catalog.format_type(a.atttypid, NULL)                               AS data_type,
+                CASE WHEN a.atttypid IN (1042, 1043) AND a.atttypmod > 4
+                     THEN a.atttypmod - 4 END                                          AS character_maximum_length,
+                CASE WHEN a.atttypid = 1700 AND a.atttypmod > 4
+                     THEN ((a.atttypmod - 4) >> 16) & 65535 END                        AS numeric_precision,
+                CASE WHEN a.atttypid = 1700 AND a.atttypmod > 4
+                     THEN (a.atttypmod - 4) & 65535 END                                AS numeric_scale,
+                CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END                        AS is_nullable,
+                a.attnum::int                                                          AS ordinal_position,
+                NULL::text                                                             AS column_default
+            FROM pg_catalog.pg_matviews mv
+            JOIN pg_catalog.pg_namespace n ON n.nspname = mv.schemaname
+            JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid AND c.relname = mv.matviewname
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+            WHERE mv.schemaname = @schema
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            ORDER BY 1, 8";
+
+        var result = new Dictionary<string, List<ColumnDescriptor>>(StringComparer.Ordinal);
 
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
-        await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters.AddWithValue("schema", _schema);
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        foreach (var statement in new[] { sql, matviewSql })
         {
-            var tableName = reader.IsDBNull(0) ? "" : reader.GetString(0);
-            var column = new ColumnDescriptor(
-                Name: reader.IsDBNull(1) ? "" : reader.GetString(1),
-                DataType: reader.IsDBNull(2) ? "" : reader.GetString(2),
-                MaxLength: reader.IsDBNull(3) ? null : (int?)reader.GetInt32(3),
-                Precision: reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
-                Scale: reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5),
-                IsNullable: !reader.IsDBNull(6) && string.Equals(reader.GetString(6), "YES", StringComparison.OrdinalIgnoreCase),
-                CharUsed: null, // PostgreSQL uses character semantics natively
-                DataDefault: reader.IsDBNull(8) ? null : reader.GetString(8),
-                ColumnId: reader.IsDBNull(7) ? 0 : reader.GetInt32(7));
+            await using var command = new NpgsqlCommand(statement, connection);
+            command.Parameters.AddWithValue("schema", _schema);
 
-            if (!result.TryGetValue(tableName, out var list))
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
             {
-                list = new List<ColumnDescriptor>();
-                result[tableName] = list;
-            }
+                var tableName = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                var column = new ColumnDescriptor(
+                    Name: reader.IsDBNull(1) ? "" : reader.GetString(1),
+                    DataType: reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    MaxLength: reader.IsDBNull(3) ? null : (int?)reader.GetInt32(3),
+                    Precision: reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
+                    Scale: reader.IsDBNull(5) ? null : (int?)reader.GetInt32(5),
+                    IsNullable: !reader.IsDBNull(6) && string.Equals(reader.GetString(6), "YES", StringComparison.OrdinalIgnoreCase),
+                    CharUsed: null, // PostgreSQL uses character semantics natively
+                    DataDefault: reader.IsDBNull(8) ? null : reader.GetString(8),
+                    ColumnId: reader.IsDBNull(7) ? 0 : reader.GetInt32(7));
 
-            list.Add(column);
+                if (!result.TryGetValue(tableName, out var list))
+                {
+                    list = new List<ColumnDescriptor>();
+                    result[tableName] = list;
+                }
+
+                list.Add(column);
+            }
         }
 
         return result;
@@ -352,37 +434,43 @@ public sealed class PostgreSqlStoredProcedureParser : IContractSource
     {
         var allColumns = await GetAllTableColumnsAsync(cancellationToken);
         var tables = allColumns.Select(kvp =>
-            new DatabaseTableDescriptor(kvp.Key, kvp.Value)).ToList();
+            new DatabaseTableDescriptor(kvp.Key, kvp.Value, _schema)).ToList();
 
         return new DatabaseSchemaDescriptor(
             Id: $"postgres:{_schema}",
             Tables: tables,
             LengthSemantics: "CHAR"); // PostgreSQL always uses character semantics
     }
+}
 
-    /// <summary>
-    /// Internal struct for pg_proc row data.
-    /// </summary>
-    private sealed class RoutineInfo
-    {
-        public string Name { get; init; } = "";
+/// <summary>
+/// One pg_proc row as read by <see cref="PostgreSqlStoredProcedureParser"/>.
+/// </summary>
+public sealed class PostgreSqlRoutineInfo
+{
+    public string Name { get; init; } = "";
 
-        public string Schema { get; init; } = "";
+    public string Schema { get; init; } = "";
 
-        public string[]? ArgNames { get; init; }
+    public string[]? ArgNames { get; init; }
 
-        public uint[]? InArgTypes { get; init; }
+    public uint[]? InArgTypes { get; init; }
 
-        public uint[]? AllArgTypes { get; init; }
+    public uint[]? AllArgTypes { get; init; }
 
-        public char[]? ArgModes { get; init; }
+    public char[]? ArgModes { get; init; }
 
-        public uint ReturnType { get; init; }
+    public uint ReturnType { get; init; }
 
-        public uint Oid { get; init; }
+    public uint Oid { get; init; }
 
-        public char Kind { get; init; }
+    public char Kind { get; init; }
 
-        public int NumArgs { get; init; }
-    }
+    public int NumArgs { get; init; }
+
+    /// <summary>Gets <c>pronargdefaults</c>: the number of trailing input arguments that have defaults.</summary>
+    public int NumDefaults { get; init; }
+
+    /// <summary>Gets <c>proretset</c> (SETOF / RETURNS TABLE).</summary>
+    public bool ReturnsSet { get; init; }
 }

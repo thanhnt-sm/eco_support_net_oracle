@@ -22,7 +22,11 @@ public record DataGuardConfiguration(
     // Security settings
     bool EnableCredentialRotationDetection = true,
     int CredentialRotationWarningDays = 30,
-    bool EncryptConnectionStringAtRest = false,
+
+    // Default true: DPAPI on Windows, Keychain on macOS, Secret Service (secret-tool) on Linux. When no backend is
+    // available the credential store falls back to owner-only plaintext with a warning, unless
+    // RequireEncryptedCredentialStore is set.
+    bool EncryptConnectionStringAtRest = true,
     string? KeyVaultUri = null,
     string? AwsRegion = null,
     string? VaultAddress = null,
@@ -57,6 +61,58 @@ public record DataGuardConfiguration(
 
     /// <summary>Allows only redacted, bounded event details in local observability files.</summary>
     public bool IncludeTelemetryEventDetails { get; init; }
+
+    /// <summary>
+    /// When true, <c>validate</c> exits 3 if any registered rule cannot be evaluated (same as <c>--fail-on-unavailable</c>).
+    /// Default false: unavailable rules are reported on stderr and do not block the run.
+    /// </summary>
+    public bool FailOnUnavailableRules { get; init; }
+
+    /// <summary>When true, unknown top-level configuration keys are an error (exit 2) instead of a warning.</summary>
+    public bool StrictConfig { get; init; }
+
+    /// <summary>
+    /// <c>validate</c> warns when the snapshot it reads is older than this many days (default 90; 0 or less disables the warning).
+    /// </summary>
+    public int SnapshotMaxAgeDays { get; init; } = 90;
+
+    /// <summary>
+    /// When true, DG101/DG002/DG003 findings produced by resolving stored-procedure calls against the catalog are errors.
+    /// Default false: they are warnings in this release. Unqualified calls use <see cref="DefaultSchema"/> and
+    /// <see cref="DefaultPackage"/> (Oracle) for resolution.
+    /// </summary>
+    public bool StrictProcedureContracts { get; init; }
+
+    /// <summary>
+    /// Path of a file whose trimmed text is the HMAC-SHA256 key for the audit-log hash chain. <c>DATAGUARD_AUDIT_KEY</c>
+    /// wins when both are set. Keep the key outside the repository and outside the audit-log directory: a key an attacker
+    /// can read lets them rewrite the chain. Null (default) with no environment key keeps the unkeyed SHA-256 chain,
+    /// which <c>FileAuditLogger.VerifyIntegrityAsync</c> reports as <c>Unkeyed</c>.
+    /// </summary>
+    public string? AuditKeyFile { get; init; }
+
+    /// <summary>
+    /// When true, storing a connection string fails (instead of falling back to owner-only plaintext with a warning) if
+    /// <see cref="EncryptConnectionStringAtRest"/> is set and no OS protection backend is available. Default false.
+    /// </summary>
+    public bool RequireEncryptedCredentialStore { get; init; }
+
+    /// <summary>Rule plugin options for <c>validate --plugins-dir</c>; null keeps the strict defaults.</summary>
+    public PluginConfiguration? Plugins { get; init; }
+}
+
+/// <summary>
+/// Rule plugin options. Plugins are only loaded from an explicit <c>--plugins-dir</c> and always pass manifest and
+/// digest admission.
+/// </summary>
+public sealed record PluginConfiguration
+{
+    /// <summary>
+    /// When true, plugins are admitted without a signed-provenance verifier (manifest, SHA-256 digest, dependency closure
+    /// and rule ID checks still apply). Default false: the CLI has no provenance verifier, so every plugin is rejected
+    /// until this is set explicitly for locally built, trusted plugins.
+    /// </summary>
+    public bool AllowUnsignedLocal { get; init; }
 }
 
 /// <summary>
@@ -86,7 +142,18 @@ public record OracleConfiguration(
     string? Owner = null,
     bool UseRefCursorDescribe = false,
     bool UseAllArguments = true,
-    bool UseAllTabColumns = true);
+    bool UseAllTabColumns = true)
+{
+    /// <summary>
+    /// When true, catalog extraction (validate/snapshot refresh with a connection) <b>executes</b> each procedure or
+    /// function that returns a REF CURSOR, binding NULL to its IN parameters, so <c>DBMS_SQL.DESCRIBE_COLUMNS3</c> can
+    /// record the cursor's result columns. Default false: REF CURSOR procedures are catalogued with
+    /// <c>ReturnsRefCursor = true</c> and an unknown (empty) result shape. Enable only with a read-only account on a
+    /// database where running the procedures has no side effects. <see cref="UseRefCursorDescribe"/> is not honored
+    /// for this purpose.
+    /// </summary>
+    public bool DescribeRefCursors { get; init; }
+}
 
 /// <summary>
 /// Extension methods for smart defaults.

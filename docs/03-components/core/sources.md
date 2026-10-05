@@ -1,6 +1,6 @@
 # Contract Sources
 
-> Source: `src/DataGuard.Core/Sources/EfModelSource.cs`, `SqlServerParsers.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`
+> Source: `src/DataGuard.Core/Sources/EfModelSource.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`; SQL Server sources in `src/DataGuard.SqlServer.Adapter/SqlServerParsers.cs` (namespace `DataGuard.SqlServer.Adapter`; Core references no database driver since red-team A1/R33)
 
 Contract sources are the data collection layer of DataGuard. They extract `ContractDescriptor` instances from various origins: EF Core models, database metadata, raw SQL text, and manual attribute annotations.
 
@@ -85,11 +85,23 @@ public class EfModelSource : IContractSource
 
 `ModelSnapshot.cs` source can be parsed without loading an assembly by the bounded
 `ModelSnapshotCSharpParser`. It supports a narrow generated fluent-API subset for
-`Entity<T>`, table, property, key, column name/type, length, and requiredness. It
+`Entity<T>`, table, property, key, column name/type, length, and requiredness. Properties come
+from `b.Property<T>("Name")` (CLR type = `T`, canonicalized: `System.Int32` ⇒ `int`, `Nullable<DateTime>` ⇒
+`DateTime?`, `string?` ⇒ `string`) or `b.Property(x => x.Name)` (no syntactic type: `string` only when
+`HasMaxLength`/`IsUnicode`/`IsFixedLength` is configured, otherwise `object`, which the length rules skip).
+`.IsUnicode(bool)` becomes `Annotations["IsUnicode"]` (read by Oracle DG008); nullability is `.IsRequired(bool)`
+when present, otherwise `T?`/reference types are nullable and known value types are not. Keys come from
+`HasKey(x => x.Id)`, `HasKey(x => new { x.A, x.B })` or `HasKey("A", "B")`. It
 enforces source-size and syntax-node limits and returns a visible diagnostic for
 syntax errors or unsupported input; it never instantiates a `DbContext`, factory,
 host, or arbitrary application code. Automatic project/assembly discovery remains
 unsupported.
+
+When some entity configurations parse and others do not, the parsed entities are kept and
+`EfModelSource.ParseModelSnapshotWithDiagnostics` / `ExtractFromModelSnapshotWithDiagnosticsAsync`
+return one `AcquisitionDiagnostic(Kind, Path, Message)` per skipped configuration
+(`Kind = ModelSnapshotPartialParse`). `validate` prints them as `ACQUISITION: <path>: <message>`
+and exits 3 unless `--allow-unevaluated`. When nothing parses, `EfModelExtractionException` is thrown.
 
 ```csharp
 var entities = await EfModelSource.ExtractFromTrustedCompiledModelSnapshotAsync(
@@ -103,11 +115,11 @@ The caller explicitly selects one non-linked DLL and the exact concrete `ModelSn
 
 ### Raw SQL parse status
 
-`RawSqlParser` records `RawSqlParseStatus.Invalid` and the ScriptDOM error text for malformed input. Built-in rule `DG016` reports that status as an Error, so a parser failure cannot appear as a clean validation result.
+`RawSqlParser` records `RawSqlParseStatus.Invalid` and the ScriptDOM error text for malformed input. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 is Phantom Column Reference) reports that status as an Error, so a parser failure cannot appear as a clean validation result. Raw SQL acquired from C# (`ProjectCSharpSqlSource`) has no parse status of its own: for `sqlserver`, `ProviderRuleCatalog` injects the adapter's `TSqlStatementParser` (`ISqlStatementParser`) into DG019, which reports SQL the T-SQL grammar rejects. Other providers get no parser (Core's `NoOpSqlStatementParser`).
 
 ## SqlServerStoredProcedureParser
 
-Extracts stored procedure contracts from SQL Server system views.
+Extracts stored procedure contracts from SQL Server system views. Lives in `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class SqlServerStoredProcedureParser : IContractSource
@@ -148,7 +160,7 @@ sequenceDiagram
 
 ## RawSqlParser
 
-Parses raw SQL text using Microsoft's ScriptDOM library.
+Parses raw SQL text using Microsoft's ScriptDOM library. Lives in `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class RawSqlParser : IContractSource
@@ -209,48 +221,51 @@ public void GetOrder(int id) { }
 
 ### Reflection Process
 
-1. `Assembly.LoadFrom(assemblyPath)` — loads the user assembly
+1. Opens the user assembly in a `MetadataLoadContext` (resolver: the assembly directory, the running framework, DataGuard.Contracts) — metadata only: no module initializer, static constructor or attribute constructor of the assembly runs, and it never enters the default load context. Attributes are rebuilt from `CustomAttributeData` as DataGuard.Contracts instances. A `ManualAssemblyPath` from `.dataguard.yml` needs `--allow-assembly-from-config` on the CLI
 2. Iterates all types, scanning properties for `[ExpectedColumn]` and methods for `[ExpectedSpParameter]`
 3. Maps `DataGuard.Contracts.ParameterDirection` → `DataGuard.Core.Abstractions.ParameterDirection`
 4. Builds `EntityDescriptor` and `StoredProcedureDescriptor` instances
 
 ## ProjectCSharpSqlSource
 
-Extracts SQL queries and stored procedure execution contracts from C# source code via Roslyn AST analysis across multiple passes.
+Extracts SQL statements and stored-procedure call sites from C# source with Roslyn (syntax plus a semantic model). Code lives in `Sources/ProjectCSharpSqlSource.cs` and the partial parts under `Sources/CSharp/`.
 
-### Stored Procedure & SQL Heuristic Detection (`IsSqlString`)
+### Call sites
 
-When evaluating whether an expression or string literal represents an actionable SQL contract, `ProjectCSharpSqlSource.IsSqlString` applies keyword validation and naming conventions:
+| Shape | Recognized |
+|-------|------------|
+| Dapper | `Query*` (incl. `QueryFirst*`, `QuerySingle*`, `QueryMultiple*`, `QueryUnbufferedAsync`), `Execute*`, `ExecuteScalar*`, `ExecuteReader*`; `conn?.Query<T>(...)`; `commandType: CommandType.StoredProcedure` (named or positional) |
+| EF Core | `FromSqlRaw/FromSqlInterpolated/FromSql`, `ExecuteSqlRaw*/ExecuteSqlInterpolated*/ExecuteSql*`, `SqlQuery/SqlQueryRaw` |
+| ADO.NET | `cmd.CommandText = ...`, `new XCommand("...")` and target-typed `XCommand cmd = new("...")`, `CommandType = CommandType.StoredProcedure` (the **last** command text written before the command executes wins) |
+| Constants | unreferenced `const`/`static readonly` SQL fields (statement-shaped only) |
 
-1. **SQL Keywords**: Direct regex matching against SQL statements (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, etc.).
-2. **Stored Procedure Naming Conventions**: Case-insensitive prefix matching supporting:
-   - `SP_` (Standard Stored Procedure)
-   - `USP_` (User Stored Procedure)
-   - `PROC_` (Procedure prefix convention)
-   - `FNC_` (User-defined Function convention)
-   - `P_` (Package/parameterized procedure convention)
-3. **Oracle Package Procedures**: Identifier dotted notation (e.g., `CUSTOMER_PKG.GET_CUSTOMERS`).
+`base("...")` in a repository class is SQL only when the argument itself is a statement; table or connection names (`base("DefaultConnection")`) no longer produce a synthetic `SELECT * FROM ...`.
 
-```csharp
-internal static bool IsSqlString(string text)
-{
-    var trimmed = text.Trim();
-    if (SqlKeywordRegex.IsMatch(trimmed))
-        return true;
+### Statement recognition (`IsSqlString`, `IsProcedureName`)
 
-    if (trimmed.StartsWith("sp_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("usp_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("proc_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("fnc_", StringComparison.OrdinalIgnoreCase) ||
-        trimmed.StartsWith("p_", StringComparison.OrdinalIgnoreCase))
-        return true;
+`IsSqlString` requires a statement-shaped start (after comments): `SELECT|INSERT|UPDATE|DELETE|MERGE|WITH|EXEC|EXECUTE|CALL|BEGIN|DECLARE`. The DML keywords also need a `FROM|INTO|SET|VALUES|JOIN` clause, `WITH` needs `AS (`, `EXEC` a target, `CALL` a `name(`, and `BEGIN`/`DECLARE` an `END` or an inner statement. Text such as `"Please update your profile"` is not SQL. Bare procedure names (`usp_GetUser`, `PKG.PROC`, `[dbo].[Get User]`) are recognized separately by `IsProcedureName` and only for `CommandType.StoredProcedure` calls.
 
-    if (trimmed.Contains('.') && !trimmed.Contains(' ') && Regex.IsMatch(trimmed, @"^[A-Za-z_][\w]*\.[A-Za-z_][\w]*$"))
-        return true;
+### Stored-procedure descriptors
 
-    return false;
-}
-```
+A `RawSqlDescriptor` for a procedure call carries:
+
+- `ProcedureName` (bare name), `ProcedureSchema`, `ProcedurePackage`, split with `SchemaObjectName.Parse`. Oracle style (provider hint `oracle` or a PL/SQL block): `pkg.proc` ⇒ package, `owner.pkg.proc` ⇒ schema + package. Other providers: `schema.proc` ⇒ schema, `db.schema.proc` ⇒ schema (database dropped).
+- `IsStoredProcedure = true` only for `CommandType.StoredProcedure` calls, whose `SqlText` is synthesized as `EXEC {name}`. Textual calls (`EXEC dbo.p @a = {0}`, `CALL s.p(?, ?)`, `BEGIN pkg.p(:a, p_b => :b); END;`) keep their real text and `IsStoredProcedure = false`, so dialect rules still inspect them; they are identified by `ProcedureName != null`.
+- One `ParameterDescriptor` per call argument, in call order (`OrdinalPosition` 1-based): `Name` as written (`@Id`, `p_id`, `Id` for Dapper object properties) or `#n` (zero-based) for a positional argument; `ClrType` from the semantic model (`int?` ⇒ `int`, enums ⇒ `enum:<underlying>`, unknown ⇒ null); `CallSiteDirection` from `ParameterDirection.*` (Dapper `DynamicParameters.Add`, ADO `Direction`), `out`/`ref` arguments and T-SQL `OUTPUT`, otherwise `Input` when a value is bound and null when nothing is known; `DataType` is the written provider type (`SqlDbType.Int` ⇒ `Int`) or `unknown`; `HasDefault = false`.
+
+Argument sources: Dapper anonymous objects, `DynamicParameters` (constructor template, `Add`, `AddDynamicParams`), other objects (their public properties); ADO `Parameters.Add/AddWithValue/AddRange` with `new XParameter(...) { ... }`, locals, chained `.Direction/.Value`, `Parameters["x"].Direction`; EF extra arguments and `*Parameter` objects.
+
+### Placeholders and dynamic SQL
+
+Placeholders are scanned after masking comments and literals: `@name`, `:name`, `$n` keep their written form; `{n}` (EF) and `?` (ODBC/MySQL) are positional `#n`; `::cast`, `:=`, `@@SYSTEM` variables and JSON `?|`/`?&` are ignored. Interpolation holes and non-constant concatenation operands become `@name` placeholders (local values are never inlined) and are listed in `Parameters` with their `ClrType`, even when they sit inside quotes.
+
+### Expected properties, ids, skips and diagnostics
+
+- `ExpectedProperties`: public instance properties with a setter or `init`, without `[NotMapped]`; empty for scalar targets (`string`, primitives, date/time types, `Guid`, `decimal`, enums, `byte[]`).
+- `Id` = `project-sql:{repo-relative path}:{span start}:{first 8 hex of SHA-256 of whitespace-normalized SQL}`.
+- `[SkipContractCheck]` on the method, its type or an enclosing type (also on another partial part) skips the call site; `SkippedContractCount` counts them.
+- `Diagnostics` (`AcquisitionDiagnostic(Kind, Path, Message)`) lists `UnreadableFile`, `ParseFailed`, `OversizedLiteral` (> 256 KB) and `SkippedByAttribute` for the last run.
+- Compilation references come from the scanned project's `obj/project.assets.json` (compile assets under `NUGET_PACKAGES` or `~/.nuget/packages`, plus the running shared framework) when it was restored, else from the host's trusted platform assemblies, in sorted order.
 
 ## SqlKeywordMatcher
 
@@ -263,7 +278,7 @@ Sources are registered with the validation pipeline:
 var sources = new IContractSource[]
 {
     new EfModelSource(dbContext, config),
-    new SqlServerStoredProcedureParser(connectionString, config),
+    new SqlServerStoredProcedureParser(connectionString, config), // DataGuard.SqlServer.Adapter
     new ManualContractSource(assemblyPath),
 };
 
@@ -279,7 +294,7 @@ foreach (var source in sources)
 | Source | SourceId | Input | Output | Database Required |
 |--------|----------|-------|--------|-------------------|
 | `EfModelSource` | `ef-model` | DbContext / ModelSnapshot | `EntityDescriptor[]` | Runtime: Yes, Design-time: No |
-| `SqlServerStoredProcedureParser` | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Yes |
-| `RawSqlParser` | `raw-sql` | SQL text + file path | `RawSqlDescriptor[]` | No |
+| `SqlServerStoredProcedureParser` (SQL Server adapter) | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Yes |
+| `RawSqlParser` (SQL Server adapter) | `raw-sql` | SQL text + file path | `RawSqlDescriptor[]` | No |
 | `ManualContractSource` | `manual` | Assembly path | `EntityDescriptor[]` + `StoredProcedureDescriptor[]` | No |
 | `ProjectCSharpSqlSource` | `csharp-source` | C# project / source directory | `RawSqlDescriptor[]` + `StoredProcedureDescriptor[]` | No |

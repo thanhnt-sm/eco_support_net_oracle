@@ -136,6 +136,7 @@ foreach (var property in entity.Properties)
 | **Mức độ** | Warning |
 | **Kích hoạt** | Từ khóa MySQL (`ON DUPLICATE KEY`, backticks, etc.) trong SQL không phải MySQL |
 | **Thông báo** | MySQL-specific syntax '{syntax}' used in non-MySQL context |
+| **Ngữ cảnh** | `ConnectionProviderHint` của descriptor, hoặc provider của catalog khi không có hint. Rule không làm gì khi ngữ cảnh là `mysql`, nên cú pháp của chính MySQL không bao giờ bị báo dưới `--provider mysql`. Khi không có cả provider lẫn hint, ngữ cảnh được coi là không phải MySQL. |
 
 ### MY002 — Cú pháp không phải MySQL trong ngữ cảnh MySQL
 
@@ -152,6 +153,8 @@ foreach (var property in entity.Properties)
 | **Mức độ** | Error |
 | **Kích hoạt** | `property.MaxLength > column.MaxLength` |
 | **Thông báo** | Entity property '{name}' MaxLength={n} exceeds column '{col}' length={m} |
+
+Dạng MY003 của `MySqlVarcharByteLimitRule` cũng kiểm tra các cột họ TEXT. Giới hạn của chúng tính bằng byte, nên độ dài entity được quy đổi giống MY006: `MaxLength × số byte mỗi đơn vị UTF-16` (utf8mb4/utf8mb3/utf8 là 3, ucs2/utf16 là 2, bộ ký tự một byte là 1, `byte[]` là 1). Một `string` có `MaxLength = 30000` trên cột `TEXT` utf8mb4 (90.000 byte) sẽ bị báo: `may need 90000 bytes (3 per character in utf8mb4) but MySQL TEXT holds at most 65535 bytes`.
 
 ## Sử dụng trong CLI
 
@@ -176,3 +179,14 @@ Không giống Oracle, MySQL không có package. Trường `PackageName` luôn r
 ### Nhận biết bộ ký tự
 
 `CHARACTER_MAXIMUM_LENGTH` của MySQL luôn tính bằng ký tự (không phải byte), bất kể bộ ký tự của cột. Điều này đơn giản hóa so sánh độ dài so với ngữ nghĩa CHAR/BYTE của Oracle.
+
+## Cập nhật catalog và length semantics (Phase 3.3/3.7)
+
+- Đọc `ROUTINE_TYPE IN ('PROCEDURE','FUNCTION')`. Function có `ReturnType` và Id dạng `mysql:{schema}.{name}#function`.
+- Schema để trống thì dùng `DATABASE()`, không còn gộp mọi schema. Khóa bảng tuân theo `@@lower_case_table_names`.
+- Charset nằm ở `ColumnDescriptor.Charset`, còn `CharUsed` là null.
+- MY006 so sánh theo byte: `MaxLength × byte/đơn vị UTF-16`, với utf8mb4 = 3.
+- MY005 kiểm tra kích thước hàng (tổng byte VARCHAR/CHAR > 65.535). Index-prefix không được kiểm tra vì descriptor không có thông tin index.
+- MY007 chỉ báo khi property không có `MaxLength` mà cột là `varchar(n)`/`char(n)`, vì Pomelo map `string` không giới hạn thành `longtext`.
+- `utf8mb3` = 3 byte.
+

@@ -3,68 +3,67 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using DataGuard.Core.Abstractions;
-using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Rules;
 
 /// <summary>
 /// Rule dependency graph for optimal execution order.
 /// Rules with no dependencies run first; dependent rules run after their dependencies.
-/// Uses topological sorting for optimal execution order.
+/// Uses topological sorting; every iteration is in <see cref="StringComparer.Ordinal"/> order so plans are deterministic.
 /// </summary>
 public sealed class RuleDependencyGraph
 {
-    private readonly Dictionary<string, RuleNode> _nodes = new();
-    private readonly Dictionary<string, HashSet<string>> _dependencies = new();
-    private readonly Dictionary<string, HashSet<string>> _dependents = new();
+    private readonly Dictionary<string, RuleNode> _nodes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SortedSet<string>> _dependencies = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SortedSet<string>> _dependents = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Registers a rule with its dependencies.
+    /// Registers a rule with its dependencies. Registering the same rule instance again is idempotent (new dependencies
+    /// are added); a dependency placeholder with the same ID is upgraded to the rule.
     /// </summary>
+    /// <exception cref="InvalidOperationException">A different rule instance is already registered under the same ID.</exception>
     public void RegisterRule(IContractRule rule, IEnumerable<string>? dependsOn = null)
     {
+        ArgumentNullException.ThrowIfNull(rule);
         var ruleId = rule.RuleId;
-
-        if (!_nodes.ContainsKey(ruleId))
+        if (string.IsNullOrWhiteSpace(ruleId))
         {
-            _nodes[ruleId] = new RuleNode(rule);
-            _dependencies[ruleId] = new HashSet<string>();
-            _dependents[ruleId] = new HashSet<string>();
-        }
-        else if (_nodes[ruleId].Rule == null)
-        {
-            // The node existed as a dependency placeholder - upgrade it to the real rule.
-            _nodes[ruleId] = new RuleNode(rule);
+            throw new ArgumentException($"Rule {rule.GetType().FullName} has no rule ID.", nameof(rule));
         }
 
-        if (dependsOn != null)
+        if (_nodes.TryGetValue(ruleId, out var existing) && existing.Rule is not null && !ReferenceEquals(existing.Rule, rule))
         {
-            foreach (var depId in dependsOn)
-            {
-                if (!_nodes.ContainsKey(depId))
-                {
-                    // Register placeholder for dependency
-                    _nodes[depId] = new RuleNode(null);
-                    _dependencies[depId] = new HashSet<string>();
-                    _dependents[depId] = new HashSet<string>();
-                }
-
-                _dependencies[ruleId].Add(depId);
-                _dependents[depId].Add(ruleId);
-            }
+            throw new InvalidOperationException(
+                $"Rule ID '{ruleId}' is already registered by {existing.Rule.GetType().FullName}; {rule.GetType().FullName} cannot reuse it.");
         }
+
+        EnsureNode(ruleId);
+        _nodes[ruleId] = new RuleNode(rule);
+        AddDependencies(ruleId, dependsOn);
+    }
+
+    /// <summary>
+    /// Declares that <paramref name="ruleId"/> depends on <paramref name="dependsOn"/> without registering an
+    /// implementation. Every ID stays an unresolved placeholder until a rule with that ID is registered; a graph with
+    /// placeholders fails <see cref="Validate"/> and cannot produce an execution plan.
+    /// </summary>
+    public void RegisterDependencies(string ruleId, IEnumerable<string>? dependsOn = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ruleId);
+        EnsureNode(ruleId);
+        AddDependencies(ruleId, dependsOn);
     }
 
     /// <summary>
     /// Gets the optimal execution order using topological sort.
     /// Rules with no dependencies come first; rules that depend on others come later.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>The registered rules in dependency order.</returns>
     public ImmutableArray<IContractRule> GetExecutionOrder()
     {
         EnsureAllDependenciesImplemented();
-        var visited = new HashSet<string>();
-        var visiting = new HashSet<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<IContractRule>();
 
         foreach (var nodeId in _nodes.Keys.OrderBy(id => id, StringComparer.Ordinal))
@@ -76,6 +75,32 @@ public sealed class RuleDependencyGraph
         }
 
         return result.ToImmutableArray();
+    }
+
+    private void EnsureNode(string ruleId)
+    {
+        if (!_nodes.ContainsKey(ruleId))
+        {
+            _nodes[ruleId] = new RuleNode(null);
+            _dependencies[ruleId] = new SortedSet<string>(StringComparer.Ordinal);
+            _dependents[ruleId] = new SortedSet<string>(StringComparer.Ordinal);
+        }
+    }
+
+    private void AddDependencies(string ruleId, IEnumerable<string>? dependsOn)
+    {
+        if (dependsOn == null)
+        {
+            return;
+        }
+
+        foreach (var depId in dependsOn)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(depId);
+            EnsureNode(depId);
+            _dependencies[ruleId].Add(depId);
+            _dependents[depId].Add(ruleId);
+        }
     }
 
     private void Visit(string nodeId, HashSet<string> visited, HashSet<string> visiting, List<IContractRule> result)
@@ -92,7 +117,7 @@ public sealed class RuleDependencyGraph
 
         visiting.Add(nodeId);
 
-        // Visit dependencies first
+        // Visit dependencies first; SortedSet iterates in ordinal order, so the plan is deterministic.
         if (_dependencies.TryGetValue(nodeId, out var deps))
         {
             foreach (var depId in deps)
@@ -111,26 +136,25 @@ public sealed class RuleDependencyGraph
     }
 
     /// <summary>
-    /// Gets parallelizable groups of rules (rules that can run concurrently).
+    /// Gets parallelizable groups of rules (rules that can run concurrently), each group in ordinal rule ID order.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>Levels of rules; every rule's dependencies are in an earlier level.</returns>
     public ImmutableArray<ImmutableArray<IContractRule>> GetParallelGroups()
     {
         EnsureAllDependenciesImplemented();
         var levels = new List<List<IContractRule>>();
-        var remaining = new HashSet<string>(_nodes.Keys);
-        var completed = new HashSet<string>();
+        var remaining = new HashSet<string>(_nodes.Keys, StringComparer.Ordinal);
+        var completed = new HashSet<string>(StringComparer.Ordinal);
 
         while (remaining.Count > 0)
         {
             var currentLevel = new List<IContractRule>();
             var completedThisRound = new List<string>();
-            var completedBeforeRound = completed.ToHashSet();
+            var completedBeforeRound = completed.ToHashSet(StringComparer.Ordinal);
 
             foreach (var nodeId in remaining.OrderBy(id => id, StringComparer.Ordinal).ToList())
             {
-                var deps = _dependencies.GetValueOrDefault(nodeId, new HashSet<string>());
-                if (deps.IsSubsetOf(completedBeforeRound))
+                if (_dependencies[nodeId].IsSubsetOf(completedBeforeRound))
                 {
                     if (_nodes[nodeId].Rule != null)
                     {
@@ -142,20 +166,17 @@ public sealed class RuleDependencyGraph
                 }
             }
 
-            // Remove every completed node (including dependency placeholders) from
-            // the remaining set; otherwise placeholders spin forever.
             remaining.RemoveWhere(completed.Contains);
 
             if (currentLevel.Count == 0)
             {
                 if (completedThisRound.Count == 0)
                 {
-                    // Circular dependency or missing dependency
-                    var stuck = remaining.Except(completed).ToList();
+                    // Circular dependency
+                    var stuck = remaining.Except(completed).OrderBy(id => id, StringComparer.Ordinal).ToList();
                     throw new InvalidOperationException($"Cannot resolve dependencies for rules: {string.Join(", ", stuck)}");
                 }
 
-                // Only placeholders were resolved this round - continue with the next level.
                 continue;
             }
 
@@ -168,7 +189,7 @@ public sealed class RuleDependencyGraph
     /// <summary>
     /// Validates the dependency graph for circular dependencies and missing dependencies.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>Errors (unresolved placeholders, cycles) and warnings (isolated rules).</returns>
     public ValidationResult Validate()
     {
         var errors = new List<string>();
@@ -196,13 +217,11 @@ public sealed class RuleDependencyGraph
             }
         }
 
-        // Dependency placeholders are valid while registration is in progress, but
-        // are invalid once callers request a validation/execution plan.
         // Check for orphaned rules (no dependents, not depended upon)
-        var allDepIds = _dependencies.Values.SelectMany(d => d).ToHashSet();
-        var allDependentIds = _dependents.Values.SelectMany(d => d).ToHashSet();
+        var allDepIds = _dependencies.Values.SelectMany(d => d).ToHashSet(StringComparer.Ordinal);
+        var allDependentIds = _dependents.Values.SelectMany(d => d).ToHashSet(StringComparer.Ordinal);
 
-        foreach (var nodeId in _nodes.Keys)
+        foreach (var nodeId in _nodes.Keys.OrderBy(id => id, StringComparer.Ordinal))
         {
             if (!allDepIds.Contains(nodeId) && !allDependentIds.Contains(nodeId))
             {
@@ -226,53 +245,33 @@ public sealed class RuleDependencyGraph
     }
 
     /// <summary>
-    /// Gets all rules that depend on the given rule (transitive).
+    /// Gets all rules that depend on the given rule (transitive), in ordinal order.
     /// </summary>
-    /// <returns></returns>
-    public ImmutableArray<string> GetTransitiveDependents(string ruleId)
-    {
-        var result = new HashSet<string>();
-        var queue = new Queue<string>();
-        queue.Enqueue(ruleId);
-
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            if (_dependents.TryGetValue(current, out var dependents))
-            {
-                foreach (var dep in dependents)
-                {
-                    if (result.Add(dep))
-                    {
-                        queue.Enqueue(dep);
-                    }
-                }
-            }
-        }
-
-        return result.ToImmutableArray();
-    }
+    /// <returns>Dependent rule IDs.</returns>
+    public ImmutableArray<string> GetTransitiveDependents(string ruleId) => Transitive(ruleId, _dependents);
 
     /// <summary>
-    /// Gets all rules that the given rule depends on (transitive).
+    /// Gets all rules that the given rule depends on (transitive), in ordinal order.
     /// </summary>
-    /// <returns></returns>
-    public ImmutableArray<string> GetTransitiveDependencies(string ruleId)
+    /// <returns>Dependency rule IDs.</returns>
+    public ImmutableArray<string> GetTransitiveDependencies(string ruleId) => Transitive(ruleId, _dependencies);
+
+    private static ImmutableArray<string> Transitive(string ruleId, Dictionary<string, SortedSet<string>> edges)
     {
-        var result = new HashSet<string>();
+        var result = new SortedSet<string>(StringComparer.Ordinal);
         var queue = new Queue<string>();
         queue.Enqueue(ruleId);
 
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            if (_dependencies.TryGetValue(current, out var deps))
+            if (edges.TryGetValue(current, out var next))
             {
-                foreach (var dep in deps)
+                foreach (var id in next)
                 {
-                    if (result.Add(dep))
+                    if (result.Add(id))
                     {
-                        queue.Enqueue(dep);
+                        queue.Enqueue(id);
                     }
                 }
             }
@@ -283,7 +282,7 @@ public sealed class RuleDependencyGraph
 }
 
 /// <summary>
-/// Node in the dependency graph.
+/// Node in the dependency graph; <see cref="Rule"/> is null for a declared-but-unimplemented dependency.
 /// </summary>
 internal sealed class RuleNode
 {
@@ -310,77 +309,97 @@ public sealed record ValidationResult(
 /// </summary>
 public static class RuleDependencyGraphExtensions
 {
+    /// <summary>
+    /// Declares dependency edges for <paramref name="ruleId"/> without an implementation. The ID stays an unresolved
+    /// placeholder (never a no-op rule) until a rule with that ID is registered.
+    /// </summary>
+    /// <returns>The same graph.</returns>
     public static RuleDependencyGraph WithDependency(this RuleDependencyGraph graph, string ruleId, params string[] dependsOn)
     {
-        var rule = new DummyRule(ruleId); // Placeholder
-        graph.RegisterRule(rule, dependsOn);
+        ArgumentNullException.ThrowIfNull(graph);
+        graph.RegisterDependencies(ruleId, dependsOn);
         return graph;
     }
 
+    /// <summary>Registers <paramref name="rule"/> with its dependencies.</summary>
+    /// <returns>The same graph.</returns>
     public static RuleDependencyGraph AddRule(this RuleDependencyGraph graph, IContractRule rule, params string[] dependsOn)
     {
+        ArgumentNullException.ThrowIfNull(graph);
         graph.RegisterRule(rule, dependsOn);
         return graph;
     }
 }
 
 /// <summary>
-/// Dummy rule for registering dependencies without actual implementation.
-/// </summary>
-internal sealed class DummyRule : IContractRule
-{
-    public string RuleId { get; set; }
-
-    public string Name => RuleId;
-
-    public DiagnosticSeverity Severity => Microsoft.CodeAnalysis.DiagnosticSeverity.Warning;
-
-    public string Description => "Dependency placeholder";
-
-    public DummyRule(string ruleId)
-    {
-        RuleId = ruleId;
-    }
-
-    public Task<IReadOnlyList<ContractViolation>> ValidateAsync(
-        ContractDescriptor contract,
-        IReadOnlyList<ContractDescriptor> allContracts,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<ContractViolation>>(Array.Empty<ContractViolation>());
-}
-
-/// <summary>
-/// Pre-configured dependency graph for DataGuard built-in rules.
+/// Dependency edges between DataGuard built-in rules and the default (provider-neutral) core rule set. The CLI's
+/// <c>ProviderRuleCatalog</c> registers the same core rule IDs (configured per provider) and composes them with
+/// <see cref="Create"/>; a test keeps both sets in sync.
 /// </summary>
 public static class BuiltInRuleDependencies
 {
-    public static RuleDependencyGraph CreateDefault()
+    /// <summary>
+    /// Built-in dependency edges by rule ID. An edge is applied only when both rules are part of the composed set, so
+    /// skipping a rule (<c>--skip-rules</c>) never leaves an unresolved placeholder behind.
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> Edges { get; } =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            // Parameter direction and column shape depend on parameter existence (DG101).
+            ["DG003"] = new[] { "DG101" },
+            ["DG004"] = new[] { "DG101" },
+
+            // Nullable matching depends on parameter type info (DG002).
+            ["DG005"] = new[] { "DG002" },
+
+            // Naming convention depends on parameter and column names.
+            ["DG006"] = new[] { "DG004", "DG101" },
+        };
+
+    /// <summary>Creates the provider-neutral core rules (unconfigured, connectionless) in registration order.</summary>
+    /// <returns>A fresh instance of every core rule.</returns>
+    public static IReadOnlyList<IContractRule> CreateDefaultRules() => new IContractRule[]
     {
+        new ParameterCountRule(),
+        new ParameterTypeMatchRule(),
+        new ParameterDirectionRule(),
+        new ColumnShapeMatchRule(),
+        new NullableMismatchRule(),
+        new NamingConventionRule(),
+
+        // Phantom identifiers (schema ground truth): DG015 table, DG016 column; DG019 parse status.
+        new PhantomTableRule(),
+        new PhantomColumnRule(),
+        new RawSqlParseStatusRule(),
+        new SelectStarUsageRule(),
+
+        // DG018 without a connection is the offline variant (no describe); the CLI binds it to the connection.
+        new LiveSqlShapeValidationRule(),
+    };
+
+    /// <summary>Creates the default graph: <see cref="CreateDefaultRules"/> composed with <see cref="Edges"/>.</summary>
+    /// <returns>A new graph.</returns>
+    public static RuleDependencyGraph CreateDefault() => Create(CreateDefaultRules());
+
+    /// <summary>
+    /// Composes <paramref name="rules"/> (for example the CLI provider catalog plus plugins) into one graph, applying
+    /// <see cref="Edges"/> between rules that are present. Duplicate rule IDs throw (see <see cref="RuleDependencyGraph.RegisterRule"/>).
+    /// </summary>
+    /// <returns>A new graph.</returns>
+    public static RuleDependencyGraph Create(IEnumerable<IContractRule> rules)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+        var list = rules.ToList();
+        var present = list.Select(rule => rule.RuleId).ToHashSet(StringComparer.Ordinal);
         var graph = new RuleDependencyGraph();
+        foreach (var rule in list)
+        {
+            var dependsOn = Edges.TryGetValue(rule.RuleId, out var edges)
+                ? edges.Where(present.Contains).ToArray()
+                : Array.Empty<string>();
+            graph.RegisterRule(rule, dependsOn);
+        }
 
-        // Register all built-in rules with their dependencies
-        // Order: Parameter checks -> Column checks -> Type checks -> Naming -> Nullable
-
-        // Level 1: Basic parameter checks (no dependencies)
-        graph.AddRule(new ParameterCountRule());
-        graph.AddRule(new ParameterTypeMatchRule());
-
-        // Level 2: Parameter direction (depends on parameter existence)
-        graph.AddRule(new ParameterDirectionRule(), "DG101");
-
-        // Level 3: Column shape (depends on parameter existence)
-        graph.AddRule(new ColumnShapeMatchRule(), "DG101");
-
-        // Level 4: Nullable and type matching (depends on parameter type info)
-        graph.AddRule(new NullableMismatchRule(), "DG002");
-
-        // Level 5: Naming convention (depends on parameter/column names)
-        graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
-
-        // Level 6: Phantom identifiers (schema ground truth)
-        graph.AddRule(new PhantomIdentifierRule());
-        graph.AddRule(new RawSqlParseStatusRule());
-        graph.AddRule(new SelectStarUsageRule());
         return graph;
     }
 }

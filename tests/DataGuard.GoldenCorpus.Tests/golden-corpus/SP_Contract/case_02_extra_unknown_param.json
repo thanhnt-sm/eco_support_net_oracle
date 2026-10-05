@@ -1,0 +1,37 @@
+{
+  "testCase": "SP_002",
+  "category": "SP_Contract",
+  "description": "AI-generated call passes a named argument the stored procedure does not declare",
+  "input": {
+    "sql": "EXEC dbo.usp_GetOrders @CustomerId = @customerId, @Status = @status, @Region = @region",
+    "storedProcedures": [
+      {
+        "schema": "dbo",
+        "name": "usp_GetOrders",
+        "parameters": [
+          {
+            "name": "@CustomerId",
+            "type": "int"
+          },
+          {
+            "name": "@Status",
+            "type": "nvarchar"
+          }
+        ]
+      }
+    ],
+    "provider": "SqlServer"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG101",
+      "messageContains": "unknown argument(s) Region",
+      "severity": "Warning"
+    }
+  ],
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  }
+}

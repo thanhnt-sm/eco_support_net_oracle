@@ -1,13 +1,14 @@
 # Local performance evidence
 
-Benchmark project: `benchmarks/DataGuard.Benchmarks`, BenchmarkDotNet `0.15.8`, .NET SDK
+Benchmark project: `tools/benchmarks/DataGuard.Observability.Benchmarks` (moved from the removed root `benchmarks/DataGuard.Benchmarks` on 2026-10-05; the measurements below were taken there), BenchmarkDotNet `0.15.8`, .NET SDK
 9.0.310/runtime 9.0.12 on Apple M1 Max (macOS Sequoia 15.6.1). Latest run: 2026-09-14. The benchmark uses the
 generic `IBusinessOperationObserver` with no exporter endpoint; it compares direct work and
 the selected operation wrapper with the SDK disabled/enabled. Run:
 
 ```sh
-dotnet build benchmarks/DataGuard.Benchmarks/DataGuard.Benchmarks.csproj --configuration Release
-dotnet run --project benchmarks/DataGuard.Benchmarks/DataGuard.Benchmarks.csproj \
+dotnet restore tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj --locked-mode
+dotnet build tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj --configuration Release --no-restore
+dotnet run --project tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj \
   --configuration Release -- --filter '*ObservabilityOverheadBenchmarks*' --inProcess
 ```
 

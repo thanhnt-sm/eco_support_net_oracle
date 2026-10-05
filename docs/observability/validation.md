@@ -31,7 +31,7 @@ là owner/runtime gates, không được suy diễn thành đạt.
 | Phase 6B owner-input approved mode | `python3 scripts/verify_observability_phase6_owner_inputs.py --file /path/to/owner-inputs.json` | owner packet is approved and complete | no owner packet supplied; transformed local fixture only | NOT EXECUTED | owner evidence gate |
 | Prometheus rule syntax | pinned Prometheus image with `/bin/promtool check rules /rules/rules.yaml` | valid rules | 19 rules parsed, exit 0 | PASS | `promtool` output |
 | Prometheus rule unit test | pinned Prometheus image with `/bin/promtool test rules /rules/rules.test.yaml` | ratio, selector and low-traffic fixtures pass | exit 0 | PASS | `promtool` output |
-| Wrapper benchmark | `dotnet run --project benchmarks/DataGuard.Benchmarks/DataGuard.Benchmarks.csproj --configuration Release -- --filter '*ObservabilityOverheadBenchmarks*' --inProcess` | command completes | 4 benchmarks, exit 0; direct 9.198/8.645 ns, observed 347.410/348.702 ns, 480 B | PASS | [`benchmark.md`](benchmark.md) and BenchmarkDotNet report 2026-09-14 |
+| Wrapper benchmark | `dotnet run --project benchmarks/DataGuard.Benchmarks/DataGuard.Benchmarks.csproj` (2026-09-14; now `tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj`) `--configuration Release -- --filter '*ObservabilityOverheadBenchmarks*' --inProcess` | command completes | 4 benchmarks, exit 0; direct 9.198/8.645 ns, observed 347.410/348.702 ns, 480 B | PASS | [`benchmark.md`](benchmark.md) and BenchmarkDotNet report 2026-09-14 |
 | Kubernetes local render | `kubectl kustomize docs/observability/kubernetes` plus `cmp` source/deployment config copies | rendered objects and config copies match | exit 0; all copies byte-equivalent | PASS | Kustomize v5.8.1 output |
 | Phase 6B owner-input template contract | `python3 scripts/verify_observability_phase6_owner_inputs.py --template docs/observability/phase6-owner-inputs.example.json` | template shape is valid but cannot authorize runtime | exit 0; `TEMPLATE_STATUS=PASS`, `RUNTIME_AUTHORIZATION=OWNER_REQUIRED` | PASS | [`phase-06-owner-gated-integration-canary.md`](../../plans/260913-2000-enterprise-observability/phase-06-owner-gated-integration-canary.md) |
 | Historical local Collector process smoke | `./scripts/verify_observability_phase6_local_smoke.sh` (3 consecutive runs) | optional reference Collector is healthy and accepts a synthetic trace | all 3 exit 0; no external mutation; not a product runtime check | PASS (optional reference) | historical phase report |
@@ -70,7 +70,7 @@ for project in \
   src/DataGuard.Observability.AspNetCore/DataGuard.Observability.AspNetCore.csproj \
   src/DataGuard.Observability.Messaging/DataGuard.Observability.Messaging.csproj \
   tests/DataGuard.Observability.Tests/DataGuard.Observability.Tests.csproj \
-  benchmarks/DataGuard.Benchmarks/DataGuard.Benchmarks.csproj; do
+  tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj; do
   dotnet list "$project" package --vulnerable --include-transitive
 done
 

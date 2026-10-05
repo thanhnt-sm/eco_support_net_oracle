@@ -1,0 +1,33 @@
+{
+  "testCase": "MY_001",
+  "category": "MySql",
+  "description": "SQL Server TOP clause used in a MySQL query (should be LIMIT)",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT TOP 10 id, status FROM orders ORDER BY id DESC",
+    "provider": "MySql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "orders",
+          "columns": [
+            "id",
+            "customer_id",
+            "status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "MY002",
+      "messageContains": "TOP",
+      "severity": "Warning"
+    }
+  ]
+}

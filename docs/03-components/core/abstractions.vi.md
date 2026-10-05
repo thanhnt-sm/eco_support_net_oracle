@@ -171,7 +171,7 @@ public interface IContractSource
 | `DisplayName` | Tên dễ đọc cho output CLI |
 | `ExtractContractsAsync` | Trả về tất cả descriptors đã khám phá; hỗ trợ hủy |
 
-Các triển khai tích hợp: `EfModelSource`, `SqlServerStoredProcedureParser`, `RawSqlParser`, `ManualContractSource`.
+Các triển khai tích hợp: `EfModelSource`, `ManualContractSource`, `ProjectCSharpSqlSource` (Core); `SqlServerStoredProcedureParser`, `RawSqlParser` (`DataGuard.SqlServer.Adapter`) và parser của các adapter Oracle/PostgreSQL/MySQL.
 
 ## Interface IContractRule
 

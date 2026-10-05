@@ -10,7 +10,7 @@ namespace DataGuard.GoldenCorpus.Tests;
 
 /// <summary>
 /// Per-rule coverage for rules that ship in production but had no test:
-/// DG003/DG004/DG005, DG010-DG014, MY001-003, PG001-003.
+/// DG003/DG004/DG005, DG010-DG014, MY001-004, PG001-003.
 /// </summary>
 public class RuleCoverageTests
 {
@@ -179,7 +179,40 @@ public class RuleCoverageTests
     }
 
     [Fact]
-    public async Task My003_LengthExceeds_Flags()
+    public async Task My003_VarcharByteLimitExceeded_Flags()
+    {
+        // VARCHAR(20000) x 4 bytes (utf8mb4) = 80000 bytes > MySQL's 65535-byte limit.
+        var entity = new EntityDescriptor("e1", "C", "C", "T", new List<PropertyDescriptor>
+        {
+            new ("Body", "string", "BODY", null, true, 100, false, false),
+        });
+        var schema = new DatabaseSchemaDescriptor("s1", new List<DatabaseTableDescriptor>
+        {
+            new ("T", new List<ColumnDescriptor> { new ("BODY", "VARCHAR", 20000, null, null, true, null, null) }),
+        }, "CHAR");
+        var vs = await RunAsync(new MySqlVarcharByteLimitRule(), entity, entity, schema);
+        vs.Should().ContainSingle(v => v.RuleId == "MY003" && v.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+            .Which.Message.Should().Contain("80000 bytes");
+    }
+
+    [Fact]
+    public async Task My003_VarcharWithinByteLimit_NotFlagged()
+    {
+        // VARCHAR(16383) x 4 = 65532 bytes: inside the limit.
+        var entity = new EntityDescriptor("e1", "C", "C", "T", new List<PropertyDescriptor>
+        {
+            new ("Body", "string", "BODY", null, true, 100, false, false),
+        });
+        var schema = new DatabaseSchemaDescriptor("s1", new List<DatabaseTableDescriptor>
+        {
+            new ("T", new List<ColumnDescriptor> { new ("BODY", "VARCHAR", 16383, null, null, true, null, null) }),
+        }, "CHAR");
+        var vs = await RunAsync(new MySqlVarcharByteLimitRule(), entity, entity, schema);
+        vs.Should().NotContain(v => v.RuleId == "MY003");
+    }
+
+    [Fact]
+    public async Task My004_LengthExceeds_Flags()
     {
         var entity = new EntityDescriptor("e1", "C", "C", "T", new List<PropertyDescriptor>
         {
@@ -190,7 +223,7 @@ public class RuleCoverageTests
             new ("T", new List<ColumnDescriptor> { new ("NAME", "VARCHAR", 100, null, null, true, null, null) }),
         }, "CHAR");
         var vs = await RunAsync(new MySqlLengthExceedsColumnRule(), entity, entity, schema);
-        vs.Should().Contain(v => v.RuleId == "MY004");
+        vs.Should().ContainSingle(v => v.RuleId == "MY004").Which.Message.Should().Contain("MaxLength=200");
     }
 
     // ---- PostgreSQL PG001-003 ----

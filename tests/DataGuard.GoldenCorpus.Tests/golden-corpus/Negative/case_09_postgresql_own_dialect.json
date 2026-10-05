@@ -1,0 +1,27 @@
+{
+  "testCase": "NEG_009",
+  "category": "Negative",
+  "description": "PostgreSQL-specific syntax (:: casts, ILIKE, RETURNING) under provider postgresql is the provider's own dialect: no PG001",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "UPDATE orders SET status = 'closed' WHERE status::text ILIKE 'open%' RETURNING id",
+    "provider": "PostgreSql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "orders",
+          "columns": [
+            "id",
+            "customer_id",
+            "status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

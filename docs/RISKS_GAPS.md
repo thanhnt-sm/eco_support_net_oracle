@@ -56,7 +56,7 @@ Tài liệu này phân tích toàn diện các rủi ro, khoảng trống (gaps)
 |--------|-------------|----------|----------|
 | **FG-001** | EF Model Source chưa implement đầy đủ `ExtractFromDesignTimeAsync` | High | `EfModelSource.cs` line 87: `throw new NotImplementedException()` |
 | **FG-002** | `RawSqlParser` chỉ support SQL Server (ScriptDOM), thiếu Oracle PL/SQL parser | High | `SqlServerParsers.cs` chỉ dùng TSql160Parser |
-| **FG-003** | `ParameterDirectionRule` chưa validate `out`/`ref` ở call site C# | Medium | `ContractRules.cs` line 89: chỉ check SP direction |
+| **FG-003** | `ParameterDirectionRule` chưa validate `out`/`ref` ở call site C# | Medium | `Rules/*Rule.cs` (one file per rule) line 89: chỉ check SP direction |
 | **FG-004** | `NamingConventionRule` không handle acronyms (ID, URL, HTTP) | Medium | Chỉ snake_case ↔ PascalCase đơn giản |
 | **FG-005** | `ColumnShapeMatchRule` không support nested/complex types | Medium | Chỉ flat properties |
 | **FG-006** | Oracle `RefCursorDescriber` chưa implement `DBMS_SQL.DESCRIBE_COLUMNS` thực tế | High | `OracleReaders.cs` line 221: placeholder implementation |

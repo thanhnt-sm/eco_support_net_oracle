@@ -2,6 +2,7 @@
   "testCase": "H3_001",
   "category": "H3_Dialect_Confusion",
   "description": "AI uses MySQL GROUP_CONCAT instead of Oracle LISTAGG",
+  "provenance": { "source": "manual", "model": null, "date": "2026-09-25" },
   "input": {
     "entity": {
       "name": "Customer",

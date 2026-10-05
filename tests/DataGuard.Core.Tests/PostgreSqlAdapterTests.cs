@@ -1,4 +1,7 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using DataGuard.PostgreSql.Adapter;
@@ -512,21 +515,17 @@ public class PostgreSqlLengthMismatchDetectorTests
     }
 
     [Fact]
-    public void Detect_Utf8ByteOverflow_Detected()
+    public void Detect_LengthOverflow_ReportsExactlyOnePg003WithoutByteCheck()
     {
-        // string property with MaxLength > column MaxLength triggers UTF-8 overflow warning
+        // PostgreSQL varchar(n) limits characters, never bytes: one PG003 per property, no UTF-8 byte finding.
         var entity = new EntityDescriptor("e1", "User", "Users", "dbo",
             new[] { new PropertyDescriptor("Name", "string", "name", "varchar", true, 200, false, false, null) });
         var columns = new[] { new ColumnDescriptor("name", "varchar", 100, null, null, true, null) };
 
-        var violations = _detector.Detect(entity, columns);
+        var violations = _detector.Detect(entity, columns).ToList();
 
-        // Should have at least one violation with encoding info (UTF-8 overflow)
-        violations.Should().Contain(v =>
-            v.RuleId == "PG003" &&
-            v.Properties != null &&
-            v.Properties.ContainsKey("encoding") &&
-            v.Properties["encoding"]!.ToString() == "UTF-8");
+        violations.Should().ContainSingle(v => v.RuleId == "PG003");
+        violations.Should().NotContain(v => v.Properties != null && v.Properties.ContainsKey("encoding"));
     }
 
     [Fact]
@@ -560,5 +559,140 @@ public class PostgreSqlLengthMismatchDetectorTests
         // check 3 skips (column.MaxLength is null), check 4 skips (varchar not unlimited),
         // check 5 skips (property has MaxLength)
         violations.Should().BeEmpty();
+    }
+}
+
+/// <summary>
+/// PostgreSQL catalog (pg_proc) and length-lookup behaviors that need no database.
+/// </summary>
+public class PostgreSqlCatalogTests
+{
+    private static readonly Dictionary<uint, string> TypeMap = new()
+    {
+        [23] = "int4",
+        [25] = "text",
+        [1043] = "varchar",
+        [2249] = "record",
+        [1790] = "refcursor",
+        [1007] = "_int4",
+    };
+
+    [Fact]
+    public void BuildDescriptor_ReturnsTableArgumentsBecomeResultColumns()
+    {
+        // RETURNS TABLE(id int4, name text) with one IN argument and one defaulted IN argument.
+        var routine = new PostgreSqlRoutineInfo
+        {
+            Name = "find_customers",
+            ArgNames = new[] { "p_min", "p_name", "id", "name" },
+            InArgTypes = new uint[] { 23, 25 },
+            AllArgTypes = new uint[] { 23, 25, 23, 25 },
+            ArgModes = new[] { 'i', 'i', 't', 't' },
+            ReturnType = 2249,
+            Kind = 'f',
+            NumDefaults = 1,
+            ReturnsSet = true,
+        };
+
+        var descriptor = PostgreSqlStoredProcedureParser.BuildDescriptor(routine, TypeMap, "public");
+
+        descriptor.Id.Should().Be("postgres:public.find_customers(int4,text)");
+        descriptor.Parameters.Select(p => p.Name).Should().Equal("p_min", "p_name");
+        descriptor.Parameters.Single(p => p.Name == "p_min").HasDefault.Should().BeFalse();
+        descriptor.Parameters.Single(p => p.Name == "p_name").HasDefault.Should().BeTrue();
+        descriptor.ResultColumns.Select(c => (c.Name, c.DataType)).Should().Equal(("id", "int4"), ("name", "text"));
+        descriptor.ReturnType.Should().Be("record");
+    }
+
+    [Fact]
+    public void BuildDescriptor_MapsModesAndNamesUnnamedArguments()
+    {
+        var routine = new PostgreSqlRoutineInfo
+        {
+            Name = "mixed",
+            ArgNames = new[] { "", "p_io", "p_out", "p_rest" },
+            InArgTypes = new uint[] { 23, 25, 1007 },
+            AllArgTypes = new uint[] { 23, 25, 1043, 1007 },
+            ArgModes = new[] { 'i', 'b', 'o', 'v' },
+            ReturnType = 2249,
+            Kind = 'f',
+            NumDefaults = 0,
+        };
+
+        var descriptor = PostgreSqlStoredProcedureParser.BuildDescriptor(routine, TypeMap, "app");
+
+        descriptor.Parameters.Select(p => (p.Name, p.Direction)).Should().Equal(
+            ("p1", ParameterDirection.Input),
+            ("p_io", ParameterDirection.InputOutput),
+            ("p_out", ParameterDirection.Output),
+            ("p_rest", ParameterDirection.Input));
+        descriptor.Id.Should().Be("postgres:app.mixed(int4,text,_int4)");
+        descriptor.ResultColumns.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void BuildDescriptor_OverloadsGetDistinctSignatureIds()
+    {
+        var one = new PostgreSqlRoutineInfo { Name = "f", InArgTypes = new uint[] { 23 }, ReturnType = 25, Kind = 'f' };
+        var two = new PostgreSqlRoutineInfo { Name = "f", InArgTypes = new uint[] { 25 }, ReturnType = 25, Kind = 'f' };
+        var refcursor = new PostgreSqlRoutineInfo { Name = "g", InArgTypes = Array.Empty<uint>(), ReturnType = 1790, Kind = 'f' };
+
+        PostgreSqlStoredProcedureParser.BuildDescriptor(one, TypeMap, "public").Id.Should().Be("postgres:public.f(int4)");
+        PostgreSqlStoredProcedureParser.BuildDescriptor(two, TypeMap, "public").Id.Should().Be("postgres:public.f(text)");
+        var g = PostgreSqlStoredProcedureParser.BuildDescriptor(refcursor, TypeMap, "public");
+        g.Id.Should().Be("postgres:public.g()");
+        g.ReturnsRefCursor.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildDescriptor_DefaultsApplyToTrailingInputsOnly()
+    {
+        var routine = new PostgreSqlRoutineInfo
+        {
+            Name = "p",
+            ArgNames = new[] { "a", "b", "c" },
+            InArgTypes = new uint[] { 23, 23 },
+            AllArgTypes = new uint[] { 23, 23, 25 },
+            ArgModes = new[] { 'i', 'i', 'o' },
+            Kind = 'p',
+            NumDefaults = 1,
+        };
+
+        var descriptor = PostgreSqlStoredProcedureParser.BuildDescriptor(routine, TypeMap, "public");
+
+        descriptor.Parameters.Where(p => p.HasDefault).Select(p => p.Name).Should().Equal("b");
+        descriptor.ReturnType.Should().BeNull();
+    }
+
+    [Fact]
+    public void Detect_SnakeCaseColumnNameIsTried()
+    {
+        var entity = new EntityDescriptor("e1", "Customer", "Customer", "customers",
+            new[] { new PropertyDescriptor("CustomerName", "string", "CustomerName", null, true, 200, false, false, null) });
+        var columns = new[] { new ColumnDescriptor("customer_name", "character varying", 100, null, null, true, null) };
+
+        new PostgreSqlLengthMismatchDetector().Detect(entity, columns)
+            .Should().ContainSingle(v => v.RuleId == "PG003");
+        PostgreSqlLengthMismatchDetector.ToSnakeCase("CustomerID").Should().Be("customer_id");
+    }
+
+    [Fact]
+    public async Task Rule_ResolvesSchemaQualifiedEntityTableAndPrefersExactCase()
+    {
+        var entity = new EntityDescriptor("e1", "Order", "Order", "sales.Orders",
+            new[] { new PropertyDescriptor("Code", "string", "code", null, true, 50, false, false, null) });
+        var schema = new DatabaseSchemaDescriptor(
+            "postgres:sales",
+            new[]
+            {
+                new DatabaseTableDescriptor("orders", new[] { new ColumnDescriptor("code", "character varying", 100, null, null, true, null) }, "sales"),
+                new DatabaseTableDescriptor("Orders", new[] { new ColumnDescriptor("code", "character varying", 10, null, null, true, null) }, "sales"),
+                new DatabaseTableDescriptor("Orders", new[] { new ColumnDescriptor("code", "character varying", 500, null, null, true, null) }, "public"),
+            },
+            "CHAR");
+
+        var violations = await new PostgreSqlLengthExceedsColumnRule().ValidateAsync(entity, new ContractDescriptor[] { entity, schema });
+
+        violations.Should().ContainSingle(v => v.RuleId == "PG003" && (int)v.Properties!["columnMaxLength"]! == 10);
     }
 }

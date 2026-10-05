@@ -99,6 +99,16 @@ public class IdeSafePolicyTests
     public void FirstRejectedValidateOption_NoCodeLoadingOptions_ReturnsNull()
     {
         IdeSafePolicy.FirstRejectedValidateOption(null, false, null, null, null, null).Should().BeNull();
+        IdeSafePolicy.FirstRejectedValidateOption(null, false, null, null, null, null, pluginsDirectory: " ").Should().BeNull();
+    }
+
+    [Fact]
+    public void FirstRejectedValidateOption_PluginsDir_IsRejected()
+    {
+        // Plugin loading is code loading: never under IDE-safe mode.
+        IdeSafePolicy.FirstRejectedValidateOption(null, false, null, null, null, null, pluginsDirectory: "plugins")
+            .Should().Be(IdeSafePolicy.PluginsDirOptionName).And.Be("--plugins-dir");
+        IdeSafePolicy.FormatRejectionLine("--plugins-dir").Should().Contain("assembly loading");
     }
 
     [Theory]
@@ -346,5 +356,51 @@ public class IdeSafeEnvironmentScrubTests
                 Environment.SetEnvironmentVariable(name, value);
             }
         }
+    }
+}
+
+/// <summary>
+/// Phase 4.4 credential and assembly options under IDE-safe mode: <c>--connection-env</c> follows the
+/// <c>--allow-env-connection</c> rule, <c>--allow-assembly-from-config</c> is always rejected.
+/// </summary>
+public class IdeSafeCredentialOptionTests
+{
+    [Theory]
+    [InlineData("MY_DB", false, false, "--connection-env")]
+    [InlineData("MY_DB", true, false, null)]
+    [InlineData(null, false, true, "--allow-assembly-from-config")]
+    [InlineData("MY_DB", true, true, "--allow-assembly-from-config")]
+    [InlineData(null, false, false, null)]
+    public void FirstRejectedValidateOption_CredentialAndAssemblyOptions(string? connectionEnv, bool allowEnvConnection, bool allowAssemblyFromConfig, string? expected)
+    {
+        IdeSafePolicy.FirstRejectedValidateOption(null, false, null, null, null, null, connectionEnv, allowEnvConnection, allowAssemblyFromConfig)
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void FirstRejectedValidateOption_LegacyOptionsStillWinFirst()
+    {
+        IdeSafePolicy.FirstRejectedValidateOption("Server=x", false, null, null, null, null, "MY_DB", false, true)
+            .Should().Be("--connection");
+    }
+
+    [Fact]
+    public void ConnectionEnvRejection_NamesTheAllowEnvConnectionEscapeHatch()
+    {
+        IdeSafePolicy.FormatRejectionLine(IdeSafePolicy.ConnectionEnvOptionName)
+            .Should().StartWith("--connection-env is not allowed with --ide-safe unless --allow-env-connection is also given")
+            .And.NotContain("\n");
+    }
+
+    [Fact]
+    public void Apply_KeepsTheNamedVariableValueLikeTheEnvironmentConnection()
+    {
+        var merged = new DataGuardConfiguration(ConnectionString: "Server=named", GroundTruthMode: GroundTruthMode.Full);
+
+        var result = IdeSafePolicy.Apply(merged, environmentConnectionPresent: true, allowEnvConnection: true, environmentConnection: "Server=named");
+
+        result.KeptEnvironmentConnection.Should().BeTrue();
+        result.Configuration.ConnectionString.Should().Be("Server=named");
+        result.RulesConnectionString.Should().BeNull();
     }
 }

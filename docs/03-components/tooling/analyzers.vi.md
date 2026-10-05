@@ -1,19 +1,24 @@
 # Roslyn Analyzers
 
-DataGuard cung cấp hai lớp analyzer Roslyn: **IDE Light Layer** (incremental generator) nhanh cho phản hồi thời gian thực khi code, và **CI Heavy Layer** (full semantic analyzer) để xác thực contract toàn diện trong pipeline build.
+Gói analyzer của DataGuard là **tầng IDE chỉ dùng syntax**: một incremental generator (DG001) và một
+`DiagnosticAnalyzer` dạng syntax-node (heuristic trên SQL literal). Cả hai không bind symbol, không mở database, không
+IO file/mạng. Các kiểm tra cần ground truth database (DG002-DG020, DG101) chỉ chạy trong CLI (`dataguard validate`);
+descriptor của chúng vẫn được analyzer khai báo để severity trong `.editorconfig` và code fix gắn đúng ID.
 
 ## Kiến trúc
 
 ```mermaid
 graph TB
-    subgraph "IDE Light Layer (netstandard2.0)"
+    subgraph "Tầng IDE (netstandard2.0, chỉ syntax)"
         UG[UnvalidatedSqlCallGenerator]
-        DG001[DG001: Unvalidated SQL Call]
+        CVA[ContractValidationAnalyzer]
+        DG001[DG001: Lệnh SQL chưa xác thực]
+        HEUR[DG004 / DG017 / DG097 / DG098 / DG099]
     end
 
-    subgraph "CI Heavy Layer (netstandard2.0)"
-        CVA[ContractValidationAnalyzer]
-        DG002-DG099[DG002-DG099: Full Validation]
+    subgraph "CLI (ground truth database)"
+        CLI[dataguard validate]
+        ENGINE[DG002-DG020, DG101]
     end
 
     subgraph "Code Fixes"
@@ -21,201 +26,163 @@ graph TB
         MAFP[AddMaxLengthAttributeFixProvider]
         SCFP[SkipContractCheckFixProvider]
         NCFP[NamingConventionFixProvider]
-        UOFP[UseOracleProviderFixProvider]
+        UOFP[UseOracleCodeFixProvider]
     end
 
-    UG -->|syntax only| DG001
-    CVA -->|semantic analysis| DG002-DG099
+    UG -->|syntax provider| DG001
+    CVA -->|syntax-node action| HEUR
+    CLI --> ENGINE
 
     DG001 --> CFP
-    DG002-DG099 --> CFP
-    DG007 --> MAFP
     DG001 --> SCFP
-    DG006 --> NCFP
-    DG012 --> UOFP
+    HEUR -->|DG017| CFP
+    ENGINE -->|DG002 SQL đã xác minh| CFP
+    ENGINE -->|DG007/DG009| MAFP
+    ENGINE -->|DG006| NCFP
+    ENGINE -->|DG012| UOFP
 ```
 
 ## File nguồn
 
-| File | Dòng | Mục đích |
-|------|------|----------|
-| `Analyzers.cs` | 785 | DiagnosticIds, DiagnosticDescriptors, UnvalidatedSqlCallGenerator, ContractValidationAnalyzer |
-| `IsExternalInit.cs` | ~10 | Polyfill cho từ khóa `init` trên netstandard2.0 |
+| File | Mục đích |
+|------|----------|
+| `DiagnosticDescriptors.cs` | `DiagnosticIds` và `DiagnosticDescriptors`: nguồn duy nhất của ID và title analyzer |
+| `SqlCallSyntax.cs` | Nhận diện call site SQL chỉ bằng syntax, khôi phục SQL text, ẩn bằng `[SkipContractCheck]`/marker |
+| `UnvalidatedSqlCallGenerator.cs` | Generator DG001 và model `SqlCallModel` có so sánh bằng giá trị |
+| `ContractValidationAnalyzer.cs` | Analyzer syntax-node cho heuristic SQL literal |
+| `SqlTextHeuristics.cs` | Dấu hiệu injection, SELECT *, SELECT thiếu FROM, dạng text stored procedure, trích danh sách SELECT |
+| `TypeShapeIndex.cs` | Chỉ mục lười, chỉ syntax, các property của class/record khai báo trong compilation (DG004, fix DG017) |
+| `AnalyzerReleases.*.md` | Release tracking của Roslyn (RS2008) |
 
-## Cấu hình project
+Analyzer nhắm `netstandard2.0` với `EnforceExtendedAnalyzerRules` và các rule Roslyn `RS1xxx`/`RS2xxx`; build phải
+giữ 0 warning. `src/DataGuard.Analyzers` không dùng `SemanticModel` hay `IOperation`.
 
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
-    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
-  </ItemGroup>
-</Project>
-```
+## Diagnostic ID
 
-Analyzer nhắm đến `netstandard2.0` để tương thích tối đa với tất cả phiên bản .NET SDK.
+DG001-DG017 dùng chung nghĩa với rules engine của CLI, và title descriptor chính là text trong
+`ProviderRuleCatalog.RuleTitles` (`DescriptorCatalogParityTests` đọc file CLI và so sánh). DG097-DG099 chỉ có ở
+analyzer.
 
-## DiagnosticIds
+| ID | Title | Phát ra bởi | Category | Severity |
+|----|-------|-------------|----------|----------|
+| `DG001` | Track Unvalidated SQL Calls | Generator | DataGuard.IDE | Warning |
+| `DG002` | Parameter Type Match | CLI (chỉ khai báo) | DataGuard.Contracts | Error |
+| `DG003` | Parameter Direction (In/Out/Return) | CLI (chỉ khai báo) | DataGuard.Contracts | Error |
+| `DG004` | Result Set Column Shape | Analyzer (danh sách SELECT literal) và CLI | DataGuard.Contracts | Error |
+| `DG005` | Nullable Compatibility | CLI (chỉ khai báo) | DataGuard.Contracts | Warning |
+| `DG006` | Naming Convention Compliance | CLI (chỉ khai báo) | DataGuard.Contracts | Warning |
+| `DG007` | Entity Length Exceeds Column | CLI (chỉ khai báo) | DataGuard.Length | Error |
+| `DG008` | Multi-Byte Length Overflow Risk | CLI (chỉ khai báo) | DataGuard.Length | Warning |
+| `DG009` | Inferred Size Fallback Risk | CLI (chỉ khai báo) | DataGuard.Length | Warning |
+| `DG010` | Oracle Syntax in Non-Oracle Context | CLI (chỉ khai báo) | DataGuard.Dialect | Warning |
+| `DG011` | Non-Oracle Function in Oracle Context | CLI (chỉ khai báo) | DataGuard.Dialect | Warning |
+| `DG012` | Provider Option Mismatch | CLI (chỉ khai báo) | DataGuard.Dialect | Error |
+| `DG013` | SQL Server Syntax Leak | CLI (chỉ khai báo) | DataGuard.Dialect | Warning |
+| `DG014` | Unmapped Type Usage | CLI (chỉ khai báo) | DataGuard.Dialect | Warning |
+| `DG015` | Phantom Table Reference | CLI (chỉ khai báo) | DataGuard.Contracts | Error |
+| `DG016` | Phantom Column Reference | CLI (chỉ khai báo) | DataGuard.Contracts | Error |
+| `DG017` | Avoid SELECT * | Analyzer và CLI | DataGuard.Performance | Warning |
+| `DG097` | Stored procedure command text form | Chỉ analyzer | DataGuard.Contracts | Warning |
+| `DG098` | Raw SQL query missing FROM clause | Chỉ analyzer | DataGuard.Contracts | Warning |
+| `DG099` | Potential SQL injection pattern | Chỉ analyzer | DataGuard.Security | Warning |
 
-Tất cả diagnostic ID được định nghĩa dưới dạng hằng số trong lớp `DiagnosticIds`:
+> **DG097 (mới).** Trước đây analyzer báo "Stored procedure call must start with EXEC or EXECUTE" bằng `DG002`,
+> trong khi ở engine `DG002` nghĩa là *khớp kiểu tham số*, và nó báo sai khi có khoảng trắng đầu (`"  EXEC ..."`).
+> Heuristic nay là `DG097` và báo khi (a) command text chỉ là tên procedure kèm `@tham_số` (`"dbo.ArchiveOrders @id"`)
+> và (b) `CommandType.StoredProcedure` nhưng text có tiền tố `EXEC`/`EXECUTE`/`CALL`. Mục `.editorconfig` cho
+> `DG002` cũ của analyzer nên chuyển sang `DG097`.
 
-| ID | Tên | Lớp | Danh mục |
-|----|-----|-----|----------|
-| `DG001` | UnvalidatedSqlCall | IDE | DataGuard.IDE |
-| `DG002` | ParameterMismatch | CI | DataGuard.Contracts |
-| `DG003` | DirectionMismatch | CI | DataGuard.Contracts |
-| `DG004` | ColumnShapeMismatch | CI | DataGuard.Contracts |
-| `DG005` | NullableMismatch | CI | DataGuard.Contracts |
-| `DG006` | NamingConvention | CI | DataGuard.Contracts |
-| `DG007` | LengthExceedsColumn | CI | DataGuard.Length |
-| `DG008` | ByteLengthOverflow | CI | DataGuard.Length |
-| `DG009` | InferredSizeFallback | CI | DataGuard.Length |
-| `DG010` | OracleSyntaxInNonOracle | CI | DataGuard.Dialect |
-| `DG011` | NonOracleFunctionInOracle | CI | DataGuard.Dialect |
-| `DG012` | ProviderOptionMismatch | CI | DataGuard.Dialect |
-| `DG013` | SqlServerSyntaxLeak | CI | DataGuard.Dialect |
+## UnvalidatedSqlCallGenerator (DG001)
 
-> **Lưu ý về Stored Procedures:**
-> Các lệnh gọi stored procedure phát hiện qua `CommandType.StoredProcedure` (ADO.NET hoặc Dapper) thiết lập thuộc tính `RawSqlDescriptor.IsStoredProcedure = true`. Quy tắc `DG013` (rò rỉ cú pháp SQL Server) được bỏ qua đối với các lệnh gọi stored procedure tổng hợp này, và `DG101` (kiểm tra số lượng tham số) sẽ bỏ qua việc đếm token tham số inline vì tham số được truyền qua đối tượng riêng (out-of-band).
-| `DG014` | UnmappedTypeUsage | CI | DataGuard.Dialect |
-| `DG015` | PhantomTable | CI | DataGuard.Contracts |
-| `DG016` | PhantomColumn | CI | DataGuard.Contracts |
-| `DG098` | MissingFromClause | CI | DataGuard.Contracts |
-| `DG099` | SqlInjectionPattern | CI | DataGuard.Security |
+`IIncrementalGenerator` báo DG001 tại invocation của mọi lệnh SQL được nhận diện. Pipeline:
 
-## IDE Light Layer — UnvalidatedSqlCallGenerator
+1. **Predicate** (`SqlCallSyntax.IsCandidate`, mỗi node, không duyệt cây): tên method là API raw-SQL của EF Core, bắt
+   đầu bằng `Query`/`Execute`, hoặc có đối số `CommandType.StoredProcedure`.
+2. **Transform** (`SqlCallSyntax.Classify`, chỉ syntax): phân loại lệnh gọi và trả về record
+   `SqlCallModel(Path, Start, Length, Method, Kind, Sql, ContainingType, LineSpan)` so sánh bằng giá trị. Model không
+   giữ syntax node hay `Location`, nên call site không đổi được lấy từ cache ở lần gõ phím sau (tracked step
+   `DataGuard.SqlCallModels`).
+3. **Output**: ánh xạ path của model về syntax tree của compilation (một lần tra dictionary mỗi call site) và báo DG001
+   với location trong source, nên squiggle, `#pragma` và code fix đều hoạt động.
 
-`IIncrementalGenerator` chạy trên mỗi lần gõ phím với phân tích chỉ cú pháp.
-Thiết kế này giữ công việc có giới hạn và incremental; không có claim latency hay
-allocation end-to-end cho đến khi scenario Roslyn host có measurement tương ứng.
+### Lệnh SQL được nhận diện
 
-### Flow phát hiện
+| Loại | Quy tắc |
+|------|---------|
+| **EF Core** | `FromSqlRaw`, `FromSqlInterpolated`, `FromSql`, `SqlQueryRaw`, `SqlQuery`: theo tên method trên **mọi** receiver (`db.Orders`, tham số/biến `DbSet<T>`, `db.Set<T>()`) |
+| **ExecuteSql** | `ExecuteSqlRaw(Async)`, `ExecuteSqlInterpolated(Async)`, `ExecuteSql(Async)`: theo tên method, kể cả SQL không phải literal (SQL động chính là trường hợp chưa xác thực) |
+| **Dapper** | `Query*`, `Execute*` (gồm `QueryFirst*`, `QuerySingle*`, `QueryMultiple`, `ExecuteScalar`) chỉ khi đối số SQL là SQL text (literal, chuỗi verbatim/raw/interpolated, phép nối, hoặc biến local/const có initializer như vậy, bắt đầu bằng từ khóa câu lệnh) **hoặc** truyền `CommandType.StoredProcedure` |
+| **ADO.NET** | `ExecuteReader`/`ExecuteNonQuery`/`ExecuteScalar`(`Async`) không có đối số chuỗi chỉ khi cùng identifier được gán `CommandText = ...`, `CommandType = StoredProcedure`, `new XxxCommand("...")` hoặc `new XxxCommand { CommandText = ... }` trong member bao quanh (hoặc command được tạo inline) |
+| **Helper** | Mọi lệnh gọi khác truyền `CommandType.StoredProcedure` (`db.RunHelper("GET_METRICS", CommandType.StoredProcedure)`) |
 
-```mermaid
-flowchart LR
-    A[Source Text] --> B{IsPotentialSqlCall?}
-    B -->|Không| Z[Bỏ qua]
-    B -->|Có| C{Có marker comment?}
-    C -->|Có| Z
-    C -->|Không| D[ExtractSqlCallSite]
-    D --> E[Báo DG001]
-```
+Không báo: `ICommand.Execute(null)`, `index.QueryTerms(5)`, `QueryText("selected products")`,
+`command.ExecuteNonQuery()` không có command text trong phạm vi, SQL chỉ nằm trong comment, và SQL literal truyền cho
+method không liên quan.
 
-### Phương thức SQL được nhận diện
+### Ẩn diagnostic
 
-| Danh mục | Phương thức |
-|----------|-------------|
-| **EF Core** | `FromSqlRaw`, `FromSqlInterpolated` |
-| **ExecuteSql** | `ExecuteSqlRaw`, `ExecuteSqlRawAsync`, `ExecuteSqlInterpolated`, `ExecuteSqlInterpolatedAsync` |
-| **Dapper** | `Query*`, `Execute*` (khớp tiền tố) |
-| **Raw SQL** | Bất kỳ phương thức nào với literal chuỗi chứa từ khóa SQL |
+- `[SkipContractCheck]` / `[SkipContractCheckAttribute]` trên method, local function, type hoặc type bao ngoài (so
+  khớp syntax theo tên attribute).
+- Comment `// DataGuard: ...` trên câu lệnh bao quanh.
 
-### Phát hiện từ khóa SQL
+### Chi phí mỗi lần gõ phím
 
-Kiểm tra: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `EXEC`, `BEGIN`, `WITH`, `MERGE`
+`tools/benchmarks` → `GeneratorKeystrokeBenchmark` chạy lại driver đã warm sau khi sửa một ký tự trong file 2.000 dòng
+có 50 lệnh SQL (`dotnet run -c Release -- --keystroke-only --short`). Số đo trên máy sandbox tại thời điểm thay đổi
+này (BenchmarkDotNet ShortRun, không phải gate): **Keystroke ≈ 4,6 ms** trung bình (StdDev ±0,4 ms, ~298 KB cấp phát);
+driver lạnh trên cùng file ≈ 3,3 ms.
 
-### Ẩn bằng marker comment
+## ContractValidationAnalyzer
 
-Comment `// DataGuard: ...` trên câu lệnh bao quanh sẽ ẩn diagnostic DG001. Được sử dụng khi developer xác nhận lệnh SQL và hoãn xác thực sang CI.
+`DiagnosticAnalyzer` đăng ký `RegisterSyntaxNodeAction(..., SyntaxKind.InvocationExpression)` (bên trong
+compilation-start action giữ chỉ mục type lười). Nó không gọi semantic API. Với mỗi lệnh gọi được `SqlCallSyntax` nhận
+diện (cùng quy tắc với DG001, trừ command ADO.NET không có đối số SQL), nó áp dụng heuristic văn bản trên đối số SQL và
+báo **mọi diagnostic tại span của đối số SQL**:
 
-### Đặc điểm hiệu suất
+| Kiểm tra | Diagnostic | Quy tắc |
+|----------|------------|---------|
+| Dấu hiệu injection | DG099 | `;--`, `1=1`, `' or '1'='1`, `UNION SELECT`, `DROP TABLE`, `xp_cmdshell`, `sp_executesql`, `EXECUTE IMMEDIATE`, ... (như nhau trên đường EF, ExecuteSql và Dapper, kể cả text `EXEC ...`) |
+| Ghép giá trị vào raw SQL | DG099 | Nối chuỗi với toán hạng không phải hằng, hoặc chuỗi interpolated có hole, truyền vào API raw (`*Raw`, Dapper, helper). API tham số hóa (`FromSqlInterpolated`, `ExecuteSqlInterpolated`, `FromSql`, `ExecuteSql`, `SqlQuery`) được miễn. Biến local và field `const`/`readonly` được lần theo tới initializer. |
+| Dạng text stored procedure | DG097 | Xem ở trên |
+| Thiếu FROM | DG098 | `SELECT` không có `FROM` (không áp dụng cho `CommandType.StoredProcedure`) |
+| SELECT * | DG017 | `SELECT *`, `SELECT TOP n *`, `SELECT DISTINCT *`, `SELECT t.*`, chuỗi nhiều dòng và raw string; bỏ qua comment và chuỗi SQL (dùng chung `SqlClassifier`). Kèm `ExplicitColumns` khi biết type ánh xạ, code fix DG017 dùng giá trị này. |
+| Shape result set | DG004 | Danh sách SELECT literal so với property scalar của type ánh xạ (`Query<T>`, multi-mapping `Query<T1, T2, TReturn>` → T1, T2; `FromSqlRaw<T>`, `SqlQueryRaw<T>`; receiver `DbSet<T>`). Tôn trọng `[Column("x")]`, `[NotMapped]`, snake_case và class cơ sở. Chỉ cho type **khai báo trong compilation này**, so khớp theo tên đơn; tên mơ hồ và SQL động được bỏ qua. |
 
-- **Chỉ cú pháp**: Không truy cập semantic model, không phân giải symbol
-- **Tập hợp tính trước**: `EfCoreMethods` và `ExecuteSqlMethods` là `HashSet<string>` cho tra cứu O(1)
-- **Lưu ý allocation**: `SqlCallSite` là `readonly struct`, nhưng điều đó không
-  khiến toàn bộ lần gọi generator trở thành zero-allocation
-- **Cache tăng dần**: Chỉ phân tích lại các nút cú pháp đã thay đổi
+### Chi phí của chỉ mục type
 
-## CI Heavy Layer — ContractValidationAnalyzer
+DG004 và fix DG017 cần property của type ánh xạ. `TypeShapeIndex` được dựng **lười, tối đa một lần mỗi compilation**,
+lần đầu một lệnh SQL thực sự có type đích: nó duyệt `Compilation.SyntaxTrees` nhưng chỉ đi vào khai báo namespace và
+type (không bao giờ vào thân member), nên chi phí tỷ lệ với số khai báo type/member. Project không có lệnh SQL như vậy
+không bao giờ dựng chỉ mục.
 
-`DiagnosticAnalyzer` thực hiện phân tích ngữ nghĩa đầy đủ với `IInvocationOperation`. Chạy trong pipeline CI để xác thực toàn diện.
+### Ẩn diagnostic
 
-### Flow phân tích
-
-```mermaid
-flowchart TD
-    A[OperationKind.Invocation] --> B{Có SkipContractCheck?}
-    B -->|Có| Z[Bỏ qua]
-    B -->|Không| C{Có marker comment?}
-    C -->|Có| Z
-    C -->|Không| D{Loại phương thức?}
-    D -->|EF Core FromSql| E[AnalyzeEfCoreFromSql]
-    D -->|ExecuteSqlRaw| F[AnalyzeExecuteSql]
-    D -->|Dapper Query| G[AnalyzeDapperQuery]
-    E --> H[ValidateEntityContract]
-    F --> I[ValidateRawSqlContract]
-    G --> I
-    H --> J[Báo Diagnostic]
-    I --> J
-```
-
-### Kiểm tra xác thực
-
-| Kiểm tra | Diagnostic | Mô tả |
-|----------|------------|-------|
-| Mẫu SQL injection | DG099 | Phát hiện `;--`, `' or '1'='1`, `UNION SELECT`, `DROP TABLE`, etc. |
-| Thiếu FROM clause | DG098 | SELECT không có FROM |
-| Định dạng stored proc | DG002 | Xác thực tiền tố EXEC/EXECUTE |
-
-### Tích hợp SkipContractCheck
-
-Phương thức hoặc kiểu bao quanh được trang trí `[SkipContractCheck]` sẽ tự động được loại khỏi cả bộ sinh cú pháp và phân tích semantic. Điều này khớp với quick fix DG001, vốn gắn thuộc tính lên caller bao quanh:
+`[SkipContractCheck]` (method, local function, type hoặc type bao ngoài, theo tên attribute) và comment marker
+`// DataGuard: ...` ẩn analyzer giống như generator. Code sinh tự động không được phân tích.
 
 ```csharp
 [SkipContractCheck(Reason = "Dynamic SQL - manual review required")]
 public IQueryable<T> Search(string query) => DbSet.FromSqlRaw(query);
 ```
 
-## DiagnosticDescriptors
-
-Tất cả descriptor được định nghĩa trong lớp nội bộ `DiagnosticDescriptors` với tên nhất quán:
-
-```csharp
-public static readonly DiagnosticDescriptor UnvalidatedSqlCall = new(
-    id: DiagnosticIds.UnvalidatedSqlCall,
-    title: "SQL call not validated",
-    messageFormat: "SQL call '{0}' not validated - run 'dataguard check' for full validation",
-    category: "DataGuard.IDE",
-    defaultSeverity: DiagnosticSeverity.Warning,
-    isEnabledByDefault: true);
-```
-
-### Mức độ nghiêm trọng
-
-| Mức độ | Diagnostics |
-|--------|-------------|
-| **Error** | DG002, DG003, DG004, DG007, DG012, DG015, DG016 |
-| **Warning** | DG001, DG005, DG006, DG008, DG009, DG010, DG011, DG013, DG014, DG098, DG099 |
-
 ## Sử dụng
-
-### Trong IDE (Visual Studio / VS Code)
-
-IDE Light Layer chạy tự động khi package analyzer DataGuard được tham chiếu:
 
 ```xml
 <PackageReference Include="DataGuard.Analyzers" Version="*" PrivateAssets="all" />
 ```
 
-Cảnh báo DG001 xuất hiện dưới dạng gạch chân xanh lá tại các vị trí gọi SQL.
-
-### Trong Pipeline CI
-
-CI Heavy Layer chạy như một phần của phân tích Roslyn tiêu chuẩn trong `dotnet build`:
+Cảnh báo DG001 hiện dưới dạng gạch chân tại call site SQL; các heuristic hiện tại đối số SQL. Xác thực với database là
+một bước CLI riêng:
 
 ```bash
-dotnet build -warnaserror:DG002,DG003,DG004  # Coi một số diagnostic là lỗi
+dataguard validate --project src/App/App.csproj --provider oracle
 ```
 
 ### Ẩn diagnostic
 
 ```csharp
 #pragma warning disable DG001 // Acknowledged SQL call
-var results = context.Customers.FromSqlRaw("SELECT * FROM Customers");
+var results = context.Customers.FromSqlRaw("SELECT Id, Name FROM Customers");
 #pragma warning restore DG001
 ```
 
@@ -224,4 +191,5 @@ Hoặc qua `.editorconfig`:
 ```ini
 [*.cs]
 dotnet_diagnostic.DG001.severity = none
+dotnet_diagnostic.DG097.severity = suggestion
 ```

@@ -1,0 +1,37 @@
+{
+  "testCase": "NEG_001",
+  "category": "Negative",
+  "description": "CTE name is not a catalog table and its columns resolve through the CTE",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "WITH recent AS (SELECT id, customer_id FROM orders WHERE order_date > :since) SELECT r.id, c.full_name FROM recent r JOIN customers c ON c.id = r.customer_id",
+    "provider": "Oracle",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "ORDERS",
+          "columns": [
+            "ID",
+            "CUSTOMER_ID",
+            "ORDER_DATE",
+            "TOTAL_AMOUNT",
+            "STATUS"
+          ]
+        },
+        {
+          "name": "CUSTOMERS",
+          "columns": [
+            "ID",
+            "FULL_NAME",
+            "EMAIL"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

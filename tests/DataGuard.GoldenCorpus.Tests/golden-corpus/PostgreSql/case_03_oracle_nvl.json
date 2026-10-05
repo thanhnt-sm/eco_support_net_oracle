@@ -1,0 +1,39 @@
+{
+  "testCase": "PG_003",
+  "category": "PostgreSql",
+  "description": "Oracle NVL used in a PostgreSQL query (should be COALESCE)",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT id, NVL(status, 'new') AS status FROM orders WHERE customer_id = $1",
+    "provider": "PostgreSql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "orders",
+          "columns": [
+            "id",
+            "customer_id",
+            "status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "PG002",
+      "messageContains": "Oracle NVL() used in PostgreSQL context. Use COALESCE()",
+      "severity": "Warning"
+    },
+    {
+      "ruleId": "DG010",
+      "messageContains": "[Migration: Oracle -> postgresql] Keyword 'NVL' is unsupported",
+      "severity": "Warning"
+    }
+  ],
+  "notes": "The PostgreSQL adapter reports NVL once (PG002; the dedicated NVL() pattern supersedes the keyword list) and the shared Oracle-leak rule (DG010) names PostgreSQL, the context provider, as the migration target."
+}

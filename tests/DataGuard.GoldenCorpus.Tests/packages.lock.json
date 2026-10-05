@@ -200,8 +200,8 @@
       },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "vHPomsJPqUvf1ExdzCCSEUMQqloONPTBMGqNqBUdr4UgSTs9bCzH1oLkuS6WgUgIu+xqWngQbjelUBNlDuzLWQ=="
+        "resolved": "10.0.1",
+        "contentHash": "E1HSLkPHXEO30JEij2pWbOuzz1Z5ND4a5l7IP1T2RgQuE0a0NzEIvtO64RNy3Otn6PFezbT80cfm3M/Cgt70PA=="
       },
       "Microsoft.Bcl.Cryptography": {
         "type": "Transitive",
@@ -218,8 +218,8 @@
       },
       "Microsoft.CodeAnalysis.Analyzers": {
         "type": "Transitive",
-        "resolved": "5.9.0",
-        "contentHash": "jMNOo+uoBGiWbZ6Wx0dqU93r5WD4P5WnIRZdoz67RP5N09OUetHgAbo4L7hihOH1NHdD2TgW5/l+SP4gQukwww=="
+        "resolved": "5.9.0-1.26328.17",
+        "contentHash": "HP9NNk8ZjOSI2hgOyXnQg+kv7/X837Vr2nAlXiGAtqtYnYKjRRa1UmQFr8KFs5ynGYKqfbb8zB9APoWjiAGdMg=="
       },
       "Microsoft.CodeAnalysis.Common": {
         "type": "Transitive",
@@ -421,53 +421,6 @@
         "resolved": "10.0.12",
         "contentHash": "9/qymSh7hVDMGTGwrLz8MRp5zRyXy9adGDOs4HwRdnLil3oZGYuWeZjbmHgCQ9BL1qBroVfgUK3U/nb61617Cw=="
       },
-      "Microsoft.Extensions.Diagnostics.Abstractions": {
-        "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "fMp91qlRlMOuHfMyp7LuAnOS+MOeWTF1obJmyFcs4nZCXu6pr+QB1AbFJcl2qpBltBrqF/Y7+Rn9IuNcSuctig==",
-        "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.12",
-          "Microsoft.Extensions.Options": "10.0.12",
-          "System.Diagnostics.DiagnosticSource": "10.0.12"
-        }
-      },
-      "Microsoft.Extensions.Diagnostics.HealthChecks": {
-        "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "Ck8nkBxEYPOGtUCp0whKwfE4qAHBnsK0DY1kgZLKvzf7s9xyr4lASa4K4AKNN1VHy7r3Z1Z57U6C0TMzFjD8ig==",
-        "dependencies": {
-          "Microsoft.Bcl.AsyncInterfaces": "10.0.12",
-          "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions": "10.0.12",
-          "Microsoft.Extensions.Hosting.Abstractions": "10.0.12",
-          "Microsoft.Extensions.Logging.Abstractions": "10.0.12",
-          "Microsoft.Extensions.Options": "10.0.12"
-        }
-      },
-      "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions": {
-        "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "oN4AYFq+50m7a65GgRxRqjdynWS6kVQAH6gHKRTfsrLP/aH7RvxIQ7139fjbnrxBwzfZQtZRhlcjvEIiRzihrg=="
-      },
-      "Microsoft.Extensions.FileProviders.Abstractions": {
-        "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "iQseV6HixWzEYQH4i++84ToIroXnM5jC1TJF4EqBz3lWNG1HBTMYDLkRb6Wm3wk5V6WqSfl7NukO/LYsloGyfg==",
-        "dependencies": {
-          "Microsoft.Extensions.Primitives": "10.0.12"
-        }
-      },
-      "Microsoft.Extensions.Hosting.Abstractions": {
-        "type": "Transitive",
-        "resolved": "10.0.12",
-        "contentHash": "ZlIxIJtWmrph0Ikj0svSaTkZ+d+ZYpTAhazpf1b3aoFRmlNnNWwkcvqnqT9yKHjKvfBRthvUrkq11OxfItOhpg==",
-        "dependencies": {
-          "Microsoft.Extensions.Configuration.Abstractions": "10.0.12",
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.12",
-          "Microsoft.Extensions.Diagnostics.Abstractions": "10.0.12",
-          "Microsoft.Extensions.FileProviders.Abstractions": "10.0.12",
-          "Microsoft.Extensions.Logging.Abstractions": "10.0.12"
-        }
-      },
       "Microsoft.Extensions.Logging": {
         "type": "Transitive",
         "resolved": "10.0.12",
@@ -627,8 +580,13 @@
       },
       "System.Collections.Immutable": {
         "type": "Transitive",
-        "resolved": "10.0.3",
-        "contentHash": "gpKPycgDFS2oAPr0yaqwBmShE1ya4yMMkn3lxBPcXrsCI4KL10xSu0cSUzeajQ7LKjb3EsUAgjhBiPGrGU6vSQ=="
+        "resolved": "10.0.12",
+        "contentHash": "tRMzrybcwEEaudfpL9ghzfnSjEVVuhKa5sR86q30mYxXJdcKOLSBkpMFm62CGsbB50diPZta73Pxu8DgjGdDbA=="
+      },
+      "System.CommandLine": {
+        "type": "Transitive",
+        "resolved": "2.0.12",
+        "contentHash": "FpW672e6qqrTd1EfKqsvUtFZaJWlTlszUR1o8tdakXhkzKbnEZVndtpfd4K3fUPCFcIs9UmcswMyYGJP1zp/rg=="
       },
       "System.Composition": {
         "type": "Transitive",
@@ -746,10 +704,19 @@
       },
       "System.Reflection.Metadata": {
         "type": "Transitive",
-        "resolved": "10.0.1",
-        "contentHash": "zpcfT/wacPPhE17zcudozlxQtWN/84qyiMyZNGLnK4cj2IMBtLsZYwYjVnALUhPliwyUVj/P7kaZvBWYBCnf2Q==",
+        "resolved": "10.0.12",
+        "contentHash": "GvhJ5dVmJAw89wCWCyHXaU4A9iZjUtAW/ucshV6EpDW3l7VD8zHSWO14SHVD3m3jSuSE+FcNTrQFquJSQqJVVA==",
         "dependencies": {
-          "System.Collections.Immutable": "10.0.1"
+          "System.Collections.Immutable": "10.0.12"
+        }
+      },
+      "System.Reflection.MetadataLoadContext": {
+        "type": "Transitive",
+        "resolved": "10.0.12",
+        "contentHash": "+DWu1fzj75I1FgdHSg3crgeZmfF2z55x1+OXF2IO2Lcq/iNgM9tL734pxAG0vo5iE82FVPHwbqUt31o8ipPBWg==",
+        "dependencies": {
+          "System.Collections.Immutable": "10.0.12",
+          "System.Reflection.Metadata": "10.0.12"
         }
       },
       "System.Runtime.CompilerServices.Unsafe": {
@@ -865,27 +832,37 @@
           "System.Composition.Hosting": "[10.0.12, )"
         }
       },
+      "dataguard.cli": {
+        "type": "Project",
+        "dependencies": {
+          "AWSSDK.SecretsManager": "[4.0.100.14, )",
+          "DataGuard.Analyzers": "[1.0.0, )",
+          "DataGuard.Core": "[1.0.0, )",
+          "DataGuard.MySql.Adapter": "[1.0.0, )",
+          "DataGuard.Oracle.Adapter": "[1.0.0, )",
+          "DataGuard.PostgreSql.Adapter": "[1.0.0, )",
+          "DataGuard.SqlServer.Adapter": "[1.0.0, )",
+          "System.CommandLine": "[2.0.12, )"
+        }
+      },
       "dataguard.contracts": {
         "type": "Project"
       },
       "dataguard.core": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Contracts": "[1.0.0, )",
           "Microsoft.CodeAnalysis.CSharp": "[5.9.0, )",
           "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
           "Microsoft.EntityFrameworkCore": "[9.0.20, )",
           "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
           "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
           "Microsoft.Extensions.Configuration": "[10.0.12, )",
           "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.Extensions.Diagnostics.HealthChecks": "[10.0.12, )",
           "Microsoft.Extensions.Logging": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
           "System.Composition.Hosting": "[10.0.12, )",
+          "System.Reflection.MetadataLoadContext": "[10.0.12, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )",
           "System.Text.Json": "[10.0.12, )",
           "YamlDotNet": "[18.1.0, )"
@@ -894,72 +871,30 @@
       "dataguard.mysql.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "MySqlConnector": "[2.6.2, )",
-          "System.Text.Json": "[10.0.12, )"
+          "MySqlConnector": "[2.6.2, )"
         }
       },
       "dataguard.oracle.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "Oracle.ManagedDataAccess.Core": "[23.26.301, )",
-          "System.Text.Json": "[10.0.12, )"
+          "Oracle.ManagedDataAccess.Core": "[23.26.301, )"
         }
       },
       "dataguard.postgresql.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "Npgsql": "[10.0.3, )",
-          "System.Text.Json": "[10.0.12, )"
+          "Npgsql": "[10.0.3, )"
         }
       },
       "dataguard.sqlserver.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
           "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "System.Text.Json": "[10.0.12, )"
+          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )"
         }
       }
     },

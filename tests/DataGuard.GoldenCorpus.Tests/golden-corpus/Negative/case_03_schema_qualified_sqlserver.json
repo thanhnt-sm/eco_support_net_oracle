@@ -1,0 +1,28 @@
+{
+  "testCase": "NEG_003",
+  "category": "Negative",
+  "description": "Schema-qualified dbo.Orders resolves against a SQL Server catalog keyed by schema.name",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT o.Id, o.CustomerId FROM dbo.Orders o WHERE o.Status = @status",
+    "provider": "SqlServer",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "dbo.Orders",
+          "columns": [
+            "Id",
+            "CustomerId",
+            "OrderDate",
+            "Status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

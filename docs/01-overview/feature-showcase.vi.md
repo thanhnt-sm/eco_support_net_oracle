@@ -94,7 +94,7 @@ graph TD
 | **DG010** | Cú Pháp Oracle Ngoài Oracle | Warning | Từ khóa Oracle (`ROWNUM`, `NVL`, `SYSDATE`, `DECODE`) hoặc toán tử (`(+)`, `\|\|`) dùng ngoài ngữ cảnh Oracle. |
 | **DG011** | Hàm Không-Oracle Trong Oracle | Warning | Cú pháp SQL Server (`TOP`, `LIMIT`, `GROUP_CONCAT`, `GETDATE`) dùng trong ngữ cảnh Oracle. Đề xuất tương đương Oracle. |
 | **DG012** | Sai Lệch Provider | Error | Phát hiện ngữ cảnh Oracle nhưng provider EF Core không phải Oracle. Thiếu `UseOracle()` trong cấu hình. |
-| **DG013** | Rò Rỉ Cú Pháp SQL Server | Warning | Cú pháp `EXEC dbo.Procedure` của SQL Server dùng trong ngữ cảnh Oracle. Oracle dùng `BEGIN ... END;` hoặc `CALL`. |
+| **DG013** | Rò Rỉ Cú Pháp SQL Server | Warning | Cú pháp `EXEC dbo.Procedure` hoặc định danh trong ngoặc vuông (`[Col]`) của SQL Server dùng trong ngữ cảnh Oracle. Oracle dùng `BEGIN ... END;` hoặc `CALL`, và `"Col"` cho định danh có trích dẫn. |
 | **DG014** | Type Chưa Ánh Xạ | Warning | Type dùng với raw SQL Oracle EF Core nhưng không được ánh xạ bởi provider. Có thể gây lỗi mapping runtime. |
 
 ### Quy Tắc Phantom Identifier (DataGuard.Core)

@@ -1,0 +1,28 @@
+{
+  "testCase": "NEG_007",
+  "category": "Negative",
+  "description": "Bracket-quoted identifiers are native T-SQL and must not be flagged in a SQL Server context",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT [o].[Id], [o].[Status] FROM [dbo].[Orders] AS [o] WHERE [o].[CustomerId] = @customerId",
+    "provider": "SqlServer",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "dbo.Orders",
+          "columns": [
+            "Id",
+            "CustomerId",
+            "OrderDate",
+            "Status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

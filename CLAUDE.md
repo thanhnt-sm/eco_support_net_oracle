@@ -9,7 +9,8 @@
 
 ## Ranh giới sản phẩm
 
-- Production DataGuard nằm trong `src/`; test production nằm trong `tests/DataGuard.Core.Tests/` và `tests/DataGuard.GoldenCorpus.Tests/`.
+- Production DataGuard nằm trong `src/`; test production là 7 project dưới `tests/`: `DataGuard.Core.Tests/`, `DataGuard.GoldenCorpus.Tests/`, `DataGuard.Analyzers.Tests/`, `DataGuard.CodeFixes.Tests/`, `DataGuard.Observability.Tests/`, `DataGuard.VisualStudio.Tests/` (Windows) và `DataGuard.BinaryCompatibilityFixture/` (consumer fixture public API, CI chỉ compile); shell test `tests/git-tools/*.sh`.
+- CI build/test `DataGuard.CrossPlatform.slnf` trên Linux (`build-and-test` loại `Category=LiveDb`; `live-db-integration` chạy `Category=LiveDb`) và `DataGuard.VisualStudio` + `DataGuard.VisualStudio.Tests` trên Windows.
 - `docs/`, `plans/`, `research/`, `grants/`, và `brainstorm/` là tài liệu hoặc tri thức, không phải production source.
 - `.github/`, `.githooks/`, `scripts/`, `tools/`, root build manifests, Docker files và configuration đã được CI dùng là operational surface.
 - `.omp/` là runtime/handoff OMP; `.omo/` là config/state của tool khác. Cache local và session state không phải tài liệu.
@@ -26,4 +27,4 @@
 
 - Thay đổi DataGuard: dùng `dotnet restore DataGuard.sln`, `dotnet build DataGuard.sln --configuration Release`, và test project/suite bị ảnh hưởng.
 - Thay đổi workflow/container: kiểm tra YAML/actionlint và Docker smoke test khi daemon sẵn sàng.
-- Thay đổi documentation/rules: chạy `./scripts/verify_docs_sync.sh`; lưu ý script này hiện chỉ kiểm tra hiện diện, nên plan cleanup phải nâng nó thành validation nội dung DataGuard.
+- Thay đổi documentation/rules: chạy `./scripts/verify_docs_sync.sh`; script kiểm tra hiện diện tài liệu, licence, bảng rule trong README (`scripts/gen_rule_table.py --check`) và CLI flag trong `docs/USAGE.md` so với `src/DataGuard.Cli/**`.

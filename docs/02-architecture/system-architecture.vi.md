@@ -122,7 +122,7 @@ graph TB
 | **L1 — Contracts** | `netstandard2.0` | Attributes chia sẻ (`SkipContractCheck`, `ExpectedColumn`, `ExpectedSpParameter`), quy ước đặt tên (`snake_case` ↔ `PascalCase`). Không phụ thuộc runtime. |
 | **L2 — Core Engine** | `net9.0` | Domain model (`Contracts.cs`), rules engine (DG001–DG016), nguồn contract (EF Core, SQL parsers), bảo mật zero-trust, quản lý baseline, báo cáo SARIF, validation đồng thời, hệ thống plugin MEF, telemetry, engine đánh giá, API công khai. |
 | **L3 — Adapters** | `net9.0` | Readers đặc thù database. Oracle đọc `ALL_ARGUMENTS`/`ALL_TAB_COLUMNS`. SQL Server dùng `ScriptDom` + `SqlConnection`. MySQL/PostgreSQL dùng information_schema. Mỗi adapter triển khai `IContractSource`. |
-| **L4 — Công Cụ** | mixed | CLI (`System.CommandLine`), Roslyn analyzers (tầng IDE nhẹ + tầng CI nặng), code fix providers. |
+| **L4 — Công Cụ** | mixed | CLI (`System.CommandLine`), Roslyn analyzers (tầng IDE chỉ dùng syntax), code fix providers. |
 | **L5 — IDE Hosts** | mixed | VS 2022 extension (VSIX, `net472`), VS Code extension (TypeScript, npm). |
 
 ---
@@ -152,7 +152,7 @@ flowchart LR
         C3["ColumnShapeMatchRule<br/>DG003"]
         C4["NullableMismatchRule<br/>DG004"]
         C5["NamingConventionRule<br/>DG005"]
-        C6["PhantomIdentifierRule<br/>DG015/DG016"]
+        C6["PhantomTableRule / PhantomColumnRule<br/>DG015/DG016"]
         C7["LengthMismatchRule<br/>DG006"]
         C8["DialectCheckRule<br/>DG007"]
         CN["... DG008–DG014"]
@@ -314,13 +314,12 @@ graph TB
         end
 
         subgraph "Rules Engine"
-            RULES["Rules<br/>ContractRuleBase · DG001–DG016<br/>PhantomIdentifierRule"]
+            RULES["Rules<br/>ContractRuleBase · DG001–DG019<br/>PhantomTableRule · PhantomColumnRule"]
             RDG["RuleDependencyGraph<br/>Sắp xếp topo · Deps có sẵn"]
         end
 
         subgraph "Sources"
             EF["EfModelSource<br/>Runtime IModel · Design-time Snapshot"]
-            SP["SqlServerParsers<br/>ScriptDom · SqlParameterVisitor"]
             MANUAL["ManualContractSource<br/>Ground truth dựa trên attribute"]
         end
 
@@ -369,7 +368,7 @@ graph TB
     API --> CVE
     CVE --> RULES
     RULES --> ABS
-    EF & SP & MANUAL --> ABS
+    EF & MANUAL --> ABS
     RULES --> RDG
     DE --> ABS
     BM --> ABS
@@ -409,7 +408,7 @@ DataGuard được thiết kế để mở rộng ở mọi tầng:
 | Contracts target | `netstandard2.0` | Tương thích IDE host tối đa (VS, VS Code, Roslyn) |
 | Parse SQL | `ScriptDom` | Parser T-SQL chính thức của Microsoft, phân tích cấp AST |
 | Truy cập Oracle | `ODP.NET Managed` | `ALL_ARGUMENTS`/`ALL_TAB_COLUMNS` cho ground truth |
-| Mô hình analyzer | Tầng kép | IDE: `IIncrementalGenerator` (chỉ syntax, ~ms). CI: `DiagnosticAnalyzer` (semantic đầy đủ) |
+| Mô hình analyzer | Tầng IDE chỉ syntax | `IIncrementalGenerator` (DG001) + `DiagnosticAnalyzer` syntax-node action (heuristic SQL literal); kiểm tra database chỉ trong CLI |
 | Hệ thống plugin | MEF 2 (`System.Composition`) | Khám phá cấp assembly, không cần cấu hình runtime |
 | Định dạng output | SARIF 2.1.0 | Tiêu chuẩn ngành, GitHub Code Scanning native |
 | Ký | Sigstore cosign | Keyless, dựa trên OIDC, không cần quản lý secret |

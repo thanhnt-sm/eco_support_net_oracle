@@ -2,8 +2,8 @@ namespace DataGuard.Oracle.Adapter;
 
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.TypeCompatibility;
 using Microsoft.CodeAnalysis;
-using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 /// <summary>
 /// Oracle dialect checker - detects Oracle-specific syntax in non-Oracle context and vice versa.
@@ -46,12 +46,52 @@ public class OracleDialectChecker : IDialectAnalyzer
         ["REGEXP_INSTR"] = "Use CHARINDEX or PATINDEX; no direct equivalent without CLR",
     };
 
+    // Target-specific hints that replace the SQL Server wording above when the migration target is PostgreSQL or MySQL.
+    private static readonly Dictionary<string, Dictionary<string, string>> TargetKeywordMigrations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["postgresql"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DUAL"] = "Remove FROM DUAL: PostgreSQL allows SELECT without FROM",
+            ["ROWNUM"] = "Use LIMIT n or ROW_NUMBER() OVER (ORDER BY …) (ANSI SQL)",
+            ["SYSDATE"] = "Use CURRENT_TIMESTAMP or NOW() (PostgreSQL)",
+            ["SYSTIMESTAMP"] = "Use CURRENT_TIMESTAMP or CLOCK_TIMESTAMP() (PostgreSQL)",
+            ["NEXTVAL"] = "Use nextval('sequence_name') or an IDENTITY column (PostgreSQL)",
+            ["CURRVAL"] = "Use currval('sequence_name') or RETURNING (PostgreSQL)",
+            ["ROWID"] = "Use a primary key column (ctid is not stable across updates)",
+            ["LISTAGG"] = "Use STRING_AGG(col, ',' ORDER BY col) (PostgreSQL)",
+            ["WM_CONCAT"] = "Use STRING_AGG(col, ',') (PostgreSQL)",
+            ["XMLAGG"] = "Use STRING_AGG or xmlagg() (PostgreSQL)",
+            ["REGEXP_LIKE"] = "Use the ~ / ~* operators (PostgreSQL)",
+            ["REGEXP_SUBSTR"] = "Use substring(text FROM pattern) or regexp_match() (PostgreSQL)",
+            ["REGEXP_INSTR"] = "Use regexp_match() or strpos() (PostgreSQL 15+: regexp_instr)",
+        },
+        ["mysql"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DUAL"] = "FROM DUAL is optional in MySQL; remove it",
+            ["ROWNUM"] = "Use LIMIT n or ROW_NUMBER() OVER (ORDER BY …) (MySQL 8+)",
+            ["SYSDATE"] = "Use NOW() or CURRENT_TIMESTAMP (MySQL)",
+            ["SYSTIMESTAMP"] = "Use NOW(6) or CURRENT_TIMESTAMP(6) (MySQL)",
+            ["NEXTVAL"] = "Use an AUTO_INCREMENT column (MySQL has no sequences)",
+            ["CURRVAL"] = "Use LAST_INSERT_ID() (MySQL)",
+            ["ROWID"] = "Use a primary key column",
+            ["LISTAGG"] = "Use GROUP_CONCAT(col ORDER BY col SEPARATOR ',') (MySQL)",
+            ["WM_CONCAT"] = "Use GROUP_CONCAT(col) (MySQL)",
+            ["XMLAGG"] = "Use GROUP_CONCAT or JSON_ARRAYAGG (MySQL)",
+            ["REGEXP_LIKE"] = "Use REGEXP_LIKE() or the REGEXP operator (MySQL 8+)",
+        },
+    };
+
     // Maps Oracle operator to migration hint. Key preserved as "operator" property.
     private static readonly Dictionary<string, string> OracleOperatorMigrations = new(StringComparer.OrdinalIgnoreCase)
     {
         ["(+)"] = "Replace Oracle outer-join (+) with ANSI LEFT JOIN / RIGHT JOIN syntax",
         ["**"] = "Use POWER(base, exponent) (ANSI SQL)",
     };
+
+    private static readonly System.Text.RegularExpressions.Regex BracketIdentifierPattern = new(
+        @"\[(?<name>[A-Za-z_][A-Za-z0-9_$# ]*)\]",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
 
     private static readonly HashSet<string> SqlServerKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -61,7 +101,8 @@ public class OracleDialectChecker : IDialectAnalyzer
     };
 
     /// <summary>
-    /// Checks for Oracle syntax in non-Oracle context.
+    /// Checks for Oracle syntax in non-Oracle context. <paramref name="targetProvider"/> is the migration target named in
+    /// the message (<c>[Migration: Oracle -&gt; postgresql]</c>) and selects target-specific hints for PostgreSQL and MySQL.
     /// </summary>
     /// <returns></returns>
     public IReadOnlyList<ContractViolation> CheckOracleSyntaxInNonOracleContext(
@@ -80,10 +121,12 @@ public class OracleDialectChecker : IDialectAnalyzer
         var sanitized = MaskCommentsAndLiterals(sqlText);
 
         // Check for Oracle-specific keywords (emits "keyword" and "migration" properties).
-        foreach (var (keyword, hint) in OracleKeywordMigrations)
+        TargetKeywordMigrations.TryGetValue(targetProvider ?? string.Empty, out var targetHints);
+        foreach (var (keyword, defaultHint) in OracleKeywordMigrations)
         {
             if (ContainsKeyword(sanitized, keyword))
             {
+                var hint = targetHints is not null && targetHints.TryGetValue(keyword, out var targetHint) ? targetHint : defaultHint;
                 violations.Add(new ContractViolation(
                     "DG010",
                     $"[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)",
@@ -232,6 +275,22 @@ public class OracleDialectChecker : IDialectAnalyzer
                 DiagnosticSeverity.Warning,
                 location));
         }
+
+        // T-SQL bracket-quoted identifiers ([Col], PIVOT ... IN ([Q1])) are a syntax error in Oracle, which quotes
+        // identifiers with double quotes. Literals and comments are already masked, so a '[' here is never data.
+        // An EXEC [dbo].[Proc] statement is already reported above; one DG013 per statement is enough.
+        var bracket = BracketIdentifierPattern.Match(sanitized);
+        if (violations.Count == 0 && bracket.Success)
+        {
+            var identifier = bracket.Groups["name"].Value;
+            violations.Add(new ContractViolation(
+                "DG013",
+                $"SQL Server bracket-quoted identifier '[{identifier}]' used in Oracle context. Use \"{identifier}\" or an unquoted name.",
+                DiagnosticSeverity.Warning,
+                location,
+                new Dictionary<string, object?> { { "identifier", identifier } }));
+        }
+
         return violations;
     }
 
@@ -291,11 +350,29 @@ public class OracleDialectChecker : IDialectAnalyzer
 }
 
 /// <summary>
-/// Rule: Oracle syntax in non-Oracle context.
+/// Rule: Oracle syntax in non-Oracle context. Stored-procedure call descriptors (synthesized SQL) are skipped.
+/// The message names the context provider as the migration target (<c>Oracle -&gt; postgresql</c> under PostgreSQL).
 /// </summary>
+/// <remarks>
+/// The rule reports Oracle syntax only outside a Oracle context. The context of a raw-SQL descriptor is its
+/// <see cref="RawSqlDescriptor.ConnectionProviderHint"/>, or, when the descriptor carries no hint, the provider the rule
+/// was built for (<c>ProviderRuleCatalog</c> passes the catalog provider). When that context is <c>oracle</c> the rule is a
+/// no-op, so the provider's own syntax is never reported as foreign. Built without a provider and given no hint, the
+/// rule keeps its original behavior and treats the context as non-Oracle.
+/// </remarks>
 public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 {
-    private readonly OracleDialectChecker _checker = new();
+    private static readonly OracleDialectChecker Analyzer = new();
+
+    /// <summary>Initializes a new instance of the <see cref="OracleSyntaxInNonOracleContextRule"/> class.</summary>
+    /// <param name="provider">Provider the rule runs for when a descriptor carries no provider hint; null = unknown.</param>
+    public OracleSyntaxInNonOracleContextRule(string? provider = null)
+    {
+        Provider = string.IsNullOrWhiteSpace(provider) ? null : TypeCompatibilityRegistry.NormalizeProvider(provider);
+    }
+
+    /// <summary>Gets the normalized fallback provider, or null.</summary>
+    public string? Provider { get; }
 
     public override string RuleId => "DG010";
 
@@ -311,11 +388,19 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
-            var checker = new OracleDialectChecker();
-            var isOracle = false; // This rule detects Oracle syntax leaking into non-Oracle (SQL Server) context
-            violations.AddRange(checker.CheckOracleSyntaxInNonOracleContext(rawSql.SqlText, isOracle, contract.Location));
+            var context = string.IsNullOrWhiteSpace(rawSql.ConnectionProviderHint)
+                ? Provider
+                : TypeCompatibilityRegistry.NormalizeProvider(rawSql.ConnectionProviderHint);
+
+            // Oracle syntax leaking into a non-Oracle context: the analyzer's non-target direction, with the context
+            // provider as the migration target (SQL Server when the context is unknown, as before).
+            violations.AddRange(Analyzer.CheckOracleSyntaxInNonOracleContext(
+                rawSql.SqlText,
+                isOracleContext: string.Equals(context, "oracle", StringComparison.Ordinal),
+                contract.Location,
+                context ?? "sqlserver"));
         }
 
         return Task.CompletedTask;
@@ -323,10 +408,12 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 }
 
 /// <summary>
-/// Rule: Non-Oracle syntax in Oracle context.
+/// Rule: Non-Oracle syntax in Oracle context. Stored-procedure call descriptors (synthesized SQL) are skipped.
 /// </summary>
 public class NonOracleFunctionInOracleContextRule : ContractRuleBase
 {
+    private static readonly IDialectAnalyzer Analyzer = new OracleDialectChecker();
+
     public override string RuleId => "DG011";
 
     public override string Name => "Non-Oracle Function in Oracle Context";
@@ -341,10 +428,9 @@ public class NonOracleFunctionInOracleContextRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
-            var checker = new OracleDialectChecker();
-            violations.AddRange(checker.CheckNonOracleSyntaxInOracleContext(rawSql.SqlText, true, contract.Location));
+            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: true, contract.Location));
         }
 
         return Task.CompletedTask;
@@ -376,7 +462,8 @@ public class ProviderOptionMismatchRule : ContractRuleBase
 }
 
 /// <summary>
-/// Rule: SQL Server syntax leak in Oracle context.
+/// Rule: SQL Server syntax leak in Oracle context. Stored-procedure call descriptors are skipped: their SQL text
+/// (<c>EXEC PKG.PROC</c>) is synthesized by the extractor from <c>CommandType.StoredProcedure</c>, not written by the user.
 /// </summary>
 public class SqlServerSyntaxLeakRule : ContractRuleBase
 {
@@ -386,7 +473,7 @@ public class SqlServerSyntaxLeakRule : ContractRuleBase
 
     public override DiagnosticSeverity Severity => DiagnosticSeverity.Warning;
 
-    public override string Description => "SQL Server EXEC syntax used in Oracle context";
+    public override string Description => "SQL Server EXEC syntax or bracket-quoted identifiers used in Oracle context";
 
     protected override Task ValidateCoreAsync(
         ContractDescriptor contract,
@@ -394,7 +481,7 @@ public class SqlServerSyntaxLeakRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
             var checker = new OracleDialectChecker();
             violations.AddRange(checker.CheckSqlServerSyntaxLeak(rawSql.SqlText, true, contract.Location));

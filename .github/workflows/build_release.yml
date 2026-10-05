@@ -48,10 +48,45 @@ jobs:
           echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
           echo "artifact_suffix=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
 
+  # Same C# test gate as ci.yml's build-and-test (LiveDb tests excluded; they run in ci.yml's
+  # live-db-integration job). Every packaging job needs it, so no artifact is built from a red suite.
+  test:
+    name: Build and test (C#)
+    runs-on: ubuntu-latest
+    needs: validate-input
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.CROSS_PLATFORM_SOLUTION }} --locked-mode
+
+      - name: Build solution
+        run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb"
+
   publish-cli:
     name: Publish CLI (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
-    needs: validate-input
+    needs: [validate-input, test]
     strategy:
       fail-fast: false
       matrix:
@@ -109,7 +144,6 @@ jobs:
           --output "${{ runner.temp }}/cli-${{ matrix.rid }}"
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:TreatWarningsAsErrors=false
           -p:Version="${{ needs.validate-input.outputs.version }}"
           --no-restore
 
@@ -168,7 +202,7 @@ jobs:
   package-vscode:
     name: Package VS Code extension
     runs-on: ubuntu-latest
-    needs: validate-input
+    needs: [validate-input, test]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -176,9 +210,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
+
+      # prepare-lsp publishes DataGuard.LanguageServer into server/ with dotnet.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Install and test
         working-directory: ${{ env.VSCODE_DIR }}
@@ -186,6 +226,9 @@ jobs:
           npm ci
           npm test
 
+      # Same recipe as release.yml: prepare-lsp must run before vsce so the VSIX carries
+      # server/DataGuard.LanguageServer.dll (loaded by extension.ts). `--no-install` pins vsce to the
+      # version in package-lock.json (installed by `npm ci`); npx never downloads a different one.
       - name: Package VSIX and checksum
         working-directory: ${{ env.VSCODE_DIR }}
         env:
@@ -193,7 +236,8 @@ jobs:
         run: |
           set -euo pipefail
           npm pkg set version="$VERSION"
-          npx @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
+          npm run prepare-lsp
+          npx --no-install @vscode/vsce package --out "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
           (cd "$RUNNER_TEMP" && sha256sum "dataguard-vscode-$VERSION.vsix") > "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
           test -s "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix"
           test -s "$RUNNER_TEMP/dataguard-vscode-$VERSION.vsix.sha256"
@@ -210,10 +254,25 @@ jobs:
   package-visualstudio:
     name: Package Visual Studio extension
     runs-on: windows-latest
-    needs: validate-input
+    needs: [validate-input, test]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Same unit-test gate as ci.yml/release.yml, run against the committed source before the
+      # manifest/version patch so the artifact never packages untested extension code.
+      - name: Restore Visual Studio tests
+        run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
+
+      - name: Run Visual Studio tests
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
 
       - name: Set VSIX manifest version
         shell: pwsh
@@ -225,6 +284,12 @@ jobs:
           [xml]$manifest = Get-Content -LiteralPath $manifestPath
           $manifest.PackageManifest.Metadata.Identity.Version = $env:VERSION
           $manifest.Save((Resolve-Path -LiteralPath $manifestPath))
+          # Keep the compiled fallback (Help -> About, log banner, assert) in step with the manifest.
+          $versionSource = "$env:VISUAL_STUDIO_DIR/ExtensionVersion.cs"
+          $content = Get-Content -LiteralPath $versionSource -Raw
+          if ($content -notmatch 'Fallback = "[^"]+"') { throw "ExtensionVersion.Fallback constant not found in $versionSource" }
+          $updated = $content -replace 'Fallback = "[^"]+"', ('Fallback = "' + $env:VERSION + '"')
+          Set-Content -LiteralPath $versionSource -Value $updated -NoNewline
 
       - name: Locate MSBuild
         id: msbuild
@@ -235,15 +300,33 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($msbuild)) { throw "MSBuild was not found" }
           "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+      # Same packaging command as ci.yml's Visual Studio VSIX Packaging Gate.
       - name: Build and package VSIX
         shell: pwsh
         env:
           MSBUILD: ${{ steps.msbuild.outputs.path }}
+        run: |
+          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Shared gate with ci.yml/release.yml/installers.yml (scripts/assert-vsix.ps1): bundled CLI,
+      # analyzers, pkgdef and a manifest version equal to the version patched in above.
+      - name: Assert VSIX contents
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.validate-input.outputs.version }}
+        run: |
+          $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
+          if ($null -eq $vsix) { throw 'VSSDK build did not produce a VSIX' }
+          & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage VSIX and checksum
+        shell: pwsh
+        env:
           VERSION: ${{ needs.validate-input.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          & $env:MSBUILD "$env:VISUAL_STUDIO_DIR/DataGuard.VisualStudio.csproj" /restore /t:Build /p:Configuration=Release /p:DeployExtension=false /m
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $vsix = Get-ChildItem "$env:VISUAL_STUDIO_DIR/bin/Release" -Filter '*.vsix' -Recurse | Select-Object -First 1
           if ($null -eq $vsix) { throw "VSSDK build did not produce a VSIX" }
           $output = Join-Path $env:RUNNER_TEMP "dataguard-visualstudio-$env:VERSION.vsix"
@@ -265,7 +348,7 @@ jobs:
   package-nuget:
     name: Package NuGet artifacts
     runs-on: ubuntu-latest
-    needs: validate-input
+    needs: [validate-input, test]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -410,7 +493,7 @@ jobs:
     name: Build Docker OCI smoke artifact
     if: inputs.include_docker == true
     runs-on: ubuntu-latest
-    needs: validate-input
+    needs: [validate-input, test]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

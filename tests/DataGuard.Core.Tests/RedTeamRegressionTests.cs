@@ -116,6 +116,19 @@ public class RedTeamRegressionTests : IDisposable
         violations.Should().ContainSingle(v => v.RuleId == "DG101");
     }
 
+    [Theory]
+    [InlineData("EXECUTE GET_CUSTOMER_BY_ID")]
+    [InlineData("execute dbo.usp_GetCustomer")]
+    [InlineData("   exec dbo.usp_GetCustomer")]
+    public async Task DG101_ExecuteKeywordAndCase_NoParams_Fires(string sql)
+    {
+        // Mutation guard (red-team mutation check): the legacy heuristic must accept EXECUTE, lower case and leading whitespace.
+        var rule = new ParameterCountRule();
+        var desc = new RawSqlDescriptor("x", sql, new List<ParameterDescriptor>(), new List<ColumnDescriptor>());
+        var violations = await rule.ValidateAsync(desc, new List<ContractDescriptor>(), CancellationToken.None);
+        violations.Should().ContainSingle(v => v.RuleId == "DG101");
+    }
+
     // ── OracleDialectChecker property keys (3.I.4) ───────────────────────────
     [Fact]
     public void OracleDialect_DG010_Keyword_HasKeywordKey()
@@ -218,6 +231,83 @@ public class RedTeamRegressionTests : IDisposable
         var contracts = await ExtractContractsAsync(Code);
         contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(
             d => d.IsStoredProcedure == true && d.ProcedureName == "MY_PROC");
+    }
+
+    [Fact]
+    public async Task SqlSource_AdoStoredProcedureWithVisibleParameters_ArgumentsKnown()
+    {
+        const string Code = """
+            using System.Data;
+            using System.Data.SqlClient;
+
+            class Repository
+            {
+                void CallSp(SqlConnection conn, int id)
+                {
+                    var cmd = new SqlCommand("GET_CUSTOMER_BY_ID", conn);
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(Code);
+        var call = contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(d => d.IsStoredProcedure).Subject;
+        call.ArgumentsKnown.Should().BeTrue();
+        call.Parameters.Should().ContainSingle(p => p.Name == "@Id");
+    }
+
+    [Theory]
+    [InlineData("AddParameters(cmd.Parameters, id);")] // the collection is filled by a helper
+    [InlineData("")] // no Parameters collection use at all
+    public async Task SqlSource_AdoStoredProcedureWithUnseenParameters_ArgumentsNotKnown(string parameterStatement)
+    {
+        var code = $$"""
+            using System.Data;
+            using System.Data.SqlClient;
+
+            class Repository
+            {
+                void CallSp(SqlConnection conn, int id)
+                {
+                    var cmd = new SqlCommand("GET_CUSTOMER_BY_ID", conn);
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    {{parameterStatement}}
+                    cmd.ExecuteNonQuery();
+                }
+
+                static void AddParameters(SqlParameterCollection parameters, int id) => parameters.AddWithValue("@Id", id);
+            }
+            """;
+        var contracts = await ExtractContractsAsync(code);
+        contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(d => d.IsStoredProcedure)
+            .Which.ArgumentsKnown.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("new { Id = id }", true)]
+    [InlineData("null", true)]
+    [InlineData("BuildParameters(id)", false)]
+    public async Task SqlSource_DapperStoredProcedure_ArgumentsKnownOnlyWhenTheParamObjectIsVisible(string param, bool known)
+    {
+        var code = $$"""
+            using System.Data;
+
+            class Repository
+            {
+                void CallSp(System.Data.IDbConnection conn, int id)
+                {
+                    Execute(conn, "MY_PROC", {{param}}, commandType: CommandType.StoredProcedure);
+                }
+
+                static object BuildParameters(int id) => new { Id = id };
+
+                static void Execute(System.Data.IDbConnection cnn, string sql, object param = null, CommandType? commandType = null) { }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(code);
+        contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(d => d.IsStoredProcedure && d.ProcedureName == "MY_PROC")
+            .Which.ArgumentsKnown.Should().Be(known);
     }
 
     [Fact]

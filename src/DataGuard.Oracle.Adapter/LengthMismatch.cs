@@ -3,6 +3,7 @@ namespace DataGuard.Oracle.Adapter;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.Sql;
 using Microsoft.CodeAnalysis;
 
 /// <summary>
@@ -162,23 +163,143 @@ public class LengthSemanticsResolver
 }
 
 /// <summary>
+/// Database facts that change how many bytes a .NET string needs in an Oracle column.
+/// </summary>
+/// <param name="DatabaseCharset">NLS_CHARACTERSET (VARCHAR2/CHAR/CLOB), or null when unknown.</param>
+/// <param name="NationalCharset">NLS_NCHAR_CHARACTERSET (NVARCHAR2/NCHAR/NCLOB), or null when unknown.</param>
+/// <param name="MaxStringSize">MAX_STRING_SIZE: STANDARD (4000-byte VARCHAR2) or EXTENDED (32767).</param>
+public sealed record OracleLengthContext(string? DatabaseCharset, string? NationalCharset, string MaxStringSize = "STANDARD")
+{
+    /// <summary>Gets the context used when nothing is known (unknown charset, STANDARD limits).</summary>
+    public static OracleLengthContext Unknown { get; } = new(null, null);
+}
+
+/// <summary>
+/// Oracle character-set arithmetic for length checks.
+/// </summary>
+public static class OracleCharsets
+{
+    /// <summary>
+    /// Worst-case bytes one UTF-16 code unit (one <c>char</c> of a .NET string, the unit EF <c>MaxLength</c> counts) needs in
+    /// <paramref name="charset"/>: AL32UTF8/UTF8 = 3 (a BMP character is at most 3 bytes; a supplementary character is
+    /// 2 units / 4 bytes), AL16UTF16/UTF16 = 2, single-byte sets (US7*, WE8*, EE8*, ...) = 1, 16-bit multibyte sets = 2
+    /// (EUC = 3), GB18030 = 4, unknown = 3. When <paramref name="isUnicode"/> is false (EF <c>IsUnicode(false)</c>, data
+    /// is declared single-byte) the cost is the charset's minimum: 2 for UTF-16 sets, otherwise 1.
+    /// </summary>
+    /// <returns>Bytes per UTF-16 code unit.</returns>
+    public static int BytesPerUtf16Unit(string? charset, bool isUnicode)
+    {
+        var name = Normalize(charset);
+        if (IsUtf16(name))
+        {
+            return 2;
+        }
+
+        if (!isUnicode)
+        {
+            return 1;
+        }
+
+        return name switch
+        {
+            "" => 3,
+            "AL32UTF8" or "UTF8" or "UTFE" => 3,
+            _ when name.Contains("GB18030", StringComparison.Ordinal) => 4,
+            _ when IsSingleByte(name) => 1,
+            _ when IsSixteenBit(name) => name.Contains("EUC", StringComparison.Ordinal) ? 3 : 2,
+            _ => 3,
+        };
+    }
+
+    /// <summary>
+    /// Maximum bytes of one character in <paramref name="charset"/> (Oracle's own CHAR-semantics accounting): AL32UTF8 = 4,
+    /// UTF8 = 3, AL16UTF16 = 2, single-byte = 1, 16-bit sets = 2 (EUC = 3), GB18030 = 4, unknown = 4.
+    /// </summary>
+    /// <returns>Bytes per character.</returns>
+    public static int MaxBytesPerCharacter(string? charset)
+    {
+        var name = Normalize(charset);
+        return name switch
+        {
+            "" => 4,
+            "AL32UTF8" => 4,
+            "UTF8" or "UTFE" => 3,
+            _ when IsUtf16(name) => 2,
+            _ when name.Contains("GB18030", StringComparison.Ordinal) => 4,
+            _ when IsSingleByte(name) => 1,
+            _ when IsSixteenBit(name) => name.Contains("EUC", StringComparison.Ordinal) ? 3 : 2,
+            _ => 4,
+        };
+    }
+
+    /// <summary>
+    /// Byte ceiling of a character column type: CHAR/NCHAR = 2000; VARCHAR2/NVARCHAR2 = 4000, or 32767 when
+    /// <paramref name="maxStringSize"/> is EXTENDED; null for LOB/other types.
+    /// </summary>
+    /// <returns>The byte ceiling, or null.</returns>
+    public static int? MaxColumnBytes(string? dataType, string? maxStringSize)
+    {
+        var extended = string.Equals(maxStringSize?.Trim(), "EXTENDED", StringComparison.OrdinalIgnoreCase);
+        return dataType?.Trim().ToUpperInvariant() switch
+        {
+            "CHAR" or "NCHAR" => 2000,
+            "VARCHAR2" or "VARCHAR" or "NVARCHAR2" => extended ? 32767 : 4000,
+            _ => null,
+        };
+    }
+
+    /// <summary>Returns true for national character types (NVARCHAR2/NCHAR/NCLOB).</summary>
+    /// <returns>True for national types.</returns>
+    public static bool IsNationalType(string? dataType)
+        => dataType?.Trim().ToUpperInvariant() is "NVARCHAR2" or "NCHAR" or "NCLOB";
+
+    private static string Normalize(string? charset)
+    {
+        var name = charset?.Trim().ToUpperInvariant() ?? string.Empty;
+        return name == "UNKNOWN" ? string.Empty : name;
+    }
+
+    private static bool IsUtf16(string name) => name is "AL16UTF16" or "AL16UTF16LE" or "UTF16";
+
+    private static bool IsSingleByte(string name)
+        => System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Z]{1,4}[78][A-Z0-9]*$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+
+    private static bool IsSixteenBit(string name)
+        => System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Z]{1,4}16[A-Z0-9]*$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+}
+
+/// <summary>
 /// Detects length mismatches between entity properties and Oracle columns.
 /// </summary>
 public class LengthMismatchDetector
 {
     private readonly EfCoreInferenceSimulator _inferenceSimulator = new();
 
+    /// <summary>Detects mismatches without database charset facts (unknown charset ⇒ 3 bytes per UTF-16 unit).</summary>
+    /// <returns>The violations.</returns>
     public IEnumerable<ContractViolation> Detect(
         EntityDescriptor entity,
         IReadOnlyList<ColumnDescriptor> columns,
         LengthSemantics sessionSemantics)
+        => Detect(entity, columns, sessionSemantics, OracleLengthContext.Unknown);
+
+    /// <summary>
+    /// Detects DG007 (chars over CHAR_LENGTH), DG008 (worst-case bytes over the column's byte capacity) and DG009
+    /// (EF NVARCHAR2(2000) fallback over a LOB). The byte capacity is DATA_LENGTH for BYTE-semantics columns and
+    /// <c>min(CHAR_LENGTH × maxBytesPerChar(charset), 2000|4000|32767)</c> for CHAR-semantics columns; the entity's worst
+    /// case is <c>MaxLength × BytesPerUtf16Unit(charset, IsUnicode)</c>.
+    /// </summary>
+    /// <returns>The violations.</returns>
+    public IEnumerable<ContractViolation> Detect(
+        EntityDescriptor entity,
+        IReadOnlyList<ColumnDescriptor> columns,
+        LengthSemantics sessionSemantics,
+        OracleLengthContext? context)
     {
+        context ??= OracleLengthContext.Unknown;
         foreach (var property in entity.Properties)
         {
-            var column = columns.FirstOrDefault(c =>
-                string.Equals(c.Name, property.ColumnName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(c.Name, ToOracleColumnName(property.Name), StringComparison.OrdinalIgnoreCase));
-
+            var column = FindColumn(property, columns);
             if (column == null)
             {
                 continue;
@@ -201,39 +322,41 @@ public class LengthMismatchDetector
                         new Dictionary<string, object?>
                         {
                             { "property", property.Name },
+                            { "column", column.Name },
                             { "entityMaxLength", property.MaxLength.Value },
                             { "columnMaxLength", columnCharLength.Value },
                         });
                 }
             }
 
-            // 2. Byte semantics overflow risk
-            // Prefer the authoritative per-column char_used (B=BYTE, C=CHAR); fall
-            // back to the session NLS length semantics only when the column is silent.
-            var columnIsByteSemantics = column.CharUsed == "B"
-                || string.Equals(column.CharUsed, "BYTE", StringComparison.OrdinalIgnoreCase)
-                || (string.IsNullOrEmpty(column.CharUsed) && sessionSemantics == LengthSemantics.Byte);
-            if (columnIsByteSemantics &&
-                property.MaxLength.HasValue &&
-                column.MaxLength.HasValue)
+            // 2. Byte capacity overflow risk. Prefer the authoritative per-column char_used (B=BYTE, C=CHAR); fall
+            //    back to the session NLS length semantics only when the column is silent.
+            if (property.MaxLength.HasValue &&
+                TryGetColumnByteCapacity(column, sessionSemantics, context, out var columnMaxBytes, out var byteSemantics))
             {
-                var maxBytesPerChar = IsUnicodeType(property.ClrTypeName) ? 4 : 1; // AL32UTF8 worst case (supplementary chars = 4 bytes)
-                var entityMaxBytes = property.MaxLength.Value * maxBytesPerChar;
+                var charset = ResolveCharset(column, context);
+                var isString = IsUnicodeType(property.ClrTypeName);
+                var bytesPerUnit = isString ? OracleCharsets.BytesPerUtf16Unit(charset, IsUnicode(property)) : 1;
+                var entityMaxBytes = (long)property.MaxLength.Value * bytesPerUnit;
 
-                if (entityMaxBytes > column.MaxLength.Value)
+                if (entityMaxBytes > columnMaxBytes)
                 {
                     yield return new ContractViolation(
                         "DG008",
                         $"Byte overflow risk: property '{property.Name}' may exceed column '{column.Name}' " +
-                        $"byte capacity in {sessionSemantics.ToString().ToUpperInvariant()} semantics",
+                        $"byte capacity in {(byteSemantics ? "BYTE" : "CHAR")} semantics: up to {entityMaxBytes} bytes " +
+                        $"({property.MaxLength.Value} × {bytesPerUnit} for {charset ?? "unknown charset"}) > {columnMaxBytes} bytes",
                         DiagnosticSeverity.Warning,
                         null,
                         new Dictionary<string, object?>
                         {
                             { "property", property.Name },
+                            { "column", column.Name },
                             { "entityMaxBytes", entityMaxBytes },
-                            { "columnMaxBytes", column.MaxLength.Value },
-                            { "semantics", sessionSemantics.ToString() },
+                            { "columnMaxBytes", columnMaxBytes },
+                            { "bytesPerUnit", bytesPerUnit },
+                            { "charset", charset },
+                            { "semantics", byteSemantics ? "Byte" : "Char" },
                         });
                 }
             }
@@ -255,6 +378,7 @@ public class LengthMismatchDetector
                         new Dictionary<string, object?>
                         {
                             { "property", property.Name },
+                            { "column", column.Name },
                             { "inferredType", "NVARCHAR2(2000)" },
                             { "dbColumnType", column.DataType },
                             { "referencedIssue", "dotnet/efcore#33218" },
@@ -264,11 +388,136 @@ public class LengthMismatchDetector
         }
     }
 
-    private static string ToOracleColumnName(string propertyName)
+    /// <summary>
+    /// Candidate Oracle column names for a property, in lookup order: the EF column name, the property name upper-cased
+    /// (<c>CustomerID</c> ⇒ <c>CUSTOMERID</c>) and the property name in UPPER_SNAKE_CASE (<c>CustomerID</c> ⇒ <c>CUSTOMER_ID</c>).
+    /// </summary>
+    /// <returns>Distinct candidate names.</returns>
+    public static IReadOnlyList<string> ToOracleColumnNames(PropertyDescriptor property)
     {
-        // Convert PascalCase to UPPER_SNAKE_CASE (Oracle convention)
-        return string.Concat(propertyName.Select((c, i) =>
-            i > 0 && char.IsUpper(c) ? "_" + char.ToUpperInvariant(c) : char.ToUpperInvariant(c).ToString()));
+        ArgumentNullException.ThrowIfNull(property);
+        var candidates = new List<string>(3);
+        if (!string.IsNullOrEmpty(property.ColumnName))
+        {
+            candidates.Add(property.ColumnName);
+        }
+
+        candidates.Add(property.Name.ToUpperInvariant());
+        candidates.Add(ToUpperSnakeCase(property.Name));
+        return candidates.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// Converts PascalCase to UPPER_SNAKE_CASE treating acronyms as one word: <c>FirstName</c> ⇒ <c>FIRST_NAME</c>,
+    /// <c>CustomerID</c> ⇒ <c>CUSTOMER_ID</c>, <c>HTMLBody</c> ⇒ <c>HTML_BODY</c>.
+    /// </summary>
+    /// <returns>The snake-case name.</returns>
+    public static string ToUpperSnakeCase(string propertyName)
+    {
+        var builder = new System.Text.StringBuilder(propertyName.Length + 4);
+        for (var i = 0; i < propertyName.Length; i++)
+        {
+            var c = propertyName[i];
+            if (i > 0 && char.IsUpper(c))
+            {
+                var previous = propertyName[i - 1];
+                var nextIsLower = i + 1 < propertyName.Length && char.IsLower(propertyName[i + 1]);
+                if (char.IsLower(previous) || char.IsDigit(previous) || (char.IsUpper(previous) && nextIsLower))
+                {
+                    builder.Append('_');
+                }
+            }
+
+            builder.Append(char.ToUpperInvariant(c));
+        }
+
+        return builder.ToString();
+    }
+
+    private static ColumnDescriptor? FindColumn(PropertyDescriptor property, IReadOnlyList<ColumnDescriptor> columns)
+    {
+        foreach (var candidate in ToOracleColumnNames(property))
+        {
+            var column = columns.FirstOrDefault(c => string.Equals(c.Name, candidate, StringComparison.Ordinal))
+                ?? columns.FirstOrDefault(c => string.Equals(c.Name, candidate, StringComparison.OrdinalIgnoreCase));
+            if (column != null)
+            {
+                return column;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryGetColumnByteCapacity(
+        ColumnDescriptor column,
+        LengthSemantics sessionSemantics,
+        OracleLengthContext context,
+        out long capacity,
+        out bool byteSemantics)
+    {
+        capacity = 0;
+        byteSemantics = column.CharUsed == "B"
+            || string.Equals(column.CharUsed, "BYTE", StringComparison.OrdinalIgnoreCase)
+            || (string.IsNullOrEmpty(column.CharUsed) && sessionSemantics == LengthSemantics.Byte);
+        if (byteSemantics)
+        {
+            if (!column.MaxLength.HasValue)
+            {
+                return false;
+            }
+
+            capacity = column.MaxLength.Value;
+            return true;
+        }
+
+        // CHAR semantics: CHAR_LENGTH characters, but never more than the type's byte ceiling.
+        var typeCeiling = OracleCharsets.MaxColumnBytes(column.DataType, context.MaxStringSize);
+        if (!column.CharLength.HasValue || column.CharLength.Value <= 0 || typeCeiling is null)
+        {
+            return false;
+        }
+
+        var charset = ResolveCharset(column, context);
+        capacity = Math.Min((long)column.CharLength.Value * OracleCharsets.MaxBytesPerCharacter(charset), typeCeiling.Value);
+        return true;
+    }
+
+    private static string? ResolveCharset(ColumnDescriptor column, OracleLengthContext context)
+    {
+        if (!string.IsNullOrWhiteSpace(column.Charset))
+        {
+            return column.Charset;
+        }
+
+        return OracleCharsets.IsNationalType(column.DataType) ? context.NationalCharset : context.DatabaseCharset;
+    }
+
+    /// <summary>
+    /// Reads the EF unicode facet from <c>Annotations["IsUnicode"]</c> (emitted by <c>EfModelSource</c>) or EF's own
+    /// <c>Unicode</c> annotation; absent means Unicode (EF's default for <c>string</c>).
+    /// </summary>
+    private static bool IsUnicode(PropertyDescriptor property)
+    {
+        if (property.Annotations is null)
+        {
+            return true;
+        }
+
+        foreach (var key in new[] { "IsUnicode", "Unicode" })
+        {
+            if (property.Annotations.TryGetValue(key, out var value) && value is not null)
+            {
+                return value switch
+                {
+                    bool flag => flag,
+                    string text when bool.TryParse(text, out var parsed) => parsed,
+                    _ => true,
+                };
+            }
+        }
+
+        return true;
     }
 
     private static bool IsUnicodeType(string clrTypeName)
@@ -384,8 +633,7 @@ internal static class LengthMismatchRuleHelper
             return Array.Empty<ContractViolation>();
         }
 
-        var table = schema.Tables.FirstOrDefault(t =>
-            string.Equals(t.Name, entity.TableName, StringComparison.OrdinalIgnoreCase));
+        var table = FindTable(schema.Tables, entity.TableName);
         if (table == null)
         {
             return Array.Empty<ContractViolation>();
@@ -393,9 +641,50 @@ internal static class LengthMismatchRuleHelper
 
         var semantics = string.Equals(schema.LengthSemantics, "BYTE", StringComparison.OrdinalIgnoreCase)
             ? LengthSemantics.Byte : LengthSemantics.Char;
+        var context = schema is OracleDatabaseSchemaDescriptor oracle
+            ? new OracleLengthContext(oracle.DatabaseCharset, oracle.NationalCharset, oracle.MaxStringSize)
+            : OracleLengthContext.Unknown;
 
-        return new LengthMismatchDetector().Detect(entity, table.Columns, semantics)
+        return new LengthMismatchDetector().Detect(entity, table.Columns, semantics, context)
             .Where(v => v.RuleId == ruleId)
             .ToList();
+    }
+
+    /// <summary>
+    /// Resolves an EF table name (<c>TABLE</c>, <c>SCHEMA.TABLE</c>, optionally quoted) against catalog tables whose name
+    /// may itself be bare or schema-qualified and whose <see cref="DatabaseTableDescriptor.Schema"/> may be set. Exact
+    /// (ordinal) name matches win over canonical (upper-folded) matches; a schema written on either side must agree; an
+    /// ambiguous bare name resolves to nothing.
+    /// </summary>
+    /// <returns>The single matching table, or null.</returns>
+    internal static DatabaseTableDescriptor? FindTable(IReadOnlyList<DatabaseTableDescriptor> tables, string entityTableName)
+    {
+        var wanted = SchemaObjectName.Parse(entityTableName);
+        if (wanted.Name.Length == 0)
+        {
+            return null;
+        }
+
+        var candidates = tables
+            .Select(table => (Table: table, Parts: SchemaObjectName.Parse(table.Name)))
+            .Select(item => (item.Table, Name: item.Parts.Name, Schema: item.Table.Schema ?? item.Parts.Schema))
+            .Where(item => wanted.Schema is null || item.Schema is null ||
+                string.Equals(SchemaObjectName.Canonical("oracle", item.Schema), SchemaObjectName.Canonical("oracle", wanted.Schema), StringComparison.Ordinal))
+            .ToList();
+
+        var exact = candidates.Where(item => string.Equals(item.Name, wanted.Name, StringComparison.Ordinal)).ToList();
+        var matches = exact.Count > 0
+            ? exact
+            : candidates.Where(item => string.Equals(
+                SchemaObjectName.Canonical("oracle", item.Name),
+                SchemaObjectName.Canonical("oracle", wanted.Name),
+                StringComparison.Ordinal)).ToList();
+
+        if (matches.Count > 1 && wanted.Schema is not null)
+        {
+            matches = matches.Where(item => item.Schema is not null).ToList();
+        }
+
+        return matches.Count == 1 ? matches[0].Table : null;
     }
 }

@@ -2,6 +2,7 @@
   "testCase": "H1_002",
   "category": "H1_Phantom_Identifier",
   "description": "AI invents a column name that doesn't exist in the database table",
+  "provenance": { "source": "manual", "model": null, "date": "2026-09-25" },
   "input": {
     "entity": {
       "name": "Customer",
@@ -13,6 +14,7 @@
       ]
     },
     "sql": "SELECT id, full_name, email, phone, address FROM customers WHERE id = :id",
+    "provider": "Oracle",
     "databaseSchema": {
       "tables": [
         { "name": "CUSTOMERS", "columns": ["ID", "FULL_NAME", "EMAIL", "PHONE"] }

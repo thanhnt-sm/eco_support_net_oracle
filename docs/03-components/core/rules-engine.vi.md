@@ -1,6 +1,6 @@
 # Rules Engine
 
-> Nguồn: `src/DataGuard.Core/Rules/ContractRules.cs`, `PhantomIdentifierRule.cs`, `RuleDependencyGraph.cs`
+> Nguồn: `src/DataGuard.Core/Rules/ (one file per rule; `ContractRuleBase.cs`, `ParameterCountRule.cs`, …)`, `PhantomTableRule.cs`, `PhantomColumnRule.cs`, `Sql/`, `RuleDependencyGraph.cs`
 
 Rules engine là trái tim của DataGuard. Nó chứa 11 rules tích hợp (DG001–DG009, DG015–DG016), đồ thị phụ thuộc để tối ưu thứ tự thực thi, và lớp trừu tượng mà mọi rules kế thừa.
 
@@ -19,7 +19,9 @@ flowchart TB
         CRB --> OLR1[OracleLengthRule<br/>DG007]
         CRB --> OLR2[OracleCharSemanticsRule<br/>DG008]
         CRB --> ISF[InferredSizeFallbackRule<br/>DG009]
-        CRB --> PIR[PhantomIdentifierRule<br/>DG015/DG016]
+        CRB --> PTB[PhantomTableRule<br/>DG015]
+        CRB --> PCL[PhantomColumnRule<br/>DG016]
+        CRB --> RPS[RawSqlParseStatusRule<br/>DG019]
     end
 
     subgraph Dependency Graph
@@ -115,9 +117,9 @@ So sánh các cột result set trích xuất từ mệnh đề `SELECT` với c�
 **Mức độ:** Warning
 **Phạm vi:** `EntityDescriptor` + `DatabaseSchemaDescriptor`
 
-So sánh annotation nullability của thuộc tính entity với nullability cột database:
-- Thuộc tính `[Required]` + cột DB nullable → violation
-- Thuộc tính tùy chọn + cột DB `NOT NULL` → violation
+So sánh `PropertyDescriptor.IsNullable` (annotation `Required` ép thành non-nullable) với nullability của cột được resolve theo `(entity.TableName, property.ColumnName)`. Tên entity dạng `SCHEMA.TABLE` được resolve theo key đầy đủ trước, sau đó theo tên trần; tên trần trùng ở nhiều schema, bảng hoặc cột không tồn tại thì không có finding. Không bao giờ gộp cột giữa các bảng. Cả hai chiều là Warning với message riêng và `Properties` `{entity, property, table, column}`:
+- Thuộc tính non-nullable + cột DB nullable → violation (đọc NULL lỗi lúc runtime)
+- Thuộc tính nullable + cột DB `NOT NULL` → violation (ghi null lỗi constraint)
 
 ### DG006 — NamingConventionRule
 
@@ -142,12 +144,13 @@ Rules đặc thù Oracle kiểm tra length semantics `VARCHAR2`/`NVARCHAR2`:
 
 Cảnh báo các thuộc tính mà `MaxLength` được suy ra từ giá trị mặc định CLR type thay vì được cấu hình rõ ràng — nguồn phổ biến lỗi cắt ngắn khi cột database nhỏ hơn giá trị mặc định.
 
-### DG015/DG016 — PhantomIdentifierRule
+### DG015 — PhantomTableRule / DG016 — PhantomColumnRule
 
 **Mức độ:** Error
 **Phạm vi:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
+**Nguồn:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, hợp đồng analyzer `Sql/IPhantomReferenceAnalyzer.cs`, analyzer tokenizer mặc định `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, tra cứu catalog `Sql/SchemaTableIndex.cs`, tên `Sql/SqlIdentifier.cs`); analyzer AST cho SQL Server `src/DataGuard.SqlServer.Adapter/TSqlPhantomAnalyzer.cs` + `TSqlPhantomScopeVisitor.cs`
 
-Phát hiện tham chiếu bảng/cột trong SQL không tồn tại trong schema database — một **chế độ lỗi ảo giác AI** phổ biến khi LLM tạo câu lệnh SQL.
+Phát hiện tham chiếu bảng/cột trong SQL không tồn tại trong schema database — một **chế độ lỗi ảo giác AI** phổ biến khi LLM tạo câu lệnh SQL. Hai ID là hai rule riêng, nên `--skip-rules DG015` hoặc `--skip-rules DG016` tắt đúng một loại finding. Lỗi parse raw SQL là rule khác, **DG019** (`RawSqlParseStatusRule`): với `sqlserver` rule parse từng contract raw SQL (không gồm lời gọi stored procedure) bằng `TSqlStatementParser` (ScriptDOM) của adapter SQL Server (điểm nối Core `Sql/ISqlStatementParser.cs`, được `ProviderRuleCatalog` inject); provider khác chỉ báo trạng thái parse đặt lúc thu thập.
 
 ```mermaid
 flowchart LR
@@ -160,11 +163,23 @@ flowchart LR
     CHECK --> |thiếu cột| DG016[DG016: Cột Ảo]
 ```
 
-**Chiến lược phát hiện:**
-1. Thu thập tên CTE (`WITH X AS (...)`) để loại trừ khỏi kiểm tra phantom
-2. Trích xuất tham chiếu bảng từ mệnh đề `FROM`/`JOIN` (loại bỏ schema qualifier)
-3. Kiểm tra tham chiếu cột qualified (`alias.column`) với các cột bảng đã biết
-4. Kiểm tra cột unqualified trong danh sách `SELECT` với bảng chính
+**Chiến lược phát hiện (dựa trên token, không regex):**
+1. Tokenize với comment (`--`, `/* */`) và string literal bị che, nên `FROM`/identifier bên trong không bao giờ được quét
+2. Đánh index bảng catalog theo cả `(schema, name)` và `name` trần (key catalog như `dbo.Orders` được tách bằng `SchemaObjectName.Parse`); tham chiếu được resolve theo key đầy đủ trước, sau đó theo tên trần. Khi raw SQL có provider hint (suy từ kiểu connection C#), tên bảng được fold theo dialect qua `SchemaObjectName.Canonical(provider, name)`: PostgreSQL hạ chữ thường và Oracle nâng chữ hoa với tên **không quote**; tên **có quote** giữ nguyên case và phải trùng đúng tên lưu trong catalog (`"Orders"` không resolve sang `orders`); SQL Server, MySQL và provider không rõ so sánh không phân biệt hoa thường. So khớp cột vẫn không phân biệt hoa thường. `SchemaObjectName.Canonical(name)` là key upper-case trung lập provider
+3. Thu thập mọi tên CTE của `WITH [RECURSIVE] a AS (...), b AS (...)`
+4. Trích xuất tham chiếu bảng từ `FROM`/`JOIN`, bỏ qua `FROM` trong `EXTRACT(`, `TRIM(`, `SUBSTRING(`, `OVERLAY(` và `IS [NOT] DISTINCT FROM`
+5. Coi là không xác định (không bao giờ phantom, không kiểm tra cột): CTE, derived table, table-valued function (`name(`), `#temp`, biến `@table`, tên ba phần cross-database, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`
+6. Kiểm tra `alias.column` qualified với tham chiếu bảng gần nhất trong scope (subquery trong cùng trước, nên alias dùng lại trong subquery resolve về bảng của subquery)
+7. Kiểm tra các item một identifier của từng danh sách `SELECT` (tách theo ngoặc) với hợp cột của mọi bảng mà `SELECT` đó tham chiếu; `AS alias` và alias ngầm phía sau là tên output, không bao giờ là tham chiếu cột
+
+Cả hai rule nhận `IPhantomReferenceAnalyzer` tùy chọn (mặc định: tokenizer ở trên); một kết quả cho mỗi raw SQL contract được cache và dùng chung cho DG015 và DG016. `ProviderRuleCatalog` truyền `TSqlPhantomAnalyzer` cho `--provider sqlserver`; mọi provider khác giữ tokenizer (parse AST cho dialect không phải T-SQL nằm ngoài phạm vi).
+
+**SQL Server (`TSqlPhantomAnalyzer`, ScriptDOM `TSql160Parser`, bật quoted identifier):**
+1. Placeholder phía client không phải T-SQL (`:name`, `{0}`, `?`) được đổi thành biến `@` ngoài literal/comment; còn lỗi parse ⇒ `ParseFailed`, không DG015/DG016 (DG019 báo lỗi parse)
+2. Một scope cho mỗi query specification và mỗi câu DML. Bảng gốc: `NamedTableReference` và đích DML (`INSERT INTO t`, `UPDATE t`, `DELETE FROM t`, `MERGE INTO t`; `UPDATE o … FROM dbo.Orders o` resolve `o` về nguồn trong FROM). Tên không qualified mặc định schema `dbo`; tra cứu theo `(schema, name)` rồi tên trần như tokenizer
+3. Nguồn mờ (không bao giờ báo; không kiểm tra cột): tên CTE trong `WITH` của câu lệnh (kể cả trong thân CTE đệ quy), derived table và bảng `VALUES`, TVF (`dbo.fn_X(@id)`, `STRING_SPLIT`), `OPENJSON`/`OPENROWSET`/`OPENQUERY`, output của `PIVOT`/`UNPIVOT`, `#temp`/`##temp`, biến `@table`, tên ba/bốn phần, `sys.*`, `INFORMATION_SCHEMA.*`, view cũ kiểu `sysobjects`. Synonym và view được kiểm tra như bảng trừ khi catalog chứa chúng
+4. `alias.column` / `schema.table.column` resolve qua chuỗi scope, trong cùng trước; qualifier không biết (`inserted`, `deleted`) được bỏ qua
+5. Cột không qualified: bỏ qua khi bất kỳ scope có nguồn nào trên chuỗi chứa nguồn mờ; ngược lại tìm trong bảng của scope trong cùng (hợp cột khi JOIN) hoặc scope ngoài (subquery tương quan), không thấy thì báo theo bảng của scope trong cùng. Alias output (`AS x`, `x = expr`, alias không `AS`), `SELECT *`/`o.*`, đối số date-part và `ORDER BY` của `UNION` không bao giờ là tham chiếu cột
 
 ## RuleDependencyGraph
 
@@ -177,7 +192,8 @@ graph TD
     DG002[DG002<br/>ParameterType] --> DG005[DG005<br/>NullableMismatch]
     DG101 --> DG006[DG006<br/>NamingConvention]
     DG004 --> DG006
-    DG015[DG015<br/>PhantomIdentifier]
+    DG015[DG015<br/>PhantomTable]
+    DG016[DG016<br/>PhantomColumn]
 
     style DG101 fill:#e1f5fe
     style DG002 fill:#e1f5fe
@@ -196,38 +212,16 @@ graph TD
 | **Nhóm song song** | `GetParallelGroups()` trả về rules có thể chạy đồng thời tại mỗi cấp |
 | **Phát hiện chu trình** | `Validate()` phát hiện phụ thuộc tuần hoàn |
 | **Truy vấn bắc cầu** | `GetTransitiveDependents()` / `GetTransitiveDependencies()` cho phân tích tác động |
-| **Nút giữ chỗ** | Phụ thuộc vào rules chưa đăng ký tạo nút giữ chỗ |
+| **Rule ID duy nhất** | `RegisterRule` ném `InvalidOperationException` khi một instance rule *khác* dùng lại ID đã đăng ký; đăng ký lại cùng instance là idempotent |
+| **Giữ chỗ, không bao giờ là rule no-op** | `RegisterDependencies` / `WithDependency` khai báo cạnh với placeholder null; đồ thị còn placeholder chưa giải quyết thì `Validate()` báo lỗi và không tạo được kế hoạch cho tới khi có rule thật cùng ID |
+| **Kế hoạch tất định** | Node, phụ thuộc, cấp và truy vấn bắc cầu duyệt theo `StringComparer.Ordinal`, không phụ thuộc thứ tự đăng ký |
 
 ### BuiltInRuleDependencies
 
-Đồ thị phụ thuộc cấu hình sẵn cho tất cả rules tích hợp:
+`BuiltInRuleDependencies.Edges` giữ các cạnh tích hợp theo rule ID (`DG003 → DG101`, `DG004 → DG101`, `DG005 → DG002`, `DG006 → DG004, DG101`). `CreateDefaultRules()` trả về các core rule trung lập provider (DG101, DG002–DG006, DG015–DG017, DG019 và DG018 không kết nối); `Create(rules)` ghép một danh sách rule bất kỳ với các cạnh đó, chỉ áp cạnh khi cả hai rule có mặt (nên `--skip-rules` không để lại placeholder). `CreateDefault()` là `Create(CreateDefaultRules())`. Một test giữ tập core rule ID bằng tập core rule mà mọi provider nhận từ `ProviderRuleCatalog` của CLI.
 
 ```csharp
-public static RuleDependencyGraph CreateDefault()
-{
-    var graph = new RuleDependencyGraph();
-
-    // Level 1: Kiểm tra tham số cơ bản (không phụ thuộc)
-    graph.AddRule(new ParameterCountRule());        // DG101
-    graph.AddRule(new ParameterTypeMatchRule());    // DG002
-
-    // Level 2: Hướng tham số (phụ thuộc vào sự tồn tại tham số)
-    graph.AddRule(new ParameterDirectionRule(), "DG101");
-
-    // Level 3: Shape cột (phụ thuộc vào sự tồn tại tham số)
-    graph.AddRule(new ColumnShapeMatchRule(), "DG101");
-
-    // Level 4: Nullable và khớp kiểu (phụ thuộc thông tin kiểu tham số)
-    graph.AddRule(new NullableMismatchRule(), "DG002");
-
-    // Level 5: Quy ước đặt tên (phụ thuộc tên tham số/cột)
-    graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
-
-    // Level 6: Phantom identifiers (schema ground truth)
-    graph.AddRule(new PhantomIdentifierRule());
-
-    return graph;
-}
+var graph = BuiltInRuleDependencies.Create(rules); // ném lỗi khi trùng rule ID
 ```
 
 ### Fluent API
@@ -236,8 +230,25 @@ public static RuleDependencyGraph CreateDefault()
 var graph = new RuleDependencyGraph()
     .AddRule(new ParameterCountRule())
     .AddRule(new ParameterDirectionRule(), "DG101")
-    .WithDependency("DG006", "DG101", "DG004");
+    .WithDependency("DG006", "DG004"); // placeholder cho tới khi đăng ký rule DG006 và DG004
 ```
+
+## Một pipeline validate duy nhất
+
+CLI và API thư viện ghép và thực thi rule cùng một cách (red-team B4/D3):
+
+1. **Danh sách rule.** `ProviderRuleCatalog.GetReadyRules(provider, connection, progress, strictProcedureContracts, defaultSchema, defaultPackage)` (CLI) trả về mọi đăng ký sẵn sàng của provider, cấu hình từ `.dataguard.yml` (`StrictProcedureContracts`, `DefaultSchema`, `DefaultPackage`). Rule đăng ký `Unavailable` được báo cáo, không thực thi.
+2. **Plugin.** `validate --plugins-dir <dir>` nạp DLL plugin qua `PluginAdmission` và nối thêm rule của chúng (xem [Plugins](plugins.vi.md)). `ValidationPipeline.WithPlugins` làm tương tự cho thư viện.
+3. **Ghép.** `BuiltInRuleDependencies.Create` (`ProviderRuleCatalog.Compose`) tạo một `RuleDependencyGraph`; trùng rule ID là lỗi.
+4. **Thực thi.** `GraphValidationExecutor.ValidateAsync(graph, contracts, concurrent, maxDegreeOfParallelism, maxViolationQueueSize)` chạy đồ thị theo cấp với song song có giới hạn khi `EnableConcurrentValidation` bật, ngược lại dùng `ValidateSequentialAsync`. Cả hai trả về violation sắp theo rule ID và message, outcome từng rule (rule ném lỗi là `Failed` và kết quả chưa đầy đủ) và `UnevaluatedContracts` được drain từ mọi rule sau mỗi lần chạy.
+
+Thư viện có thành phần giống CLI qua `ProviderRuleCatalog.CreatePipeline(provider, configuration)` hoặc `DataGuardApi.CreatePipeline(config).WithProviderRules(rules)`, thay rule mặc định và giữ rule thêm bằng `WithRules`/`WithPlugins`. `ValidationPipeline.Rules` liệt kê rule đã ghép; một test khẳng định kế hoạch của CLI và pipeline giống hệt nhau cho mọi provider. `ValidationResult.UnevaluatedContracts` mang các mục chưa đánh giá, và kết quả có mục đó không `IsClean`. `ConcurrentValidationEngine.StreamAsync(contracts, rules, unevaluated, ct)` gọi callback cho từng contract chưa đánh giá trước khi stream kết thúc.
+
+`ContractRuleBase` có `protected void MarkUnevaluated(ContractDescriptor contract, string reason)` và cài `IContractEvaluationStatusReporter`; `LiveSqlShapeValidationRule` dùng nó (báo `DG020`). Mọi lệnh CLI có validate dùng đường này: `validate` liệt kê contract chưa đánh giá và thoát 3 trừ khi `--allow-unevaluated`; `baseline` và `snapshot refresh` liệt kê và không bao giờ lưu chúng như finding; `snapshot diff --legacy-violation-diff` liệt kê và thoát 3 vì so sánh violation chưa đầy đủ.
+
+### Dialect analyzer
+
+Các dialect rule DG010/DG011 (Oracle), MY001/MY002 (MySQL) và PG001/PG002 (PostgreSQL) gọi checker của adapter qua `IDialectAnalyzer.Analyze(sql, isTargetDialect, location)`: rule "cú pháp dialect này ở nơi khác" truyền `isTargetDialect: false`, rule "cú pháp lạ trong dialect này" truyền `true`.
 
 ## Bảng Tổng Hợp Rules
 

@@ -21,14 +21,25 @@ Thank you for your interest in contributing to **DataGuard**! DataGuard is a con
    git clone https://github.com/thanhnt-sm/eco_support_net_oracle.git
    cd eco_support_net_oracle
    ```
-2. **Build, Test, Format** (.NET 9):
+2. **Enable the git hooks** (once per clone): `./scripts/install-hooks.sh`. It sets `core.hooksPath=.githooks`,
+   which turns on `pre-commit` (whitespace format, staged-path topology, docs inventory), `commit-msg`
+   (Conventional Commits; rejects `auto-sync` / `chore(sync)` messages) and `pre-push` (restore, build, test).
+   Toolchain pins: `global.json` (.NET SDK 9.0, latest feature band), `NuGet.config` (nuget.org only, with
+   package source mapping) and `.nvmrc` (Node 22 for `src/DataGuard.VSCode`).
+3. **Build, Test, Format** (.NET 9):
    ```bash
    dotnet build DataGuard.CrossPlatform.slnf                 # must be 0 errors, 0 warnings
    dotnet test DataGuard.CrossPlatform.slnf                  # all non-Visual Studio tests must pass
    dotnet format DataGuard.CrossPlatform.slnf --verify-no-changes
    ```
-   Integration tests that need Docker (Testcontainers) are skipped automatically when no Docker daemon is available.
-3. **Submitting a Pull Request**:
+   Live-database integration tests (Testcontainers) carry the trait `Category=LiveDb` and are reported as
+   **Skipped** unless you opt in: `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1` (Oracle, MySQL, PostgreSQL) and/or
+   `DATAGUARD_REQUIRE_LIVE_SQLSERVER=1` (SQL Server). Once opted in, a container that cannot start fails the test
+   instead of skipping it. Run only that suite with
+   `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 dotnet test DataGuard.CrossPlatform.slnf --filter Category=LiveDb`
+   (needs a Docker daemon); CI's `build-and-test` job excludes it with `--filter "Category!=LiveDb"` and the
+   `live-db-integration` job runs it.
+4. **Submitting a Pull Request**:
    - Ensure new features/rules have accompanying unit tests under `tests/`.
    - Keep the public API surface in mind: `DataGuard.Contracts` (netstandard2.0) is referenced by consumer projects — breaking changes need an ADR in `plans/adr/`.
    - Run `dotnet restore DataGuard.sln --locked-mode -p:NuGetAuditMode=all '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'`; it audits direct and transitive packages across the full solution.

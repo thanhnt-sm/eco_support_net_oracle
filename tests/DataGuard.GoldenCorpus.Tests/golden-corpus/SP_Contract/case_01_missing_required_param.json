@@ -1,0 +1,43 @@
+{
+  "testCase": "SP_001",
+  "category": "SP_Contract",
+  "description": "Call omits a required stored-procedure parameter (no default in the catalog)",
+  "input": {
+    "sql": "EXEC dbo.usp_GetOrders @CustomerId = @customerId",
+    "storedProcedures": [
+      {
+        "schema": "dbo",
+        "name": "usp_GetOrders",
+        "parameters": [
+          {
+            "name": "@CustomerId",
+            "type": "int"
+          },
+          {
+            "name": "@Status",
+            "type": "nvarchar"
+          },
+          {
+            "name": "@Top",
+            "type": "int",
+            "hasDefault": true
+          }
+        ]
+      }
+    ],
+    "provider": "SqlServer"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG101",
+      "messageContains": "missing required parameter(s) @Status",
+      "severity": "Warning"
+    }
+  ],
+  "notes": "@Top has a default and may be omitted; @Status may not. Warning until StrictProcedureContracts is enabled.",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  }
+}

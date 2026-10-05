@@ -1,7 +1,7 @@
 # Plan: Quy hoạch workspace DataGuard và loại bỏ di sản EcoSupport
 
 **Ngày**: 2026-08-20  
-**Trạng thái**: Decision-complete; đã hoàn tất cutover policy/rule sang DataGuard; chưa thực hiện thao tác xóa hoặc di chuyển không đảo ngược.
+**Trạng thái**: Đã thực thi. Cutover policy/rule sang DataGuard hoàn tất; các thao tác xóa không đảo ngược (D1–D4: Rust, TypeScript sau backup ngoài repo, Python chết + test mồ côi, `.tmp_new_models`) đã thực hiện ngày 2026-08-24 và reference sweep bổ sung ngày 2026-08-25 — xem §Execution log cuối tài liệu. Phần thân bên dưới giữ nguyên làm bản ghi quyết định lúc lập plan.
 **Phạm vi**: Mọi thành phần ngoài `src/`, bao gồm tài liệu, cấu hình, automation, mã di sản, state cục bộ và quy tắc agent.
 
 ---
@@ -185,3 +185,12 @@ Thực hiện: 2026-08-24 (orchestration phiên, thực thi trực tiếp do sub
 | `.gitignore` (section Rust/Python/pnpm/Cargo/vitest trùng lặp) | REWRITE → topology DataGuard (giữ .NET + Node VSCode + secrets) |
 
 - Còn lại ngoài scope (plan docs-sync riêng): `docs/` và `plans/` mô tả sản phẩm EcoSupport cũ cần rewrite DataGuard; `research/python_prototype/` giữ nguyên theo D3.
+
+## Execution log — Red-team remediation Phase 5 (2026-10-05)
+
+Manifest theo `plans/261005-0900-redteam-remediation/phase-05-hygiene-and-docs.md` §5.1:
+
+| From | Disposition |
+|------|-------------|
+| `benchmarks/` | REMOVE (duplicate of `tools/benchmarks`; `ObservabilityOverheadBenchmarks` chuyển sang `tools/benchmarks/DataGuard.Observability.Benchmarks/` có lock file) |
+| `.omo/run-continuation/*.json` | REMOVE khỏi index (`git rm --cached`; file giữ trên đĩa, `.omo/` đã gitignored) |

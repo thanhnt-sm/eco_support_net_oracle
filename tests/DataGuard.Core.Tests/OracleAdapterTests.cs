@@ -159,6 +159,78 @@ public class OracleDialectCheckerTests
         violations.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("SELECT [Region], SUM(amount) FROM sales GROUP BY [Region]", "Region")]
+    [InlineData("SELECT * FROM (SELECT region, quarter, amount FROM sales) PIVOT (SUM(amount) FOR quarter IN ([Q1], [Q2]))", "Q1")]
+    [InlineData("SELECT o.[Order Date] FROM orders o", "Order Date")]
+    public void CheckSqlServerSyntaxLeak_OracleContext_BracketIdentifier_Flags(string sql, string identifier)
+    {
+        var violations = _checker.CheckSqlServerSyntaxLeak(sql, isOracleContext: true);
+
+        var violation = violations.Should().ContainSingle(v => v.RuleId == "DG013").Subject;
+        violation.Severity.Should().Be(DiagnosticSeverity.Warning);
+        violation.Message.Should().Contain($"[{identifier}]").And.Contain("bracket-quoted identifier");
+        violation.Properties!["identifier"].Should().Be(identifier);
+    }
+
+    [Theory]
+    [InlineData("SELECT \"Region\" FROM sales WHERE note = '[Q1]'")]
+    [InlineData("SELECT region FROM sales -- [Q1] is the SQL Server spelling\n")]
+    [InlineData("SELECT region FROM sales WHERE REGEXP_LIKE(code, '^[A-Z]+$')")]
+    [InlineData("SELECT region FROM sales /* [Region] */")]
+    public void CheckSqlServerSyntaxLeak_OracleContext_BracketsInLiteralOrComment_NoViolation(string sql)
+    {
+        _checker.CheckSqlServerSyntaxLeak(sql, isOracleContext: true).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqlServerSyntaxLeak_NonOracleContext_BracketIdentifier_NoViolation()
+    {
+        _checker.CheckSqlServerSyntaxLeak("SELECT [Region] FROM [dbo].[Sales]", isOracleContext: false).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckSqlServerSyntaxLeak_ExecWithBrackets_ReportsOnce()
+    {
+        var violations = _checker.CheckSqlServerSyntaxLeak("EXEC [dbo].[GetUsers] @Id=1", isOracleContext: true);
+
+        violations.Should().ContainSingle().Which.Message.Should().Contain("EXEC");
+    }
+
+    [Fact]
+    public void CheckProviderOptionMismatch_OracleContext_NonOracleProvider_ReturnsViolation()
+    {
+        var violations = _checker.CheckProviderOptionMismatch(
+            isOracleContext: true,
+            providerName: "Microsoft.EntityFrameworkCore.SqlServer");
+
+        var violation = violations.Should().ContainSingle(v => v.RuleId == "DG012").Subject;
+        violation.Severity.Should().Be(DiagnosticSeverity.Error);
+        violation.Message.Should().Contain("Microsoft.EntityFrameworkCore.SqlServer");
+    }
+
+    [Fact]
+    public void CheckProviderOptionMismatch_NonOracleContext_AnyProvider_NoViolation()
+    {
+        var violations = _checker.CheckProviderOptionMismatch(
+            isOracleContext: false,
+            providerName: "Microsoft.EntityFrameworkCore.SqlServer");
+
+        violations.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Oracle.EntityFrameworkCore")]
+    [InlineData("oracle.entityframeworkcore")]
+    public void CheckProviderOptionMismatch_OracleContext_OracleProvider_NoViolation(string providerName)
+    {
+        var violations = _checker.CheckProviderOptionMismatch(
+            isOracleContext: true,
+            providerName: providerName);
+
+        violations.Should().BeEmpty();
+    }
+
     [Fact]
     public void CheckRawSqlUnmappedTypeUsage_OracleContext_DetectsUniqueIdentifier()
     {

@@ -102,6 +102,14 @@ public class Result
 
     [JsonPropertyName("properties")]
     public PropertyBag Properties { get; set; } = new();
+
+    /// <summary>
+    /// SARIF <c>partialFingerprints</c>; DataGuard emits <c>dataguard/v2</c> (the baseline fingerprint) so code-scanning
+    /// hosts track a finding across line shifts.
+    /// </summary>
+    [JsonPropertyName("partialFingerprints")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? PartialFingerprints { get; set; }
 }
 
 public class Message

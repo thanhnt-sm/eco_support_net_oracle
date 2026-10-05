@@ -77,11 +77,38 @@ dotnet test --filter "Category=Integration"
 - **MySQL**: Real connection, INFORMATION_SCHEMA queries
 - **PostgreSQL**: Real connection, pg_catalog queries
 
-SQL Server fixtures normally record an informational skip when Docker is not
-available. To make Docker/provider health a required gate, use:
+### Live database tests (`Category=LiveDb`)
+
+The five Testcontainers fixtures (`OracleIntegrationTests`, `MySqlIntegrationTests`,
+`PostgreSqlIntegrationTests`, `SqlServerIntegrationTests`,
+`SqlServerParserIntegrationTests`) use `[LiveDbFact(LiveDbTarget.Relational | SqlServer)]`
+from `tests/DataGuard.Core.Tests/LiveDbFactAttribute.cs`:
+
+| Gate variable | Enables | Images |
+|---|---|---|
+| `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1` | Oracle, MySQL, PostgreSQL | `gvenzl/oracle-free:23-slim-faststart`, `mysql:8.4`, `postgres:16-alpine` |
+| `DATAGUARD_REQUIRE_LIVE_SQLSERVER=1` (legacy alias `DATAGUARD_RUN_SQLSERVER_INTEGRATION=1`) | SQL Server | `mcr.microsoft.com/mssql/server:2022-latest` |
+
+- Without the variable the test is reported as **Skipped** with the reason; it never
+  returns early and counts as passed, and no container is started.
+- With the variable the fixture must start the container; image pull, daemon, startup
+  or health-check failure throws and fails the test.
+- Every gated test carries the trait `Category=LiveDb` (plus `LiveDbTarget=Relational|SqlServer`).
 
 ```bash
-DATAGUARD_RUN_SQLSERVER_INTEGRATION=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
+# Default/unit job: live tests excluded entirely
+dotnet test DataGuard.CrossPlatform.slnf -c Release --filter "Category!=LiveDb"
+
+# Live job (Docker required): run them for real
+DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 \
+  dotnet test tests/DataGuard.Core.Tests -c Release --filter Category=LiveDb
+```
+
+A single provider can still be selected with the matching gate variable and a
+`FullyQualifiedName~<Fixture>` filter, for example:
+
+```bash
+DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj \
   --configuration Release --no-restore \
   --filter 'FullyQualifiedName~SqlServerIntegrationTests|FullyQualifiedName~SqlServerParserIntegrationTests'
 ```
@@ -112,9 +139,19 @@ DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 dotnet test tests/DataGuard.Core.Tests/DataG
 
 ### Golden Corpus Tests
 
-- Known-good SQL that should pass all rules
-- Known-bad SQL that should trigger specific rules
-- Edge cases: empty result sets, overloaded procedures, nullable columns
+`tests/DataGuard.GoldenCorpus.Tests/golden-corpus/<Category>/*.json`, one case per file:
+
+- The rule set is the CLI inventory `ProviderRuleCatalog.Get(provider)` filtered to
+  `Ready` rules, so the corpus exercises exactly what `dataguard validate` registers.
+- Error and Warning findings are compared as a full multiset by `(ruleId, severity)`:
+  a missing or an extra Error/Warning fails the case; Info stays lenient.
+- Malformed JSON or a missing required field (`testCase`, `category`, `input`,
+  `expectedDiagnostics`, `provenance`) fails its theory row.
+- Floors: at least 24 cases, at least 6 `Negative/` cases (`expectedDiagnostics: []`),
+  every category directory non-empty, all four providers covered.
+- `provenance`: `{ "source": "manual" | "llm", "model": <id or null>, "date": "yyyy-MM-dd" }`
+  (`model` is required for `llm`). `tools/corpus/collect_hallucinations.py` drafts
+  `llm` cases; see `tools/corpus/README.md`.
 
 ### Analyzer Tests
 

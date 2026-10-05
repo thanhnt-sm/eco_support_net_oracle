@@ -6,7 +6,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-/// <summary>Measures the CI semantic analyzer after compilation construction has completed.</summary>
+/// <summary>Measures the syntax-only ContractValidationAnalyzer after compilation construction has completed.</summary>
 [MemoryDiagnoser]
 public class SemanticAnalyzerBenchmarks
 {
@@ -43,7 +43,7 @@ public class SemanticAnalyzerBenchmarks
         }
     }
 
-    /// <summary>Measures semantic operation analysis for the prebuilt fixed source corpus.</summary>
+    /// <summary>Measures analyzer execution (syntax-node actions) for the prebuilt fixed source corpus.</summary>
     [Benchmark]
     public Task<ImmutableArray<Diagnostic>> Analyze() =>
         (compilation ?? throw new InvalidOperationException("Benchmark setup did not run."))

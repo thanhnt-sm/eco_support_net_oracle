@@ -36,6 +36,95 @@ dataguard snapshot diff   # phát hiện schema drift so với snapshot đã com
 
 Tầng IDE (`DataGuard.Analyzers`) đánh dấu lời gọi SQL chưa validate bằng incremental generator siêu nhẹ; tầng CI (`dataguard validate`) chạy toàn bộ diff engine với ground truth từ database.
 
+## Quy tắc
+
+Rule adapter nào chạy tùy `--provider` (`src/DataGuard.Cli/ProviderRuleCatalog.cs`; DG010 cũng chạy cho SQL Server, MySQL và PostgreSQL); bỏ qua rule bằng `--skip-rules DG017,MY005`.
+
+<!-- rule-table:start -->
+<!-- Sinh bởi `scripts/gen_rule_table.py` từ `ProviderRuleCatalog.RuleTitles` và source của rule; không sửa tay (`--check` chạy trong `scripts/verify_docs_sync.sh`). Tên/mô tả rule giữ nguyên tiếng Anh theo source. -->
+
+### Engine lõi (mọi provider)
+
+| ID | Quy tắc | Mô tả |
+|----|------|------|
+| DG002 | Parameter Type Match | Parameter CLR types must match database types |
+| DG003 | Parameter Direction (In/Out/Return) | Parameter direction must match call site (in/out/ref) |
+| DG004 | Result Set Column Shape | Result set columns must match entity properties |
+| DG005 | Nullable Compatibility | Database column nullability should match the mapped entity property nullability |
+| DG006 | Naming Convention Compliance | Database column names should follow naming convention vs C# properties |
+| DG015 | Phantom Table Reference | Raw SQL references a table that does not exist in the database schema |
+| DG016 | Phantom Column Reference | Raw SQL references a column that does not exist in the referenced table |
+| DG017 | Avoid SELECT * | Avoid SELECT *; specify explicit columns to reduce bandwidth and enable shape validation |
+| DG018 | Live Query Shape Mismatch | Validates live database result set columns and types against C# object properties |
+| DG019 | Raw SQL Parse Error | Raw SQL must parse successfully before validation |
+| DG020 | Undetermined Query Shape | Reported by `LiveSqlShapeValidationRule` (`UndeterminedShapeRuleId`) |
+| DG101 | Parameter Count Match | Stored procedure calls must resolve to a catalog procedure and supply exactly its required parameters |
+
+### Adapter Oracle
+
+| ID | Quy tắc | Mô tả |
+|----|------|------|
+| DG007 | Entity Length Exceeds Column | Entity property MaxLength exceeds Oracle column MaxLength |
+| DG008 | Multi-Byte Length Overflow Risk | Entity property may exceed Oracle column byte capacity in BYTE semantics |
+| DG009 | Inferred Size Fallback Risk | EF Core infers NVARCHAR2(2000) which may cause ORA-12899 |
+| DG010 | Oracle Syntax in Non-Oracle Context | Oracle-specific syntax detected in non-Oracle context |
+| DG011 | Non-Oracle Function in Oracle Context | SQL Server/MySQL function used in Oracle context |
+| DG012 | Provider Option Mismatch | Database context doesn't match configured provider |
+| DG013 | SQL Server Syntax Leak | SQL Server EXEC syntax or bracket-quoted identifiers used in Oracle context |
+| DG014 | Unmapped Type Usage | Raw SQL uses type not mapped by Oracle EF Core provider |
+
+### Adapter MySQL
+
+| ID | Quy tắc | Mô tả |
+|----|------|------|
+| MY001 | MySQL Syntax in Non-MySQL Context | MySQL-specific syntax detected in non-MySQL context |
+| MY002 | Non-MySQL Syntax in MySQL Context | Non-MySQL syntax (SQL Server/Oracle/PostgreSQL) detected in MySQL context |
+| MY003 | MySQL VARCHAR Byte Limit | MySQL column exceeds 65535-byte row limit or entity MaxLength exceeds TEXT type maximum |
+| MY004 | Entity Length Exceeds MySQL Column Length | Entity property MaxLength exceeds MySQL column CHARACTER_MAXIMUM_LENGTH |
+| MY005 | Row Size Overflow Risk | VARCHAR/CHAR widths implied by the entity exceed MySQL's 65535-byte row limit (charset-aware) |
+| MY006 | TEXT/BLOB Type Overflow Risk | Entity MaxLength exceeds MySQL TEXT/BLOB family type maximum |
+| MY007 | Inferred Size Fallback Risk | String property without MaxLength (Pomelo maps it to longtext) is stored in a bounded VARCHAR/CHAR column |
+
+### Adapter PostgreSQL
+
+| ID | Quy tắc | Mô tả |
+|----|------|------|
+| PG001 | PostgreSQL Syntax in Non-PostgreSQL Context | PostgreSQL-specific syntax detected in non-PostgreSQL context |
+| PG002 | Non-PostgreSQL Syntax in PostgreSQL Context | Non-PostgreSQL syntax (SQL Server/Oracle/MySQL) detected in PostgreSQL context |
+| PG003 | Entity Length Exceeds PostgreSQL Column Length | Entity property MaxLength exceeds PostgreSQL column length |
+| PG004 | PostgreSQL Provider Option Mismatch | Database context doesn't match configured PostgreSQL provider |
+| PG005 | PostgreSQL Raw SQL Unmapped Type Usage | Raw SQL uses type not mapped by Npgsql EF Core provider |
+
+### Chỉ analyzer (Roslyn, IDE/build)
+
+| ID | Quy tắc | Mô tả |
+|----|------|------|
+| DG001 | Track Unvalidated SQL Calls | Marks SQL calls that haven't been validated against database schema. Run full validation in CI. |
+| DG097 | Stored procedure command text form | A text command that only names a procedure must start with EXEC/EXECUTE/CALL; a CommandType.StoredProcedure command must name the procedure without that prefix. |
+| DG098 | Raw SQL query missing FROM clause | Raw SQL SELECT query is missing a FROM clause. |
+| DG099 | Potential SQL injection pattern | Raw SQL contains a pattern that may indicate SQL injection, or is built by concatenation/interpolation into a raw SQL API. |
+
+### Assessment (`dataguard assess`)
+
+| ID | Quy tắc | Mô tả |
+|----|------|------|
+| DG1004 | Inventory | Legacy non-SDK project format detected. |
+| DG1101 | Inventory | Target framework '…' has no curated support-table entry; support status Unknown. |
+| DG1102 | Inventory | Target framework '…' is out of support (…). |
+| DG1103 | Inventory | Target framework '…' reaches end of support on …. |
+| DG1201 | Inventory | Package references exist but no packages.lock.json was found next to the project. |
+| DG1202 | Dependency health | Project declares '…' but the committed lock file has no matching target framework section. |
+| DG1203 | Dependency health | packages.lock.json is not valid JSON. |
+| DG1204 | Dependency health | packages.lock.json exceeds the … byte safety limit. |
+| DG1217 | Remote advisory (OSV, opt-in) | OSV advisory … affects package … …. |
+| DG1301 | Build/CI | Projects target … but no global.json pins the workspace SDK. |
+| DG1302 | Build/CI | Pinned SDK … does not correspond to any project TFM major (…). |
+| DG1303 | Build/CI | global.json is not valid JSON. |
+| DG1401 | Configuration and secrets | Config value at '…:…' matches a secret-like key name ('…'); value is redacted. |
+| DG1402 | Configuration and secrets | Config references a machine-specific absolute path at line …. |
+
+<!-- rule-table:end -->
+
 ## Tài liệu
 
 - [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/PRODUCT.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/architecture/architecture.md) · [Bảo mật](SECURITY.md)

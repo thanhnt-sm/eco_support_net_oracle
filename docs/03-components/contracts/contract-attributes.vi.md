@@ -116,7 +116,7 @@ public class LegacyRepository { ... }
 | Thành phần | Hành động |
 |------------|-----------|
 | Roslyn Analyzer | Ẩn diagnostic DG001 cho method được trang trí |
-| CI Heavy Layer | Bỏ qua phân tích ngữ nghĩa cho method được trang trí |
+| ContractValidationAnalyzer | Bỏ qua heuristic SQL literal cho call site nằm trong method/type được trang trí (so khớp syntax theo tên attribute) |
 | CLI | Không kiểm tra (CLI xác thực contract, không phải call site) |
 
 ### Tích hợp Code Fix
@@ -305,8 +305,8 @@ sequenceDiagram
     participant REF as Reflection
 
     CLI->>MS: ExtractContractsAsync()
-    MS->>ASM: Assembly.LoadFrom(path)
-    MS->>REF: GetTypes() → GetProperties()
+    MS->>ASM: MetadataLoadContext.LoadFromAssemblyPath(path) (metadata only)
+    MS->>REF: GetTypes() → GetProperties() → GetCustomAttributesData()
     REF-->>MS: Attributes [ExpectedColumn]
     MS->>REF: GetTypes() → GetMethods()
     REF-->>MS: Attributes [ExpectedSpParameter]

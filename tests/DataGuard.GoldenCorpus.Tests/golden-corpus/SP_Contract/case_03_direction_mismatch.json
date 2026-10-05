@@ -1,0 +1,38 @@
+{
+  "testCase": "SP_003",
+  "category": "SP_Contract",
+  "description": "OUTPUT parameter is passed without OUTPUT, so the new order id is silently lost",
+  "input": {
+    "sql": "EXEC dbo.usp_CreateOrder @CustomerId = @customerId, @OrderId = @orderId",
+    "storedProcedures": [
+      {
+        "schema": "dbo",
+        "name": "usp_CreateOrder",
+        "parameters": [
+          {
+            "name": "@CustomerId",
+            "type": "int"
+          },
+          {
+            "name": "@OrderId",
+            "type": "int",
+            "direction": "InputOutput"
+          }
+        ]
+      }
+    ],
+    "provider": "SqlServer"
+  },
+  "expectedDiagnostics": [
+    {
+      "ruleId": "DG003",
+      "messageContains": "Parameter '@OrderId' of stored procedure 'dbo.usp_CreateOrder' is InputOutput but call site passes it as Input",
+      "severity": "Warning"
+    }
+  ],
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  }
+}

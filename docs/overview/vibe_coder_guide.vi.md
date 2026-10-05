@@ -72,7 +72,7 @@ mindmap
       workspace_governance: Quy tắc ranh giới thư mục
       small_model_protocol: Cơ chế tự sửa lỗi cho AI nhỏ
     ⚙️ scripts / Bộ Công Cụ Tự Động Hóa
-      git_sync.sh: 1 click đồng bộ & đẩy code lên GitHub
+      git_sync.sh: Commit & push toàn bộ thay đổi, chỉ chạy khi DG_ALLOW_AUTO_PUSH=1
       git_conflict_resolver.sh: Tự động gỡ rối xung đột code
 ```
 
@@ -116,7 +116,7 @@ Bạn chỉ cần mở Terminal và copy các lệnh này:
 | **Khám bệnh 1 Bug phức tạp** | `cargo run -p eco-cli -- triage --repo "owner/repo" --issue 42` | Claude 3.7 mở não suy luận sâu và đưa ra chẩn đoán gốc rễ. |
 | **Tự chế cổng kết nối AI cho thư viện** | `cargo run -p eco-cli -- synthesize-mcp --package "my-lib"` | Tự động sinh ra file server FastMCP 2.0 hoàn chỉnh. |
 | **Kiểm tra an toàn cổng MCP** | `cargo run -p eco-cli -- audit-mcp crates/eco-mcp/src/server.rs` | Quét xem có nguy cơ bị hacker chèn lệnh hoặc đọc lén file không. |
-| **Đồng bộ code lên Git an toàn** | `./scripts/git_sync.sh "lời nhắn cập nhật"` | Tự động format, kiểm tra lỗi, lưu commit và đẩy lên Git an toàn 100%. |
+| **Commit và push toàn bộ (phải bật chủ động)** | `DG_ALLOW_AUTO_PUSH=1 ./scripts/git_sync.sh "docs: cập nhật tài liệu"` | Stage **mọi** thay đổi (`git add -A`), commit với message Conventional Commit, rebase rồi push. Mặc định bị tắt: thiếu `DG_ALLOW_AUTO_PUSH=1` thì script từ chối chạy. Nên dùng `git add <files>` + `tools/git-tools/dg-git commit -m "<type>(<scope>): <subject>"` + `git push`. |
 
 ---
 

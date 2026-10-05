@@ -1,0 +1,29 @@
+{
+  "testCase": "NEG_010",
+  "category": "Negative",
+  "description": "Oracle-specific syntax (NVL, DECODE, SYSDATE, ROWNUM) under provider oracle is the provider's own dialect: no DG010",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT ID, NVL(STATUS, 'NEW') AS STATUS, DECODE(TOTAL_AMOUNT, 0, 'FREE', 'PAID') AS KIND FROM ORDERS WHERE ORDER_DATE < SYSDATE AND ROWNUM <= 10",
+    "provider": "Oracle",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "ORDERS",
+          "columns": [
+            "ID",
+            "CUSTOMER_ID",
+            "ORDER_DATE",
+            "TOTAL_AMOUNT",
+            "STATUS"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

@@ -17,6 +17,15 @@ public static class IdeSafePolicy
     /// <summary>The <c>validate</c>-only option that keeps a host-supplied <c>DATAGUARD_CONNECTION_STRING</c> under IDE-safe mode.</summary>
     public const string AllowEnvConnectionOptionName = "--allow-env-connection";
 
+    /// <summary>Names the environment variable holding the connection string; under IDE-safe mode only with <see cref="AllowEnvConnectionOptionName"/>.</summary>
+    public const string ConnectionEnvOptionName = "--connection-env";
+
+    /// <summary>Allows a <c>ManualAssemblyPath</c> from the configuration file; always rejected under IDE-safe mode.</summary>
+    public const string AllowAssemblyFromConfigOptionName = "--allow-assembly-from-config";
+
+    /// <summary>The <c>validate</c> option that loads rule plugin assemblies; always rejected under IDE-safe mode.</summary>
+    public const string PluginsDirOptionName = "--plugins-dir";
+
     /// <summary>Positive acknowledgement hosts require as the first stderr line before publishing any result.</summary>
     public const string ActiveLine = "ide-safe: active";
 
@@ -118,12 +127,8 @@ public static class IdeSafePolicy
             config = config with { EnableTelemetry = false, TelemetryFileDirectory = null };
         }
 
-        if (config.EncryptConnectionStringAtRest)
-        {
-            // Never touch DPAPI/keychain on behalf of a repo-controlled config.
-            config = config with { EncryptConnectionStringAtRest = false };
-        }
-
+        // EncryptConnectionStringAtRest (default true) is left as is: under IDE-safe mode the CLI never builds the
+        // credential provider or CredentialManager, so no DPAPI/Keychain/Secret Service call can happen for a repo config.
         return new Result(ClampResourceBounds(config, suppressed), suppressed, keepEnvConnection, RulesConnectionString: null);
     }
 
@@ -152,14 +157,18 @@ public static class IdeSafePolicy
         return config;
     }
 
-    /// <summary>Returns the first <c>validate</c> option that is incompatible with IDE-safe mode, or null.</summary>
+    /// <summary>
+    /// Returns the first <c>validate</c> option that is incompatible with IDE-safe mode, or null. A non-empty
+    /// <see cref="PluginsDirOptionName"/> value is rejected too: plugin loading is code loading.
+    /// </summary>
     public static string? FirstRejectedValidateOption(
         string? commandLineConnection,
         bool offline,
         string? assemblyPath,
         string? efSnapshotPath,
         string? efProjectPath,
-        string? efContextName)
+        string? efContextName,
+        string? pluginsDirectory = null)
     {
         if (!string.IsNullOrWhiteSpace(commandLineConnection))
         {
@@ -191,7 +200,44 @@ public static class IdeSafePolicy
             return "--ef-context";
         }
 
+        if (!string.IsNullOrWhiteSpace(pluginsDirectory))
+        {
+            return PluginsDirOptionName;
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Returns the first <c>validate</c> option that is incompatible with IDE-safe mode, or null, including the credential
+    /// and assembly options: <c>--connection-env</c> follows the <c>--allow-env-connection</c> rule (accepted only together
+    /// with it; the named variable then plays the role of <c>DATAGUARD_CONNECTION_STRING</c>), and
+    /// <c>--allow-assembly-from-config</c> is always rejected because IDE-safe mode never loads repository assemblies.
+    /// </summary>
+    public static string? FirstRejectedValidateOption(
+        string? commandLineConnection,
+        bool offline,
+        string? assemblyPath,
+        string? efSnapshotPath,
+        string? efProjectPath,
+        string? efContextName,
+        string? connectionEnvironmentVariable,
+        bool allowEnvConnection,
+        bool allowAssemblyFromConfig,
+        string? pluginsDirectory = null)
+    {
+        var rejected = FirstRejectedValidateOption(commandLineConnection, offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName, pluginsDirectory);
+        if (rejected is not null)
+        {
+            return rejected;
+        }
+
+        if (!string.IsNullOrWhiteSpace(connectionEnvironmentVariable) && !allowEnvConnection)
+        {
+            return ConnectionEnvOptionName;
+        }
+
+        return allowAssemblyFromConfig ? AllowAssemblyFromConfigOptionName : null;
     }
 
     /// <summary>Returns the first <c>assess</c> option that is incompatible with IDE-safe mode, or null.</summary>
@@ -239,6 +285,11 @@ public static class IdeSafePolicy
     /// <summary>Single stderr line explaining why an option was rejected (exit code 2).</summary>
     public static string FormatRejectionLine(string option)
     {
+        if (option == ConnectionEnvOptionName)
+        {
+            return $"{option} is not allowed with {OptionName} unless {AllowEnvConnectionOptionName} is also given: IDE-safe mode forbids database access by default.";
+        }
+
         return $"{option} is not allowed with {OptionName}: IDE-safe mode forbids assembly loading, database and network access.";
     }
 }
