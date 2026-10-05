@@ -25,4 +25,7 @@ public enum AcquisitionDiagnosticKind
 
     /// <summary>A call site was skipped because its method or an enclosing type carries <c>[SkipContractCheck]</c>.</summary>
     SkippedByAttribute,
+
+    /// <summary>An EF Core ModelSnapshot parsed only partially; the entity configurations that failed were skipped.</summary>
+    ModelSnapshotPartialParse,
 }

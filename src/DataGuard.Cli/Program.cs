@@ -305,7 +305,9 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         ct.ThrowIfCancellationRequested();
         var acquisition = await AcquireContractsAsync(config, provider, ct, projectPath, progress);
         var contracts = acquisition.Contracts.ToList();
-        var acquisitionDiagnostics = new List<AcquisitionDiagnostic>();
+        var acquisitionDiagnostics = new List<AcquisitionDiagnostic>(
+            acquisition.Diagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.SkippedByAttribute));
+        var skippedByAttribute = acquisition.Diagnostics.Count(d => d.Kind == AcquisitionDiagnosticKind.SkippedByAttribute);
         if (!string.IsNullOrWhiteSpace(efSnapshotPath))
         {
             var snapshotExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(efSnapshotPath, config, ct);
@@ -497,8 +499,12 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
 
         // One Unevaluated semantics (red-team H1/H2): a contract no rule could evaluate and an acquisition that read only
         // part of its input are neither findings nor passes. List them all, then exit 3 unless --allow-unevaluated.
-        // Phase 3 merge: also print ProjectCSharpSqlSource.Diagnostics
         var unevaluated = validation.Unevaluated;
+        if (skippedByAttribute > 0)
+        {
+            Console.Error.WriteLine($"Skipped {skippedByAttribute} call site(s) marked [SkipContractCheck].");
+        }
+
         if (unevaluated.Count > 0)
         {
             Console.Error.WriteLine($"UNEVALUATED: {unevaluated.Count} contract(s) could not be evaluated:");
@@ -2519,13 +2525,14 @@ static async Task<ContractAcquisitionResult> AcquireContractsAsync(
 
     try
     {
-        var contracts = await BuildContractsAsync(config, provider, cancellationToken, projectPath, progress);
+        var sourceDiagnostics = new List<AcquisitionDiagnostic>();
+        var contracts = await BuildContractsAsync(config, provider, cancellationToken, projectPath, progress, sourceDiagnostics);
         if (config.GroundTruthMode == GroundTruthMode.Snapshot && hasSnapshotSource && contracts.OfType<DatabaseSchemaDescriptor>().FirstOrDefault() is null)
         {
-            return new(ContractAcquisitionStatus.Incomplete, contracts, "snapshot contains no persisted schema");
+            return new(ContractAcquisitionStatus.Incomplete, contracts, "snapshot contains no persisted schema", sourceDiagnostics);
         }
 
-        return ContractAcquisitionResult.Complete(contracts);
+        return ContractAcquisitionResult.Complete(contracts, sourceDiagnostics);
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {
@@ -2542,7 +2549,8 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
     string provider,
     CancellationToken cancellationToken = default,
     string? projectPath = null,
-    ProgressEmitter? progress = null)
+    ProgressEmitter? progress = null,
+    List<AcquisitionDiagnostic>? acquisitionDiagnostics = null)
 {
     cancellationToken.ThrowIfCancellationRequested();
     var contracts = new List<ContractDescriptor>();
@@ -2551,6 +2559,7 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
     {
         var projectSource = new ProjectCSharpSqlSource(projectPath, progress);
         contracts.AddRange(await projectSource.ExtractContractsAsync(cancellationToken));
+        acquisitionDiagnostics?.AddRange(projectSource.Diagnostics);
     }
 
     // Snapshot mode reads the persisted schema only when offline (no connection);

@@ -280,7 +280,7 @@ public class EfModelSource : IContractSource
     }
 
     /// <summary><see cref="AcquisitionDiagnostic.Kind"/> for a ModelSnapshot that parsed only partially.</summary>
-    public const string ModelSnapshotPartialParseKind = "ModelSnapshotPartialParse";
+    public const AcquisitionDiagnosticKind ModelSnapshotPartialParseKind = AcquisitionDiagnosticKind.ModelSnapshotPartialParse;
 
     /// <summary>
     /// Parses the EF Core ModelSnapshot JSON emitted by the generated DbContext ModelSnapshot file.

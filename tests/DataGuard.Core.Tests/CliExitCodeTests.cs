@@ -1134,7 +1134,7 @@ public class CliExitCodeTests
 
             run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
             run.Stderr.Should().Contain("UNEVALUATED: 1 contract(s) could not be evaluated:");
-            run.Stderr.Should().MatchRegex(@"DG020 project-sql:[^\s]*Repo\.cs:\d+: Cannot determine result set shape for query \(describe failed\)");
+            run.Stderr.Should().MatchRegex(@"DG020 project-sql:[^\s]*Repo\.cs:\d+(?::[0-9a-f]{8})?: Cannot determine result set shape for query \(describe failed\)");
             (run.Stdout + run.Stderr).Should().NotContain("[WARNING] DG020", "an undescribed shape is no longer a DG020 warning");
             (run.Stdout + run.Stderr).Should().NotContain("oracle-secret");
         }
