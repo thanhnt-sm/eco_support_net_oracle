@@ -215,7 +215,7 @@ public void GetOrder(int id) { }
 
 ### Reflection Process
 
-1. `Assembly.LoadFrom(assemblyPath)` — loads the user assembly
+1. Opens the user assembly in a `MetadataLoadContext` (resolver: the assembly directory, the running framework, DataGuard.Contracts) — metadata only: no module initializer, static constructor or attribute constructor of the assembly runs, and it never enters the default load context. Attributes are rebuilt from `CustomAttributeData` as DataGuard.Contracts instances. A `ManualAssemblyPath` from `.dataguard.yml` needs `--allow-assembly-from-config` on the CLI
 2. Iterates all types, scanning properties for `[ExpectedColumn]` and methods for `[ExpectedSpParameter]`
 3. Maps `DataGuard.Contracts.ParameterDirection` → `DataGuard.Core.Abstractions.ParameterDirection`
 4. Builds `EntityDescriptor` and `StoredProcedureDescriptor` instances

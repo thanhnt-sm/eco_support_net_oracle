@@ -4,7 +4,7 @@
 
 Hệ thống bảo mật triển khai xử lý credential zero-trust, audit logging chuỗi hash, và xác minh toàn vẹn chuỗi cung ứng. Mọi thành phần tuân theo nguyên tắc: **không log hoặc serialize secret, giảm vòng đời secret bằng best-effort clearing, và mặc định đóng khi lỗi**. Managed runtime không thể hứa secret không bao giờ xuất hiện trong memory dump; process-memory access phải được xem là đặc quyền.
 
-`EncryptConnectionStringAtRest` dùng Windows DPAPI trên Windows, login Keychain trên macOS, và Linux Secret Service qua `secret-tool` trên Linux. Bridge Keychain gọi trực tiếp Security.framework; bridge Linux đưa secret qua standard input nên không backend nào đưa secret vào command-line argument. Output của helper Linux được giới hạn (1 MiB cho secret và 16 KiB cho lỗi), thao tác hết hạn sau 10 giây. Nếu backend nền tảng hoặc Secret Service không khả dụng, yêu cầu ghi encrypted sẽ fail trước khi ghi file và protected reference sẽ fail closed. DataGuard không ghi plaintext rồi đánh dấu encrypted. Lưu plaintext vẫn là lựa chọn tường minh (`EncryptConnectionStringAtRest: false`).
+`EncryptConnectionStringAtRest` dùng Windows DPAPI trên Windows, login Keychain trên macOS, và Linux Secret Service qua `secret-tool` trên Linux. Bridge Keychain gọi trực tiếp Security.framework; bridge Linux đưa secret qua standard input nên không backend nào đưa secret vào command-line argument. Output của helper Linux được giới hạn (1 MiB cho secret và 16 KiB cho lỗi), thao tác hết hạn sau 10 giây. `EncryptConnectionStringAtRest` mặc định `true`. Khi không có backend (`CredentialManager.IsPlatformProtectionAvailable()` là false: Linux thiếu `/usr/bin/secret-tool`, OS khác) việc ghi quay về plaintext chỉ chủ sở hữu đọc được kèm cảnh báo, hoặc fail trước khi ghi file nếu `RequireEncryptedCredentialStore: true`. Khi có backend nhưng ghi lỗi (ví dụ không có phiên Secret Service), yêu cầu fail closed và protected reference fail closed. DataGuard không ghi plaintext rồi đánh dấu encrypted. Lưu plaintext vẫn là lựa chọn tường minh (`EncryptConnectionStringAtRest: false`).
 Contract bổ sung `ICredentialSecretStore` cho phép dùng fake theo từng nền tảng trong test; production vẫn chọn backend theo OS và backend không khả dụng sẽ throw trước khi persistence.
 
 ## Luồng Bảo Mật
@@ -104,13 +104,7 @@ Sử dụng Azure Managed Identity qua endpoint IMDS (`169.254.169.254`):
 
 ### Tích Hợp AWS Secrets Manager
 
-Sử dụng `AmazonSecretsManagerClient` với region từ cấu hình:
-```csharp
-using var client = new AmazonSecretsManagerClient(
-    RegionEndpoint.GetBySystemName(_config.AwsRegion!));
-var response = await client.GetSecretValueAsync(
-    new GetSecretValueRequest { SecretId = credentialName });
-```
+`DataGuard.Core` không mang AWS SDK. Secret manager hiện thực `ISecretStore` (`Name`, `IsConfigured`, `GetSecretAsync`; null = không có, exception = lỗi mà provider ghi ở mức **Warning** kèm tên store rồi thử nguồn kế tiếp). Core có sẵn `AzureKeyVaultSecretStore` và `HashiCorpVaultSecretStore`; CLI đăng ký `DataGuard.Cli.Security.AwsSecretsManagerSecretStore` (`AmazonSecretsManagerClient` cho `AwsRegion`) qua constructor `ZeroTrustCredentialProvider(..., IEnumerable<ISecretStore> additionalSecretStores, ...)`. Thứ tự: Key Vault → store đã đăng ký → HashiCorp Vault → file credential mã hoá. Host thư viện đặt `AwsRegion` mà không đăng ký store sẽ nhận cảnh báo.
 
 ### Tích Hợp HashiCorp Vault
 
@@ -246,11 +240,16 @@ var hash = ComputeHash((previousHash ?? "") + content);
 var chained = entry with { Hash = hash, PreviousHash = previousHash };
 ```
 
-**Xác minh toàn vẹn** (`VerifyIntegrityAsync`):
+**Chuỗi có khoá**: với `DATAGUARD_AUDIT_KEY` hoặc `AuditKeyFile` (tối thiểu 16 byte; `FileAuditLogger.Create(config)`), mỗi mắt xích là `HMAC-SHA256(key, previousHash + content)` và entry mang `HashAlgorithm: "HMAC-SHA256"` (được mắt xích bao phủ). Không có khoá, mắt xích là SHA-256 và trường này bị lược (định dạng dòng cũ).
+
+**Một writer duy nhất**: `CredentialManager` ghi qua `IAuditLogger` được inject (`LogSecurityEventAsync`), không bao giờ ghi dòng thô. Mọi instance `FileAuditLogger` append dưới lock theo đường dẫn và đọc lại đuôi chuỗi trước khi ghi, nên nhiều writer trong một process vẫn giữ một chuỗi. Checkpoint (`<log>.checkpoint`, JSON) lưu hash cuối, chuỗi có khoá hay không, và salt ngẫu nhiên theo file; `HashSensitiveValue` trả `HMAC-SHA256(salt, value)[..16]` làm dấu vân tay connection string (sự kiện rotation).
+
+**Xác minh toàn vẹn** (`VerifyIntegrityAsync` → `AuditIntegrityResult`):
 1. Đọc tất cả dòng log
-2. Tính lại chuỗi hash từ đầu
-3. So sánh hash mỗi entry với giá trị mong đợi
-4. Xác minh checkpoint khớp hash cuối (phát hiện cắt đuôi)
+2. Tính lại chuỗi hash từ đầu (`PreviousHash` phải khớp; mắt xích có khoá cần khoá)
+3. Entry không khoá sau entry có khoá là giả mạo (hạ cấp)
+4. Xác minh checkpoint khớp hash cuối (phát hiện cắt đuôi; checkpoint cũ chỉ chứa hash vẫn được chấp nhận)
+5. Trạng thái: `Valid` (có khoá, nguyên vẹn), `Unkeyed` (chuỗi SHA-256 nguyên vẹn), `Tampered`, hoặc `KeyRequired` (có entry khoá nhưng thiếu khoá)
 
 ### NullAuditLogger
 
@@ -259,8 +258,8 @@ Triển khai no-op khi audit logging bị tắt. Tất cả methods trả về `
 ### Che Giá Trị Nhạy Cảm
 
 `MaskValue()` che giá trị nhạy cảm trong log thay đổi cấu hình:
-- Giá trị ngắn (≤8 ký tự): `"****"`
-- Giá trị dài: `"abcd****wxyz"` (4 đầu + 4 cuối)
+- Giá trị từ 12 ký tự trở xuống: `"****"`
+- Giá trị dài hơn: `"ab****yz"` (2 đầu + 2 cuối; giữ tối đa bốn ký tự)
 
 ## SupplyChainVerifier
 
@@ -333,7 +332,9 @@ Các thiết lập bảo mật trong `DataGuardConfiguration`:
 |-----------|----------|-------|
 | `EnableCredentialRotationDetection` | `true` | Phát hiện thay đổi connection string |
 | `CredentialRotationWarningDays` | `30` | Số ngày trước cảnh báo rotation |
-| `EncryptConnectionStringAtRest` | `false` | DPAPI (Windows), Keychain (macOS), hoặc Secret Service (Linux khi khả dụng) |
+| `EncryptConnectionStringAtRest` | `true` | DPAPI (Windows), Keychain (macOS), hoặc Secret Service (Linux khi khả dụng); plaintext kèm cảnh báo khi không có backend |
+| `RequireEncryptedCredentialStore` | `false` | Từ chối lưu khi yêu cầu mã hoá mà không có backend |
+| `AuditKeyFile` | `null` | File có nội dung (đã trim) là khoá HMAC audit (`DATAGUARD_AUDIT_KEY` thắng) |
 | `KeyVaultUri` | `null` | URI Azure Key Vault |
 | `AwsRegion` | `null` | Region AWS cho Secrets Manager |
 | `VaultAddress` | `null` | Địa chỉ HashiCorp Vault |

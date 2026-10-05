@@ -27,6 +27,18 @@ internal static class CliProcessTestRunner
     /// <param name="environmentConnection">Value for <c>DATAGUARD_CONNECTION_STRING</c>; null removes the variable.</param>
     /// <param name="args">CLI arguments, passed verbatim (no shell quoting).</param>
     internal static CliRunResult Run(string? workingDirectory, string? standardInput, string? environmentConnection, params string[] args)
+        => RunWithEnvironment(workingDirectory, standardInput, environmentConnection, environment: null, args);
+
+    /// <summary>
+    /// Like <see cref="Run"/>, with extra child environment variables (a null value removes the variable), e.g. the
+    /// variable named by <c>--connection-env</c>, or <c>HOME</c>/<c>XDG_CONFIG_HOME</c>/<c>APPDATA</c> to isolate the credential file and audit log.
+    /// </summary>
+    internal static CliRunResult RunWithEnvironment(
+        string? workingDirectory,
+        string? standardInput,
+        string? environmentConnection,
+        IReadOnlyDictionary<string, string?>? environment,
+        params string[] args)
     {
         var psi = new ProcessStartInfo
         {
@@ -45,6 +57,18 @@ internal static class CliProcessTestRunner
         if (environmentConnection is not null)
         {
             psi.Environment[ConnectionVariable] = environmentConnection;
+        }
+
+        foreach (var (name, value) in environment ?? new Dictionary<string, string?>())
+        {
+            if (value is null)
+            {
+                psi.Environment.Remove(name);
+            }
+            else
+            {
+                psi.Environment[name] = value;
+            }
         }
 
         psi.ArgumentList.Add(CliDllPath);

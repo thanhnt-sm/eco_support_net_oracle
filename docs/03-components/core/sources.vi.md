@@ -214,7 +214,7 @@ public void GetOrder(int id) { }
 
 ### Quy Trình Reflection
 
-1. `Assembly.LoadFrom(assemblyPath)` — tải assembly người dùng
+1. Mở assembly người dùng trong `MetadataLoadContext` (resolver: thư mục assembly, framework đang chạy, DataGuard.Contracts) — chỉ đọc metadata: không module initializer, static constructor hay attribute constructor nào của assembly được chạy, và assembly không vào default load context. Attribute được dựng lại từ `CustomAttributeData` thành instance của DataGuard.Contracts. `ManualAssemblyPath` lấy từ `.dataguard.yml` cần `--allow-assembly-from-config` trên CLI
 2. Duyệt tất cả types, quét properties cho `[ExpectedColumn]` và methods cho `[ExpectedSpParameter]`
 3. Ánh xạ `DataGuard.Contracts.ParameterDirection` → `DataGuard.Core.Abstractions.ParameterDirection`
 4. Tạo các thể hiện `EntityDescriptor` và `StoredProcedureDescriptor`

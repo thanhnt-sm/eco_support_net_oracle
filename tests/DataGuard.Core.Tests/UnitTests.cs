@@ -298,7 +298,7 @@ public class AuditLoggerTests
             await logger.LogCredentialAccessAsync("test", "provider", "hash1");
             await logger.LogCredentialAccessAsync("test", "provider", "hash2");
 
-            (await logger.VerifyIntegrityAsync()).Should().BeTrue();
+            (await logger.VerifyIntegrityAsync()).IsIntact.Should().BeTrue();
         }
         finally
         {
@@ -322,7 +322,7 @@ public class AuditLoggerTests
                 tempFile,
                 "{\"Timestamp\":\"2020-01-01T00:00:00+00:00\",\"EventType\":\"Forged\",\"Hash\":\"deadbeef\",\"PreviousHash\":null}\n");
 
-            (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+            (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Tampered);
         }
         finally
         {
@@ -351,7 +351,7 @@ public class AuditLoggerTests
             lines.RemoveAt(lines.Count - 1);
             File.WriteAllLines(tempFile, lines);
 
-            (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+            (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Tampered);
         }
         finally
         {

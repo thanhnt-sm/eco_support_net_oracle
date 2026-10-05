@@ -1,3 +1,4 @@
+using DataGuard.Cli;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Baseline;
 using FluentAssertions;
@@ -1202,6 +1203,207 @@ public class CliExitCodeTests
 
             run.Stderr.Should().StartWith("ide-safe: active");
             run.ExitCode.Should().BeOneOf(new[] { 0, 1 }, run.Stdout + run.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // ---- Credentials and Manual-mode assembly loading (red-team D1, Medium: Assembly.LoadFrom) ----
+    private const string NamedConnectionVariable = "DG_E2E_CONNECTION";
+
+    /// <summary>Child environment with a private home (no credential file, audit log under the temp dir) plus extras.</summary>
+    private static Dictionary<string, string?> IsolatedEnvironment(string dir, params (string Name, string? Value)[] extra)
+    {
+        var home = Path.Combine(dir, "home");
+        Directory.CreateDirectory(home);
+        var environment = new Dictionary<string, string?>
+        {
+            ["HOME"] = home,
+            ["XDG_CONFIG_HOME"] = Path.Combine(home, ".config"),
+            ["APPDATA"] = Path.Combine(home, "AppData"),
+            ["DATAGUARD_AUDIT_KEY"] = null,
+            ["DATAGUARD_DATABASECONNECTION"] = null,
+            [NamedConnectionVariable] = null,
+        };
+        foreach (var (name, value) in extra)
+        {
+            environment[name] = value;
+        }
+
+        return environment;
+    }
+
+    private static string WriteRepoSource(string dir)
+    {
+        File.WriteAllText(Path.Combine(dir, "Repo.cs"), IdeSafeEndToEndSupport.RepoSource);
+        return dir;
+    }
+
+    [Fact]
+    public void VerifyShape_ConnectionEnv_UsesTheNamedVariableWithoutTheArgvWarning()
+    {
+        var dir = NewTempDirectory("dg-cli-connection-env");
+        try
+        {
+            var run = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, IsolatedEnvironment(dir, (NamedConnectionVariable, IdeSafeEndToEndSupport.EnvConnection)),
+                "verify-shape", "--project", WriteRepoSource(dir), "--connection-env", NamedConnectionVariable);
+
+            run.Stderr.Should().NotContain("verify-shape requires --connection", "the named variable supplied the connection");
+            run.Stderr.Should().NotContain(CliConfigurationResolver.CommandLineConnectionWarning);
+            run.ExitCode.Should().NotBe(2, run.Stdout + run.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VerifyShape_ConnectionEnvNamingAnUnsetVariable_Exit2()
+    {
+        var dir = NewTempDirectory("dg-cli-connection-env-unset");
+        try
+        {
+            var run = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, IsolatedEnvironment(dir),
+                "verify-shape", "--project", WriteRepoSource(dir), "--connection-env", NamedConnectionVariable);
+
+            run.ExitCode.Should().Be(2, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain($"--connection-env {NamedConnectionVariable}: the environment variable is not set or empty.");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VerifyShape_CommandLineConnection_PrintsTheDeprecationWarningOnce()
+    {
+        var dir = NewTempDirectory("dg-cli-connection-argv");
+        try
+        {
+            var run = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, IsolatedEnvironment(dir),
+                "verify-shape", "--project", WriteRepoSource(dir), "--connection", IdeSafeEndToEndSupport.EnvConnection);
+
+            var warnings = IdeSafeEndToEndSupport.Lines(run.Stderr).Count(line => line == CliConfigurationResolver.CommandLineConnectionWarning);
+            warnings.Should().Be(1, run.Stderr);
+            run.Stderr.Should().Contain("warning: a connection string on the command line is visible to process listings; prefer --connection-env");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VerifyShape_PlaintextYamlConnection_IgnoredByDefault_HonoredWithAllowPlaintextConfigFallback()
+    {
+        var dir = NewTempDirectory("dg-cli-plaintext");
+        try
+        {
+            WriteRepoSource(dir);
+            var ignoredConfig = Path.Combine(dir, "ignored.yml");
+            File.WriteAllText(ignoredConfig, $"ConnectionString: \"{IdeSafeEndToEndSupport.EnvConnection}\"\n");
+            var allowedConfig = Path.Combine(dir, "allowed.yml");
+            File.WriteAllText(allowedConfig, $"ConnectionString: \"{IdeSafeEndToEndSupport.EnvConnection}\"\nAllowPlaintextConfigFallback: true\n");
+
+            var ignored = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, IsolatedEnvironment(dir), "verify-shape", "--project", dir, "--config", ignoredConfig);
+            var allowed = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, IsolatedEnvironment(dir), "verify-shape", "--project", dir, "--config", allowedConfig);
+
+            ignored.ExitCode.Should().Be(2, ignored.Stdout + ignored.Stderr);
+            ignored.Stderr.Should().Contain(CliConfigurationResolver.IgnoredPlaintextConnectionWarning)
+                .And.Contain("verify-shape requires --connection");
+            ignored.Stderr.Should().NotContain("127.0.0.1", "the ignored value is never echoed");
+
+            allowed.Stderr.Should().Contain(CliConfigurationResolver.PlaintextConnectionInUseWarning);
+            allowed.Stderr.Should().NotContain("verify-shape requires --connection");
+            allowed.ExitCode.Should().NotBe(2, allowed.Stdout + allowed.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_IdeSafeConnectionEnv_RequiresAllowEnvConnection()
+    {
+        var dir = NewTempDirectory("dg-cli-ide-safe-connection-env");
+        try
+        {
+            WriteRepoSource(dir);
+            var environment = IsolatedEnvironment(dir, (NamedConnectionVariable, IdeSafeEndToEndSupport.EnvConnection));
+
+            var rejected = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, environment, "validate", "--ide-safe", "--project", dir, "--connection-env", NamedConnectionVariable);
+            var kept = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, environment, "validate", "--ide-safe", "--allow-env-connection", "--project", dir, "--connection-env", NamedConnectionVariable);
+
+            rejected.ExitCode.Should().Be(2, rejected.Stderr);
+            var lines = IdeSafeEndToEndSupport.Lines(rejected.Stderr);
+            lines[0].Should().Be("ide-safe: active");
+            lines[1].Should().StartWith("--connection-env is not allowed with --ide-safe unless --allow-env-connection is also given");
+
+            IdeSafeEndToEndSupport.Lines(kept.Stderr)[0].Should().Be("ide-safe: active");
+            kept.Stderr.Should().Contain("ide-safe: kept environment connection (--allow-env-connection)");
+            kept.ExitCode.Should().NotBe(2, kept.Stdout + kept.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ManualAssemblyPathFromConfig_RequiresAllowAssemblyFromConfig()
+    {
+        var dir = NewTempDirectory("dg-cli-manual-config");
+        try
+        {
+            var assembly = typeof(global::DataGuard.Contracts.ExpectedColumnAttribute).Assembly.Location;
+            var config = Path.Combine(dir, "manual.yml");
+            File.WriteAllText(config, $"GroundTruthMode: Manual\nManualAssemblyPath: \"{assembly}\"\n");
+
+            var validate = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "validate", "--config", config);
+            var baseline = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "baseline", "--config", config, "--output", Path.Combine(dir, "baseline.json"));
+            var allowed = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "validate", "--config", config, "--allow-assembly-from-config");
+            var commandLine = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "validate", "--offline", "--assembly", assembly);
+
+            validate.ExitCode.Should().Be(2, validate.Stderr);
+            validate.Stderr.Should().Contain("ManualAssemblyPath is set in the configuration file; pass --allow-assembly-from-config");
+            baseline.ExitCode.Should().Be(2, baseline.Stderr);
+            baseline.Stderr.Should().Contain("--allow-assembly-from-config");
+            File.Exists(Path.Combine(dir, "baseline.json")).Should().BeFalse();
+
+            allowed.Stderr.Should().NotContain("ManualAssemblyPath is set in the configuration file");
+            allowed.ExitCode.Should().NotBe(2, allowed.Stdout + allowed.Stderr);
+            commandLine.Stderr.Should().NotContain("ManualAssemblyPath is set in the configuration file", "--assembly on the command line needs no flag");
+            commandLine.ExitCode.Should().NotBe(2, commandLine.Stdout + commandLine.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_IdeSafeRejectsAllowAssemblyFromConfig()
+    {
+        var dir = NewTempDirectory("dg-cli-ide-safe-assembly");
+        try
+        {
+            var run = CliProcessTestRunner.RunWithEnvironment(
+                dir, null, null, IsolatedEnvironment(dir), "validate", "--ide-safe", "--allow-assembly-from-config", "--project", WriteRepoSource(dir));
+
+            run.ExitCode.Should().Be(2);
+            IdeSafeEndToEndSupport.Lines(run.Stderr)[1].Should().StartWith("--allow-assembly-from-config is not allowed with --ide-safe");
         }
         finally
         {

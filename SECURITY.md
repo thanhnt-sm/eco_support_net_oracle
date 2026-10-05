@@ -29,9 +29,20 @@ We aim to acknowledge reports within 5 business days and to ship fixes as fast a
 
 ## Security posture
 
-- **Credentials**: secret managers (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault) or environment
-  variables are the only supported sources in production; plaintext config-file credentials are
-  disabled by default (`AllowPlaintextConfigFallback=false`).
+- **Credentials**: database-backed CLI commands resolve the connection in this order:
+  `--connection-env NAME` (the name of an environment variable) → `DATAGUARD_CONNECTION_STRING` →
+  the credential provider (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault when configured, then
+  the encrypted credential file) → `ConnectionString` in `.dataguard.yml` **only** with
+  `AllowPlaintextConfigFallback: true` (default `false`: the key is ignored with a one-line warning that
+  names it, never its value). `--connection <value>` still works but prints
+  `warning: a connection string on the command line is visible to process listings; prefer --connection-env`.
+  A failing secret store is reported at Warning level with the store name (never the secret) and the
+  next source is tried. `--offline` and `--ide-safe` never consult secret stores. The AWS SDK ships
+  only with the CLI; `DataGuard.Core` exposes `ISecretStore` for hosts to register their own stores.
+- **Credential file at rest**: `EncryptConnectionStringAtRest` defaults to `true` — Windows DPAPI,
+  macOS Keychain, or the Linux Secret Service through `/usr/bin/secret-tool`. When no backend is
+  available the file falls back to owner-only plaintext with a warning; set
+  `RequireEncryptedCredentialStore: true` to refuse instead.
 - **Supply chain**: NuGet packages are signed (Sigstore keyless), published via Trusted Publishing
   (OIDC), and carry SBOM + provenance attestation; GitHub Actions are SHA-pinned.
 - **Licence allow-list**: CI fails when any NuGet package resolved by `DataGuard.sln` (including
@@ -40,8 +51,18 @@ We aim to acknowledge reports within 5 business days and to ship fixes as fast a
   exceptions such as the Visual Studio SDK and the Oracle driver); see `scripts/check-nuget-licences.py`.
 - **CI gates**: vulnerability scan (fail on vulnerable packages), TruffleHog secret scan, and CodeQL
   run on every branch/PR and tag release.
-- **Audit**: credential access is written to an append-only tamper-evident hash-chain log with
-  tail-truncation detection.
+- **Audit**: credential access is written to an append-only hash-chain log with tail-truncation
+  detection. With a key (`DATAGUARD_AUDIT_KEY`, or the file named by `AuditKeyFile`; at least 16 bytes,
+  kept outside the repository and the log directory) every link is HMAC-SHA256, so an attacker who can
+  write the log directory but lacks the key cannot forge or re-chain entries. Without a key the chain is
+  plain SHA-256 and `VerifyIntegrityAsync` reports `Unkeyed` (intact but forgeable) instead of `Valid`.
+  `CredentialManager` and every other component write through the same `IAuditLogger` (one chain, no
+  raw lines); connection-string fingerprints are HMACs under a per-log random salt stored in the
+  checkpoint header, and masked configuration values keep at most four characters.
+- **Manual mode**: `ManualContractSource` reads attributes through `MetadataLoadContext`: no code from
+  the assembly runs and it never enters the default load context. A `ManualAssemblyPath` taken from
+  `.dataguard.yml` additionally requires `--allow-assembly-from-config` (otherwise exit 2);
+  `--offline --assembly <path>` on the command line needs no flag.
 - **Plugins**: rule plugins load only from an explicitly configured directory into an isolated,
   collectible assembly-load context.
 - **IDE hosts (`validate` / `assess`)**: the Visual Studio and VS Code extensions run `validate` and
@@ -54,7 +75,9 @@ We aim to acknowledge reports within 5 business days and to ship fixes as fast a
   later is required). A baseline still applies under `--ide-safe`, but every suppression is visible:
   `baseline: <n> violations suppressed by <path>` on stderr and a `BaselineApplied` progress event.
 - **IDE hosts (user credential)**: `--allow-env-connection` (only with `--ide-safe`, `validate` only)
-  keeps the `DATAGUARD_CONNECTION_STRING` credential the host supplies; connection strings from
+  keeps the `DATAGUARD_CONNECTION_STRING` credential the host supplies (or the variable named by
+  `--connection-env`, which `--ide-safe` rejects unless `--allow-env-connection` is also given;
+  `--allow-assembly-from-config` is always rejected under `--ide-safe`); connection strings from
   `.dataguard.yml` are always stripped. VS Code passes it only when a credential is stored in its
   SecretStorage. Under `--ide-safe`, `validate` uses that credential **only to read the
   ground-truth catalog** (schema and stored-procedure definitions); it never sends or describes
