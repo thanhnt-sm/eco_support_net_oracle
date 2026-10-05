@@ -185,3 +185,12 @@ Thực hiện: 2026-08-24 (orchestration phiên, thực thi trực tiếp do sub
 | `.gitignore` (section Rust/Python/pnpm/Cargo/vitest trùng lặp) | REWRITE → topology DataGuard (giữ .NET + Node VSCode + secrets) |
 
 - Còn lại ngoài scope (plan docs-sync riêng): `docs/` và `plans/` mô tả sản phẩm EcoSupport cũ cần rewrite DataGuard; `research/python_prototype/` giữ nguyên theo D3.
+
+## Execution log — Red-team remediation Phase 5 (2026-10-05)
+
+Manifest theo `plans/261005-0900-redteam-remediation/phase-05-hygiene-and-docs.md` §5.1:
+
+| From | Disposition |
+|------|-------------|
+| `benchmarks/` | REMOVE (duplicate of `tools/benchmarks`; `ObservabilityOverheadBenchmarks` chuyển sang `tools/benchmarks/DataGuard.Observability.Benchmarks/` có lock file) |
+| `.omo/run-continuation/*.json` | REMOVE khỏi index (`git rm --cached`; file giữ trên đĩa, `.omo/` đã gitignored) |

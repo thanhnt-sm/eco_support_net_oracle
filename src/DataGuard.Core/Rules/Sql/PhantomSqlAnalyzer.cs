@@ -354,11 +354,14 @@ internal sealed class PhantomTokenWalker
         IReadOnlyList<SchemaTable>? tables = null;
         if (!IsUnresolvable(parts, nameToken))
         {
-            var schemaPart = parts.Count >= 2 && parts[^2].Text.Length > 0 ? parts[^2].Text : null;
-            var resolved = _index.Resolve(schemaPart, nameToken.Text);
+            // Pass the parts as written (quotes restored) so the provider overload can apply dialect folding:
+            // PostgreSQL lower-cases and Oracle upper-cases unquoted names; quoted names keep their exact case.
+            var schemaPart = parts.Count >= 2 && parts[^2].Text.Length > 0 ? AsWritten(parts[^2]) : null;
+            var namePart = AsWritten(nameToken);
+            var resolved = _index.Resolve(_provider, schemaPart, namePart);
             if (resolved.Count == 0)
             {
-                _tableFindings.Add(new PhantomTableRef(SchemaObjectName.Key(_provider, schemaPart, nameToken.Text)));
+                _tableFindings.Add(new PhantomTableRef(SchemaObjectName.Key(_provider, schemaPart, namePart)));
             }
             else
             {
@@ -369,6 +372,9 @@ internal sealed class PhantomTokenWalker
         _refs.Add(new TableRef(scope, branch, j, alias, bare, tables));
         return next;
     }
+
+    private static string AsWritten(SqlToken token) =>
+        token.Kind == SqlTokenKind.QuotedIdentifier ? SchemaObjectName.Quote(token.Text) : token.Text;
 
     private bool IsUnresolvable(List<SqlToken> parts, SqlToken nameToken)
     {

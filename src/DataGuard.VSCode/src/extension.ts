@@ -9,7 +9,7 @@ import * as vscode from "vscode";
 import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-languageclient/node";
 import { readConnectionSecret, redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath, storeConnectionSecret } from "./security";
 import { RunCoordinator } from "./run-coordinator";
-import { buildCliArguments, CliCommand, normalizeProvider } from "./command-args";
+import { buildCliArguments, CliCommand, normalizeProvider, resolveExistingConfigPath } from "./command-args";
 import { buildIdeSafeFailureMessage, formatProgressLine, hasIdeSafeAck } from "./ide-safe-contract";
 import { buildLiveDatabaseConfirmation, countReadQueries, isLiveDatabaseCommand, maskConnectionHost } from "./live-database-confirmation";
 import { DataGuardDashboardPanel } from "./ui/dashboard-panel";
@@ -356,6 +356,15 @@ async function configureConnection(context: vscode.ExtensionContext): Promise<vo
     );
 }
 
+/** True when the resolved workspace config path names an existing regular file. */
+async function configFileExists(filePath: string): Promise<boolean> {
+    try {
+        return (await fs.stat(filePath)).isFile();
+    } catch {
+        return false;
+    }
+}
+
 async function runCliCommand(context: vscode.ExtensionContext, command: CliCommand, timeoutSetting: "timeoutSeconds" | "assessmentTimeoutSeconds"): Promise<void> {
     if (!vscode.workspace.isTrusted) {
         void vscode.window.showWarningMessage("DataGuard does not run CLI commands in an untrusted workspace. Trust this workspace first.");
@@ -397,9 +406,12 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     let configPath: string | undefined;
     if (command === "validate" || command === "snapshot" || command === "baseline") {
         try {
-            configPath = resolveWorkspaceConfigPath(
-                workspaceFolder.uri.fsPath,
-                configuration.get<string>("configPath", ".dataguard.yml"),
+            configPath = await resolveExistingConfigPath(
+                resolveWorkspaceConfigPath(
+                    workspaceFolder.uri.fsPath,
+                    configuration.get<string>("configPath", ".dataguard.yml"),
+                ),
+                configFileExists,
             );
         } catch (error) {
             void vscode.window.showErrorMessage(`DataGuard: ${error instanceof Error ? error.message : String(error)}`);

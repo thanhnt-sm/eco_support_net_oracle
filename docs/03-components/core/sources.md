@@ -85,7 +85,13 @@ public class EfModelSource : IContractSource
 
 `ModelSnapshot.cs` source can be parsed without loading an assembly by the bounded
 `ModelSnapshotCSharpParser`. It supports a narrow generated fluent-API subset for
-`Entity<T>`, table, property, key, column name/type, length, and requiredness. It
+`Entity<T>`, table, property, key, column name/type, length, and requiredness. Properties come
+from `b.Property<T>("Name")` (CLR type = `T`, canonicalized: `System.Int32` ⇒ `int`, `Nullable<DateTime>` ⇒
+`DateTime?`, `string?` ⇒ `string`) or `b.Property(x => x.Name)` (no syntactic type: `string` only when
+`HasMaxLength`/`IsUnicode`/`IsFixedLength` is configured, otherwise `object`, which the length rules skip).
+`.IsUnicode(bool)` becomes `Annotations["IsUnicode"]` (read by Oracle DG008); nullability is `.IsRequired(bool)`
+when present, otherwise `T?`/reference types are nullable and known value types are not. Keys come from
+`HasKey(x => x.Id)`, `HasKey(x => new { x.A, x.B })` or `HasKey("A", "B")`. It
 enforces source-size and syntax-node limits and returns a visible diagnostic for
 syntax errors or unsupported input; it never instantiates a `DbContext`, factory,
 host, or arbitrary application code. Automatic project/assembly discovery remains

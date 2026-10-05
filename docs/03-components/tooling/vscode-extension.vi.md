@@ -215,6 +215,7 @@ Các tiến trình được khởi chạy bằng Node.js `child_process.spawn()`
 - Mảng đối số (argument vector) xác định với các tham số đầu vào đã được xác thực chặt chẽ.
 - Truyền chuỗi kết nối duy nhất qua biến môi trường tiến trình (`DATAGUARD_CONNECTION_STRING`), tuyệt đối không đưa vào đối số dòng lệnh.
 - Xác thực độ tin cậy của workspace (`vscode.workspace.isTrusted`) trước khi khởi chạy bất kỳ lệnh CLI nào.
+- `--config <workspace>/<dataguard.configPath>` chỉ được truyền (cho `validate`, `snapshot refresh` và `baseline`) khi file đó tồn tại (`resolveExistingConfigPath` + `configArguments` trong `command-args.ts`); CLI trả exit 2 khi `--config` trỏ tới file không tồn tại, nên workspace chưa có `.dataguard.yml` chạy với mặc định của CLI.
 - `windowsHide: true` trên Windows, và tách biệt process group trên POSIX để đảm bảo hủy cây tiến trình triệt để.
 
 ```typescript

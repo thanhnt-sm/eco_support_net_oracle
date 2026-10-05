@@ -68,23 +68,76 @@ public static class SchemaObjectName
         return trimmed;
     }
 
-    /// <summary>Returns the comparison form of an identifier: unquoted and upper-cased with the invariant culture.</summary>
+    /// <summary>Returns the provider-neutral comparison form of an identifier: unquoted and upper-cased with the invariant culture.</summary>
     /// <param name="name">A single identifier part (quoted or not).</param>
     /// <returns>The canonical comparison key, or an empty string for null input.</returns>
-    public static string Canonical(string? name) => Canonical(null, name);
+    public static string Canonical(string? name) => string.IsNullOrEmpty(name) ? string.Empty : Unquote(name).ToUpperInvariant();
 
     /// <summary>
-    /// Returns the comparison form of an identifier for <paramref name="provider"/>. In this release every provider folds to
-    /// upper case (invariant), which is exact for Oracle and case-insensitive SQL Server/MySQL collations and conservative
-    /// (never produces a false "missing" finding) for PostgreSQL; the provider parameter is kept for dialect-specific folding.
+    /// Returns the comparison form of an identifier <em>as written in SQL</em> for <paramref name="provider"/>:
+    /// <list type="bullet">
+    /// <item><c>postgresql</c>/<c>postgres</c>: an unquoted identifier folds to lower case; a quoted one keeps its exact case.</item>
+    /// <item><c>oracle</c>: an unquoted identifier folds to upper case; a quoted one keeps its exact case.</item>
+    /// <item><c>sqlserver</c>, <c>mysql</c>, unknown or null: case-insensitive, so the key is the unquoted upper-case form
+    /// (the same as <see cref="Canonical(string?)"/>).</item>
+    /// </list>
+    /// For the case-sensitive dialects the result compares with <see cref="StringComparer.Ordinal"/> against catalog names as
+    /// the database stores them (already folded by the server). A name that was unquoted by an earlier step (for example by
+    /// <see cref="Parse"/>) is treated as unquoted.
     /// </summary>
     /// <param name="provider">Provider key (sqlserver, oracle, postgresql, mysql) or null.</param>
     /// <param name="name">A single identifier part (quoted or not).</param>
     /// <returns>The canonical comparison key, or an empty string for null input.</returns>
     public static string Canonical(string? provider, string? name)
     {
-        _ = provider;
-        return string.IsNullOrEmpty(name) ? string.Empty : Unquote(name).ToUpperInvariant();
+        if (string.IsNullOrEmpty(name))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = name.Trim();
+        var quoted = IsQuoted(trimmed);
+        var value = Unquote(trimmed);
+        return FoldingOf(provider) switch
+        {
+            IdentifierFolding.Lower => quoted ? value : value.ToLowerInvariant(),
+            IdentifierFolding.Upper => quoted ? value : value.ToUpperInvariant(),
+            _ => value.ToUpperInvariant(),
+        };
+    }
+
+    /// <summary>
+    /// True when <paramref name="provider"/> folds unquoted identifiers and compares quoted ones exactly (PostgreSQL, Oracle),
+    /// so catalog lookups must be case-sensitive on the folded form.
+    /// </summary>
+    /// <param name="provider">Provider key or null.</param>
+    /// <returns>True for PostgreSQL and Oracle.</returns>
+    public static bool IsCaseSensitive(string? provider) => FoldingOf(provider) != IdentifierFolding.CaseInsensitive;
+
+    /// <summary>Wraps an unquoted identifier part in ANSI double quotes, doubling embedded quotes.</summary>
+    /// <param name="value">The unquoted identifier part.</param>
+    /// <returns>The quoted identifier, so <see cref="Canonical(string?, string?)"/> keeps its exact case.</returns>
+    public static string Quote(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+    }
+
+    private static bool IsQuoted(string trimmed) => trimmed.Length >= 2
+        && ((trimmed[0] == '[' && trimmed[^1] == ']') || (trimmed[0] == '"' && trimmed[^1] == '"') || (trimmed[0] == '`' && trimmed[^1] == '`'));
+
+    private static IdentifierFolding FoldingOf(string? provider) => provider?.Trim().ToLowerInvariant() switch
+    {
+        "postgresql" or "postgres" => IdentifierFolding.Lower,
+        "oracle" => IdentifierFolding.Upper,
+        _ => IdentifierFolding.CaseInsensitive,
+    };
+
+    private enum IdentifierFolding
+    {
+        CaseInsensitive,
+        Lower,
+        Upper,
     }
 
     /// <summary>Builds the canonical <c>SCHEMA.NAME</c> lookup key, or the bare canonical name when the schema is absent.</summary>

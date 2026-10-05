@@ -63,7 +63,7 @@
 | **`research/python_prototype/cli/`** | CLI entrypoint using Typer/Rich — mirrors eco-cli crate. | Research | Python |
 | **`research/benchmarks/`** | Empirical benchmark scripts evaluating Claude 3.7 Extended Thinking. | Research | Python |
 | **`research/data/`** | Seed registry JSON dataset of fragile open-source dependencies. | Research | JSON |
-| **`scripts/git_sync.sh`** | 1-click automated git staging, formatting, committing, and fast-pushing. | Tooling | Bash |
+| **`scripts/git_sync.sh`** | Opt-in stage-all (`git add -A`) commit, rebase and push; refuses to run unless `DG_ALLOW_AUTO_PUSH=1` is set (`rules/git_workflow.md`). | Tooling | Bash |
 | **`scripts/git_conflict_resolver.sh`** | Automated git 3-way conflict diagnosis and resolution helper. | Tooling | Bash |
 | **`scripts/verify_docs_sync.sh`** | Automated verification script ensuring docs remain in sync with code. | Tooling | Bash |
 | **`scripts/anti_garbage_guard.sh`** | **Anti-Garbage Guard** — blocks any Git commit staging files outside the allowed whitelist zones. | Tooling | Bash |
