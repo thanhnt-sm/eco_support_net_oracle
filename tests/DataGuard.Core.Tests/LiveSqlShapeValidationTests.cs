@@ -7,7 +7,9 @@ using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Reporting;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.TypeCompatibility;
 using DataGuard.Core.Validation;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -135,6 +137,8 @@ public class LiveSqlShapeValidationTests
             new ("Id", "nvarchar", 50, null, null, false, null),
         });
 
+        // The type table comes from the SQL Server adapter (Core falls back to Unknown when nothing is registered).
+        TypeCompatibilityRegistry.Register(SqlServerTypeCompatibility.Instance);
         var rule = new LiveSqlShapeValidationRule(schemaProvider: mockProvider);
 
         var expectedProps = new List<PropertyDescriptor>

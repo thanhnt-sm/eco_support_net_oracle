@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -123,7 +124,7 @@ public class RulesEngineTests
         {
             ClrType = "int",
         };
-        var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetCustomer @Id", parameter));
+        var violations = await RunAsync(new ParameterTypeMatchRule("sqlserver", SqlServerTypeCompatibility.Instance), RawSql("EXEC dbo.GetCustomer @Id", parameter));
         violations.Should().ContainSingle().Which.RuleId.Should().Be("DG002");
     }
 
@@ -171,7 +172,7 @@ public class RulesEngineTests
         {
             ClrType = "System.Int32",
         };
-        var violations = await RunAsync(new ParameterTypeMatchRule(), RawSql("EXEC dbo.GetCustomer @Id", parameter));
+        var violations = await RunAsync(new ParameterTypeMatchRule("sqlserver", SqlServerTypeCompatibility.Instance), RawSql("EXEC dbo.GetCustomer @Id", parameter));
         var violation = violations.Should().ContainSingle().Which;
         violation.RuleId.Should().Be("DG002");
         violation.Properties!["clrType"].Should().Be("System.Int32");

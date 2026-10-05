@@ -14,9 +14,9 @@ public enum TypeCompatibilityResult
 }
 
 /// <summary>
-/// Provider-specific CLR ↔ database type compatibility table. Implementations live with their provider
-/// (SQL Server in Core until the adapter split, Oracle/PostgreSQL/MySQL in their adapters) and are injected into the
-/// parameter rules by <c>ProviderRuleCatalog</c>.
+/// Provider-specific CLR ↔ database type compatibility table. Implementations live in their provider adapter
+/// (SQL Server, Oracle, PostgreSQL, MySQL) and are injected into the parameter rules by <c>ProviderRuleCatalog</c>;
+/// Core only has the provider-neutral <see cref="UnknownTypeCompatibility"/>.
 /// </summary>
 public interface ITypeCompatibility
 {

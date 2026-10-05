@@ -300,7 +300,7 @@ using var pipeline = DataGuardApi.CreatePipeline(config)
 
 // 3. Extract contracts
 var efSource = new EfModelSource(dbContext, config);
-var spSource = new SqlServerStoredProcedureParser(connectionString, config);
+var spSource = new SqlServerStoredProcedureParser(connectionString, config); // DataGuard.SqlServer.Adapter package
 var contracts = new List<ContractDescriptor>();
 contracts.AddRange(await efSource.ExtractContractsAsync());
 contracts.AddRange(await spSource.ExtractContractsAsync());

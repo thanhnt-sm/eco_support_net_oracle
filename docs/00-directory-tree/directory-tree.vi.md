@@ -102,18 +102,18 @@ Thư viện lõi chứa toàn bộ logic miền, quy tắc validation và abstra
 
 | Đường Dẫn | Mục Đích | Lớp | Ngôn Ngữ |
 |-----------|----------|-----|----------|
-| `src/DataGuard.Core/DataGuard.Core.csproj` | File dự án — target net9.0, tham chiếu Roslyn, YamlDotNet | Build | MSBuild XML |
+| `src/DataGuard.Core/DataGuard.Core.csproj` | File dự án — target net9.0, tham chiếu Roslyn, EF Core, YamlDotNet; không có driver database hay parser T-SQL (nằm trong các adapter) | Build | MSBuild XML |
 | `src/DataGuard.Core/packages.lock.json` | File khóa dependency NuGet | Build | JSON |
 | **Abstractions/** | | | |
 | `Abstractions/Contracts.cs` | Mô hình miền lõi: `IContractSource`, `IContractRule`, `ContractViolation`, `EntityDescriptor`, `StoredProcedureDescriptor`, `RawSqlDescriptor`, `ColumnDescriptor`, `ParameterDescriptor`, `DatabaseSchemaDescriptor` | Miền | C# |
 | **Rules/** | | | |
 | `Rules/ContractRules.cs` | Các quy tắc validation tích hợp: `ParameterCountRule` (DG101), `ParameterTypeMatchRule` (DG002), `ParameterDirectionRule` (DG003), `ColumnShapeMatchRule` (DG004), `NullableMismatchRule` (DG005), `NamingConventionRule` (DG006) | Miền | C# |
 | `Rules/PhantomTableRule.cs`, `Rules/PhantomColumnRule.cs` | Phát hiện bảng ma (DG015) và cột ma (DG016) — xác minh tham chiếu SQL với schema database | Miền | C# |
-| `Rules/Sql/` | `SchemaObjectName` (`SqlIdentifier.cs`), `SqlTokenizer`, `SchemaTableIndex`, `PhantomSqlAnalyzer` dùng chung cho DG015/DG016 và DG005 | Miền | C# |
+| `Rules/Sql/` | `SchemaObjectName` (`SqlIdentifier.cs`), `SqlTokenizer`, `SchemaTableIndex`, `PhantomSqlAnalyzer` dùng chung cho DG015/DG016 và DG005; điểm nối adapter `IPhantomReferenceAnalyzer` và `ISqlStatementParser` (DG019; mặc định no-op) | Miền | C# |
+| `Rules/TypeCompatibility/` | `ITypeCompatibility`, `MappedTypeCompatibility`, `DbTypeInfo`, `ClrTypeNames`, `TypeCompatibilityRegistry` và fallback trung lập `UnknownTypeCompatibility`; bảng của từng provider nằm trong adapter | Miền | C# |
 | `Rules/RuleDependencyGraph.cs` | Thứ tự thực thi quy tắc dựa trên DAG với phân giải phụ thuộc và sắp xếp topo | Miền | C# |
 | **Sources/** | | | |
 | `Sources/EfModelSource.cs` | Trích xuất contract descriptor từ mô hình EF Core `DbContext` qua reflection | Hạ tầng | C# |
-| `Sources/SqlServerParsers.cs` | Phân tích metadata stored procedure SQL Server từ `sys.*` catalog views | Hạ tầng | C# |
 | `Sources/ManualContractSource.cs` | Tải contract descriptor từ assembly đã biên chế (chế độ offline/manual) | Hạ tầng | C# |
 | `Sources/SqlKeywordMatcher.cs` | Tiện ích khớp từ khóa và mẫu cú pháp SQL | Tiện ích | C# |
 | **Security/** | | | |
@@ -174,7 +174,12 @@ Giao diện dòng lệnh với 9 lệnh.
 | `PostgreSqlStoredProcedureParser.cs` | Trình phân tích metadata function/procedure PostgreSQL qua `information_schema.routines` | Hạ tầng | C# |
 | `PostgreSqlLengthMismatchDetector.cs` | Quy tắc kiểm tra độ dài PostgreSQL: PG003 (độ dài entity vượt cột) | Miền | C# |
 | **DataGuard.SqlServer.Adapter/** | | | |
-| `DataGuard.SqlServer.Adapter.csproj` | File dự án adapter SQL Server — chuyển phân tích cho `DataGuard.Core/Sources/SqlServerParsers.cs` | Build | MSBuild XML |
+| `DataGuard.SqlServer.Adapter.csproj` | File dự án adapter SQL Server — `Microsoft.Data.SqlClient` + `Microsoft.SqlServer.TransactSql.ScriptDom` + `ProjectReference` Core | Build | MSBuild XML |
+| `SqlServerParsers.cs` | `SqlServerStoredProcedureParser` (đọc catalog `sys.*` + schema `INFORMATION_SCHEMA`) và `RawSqlParser` (nguồn file `.sql` dùng ScriptDOM) | Hạ tầng | C# |
+| `SqlServerLiveQuerySchemaProvider.cs` | Describe result set trực tiếp qua `sys.sp_describe_first_result_set` (DG018/DG020) | Hạ tầng | C# |
+| `SqlServerTypeCompatibility.cs` | Bảng tương thích CLR ↔ kiểu SQL Server cho DG002/DG018 | Miền | C# |
+| `TSqlStatementParser.cs` | `ISqlStatementParser` dùng ScriptDOM, được inject vào DG019 cho `sqlserver` | Miền | C# |
+| `TSqlPhantomAnalyzer.cs`, `TSqlPhantomScopeVisitor.cs` | `IPhantomReferenceAnalyzer` dùng ScriptDOM cho DG015/DG016 với `sqlserver` | Miền | C# |
 
 ### Dự Án Tooling
 

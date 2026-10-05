@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using DataGuard.Core.Baseline;
 using DataGuard.Core.Models;
 using DataGuard.Core.Sources;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;

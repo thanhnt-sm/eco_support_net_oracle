@@ -3,11 +3,11 @@
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.Core</PackageId>
     <Company>DataGuard</Company>
-    <Description>Core contract validation engine for Entity ↔ Stored Procedure/Raw SQL, built on EF Core, Roslyn, provider, security, and configuration dependencies.</Description>
+    <Description>Core contract validation engine for Entity ↔ Stored Procedure/Raw SQL, built on EF Core, Roslyn, security, and configuration dependencies. Database drivers and dialect parsers live in the DataGuard.*.Adapter packages.</Description>
     <PackageProjectUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</PackageProjectUrl>
     <RepositoryUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>efcore;stored-procedure;contract-validation;roslyn;sql-server;oracle</PackageTags>
+    <PackageTags>efcore;stored-procedure;contract-validation;roslyn</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
@@ -25,8 +25,6 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.20" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.20" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
-    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.117.0" />
     <PackageReference Include="System.Text.Json" Version="10.0.12" />
     <PackageReference Include="System.Composition.Hosting" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.12" />

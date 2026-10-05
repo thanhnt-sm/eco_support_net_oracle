@@ -19,6 +19,12 @@ snapshotTable.Deconstruct(out _, out _);
 var baseline = new BaselineFile(3, DateTimeOffset.UnixEpoch, "1.0", "Snapshot", "test", "hash", Array.Empty<BaselineViolation>(), new[] { snapshotTable });
 baseline.Deconstruct(out _, out _, out _, out _, out _, out _, out _, out _);
 var procedure = new StoredProcedureDescriptor("procedure:1", "GetCustomer", "dbo", string.Empty, Array.Empty<ParameterDescriptor>(), Array.Empty<ColumnDescriptor>(), false);
-procedure.Deconstruct(out _, out _, out _, out _, out _, out _, out _, out _);
+procedure.Deconstruct(out _, out _, out _, out _, out _, out _, out _, out _, out _);
+
+// SqlServerStoredProcedureParser, RawSqlParser, SqlServerLiveQuerySchemaProvider and SqlServerTypeCompatibility moved to
+// DataGuard.SqlServer.Adapter (namespace DataGuard.SqlServer.Adapter, no type forwarders). Core keeps the provider-neutral
+// fallbacks exercised here.
+var unknownTypes = DataGuard.Core.Rules.TypeCompatibility.TypeCompatibilityRegistry.Resolve("sqlite");
+var noParser = DataGuard.Core.Rules.Sql.NoOpSqlStatementParser.Instance.Parse("SELECT 1");
 var legacy = new ConcurrentValidationEngine().ValidateAsync(Array.Empty<ContractDescriptor>(), Array.Empty<IContractRule>()).GetAwaiter().GetResult();
-Console.WriteLine($"{pipeline.GetType().FullName}:{result.IsClean}:{legacy.Count}");
+Console.WriteLine($"{pipeline.GetType().FullName}:{result.IsClean}:{legacy.Count}:{unknownTypes.Provider}:{noParser.IsValid}");

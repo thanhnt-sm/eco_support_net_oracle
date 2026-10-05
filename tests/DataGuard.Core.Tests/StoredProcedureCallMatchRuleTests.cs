@@ -8,6 +8,7 @@ using DataGuard.Core.Rules.StoredProcedures;
 using DataGuard.Core.Rules.TypeCompatibility;
 using DataGuard.Oracle.Adapter;
 using DataGuard.PostgreSql.Adapter;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Xunit;

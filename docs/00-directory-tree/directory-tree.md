@@ -102,18 +102,18 @@ The core library containing all domain logic, validation rules, and abstractions
 
 | Path | Purpose | Layer | Language |
 |------|---------|-------|----------|
-| `src/DataGuard.Core/DataGuard.Core.csproj` | Project file — targets net9.0, references Roslyn, YamlDotNet | Build | MSBuild XML |
+| `src/DataGuard.Core/DataGuard.Core.csproj` | Project file — targets net9.0, references Roslyn, EF Core, YamlDotNet; no database driver or T-SQL parser (those live in the adapters) | Build | MSBuild XML |
 | `src/DataGuard.Core/packages.lock.json` | NuGet dependency lock file | Build | JSON |
 | **Abstractions/** | | | |
 | `Abstractions/Contracts.cs` | Core domain model: `IContractSource`, `IContractRule`, `ContractViolation`, `EntityDescriptor`, `StoredProcedureDescriptor`, `RawSqlDescriptor`, `ColumnDescriptor`, `ParameterDescriptor`, `DatabaseSchemaDescriptor` | Domain | C# |
 | **Rules/** | | | |
 | `Rules/ContractRules.cs` | Built-in validation rules: `ParameterCountRule` (DG101), `ParameterTypeMatchRule` (DG002), `ParameterDirectionRule` (DG003), `ColumnShapeMatchRule` (DG004), `NullableMismatchRule` (DG005), `NamingConventionRule` (DG006) | Domain | C# |
 | `Rules/PhantomTableRule.cs`, `Rules/PhantomColumnRule.cs` | Phantom table (DG015) and phantom column (DG016) detection — validate SQL references against database schema | Domain | C# |
-| `Rules/Sql/` | `SchemaObjectName` (`SqlIdentifier.cs`), `SqlTokenizer`, `SchemaTableIndex`, `PhantomSqlAnalyzer` shared by DG015/DG016 and DG005 | Domain | C# |
+| `Rules/Sql/` | `SchemaObjectName` (`SqlIdentifier.cs`), `SqlTokenizer`, `SchemaTableIndex`, `PhantomSqlAnalyzer` shared by DG015/DG016 and DG005; adapter seams `IPhantomReferenceAnalyzer` and `ISqlStatementParser` (DG019; no-op default) | Domain | C# |
+| `Rules/TypeCompatibility/` | `ITypeCompatibility`, `MappedTypeCompatibility`, `DbTypeInfo`, `ClrTypeNames`, `TypeCompatibilityRegistry` and the provider-neutral `UnknownTypeCompatibility` fallback; provider tables live in the adapters | Domain | C# |
 | `Rules/RuleDependencyGraph.cs` | DAG-based rule execution ordering with dependency resolution and topological sort | Domain | C# |
 | **Sources/** | | | |
 | `Sources/EfModelSource.cs` | Extracts contract descriptors from EF Core `DbContext` models via reflection | Infrastructure | C# |
-| `Sources/SqlServerParsers.cs` | Parses SQL Server stored procedure metadata from `sys.*` catalog views | Infrastructure | C# |
 | `Sources/ManualContractSource.cs` | Loads contract descriptors from compiled assemblies (offline/manual mode) | Infrastructure | C# |
 | `Sources/SqlKeywordMatcher.cs` | SQL keyword and syntax pattern matching utility | Utility | C# |
 | **Security/** | | | |
@@ -174,7 +174,12 @@ Command-line interface tool with 9 commands.
 | `PostgreSqlStoredProcedureParser.cs` | PostgreSQL function/procedure metadata parser via `information_schema.routines` | Infrastructure | C# |
 | `PostgreSqlLengthMismatchDetector.cs` | PostgreSQL length validation rule: PG003 (entity length exceeds column) | Domain | C# |
 | **DataGuard.SqlServer.Adapter/** | | | |
-| `DataGuard.SqlServer.Adapter.csproj` | SQL Server adapter project — delegates parsing to `DataGuard.Core/Sources/SqlServerParsers.cs` | Build | MSBuild XML |
+| `DataGuard.SqlServer.Adapter.csproj` | SQL Server adapter project — `Microsoft.Data.SqlClient` + `Microsoft.SqlServer.TransactSql.ScriptDom` + `ProjectReference` Core | Build | MSBuild XML |
+| `SqlServerParsers.cs` | `SqlServerStoredProcedureParser` (`sys.*` catalog + `INFORMATION_SCHEMA` schema reader) and `RawSqlParser` (ScriptDOM `.sql` file source) | Infrastructure | C# |
+| `SqlServerLiveQuerySchemaProvider.cs` | Live result-set describe via `sys.sp_describe_first_result_set` (DG018/DG020) | Infrastructure | C# |
+| `SqlServerTypeCompatibility.cs` | SQL Server CLR ↔ type table for DG002/DG018 | Domain | C# |
+| `TSqlStatementParser.cs` | ScriptDOM `ISqlStatementParser` injected into DG019 for `sqlserver` | Domain | C# |
+| `TSqlPhantomAnalyzer.cs`, `TSqlPhantomScopeVisitor.cs` | ScriptDOM `IPhantomReferenceAnalyzer` for DG015/DG016 on `sqlserver` | Domain | C# |
 
 ### Tooling Projects
 

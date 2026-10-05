@@ -15,6 +15,7 @@ using DataGuard.Core.Sources;
 using DataGuard.Oracle.Adapter;
 using DataGuard.MySql.Adapter;
 using DataGuard.PostgreSql.Adapter;
+using DataGuard.SqlServer.Adapter;
 using Microsoft.CodeAnalysis;
 using DataGuard.Core.Rules;
 using DataGuard.Core.Validation;

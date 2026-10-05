@@ -152,7 +152,7 @@ Flags properties where `MaxLength` is inferred from CLR type defaults rather tha
 **Scope:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
 **Source:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, analyzer contract `Sql/IPhantomReferenceAnalyzer.cs`, default tokenizer analyzer `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, catalog lookup `Sql/SchemaTableIndex.cs`, names `Sql/SqlIdentifier.cs`); SQL Server AST analyzer `src/DataGuard.SqlServer.Adapter/TSqlPhantomAnalyzer.cs` + `TSqlPhantomScopeVisitor.cs`
 
-Detects table/column references in raw SQL that do not exist in the database schema — a common **AI hallucination failure mode** when LLMs generate SQL queries. The two IDs are separate rules, so `--skip-rules DG015` or `--skip-rules DG016` disables exactly one finding kind. Raw SQL parse errors are a different rule, **DG019** (`RawSqlParseStatusRule`).
+Detects table/column references in raw SQL that do not exist in the database schema — a common **AI hallucination failure mode** when LLMs generate SQL queries. The two IDs are separate rules, so `--skip-rules DG015` or `--skip-rules DG016` disables exactly one finding kind. Raw SQL parse errors are a different rule, **DG019** (`RawSqlParseStatusRule`): for `sqlserver` it parses each raw SQL contract (not stored-procedure calls) with the SQL Server adapter's ScriptDOM `TSqlStatementParser` (Core seam `Sql/ISqlStatementParser.cs`, injected by `ProviderRuleCatalog`); other providers report only a parse status set during acquisition.
 
 ```mermaid
 flowchart LR

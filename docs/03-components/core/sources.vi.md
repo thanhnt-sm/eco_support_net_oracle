@@ -1,6 +1,6 @@
 # Contract Sources
 
-> Nguồn: `src/DataGuard.Core/Sources/EfModelSource.cs`, `SqlServerParsers.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`
+> Nguồn: `src/DataGuard.Core/Sources/EfModelSource.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`; nguồn SQL Server nằm trong `src/DataGuard.SqlServer.Adapter/SqlServerParsers.cs` (namespace `DataGuard.SqlServer.Adapter`; từ red-team A1/R33 Core không tham chiếu driver database nào)
 
 Contract sources là lớp thu thập dữ liệu của DataGuard. Chúng trích xuất các thể hiện `ContractDescriptor` từ nhiều nguồn: mô hình EF Core, metadata database, văn bản SQL thô, và các annotation thuộc tính thủ công.
 
@@ -108,11 +108,11 @@ Caller chọn tường minh một DLL không phải link và đúng concrete `Mo
 
 ### Trạng thái parse raw SQL
 
-`RawSqlParser` ghi `RawSqlParseStatus.Invalid` và nội dung lỗi ScriptDOM cho input malformed. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 là Phantom Column Reference) báo trạng thái đó là Error, nên lỗi parser không thể xuất hiện như kết quả validation clean.
+`RawSqlParser` ghi `RawSqlParseStatus.Invalid` và nội dung lỗi ScriptDOM cho input malformed. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 là Phantom Column Reference) báo trạng thái đó là Error, nên lỗi parser không thể xuất hiện như kết quả validation clean. Raw SQL thu thập từ C# (`ProjectCSharpSqlSource`) không tự có trạng thái parse: với `sqlserver`, `ProviderRuleCatalog` inject `TSqlStatementParser` (`ISqlStatementParser`) của adapter vào DG019, rule này báo SQL mà ngữ pháp T-SQL từ chối. Provider khác không có parser (`NoOpSqlStatementParser` của Core).
 
 ## SqlServerStoredProcedureParser
 
-Trích xuất stored procedure contracts từ system views SQL Server.
+Trích xuất stored procedure contracts từ system views SQL Server. Nằm trong `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class SqlServerStoredProcedureParser : IContractSource
@@ -153,7 +153,7 @@ sequenceDiagram
 
 ## RawSqlParser
 
-Phân tích văn bản SQL thô bằng thư viện ScriptDOM của Microsoft.
+Phân tích văn bản SQL thô bằng thư viện ScriptDOM của Microsoft. Nằm trong `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class RawSqlParser : IContractSource
@@ -271,7 +271,7 @@ Sources được đăng ký với validation pipeline:
 var sources = new IContractSource[]
 {
     new EfModelSource(dbContext, config),
-    new SqlServerStoredProcedureParser(connectionString, config),
+    new SqlServerStoredProcedureParser(connectionString, config), // DataGuard.SqlServer.Adapter
     new ManualContractSource(assemblyPath),
 };
 
@@ -287,7 +287,7 @@ foreach (var source in sources)
 | Source | SourceId | Đầu vào | Đầu ra | Cần Database |
 |--------|----------|---------|--------|--------------|
 | `EfModelSource` | `ef-model` | DbContext / ModelSnapshot | `EntityDescriptor[]` | Runtime: Có, Design-time: Không |
-| `SqlServerStoredProcedureParser` | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Có |
-| `RawSqlParser` | `raw-sql` | Văn bản SQL + đường dẫn file | `RawSqlDescriptor[]` | Không |
+| `SqlServerStoredProcedureParser` (adapter SQL Server) | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Có |
+| `RawSqlParser` (adapter SQL Server) | `raw-sql` | Văn bản SQL + đường dẫn file | `RawSqlDescriptor[]` | Không |
 | `ManualContractSource` | `manual` | Đường dẫn assembly | `EntityDescriptor[]` + `StoredProcedureDescriptor[]` | Không |
 | `ProjectCSharpSqlSource` | `csharp-source` | Thư mục mã nguồn / project C# | `RawSqlDescriptor[]` + `StoredProcedureDescriptor[]` | Không |
