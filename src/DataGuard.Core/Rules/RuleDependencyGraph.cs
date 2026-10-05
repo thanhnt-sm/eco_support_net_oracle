@@ -377,8 +377,9 @@ public static class BuiltInRuleDependencies
         // Level 5: Naming convention (depends on parameter/column names)
         graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
 
-        // Level 6: Phantom identifiers (schema ground truth)
-        graph.AddRule(new PhantomIdentifierRule());
+        // Level 6: Phantom identifiers (schema ground truth): DG015 table, DG016 column; DG019 parse status
+        graph.AddRule(new PhantomTableRule());
+        graph.AddRule(new PhantomColumnRule());
         graph.AddRule(new RawSqlParseStatusRule());
         graph.AddRule(new SelectStarUsageRule());
         return graph;

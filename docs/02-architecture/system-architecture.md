@@ -152,7 +152,7 @@ flowchart LR
         C3["ColumnShapeMatchRule<br/>DG003"]
         C4["NullableMismatchRule<br/>DG004"]
         C5["NamingConventionRule<br/>DG005"]
-        C6["PhantomIdentifierRule<br/>DG015/DG016"]
+        C6["PhantomTableRule / PhantomColumnRule<br/>DG015/DG016"]
         C7["LengthMismatchRule<br/>DG006"]
         C8["DialectCheckRule<br/>DG007"]
         CN["... DG008–DG014"]
@@ -314,7 +314,7 @@ graph TB
         end
 
         subgraph "Rules Engine"
-            RULES["Rules<br/>ContractRuleBase · DG001–DG016<br/>PhantomIdentifierRule"]
+            RULES["Rules<br/>ContractRuleBase · DG001–DG019<br/>PhantomTableRule · PhantomColumnRule"]
             RDG["RuleDependencyGraph<br/>Topological sort · Built-in deps"]
         end
 

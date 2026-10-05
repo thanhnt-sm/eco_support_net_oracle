@@ -42,7 +42,7 @@ The IDE layer (`DataGuard.Analyzers`) marks unvalidated SQL calls on every keyst
 | DG003 | Parameter direction match | MY001-003 | MySQL syntax / length checks |
 | DG004 | Result-set column shape | PG001-003 | PostgreSQL syntax / length checks |
 | DG005 | Nullability match | DG007/008 | Oracle length semantics (CHAR/BYTE, ORA-12899) |
-| DG006 | Naming convention | | |
+| DG006 | Naming convention | DG019 | Raw SQL parse error |
 
 ## Packages
 

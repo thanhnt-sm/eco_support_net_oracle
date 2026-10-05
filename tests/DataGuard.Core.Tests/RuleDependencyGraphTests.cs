@@ -132,14 +132,17 @@ public class RuleDependencyGraphTests
         ruleIds.Should().Contain("DG004");  // ColumnShapeMatchRule
         ruleIds.Should().Contain("DG005");  // NullableMismatchRule
         ruleIds.Should().Contain("DG006");  // NamingConventionRule
-        ruleIds.Should().Contain("DG015");  // PhantomIdentifierRule
+        ruleIds.Should().Contain("DG015");  // PhantomTableRule
+        ruleIds.Should().Contain("DG016");  // PhantomColumnRule
+        ruleIds.Should().Contain("DG019");  // RawSqlParseStatusRule
         ruleIds.Should().Contain("DG017");  // SelectStarUsageRule
     }
 
     [Fact]
-    public void CreateDefault_ExecutionOrder_HasNineRules()
+    public void CreateDefault_ExecutionOrder_HasTenRules()
     {
         var order = BuiltInRuleDependencies.CreateDefault().GetExecutionOrder();
-        order.Length.Should().Be(9);
+        order.Length.Should().Be(10);
+        order.Select(r => r.RuleId).Should().OnlyHaveUniqueItems();
     }
 }

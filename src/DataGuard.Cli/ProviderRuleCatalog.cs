@@ -29,9 +29,10 @@ public static class ProviderRuleCatalog
         ["DG013"] = "SQL Server Syntax Leak",
         ["DG014"] = "Unmapped Type Usage",
         ["DG015"] = "Phantom Table Reference",
-        ["DG016"] = "Phantom Column / Raw SQL Parse Error",
+        ["DG016"] = "Phantom Column Reference",
         ["DG017"] = "Avoid SELECT *",
         ["DG018"] = "Live Query Shape Mismatch",
+        ["DG019"] = "Raw SQL Parse Error",
         ["DG020"] = "Undetermined Query Shape",
         ["DG101"] = "Parameter Count Match",
     };
@@ -97,7 +98,8 @@ public static class ProviderRuleCatalog
         Add(rules, new ColumnShapeMatchRule());
         Add(rules, new NullableMismatchRule());
         Add(rules, new NamingConventionRule());
-        Add(rules, new PhantomIdentifierRule());
+        Add(rules, new PhantomTableRule());
+        Add(rules, new PhantomColumnRule());
         Add(rules, new RawSqlParseStatusRule());
         Add(rules, new SelectStarUsageRule());
         if (!string.IsNullOrWhiteSpace(connectionString))

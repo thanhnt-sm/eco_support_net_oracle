@@ -103,7 +103,7 @@ The caller explicitly selects one non-linked DLL and the exact concrete `ModelSn
 
 ### Raw SQL parse status
 
-`RawSqlParser` records `RawSqlParseStatus.Invalid` and the ScriptDOM error text for malformed input. Built-in rule `DG016` reports that status as an Error, so a parser failure cannot appear as a clean validation result.
+`RawSqlParser` records `RawSqlParseStatus.Invalid` and the ScriptDOM error text for malformed input. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 is Phantom Column Reference) reports that status as an Error, so a parser failure cannot appear as a clean validation result.
 
 ## SqlServerStoredProcedureParser
 

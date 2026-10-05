@@ -291,7 +291,7 @@ public class OracleDialectChecker : IDialectAnalyzer
 }
 
 /// <summary>
-/// Rule: Oracle syntax in non-Oracle context.
+/// Rule: Oracle syntax in non-Oracle context. Stored-procedure call descriptors (synthesized SQL) are skipped.
 /// </summary>
 public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 {
@@ -311,7 +311,7 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
             var checker = new OracleDialectChecker();
             var isOracle = false; // This rule detects Oracle syntax leaking into non-Oracle (SQL Server) context
@@ -323,7 +323,7 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 }
 
 /// <summary>
-/// Rule: Non-Oracle syntax in Oracle context.
+/// Rule: Non-Oracle syntax in Oracle context. Stored-procedure call descriptors (synthesized SQL) are skipped.
 /// </summary>
 public class NonOracleFunctionInOracleContextRule : ContractRuleBase
 {
@@ -341,7 +341,7 @@ public class NonOracleFunctionInOracleContextRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
             var checker = new OracleDialectChecker();
             violations.AddRange(checker.CheckNonOracleSyntaxInOracleContext(rawSql.SqlText, true, contract.Location));
@@ -376,7 +376,8 @@ public class ProviderOptionMismatchRule : ContractRuleBase
 }
 
 /// <summary>
-/// Rule: SQL Server syntax leak in Oracle context.
+/// Rule: SQL Server syntax leak in Oracle context. Stored-procedure call descriptors are skipped: their SQL text
+/// (<c>EXEC PKG.PROC</c>) is synthesized by the extractor from <c>CommandType.StoredProcedure</c>, not written by the user.
 /// </summary>
 public class SqlServerSyntaxLeakRule : ContractRuleBase
 {
@@ -394,7 +395,7 @@ public class SqlServerSyntaxLeakRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
             var checker = new OracleDialectChecker();
             violations.AddRange(checker.CheckSqlServerSyntaxLeak(rawSql.SqlText, true, contract.Location));

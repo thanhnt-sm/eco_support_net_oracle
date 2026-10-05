@@ -71,7 +71,8 @@ public class RulesEngineTests
 
         var violations = await RunAsync(new RawSqlParseStatusRule(), invalid, invalid);
 
-        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG016");
+        // DG019 (was DG016 before the H11 fix: DG016 is Phantom Column Reference).
+        violations.Should().ContainSingle().Which.RuleId.Should().Be("DG019");
     }
 
     [Fact]
@@ -193,7 +194,8 @@ public class RulesEngineTests
     [Fact]
     public async Task NullableMismatchRule_RequiredPropertyAgainstNullableColumn_Flags()
     {
-        var entity = Entity("Customer", Prop("Name", "name", new Dictionary<string, object?> { ["Required"] = true }));
+        // The entity must map to the catalog table: DG005 no longer merges columns across tables (C5).
+        var entity = Entity("Customer", Prop("Name", "name", new Dictionary<string, object?> { ["Required"] = true })) with { TableName = "Customers" };
         var schema = Schema(("Customers", "name", true));
         var violations = await RunAsync(new NullableMismatchRule(), entity, entity, schema);
         violations.Should().ContainSingle().Which.RuleId.Should().Be("DG005");
@@ -208,11 +210,11 @@ public class RulesEngineTests
     }
 
     [Fact]
-    public async Task PhantomIdentifierRule_UnknownTable_Flags()
+    public async Task PhantomTableRule_UnknownTable_Flags()
     {
         var schema = Schema(("Orders", "Id", false));
         var sql = RawSql("SELECT Id FROM Ghost");
-        var violations = await RunAsync(new PhantomIdentifierRule(), sql, sql, schema);
+        var violations = await RunAsync(new PhantomTableRule(), sql, sql, schema);
         violations.Should().Contain(v => v.RuleId == "DG015");
     }
 

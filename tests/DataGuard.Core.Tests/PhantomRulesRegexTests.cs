@@ -8,10 +8,10 @@ using Xunit;
 namespace DataGuard.Core.Tests;
 
 /// <summary>
-/// Regex-DoS hardening (red-team F11): the SELECT-list scan must be linear, keep its semantics on
-/// sub-queries, and oversized SQL literals must be skipped before any rule regex sees them.
+/// Regex-DoS hardening (red-team F11): the phantom analyzer is a linear tokenizer (no regex), must keep its
+/// semantics on sub-queries, and oversized SQL literals must be skipped before any rule sees them.
 /// </summary>
-public class PhantomIdentifierRuleRegexTests
+public class PhantomRulesRegexTests
 {
     private static DatabaseSchemaDescriptor Schema() => new(
         "schema:1",
@@ -37,15 +37,16 @@ public class PhantomIdentifierRuleRegexTests
     public async Task ValidateAsync_SelectFollowedBy200KSpaces_CompletesWithinFiveSeconds()
     {
         // Hostile regex payload (not SQL construction): a bare keyword followed by 200 000 spaces and one stray token.
-        var rule = new PhantomIdentifierRule();
         var hostile = string.Concat("SELECT", new string(' ', 200_000), "x");
 
         var stopwatch = Stopwatch.StartNew();
-        var violations = await rule.ValidateAsync(Sql(hostile), new ContractDescriptor[] { Schema() });
+        var violations = new List<ContractViolation>();
+        violations.AddRange(await new PhantomTableRule().ValidateAsync(Sql(hostile), new ContractDescriptor[] { Schema() }));
+        violations.AddRange(await new PhantomColumnRule().ValidateAsync(Sql(hostile), new ContractDescriptor[] { Schema() }));
         stopwatch.Stop();
 
-        // 5 s, not 1 s: the bound also covers first-use JIT of four Compiled regexes and NonBacktracking DFA
-        // construction on a cold, shared CI runner. The quadratic case took minutes, so the headroom is still ~3 orders.
+        // 5 s, not 1 s: the bound also covers first-use JIT on a cold, shared CI runner.
+        // The quadratic regex case took minutes, so the headroom is still ~3 orders.
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
         violations.Should().BeEmpty();
     }
@@ -54,7 +55,7 @@ public class PhantomIdentifierRuleRegexTests
     public async Task ValidateAsync_SelectListStopsAtFirstFrom_WhenSubqueryFollows()
     {
         // Lazy semantics must survive the linear rewrite: the select list is "ID, NAME", not the subquery tail.
-        var rule = new PhantomIdentifierRule();
+        var rule = new PhantomColumnRule();
         var sql = "SELECT ID, NAME FROM CUSTOMERS WHERE ID IN (SELECT ID FROM ORDERS)";
 
         var violations = await rule.ValidateAsync(Sql(sql), new ContractDescriptor[] { Schema() });
@@ -65,7 +66,7 @@ public class PhantomIdentifierRuleRegexTests
     [Fact]
     public async Task ValidateAsync_PhantomSelectListColumn_StillReportsDG016()
     {
-        var rule = new PhantomIdentifierRule();
+        var rule = new PhantomColumnRule();
         var sql = "select id,\n  address\nfrom customers where id = :id";
 
         var violations = await rule.ValidateAsync(Sql(sql), new ContractDescriptor[] { Schema() });

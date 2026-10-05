@@ -91,7 +91,7 @@ graph TD
 | Module | Types Chính | Mục Đích |
 |--------|------------|---------|
 | **Abstractions** | `IContractSource`, `IContractRule`, `ContractDescriptor`, `ContractViolation`, các descriptor records | Domain model và interfaces |
-| **Rules** | `ContractRuleBase`, `ParameterCountRule` (DG001), `ParameterTypeMatchRule` (DG002), `ColumnShapeMatchRule` (DG003), `NullableMismatchRule` (DG004), `NamingConventionRule` (DG005), `LengthMismatchRule` (DG006), `DialectCheckRule` (DG007), `PhantomIdentifierRule` (DG015/DG016) | Triển khai rules |
+| **Rules** | `ContractRuleBase`, `ParameterCountRule` (DG001), `ParameterTypeMatchRule` (DG002), `ColumnShapeMatchRule` (DG003), `NullableMismatchRule` (DG004), `NamingConventionRule` (DG005), `LengthMismatchRule` (DG006), `DialectCheckRule` (DG007), `PhantomTableRule` (DG015), `PhantomColumnRule` (DG016), `RawSqlParseStatusRule` (DG019) | Triển khai rules |
 | **Rules** | `RuleDependencyGraph`, `BuiltInRuleDependencies` | Sắp xếp topo cho thứ tự thực thi tối ưu |
 | **Sources** | `EfModelSource`, `SqlServerStoredProcedureParser`, `RawSqlParser` | Trích xuất contract từ EF Core và SQL Server |
 | **Security** | `ZeroTrustCredentialProvider`, `CredentialManager`, `IAuditLogger`, `FileAuditLogger` | Xử lý credential zero-trust |
