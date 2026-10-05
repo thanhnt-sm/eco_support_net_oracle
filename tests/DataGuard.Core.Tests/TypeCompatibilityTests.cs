@@ -3,6 +3,7 @@ using DataGuard.Core.Rules.TypeCompatibility;
 using DataGuard.MySql.Adapter;
 using DataGuard.Oracle.Adapter;
 using DataGuard.PostgreSql.Adapter;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Xunit;
 
@@ -147,9 +148,19 @@ public class TypeCompatibilityTests
     }
 
     [Fact]
-    public void Registry_FallsBackWithoutRegistration_AndShimDelegates()
+    public void Registry_FallsBackToUnknownWithoutRegistration_AndShimDelegates()
     {
         TypeCompatibilityRegistry.NormalizeProvider("postgres").Should().Be("postgresql");
+
+        // Core has no SQL Server table any more (red-team A1): an unregistered provider answers Unknown, never another
+        // dialect's mappings. "sqlite" is never registered by any test, so this is independent of test ordering.
+        var unregistered = TypeCompatibilityRegistry.Resolve("sqlite");
+        unregistered.Should().BeOfType<UnknownTypeCompatibility>();
+        unregistered.Check("int", "nvarchar(50)").Should().Be(TypeCompatibilityResult.Unknown);
+        unregistered.Check("Guid", "uniqueidentifier").Should().Be(TypeCompatibilityResult.Unknown);
+
+        // The SQL Server table comes from the adapter; ProviderRuleCatalog (or a library caller) registers it.
+        TypeCompatibilityRegistry.Register(SqlServerTypeCompatibility.Instance);
         TypeCompatibilityRegistry.Resolve(null).Should().BeSameAs(SqlServerTypeCompatibility.Instance);
         ParameterTypeMatchRule.IsTypeCompatible("Guid", "uniqueidentifier", isOracle: false).Should().BeTrue();
         ParameterTypeMatchRule.IsTypeCompatible("int", "NUMBER(10)", isOracle: true).Should().BeTrue();

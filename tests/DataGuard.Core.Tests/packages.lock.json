@@ -284,8 +284,8 @@
       },
       "Microsoft.CodeAnalysis.Analyzers": {
         "type": "Transitive",
-        "resolved": "5.9.0",
-        "contentHash": "jMNOo+uoBGiWbZ6Wx0dqU93r5WD4P5WnIRZdoz67RP5N09OUetHgAbo4L7hihOH1NHdD2TgW5/l+SP4gQukwww=="
+        "resolved": "5.9.0-1.26328.17",
+        "contentHash": "HP9NNk8ZjOSI2hgOyXnQg+kv7/X837Vr2nAlXiGAtqtYnYKjRRa1UmQFr8KFs5ynGYKqfbb8zB9APoWjiAGdMg=="
       },
       "Microsoft.CodeAnalysis.Common": {
         "type": "Transitive",
@@ -977,7 +977,6 @@
           "DataGuard.Contracts": "[1.0.0, )",
           "Microsoft.CodeAnalysis.CSharp": "[5.9.0, )",
           "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
           "Microsoft.EntityFrameworkCore": "[9.0.20, )",
           "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
           "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
@@ -986,7 +985,6 @@
           "Microsoft.Extensions.Diagnostics.HealthChecks": "[10.0.12, )",
           "Microsoft.Extensions.Logging": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
           "System.Composition.Hosting": "[10.0.12, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )",
           "System.Text.Json": "[10.0.12, )",
@@ -1002,55 +1000,22 @@
       "dataguard.mysql.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "MySqlConnector": "[2.6.2, )",
-          "System.Text.Json": "[10.0.12, )"
+          "MySqlConnector": "[2.6.2, )"
         }
       },
       "dataguard.oracle.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "Oracle.ManagedDataAccess.Core": "[23.26.301, )",
-          "System.Text.Json": "[10.0.12, )"
+          "Oracle.ManagedDataAccess.Core": "[23.26.301, )"
         }
       },
       "dataguard.postgresql.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
-          "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "Npgsql": "[10.0.3, )",
-          "System.Text.Json": "[10.0.12, )"
+          "Npgsql": "[10.0.3, )"
         }
       },
       "dataguard.sqlclassification": {
@@ -1059,18 +1024,9 @@
       "dataguard.sqlserver.adapter": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Core": "[1.0.0, )",
-          "Microsoft.CodeAnalysis.Analyzers": "[5.9.0, )",
-          "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
           "Microsoft.Data.SqlClient": "[7.1.1, )",
-          "Microsoft.EntityFrameworkCore": "[9.0.20, )",
-          "Microsoft.EntityFrameworkCore.Relational": "[9.0.20, )",
-          "Microsoft.Extensions.Caching.Memory": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration": "[10.0.12, )",
-          "Microsoft.Extensions.Configuration.Binder": "[10.0.12, )",
-          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )",
-          "System.Text.Json": "[10.0.12, )"
+          "Microsoft.SqlServer.TransactSql.ScriptDom": "[180.117.0, )"
         }
       }
     },

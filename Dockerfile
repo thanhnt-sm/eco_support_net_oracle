@@ -18,8 +18,11 @@ WORKDIR /source
 
 # Copy project files and lockfiles for optimal layer caching on deterministic restore.
 # Directory.Build.props is auto-imported by MSBuild — it MUST be present
-# during restore so the restore graph matches the publish graph.
-COPY --link Directory.Build.props .
+# during restore so the restore graph matches the publish graph. NuGet.config
+# carries the nuget.org-only source mapping used by every other restore.
+# The list is the CLI's full ProjectReference closure: Core holds no database
+# driver, each adapter (SQL Server: SqlClient + ScriptDOM) brings its own.
+COPY --link Directory.Build.props NuGet.config ./
 COPY --link src/DataGuard.Core/DataGuard.Core.csproj src/DataGuard.Core/packages.lock.json src/DataGuard.Core/
 COPY --link src/DataGuard.Contracts/DataGuard.Contracts.csproj src/DataGuard.Contracts/packages.lock.json src/DataGuard.Contracts/
 COPY --link src/DataGuard.SqlClassification/DataGuard.SqlClassification.csproj src/DataGuard.SqlClassification/packages.lock.json src/DataGuard.SqlClassification/

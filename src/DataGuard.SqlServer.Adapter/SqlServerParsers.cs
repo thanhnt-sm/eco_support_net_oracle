@@ -1,18 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
+using DataGuard.Core.Sources;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.Data.SqlClient;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
-namespace DataGuard.Core.Sources;
+namespace DataGuard.SqlServer.Adapter;
 
 /// <summary>
 /// Parses stored procedures and raw SQL for SQL Server.
@@ -319,18 +313,7 @@ public class RawSqlParser : IContractSource
         var fragment = parser.Parse(new StringReader(_sqlText), out errors);
 
         // Extract parameters from the parsed fragment
-        var visitor = new SqlParameterVisitor();
-        fragment.Accept(visitor);
-
-        var parameters = visitor.Parameters.Select(p => new ParameterDescriptor(
-            Name: p.Name,
-            DataType: p.DataType,
-            Direction: DataGuard.Core.Abstractions.ParameterDirection.Input,
-            MaxLength: p.MaxLength,
-            Precision: p.Precision,
-            Scale: p.Scale,
-            IsNullable: true,
-            OrdinalPosition: p.Ordinal)).ToList();
+        var parameters = SqlParameterVisitor.Extract(fragment);
 
         // Create a location from the file path and text span
         var lineSpan = new LinePositionSpan(
@@ -362,6 +345,29 @@ public class RawSqlParser : IContractSource
 internal class SqlParameterVisitor : TSqlFragmentVisitor
 {
     public List<SqlParameterInfo> Parameters { get; } = new();
+
+    /// <summary>Returns the declared (<c>CREATE PROCEDURE</c>/function) parameters of <paramref name="fragment"/>.</summary>
+    /// <param name="fragment">Parsed fragment; null yields no parameters.</param>
+    /// <returns>Parameter descriptors in declaration order.</returns>
+    public static List<ParameterDescriptor> Extract(TSqlFragment? fragment)
+    {
+        if (fragment is null)
+        {
+            return new List<ParameterDescriptor>();
+        }
+
+        var visitor = new SqlParameterVisitor();
+        fragment.Accept(visitor);
+        return visitor.Parameters.Select(p => new ParameterDescriptor(
+            Name: p.Name,
+            DataType: p.DataType,
+            Direction: DataGuard.Core.Abstractions.ParameterDirection.Input,
+            MaxLength: p.MaxLength,
+            Precision: p.Precision,
+            Scale: p.Scale,
+            IsNullable: true,
+            OrdinalPosition: p.Ordinal)).ToList();
+    }
 
     public override void Visit(ProcedureParameter parameter)
     {

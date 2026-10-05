@@ -6,15 +6,13 @@ namespace DataGuard.Core.Rules.TypeCompatibility;
 /// Process-wide lookup of provider type tables for Core code that only knows a provider key
 /// (<see cref="LiveSqlShapeValidationRule"/>, <see cref="ParameterTypeMatchRule.IsTypeCompatible"/>, rules built without
 /// an injected table). <c>ProviderRuleCatalog</c> registers the adapter table for the provider it builds rules for.
-/// Unregistered providers fall back to the SQL Server table (sqlserver), the pre-3.1 Oracle map (oracle) or a table that
-/// answers <see cref="TypeCompatibilityResult.Unknown"/> for everything (postgresql, mysql: borrowing the SQL Server table
-/// produced false findings, red-team H6).
+/// Core references no provider driver, so an unregistered provider falls back to <see cref="UnknownTypeCompatibility"/>
+/// (no findings; borrowing another provider's table produced false findings, red-team H6/A1), except the pre-3.1 Oracle
+/// map that is kept for library callers of the Oracle shim.
 /// </summary>
 public static class TypeCompatibilityRegistry
 {
     private static readonly ConcurrentDictionary<string, ITypeCompatibility> Tables = new(StringComparer.Ordinal);
-    private static readonly ITypeCompatibility UnknownPostgreSql = new UnknownTypeCompatibility("postgresql");
-    private static readonly ITypeCompatibility UnknownMySql = new UnknownTypeCompatibility("mysql");
 
     /// <summary>Registers (or replaces) the table for <see cref="ITypeCompatibility.Provider"/>.</summary>
     /// <param name="table">The provider table.</param>
@@ -25,7 +23,7 @@ public static class TypeCompatibilityRegistry
     }
 
     /// <summary>Returns the registered table for <paramref name="provider"/>, or the built-in fallback.</summary>
-    /// <param name="provider">Provider key (sqlserver, oracle, postgresql/postgres, mysql) or null for SQL Server.</param>
+    /// <param name="provider">Provider key (sqlserver, oracle, postgresql/postgres, mysql); null means sqlserver.</param>
     /// <returns>A table; never null.</returns>
     public static ITypeCompatibility Resolve(string? provider)
     {
@@ -35,13 +33,9 @@ public static class TypeCompatibilityRegistry
             return table;
         }
 
-        return key switch
-        {
-            "oracle" => LegacyOracleTypeCompatibility.Instance,
-            "postgresql" => UnknownPostgreSql,
-            "mysql" => UnknownMySql,
-            _ => SqlServerTypeCompatibility.Instance,
-        };
+        return key == "oracle"
+            ? LegacyOracleTypeCompatibility.Instance
+            : UnknownTypeCompatibility.For(key);
     }
 
     /// <summary>Maps provider spellings to the canonical key.</summary>
@@ -57,19 +51,11 @@ public static class TypeCompatibilityRegistry
             _ => key,
         };
     }
-
-    private sealed class UnknownTypeCompatibility(string provider) : ITypeCompatibility
-    {
-        public string Provider { get; } = provider;
-
-        public TypeCompatibilityResult Check(string? clrType, string? dbType, int? precision = null, int? scale = null, int? maxLength = null) =>
-            TypeCompatibilityResult.Unknown;
-    }
 }
 
 /// <summary>
 /// The pre-3.1 Oracle map, kept only as the fallback when the Oracle adapter table has not been registered
-/// (library callers and rules constructed without a provider). Remove when the rules move into the adapters (plan 4.1).
+/// (library callers of <c>ParameterTypeMatchRule.IsTypeCompatible</c> and rules constructed without a provider).
 /// </summary>
 internal sealed class LegacyOracleTypeCompatibility : ITypeCompatibility
 {

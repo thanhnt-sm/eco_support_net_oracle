@@ -1,6 +1,6 @@
 # Contract Sources
 
-> Source: `src/DataGuard.Core/Sources/EfModelSource.cs`, `SqlServerParsers.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`
+> Source: `src/DataGuard.Core/Sources/EfModelSource.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`; SQL Server sources in `src/DataGuard.SqlServer.Adapter/SqlServerParsers.cs` (namespace `DataGuard.SqlServer.Adapter`; Core references no database driver since red-team A1/R33)
 
 Contract sources are the data collection layer of DataGuard. They extract `ContractDescriptor` instances from various origins: EF Core models, database metadata, raw SQL text, and manual attribute annotations.
 
@@ -109,11 +109,11 @@ The caller explicitly selects one non-linked DLL and the exact concrete `ModelSn
 
 ### Raw SQL parse status
 
-`RawSqlParser` records `RawSqlParseStatus.Invalid` and the ScriptDOM error text for malformed input. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 is Phantom Column Reference) reports that status as an Error, so a parser failure cannot appear as a clean validation result.
+`RawSqlParser` records `RawSqlParseStatus.Invalid` and the ScriptDOM error text for malformed input. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 is Phantom Column Reference) reports that status as an Error, so a parser failure cannot appear as a clean validation result. Raw SQL acquired from C# (`ProjectCSharpSqlSource`) has no parse status of its own: for `sqlserver`, `ProviderRuleCatalog` injects the adapter's `TSqlStatementParser` (`ISqlStatementParser`) into DG019, which reports SQL the T-SQL grammar rejects. Other providers get no parser (Core's `NoOpSqlStatementParser`).
 
 ## SqlServerStoredProcedureParser
 
-Extracts stored procedure contracts from SQL Server system views.
+Extracts stored procedure contracts from SQL Server system views. Lives in `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class SqlServerStoredProcedureParser : IContractSource
@@ -154,7 +154,7 @@ sequenceDiagram
 
 ## RawSqlParser
 
-Parses raw SQL text using Microsoft's ScriptDOM library.
+Parses raw SQL text using Microsoft's ScriptDOM library. Lives in `DataGuard.SqlServer.Adapter`.
 
 ```csharp
 public class RawSqlParser : IContractSource
@@ -272,7 +272,7 @@ Sources are registered with the validation pipeline:
 var sources = new IContractSource[]
 {
     new EfModelSource(dbContext, config),
-    new SqlServerStoredProcedureParser(connectionString, config),
+    new SqlServerStoredProcedureParser(connectionString, config), // DataGuard.SqlServer.Adapter
     new ManualContractSource(assemblyPath),
 };
 
@@ -288,7 +288,7 @@ foreach (var source in sources)
 | Source | SourceId | Input | Output | Database Required |
 |--------|----------|-------|--------|-------------------|
 | `EfModelSource` | `ef-model` | DbContext / ModelSnapshot | `EntityDescriptor[]` | Runtime: Yes, Design-time: No |
-| `SqlServerStoredProcedureParser` | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Yes |
-| `RawSqlParser` | `raw-sql` | SQL text + file path | `RawSqlDescriptor[]` | No |
+| `SqlServerStoredProcedureParser` (SQL Server adapter) | `sqlserver-sp` | Connection string | `StoredProcedureDescriptor[]` | Yes |
+| `RawSqlParser` (SQL Server adapter) | `raw-sql` | SQL text + file path | `RawSqlDescriptor[]` | No |
 | `ManualContractSource` | `manual` | Assembly path | `EntityDescriptor[]` + `StoredProcedureDescriptor[]` | No |
 | `ProjectCSharpSqlSource` | `csharp-source` | C# project / source directory | `RawSqlDescriptor[]` + `StoredProcedureDescriptor[]` | No |

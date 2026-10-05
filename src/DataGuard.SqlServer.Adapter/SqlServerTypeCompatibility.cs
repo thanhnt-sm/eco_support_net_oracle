@@ -1,9 +1,11 @@
+using DataGuard.Core.Rules.TypeCompatibility;
 using C = DataGuard.Core.Rules.TypeCompatibility.ClrTypeNames;
 
-namespace DataGuard.Core.Rules.TypeCompatibility;
+namespace DataGuard.SqlServer.Adapter;
 
 /// <summary>
-/// SQL Server CLR ↔ type table (SqlClient mappings). Lives in Core until the SQL Server adapter split (plan 4.1).
+/// SQL Server CLR ↔ type table (SqlClient mappings), injected into the parameter rules by <c>ProviderRuleCatalog</c> and
+/// registered in <see cref="TypeCompatibilityRegistry"/> for the <c>sqlserver</c> provider.
 /// </summary>
 public sealed class SqlServerTypeCompatibility : MappedTypeCompatibility
 {

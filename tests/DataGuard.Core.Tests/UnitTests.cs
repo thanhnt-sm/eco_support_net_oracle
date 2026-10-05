@@ -82,6 +82,8 @@ public class ParameterTypeMatchRuleTests
     [InlineData("bool", "NUMBER(1)", true, true)]
     public void IsTypeCompatible_SqlServer_ReturnsExpected(string clrType, string dbType, bool isOracle, bool expected)
     {
+        // The SQL Server table lives in the adapter; the shim resolves whatever is registered for "sqlserver".
+        DataGuard.Core.Rules.TypeCompatibility.TypeCompatibilityRegistry.Register(DataGuard.SqlServer.Adapter.SqlServerTypeCompatibility.Instance);
         var result = ParameterTypeMatchRule.IsTypeCompatible(clrType, dbType, isOracle);
         result.Should().Be(expected);
     }

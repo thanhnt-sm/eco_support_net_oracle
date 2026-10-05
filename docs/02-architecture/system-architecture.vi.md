@@ -320,7 +320,6 @@ graph TB
 
         subgraph "Sources"
             EF["EfModelSource<br/>Runtime IModel · Design-time Snapshot"]
-            SP["SqlServerParsers<br/>ScriptDom · SqlParameterVisitor"]
             MANUAL["ManualContractSource<br/>Ground truth dựa trên attribute"]
         end
 
@@ -369,7 +368,7 @@ graph TB
     API --> CVE
     CVE --> RULES
     RULES --> ABS
-    EF & SP & MANUAL --> ABS
+    EF & MANUAL --> ABS
     RULES --> RDG
     DE --> ABS
     BM --> ABS

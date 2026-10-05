@@ -1,5 +1,5 @@
 using DataGuard.Core.Models;
-using DataGuard.Core.Sources;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Testcontainers.MsSql;
 using Xunit;

@@ -96,88 +96,10 @@ public static class LiveQuerySchemaProviderExtensions
 }
 
 /// <summary>
-/// Default SQL Server live query schema provider using sys.sp_describe_first_result_set.
-/// </summary>
-public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
-{
-    private readonly string _connectionString;
-
-    public SqlServerLiveQuerySchemaProvider(string connectionString)
-    {
-        _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
-    }
-
-    public async Task<LiveSchemaResult> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(sqlText))
-        {
-            return LiveSchemaResult.NotSupported("Empty SQL text cannot be described.");
-        }
-
-        try
-        {
-            return LiveSchemaResult.FromColumns(await DescribeCoreAsync(sqlText, cancellationToken).ConfigureAwait(false));
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // sp_describe_first_result_set rejects temp tables and dynamic SQL; connection errors land here too.
-            return LiveSchemaResult.Fail(ex.Message);
-        }
-    }
-
-    private async Task<IReadOnlyList<ColumnDescriptor>> DescribeCoreAsync(string sqlText, CancellationToken cancellationToken)
-    {
-        var columns = new List<ColumnDescriptor>();
-        using var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        using var command = connection.CreateCommand();
-        command.CommandTimeout = 5;
-        command.CommandText = "SELECT name, system_type_name, is_nullable, max_length, precision, scale, column_ordinal FROM sys.sp_describe_first_result_set(@tsql, NULL, 0) ORDER BY column_ordinal";
-        command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@tsql", sqlText));
-        using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            var name = reader["name"] is DBNull ? null : reader["name"]?.ToString();
-            if (string.IsNullOrEmpty(name))
-            {
-                continue;
-            }
-
-            var typeName = reader["system_type_name"] is DBNull ? "unknown" : reader["system_type_name"]?.ToString() ?? "unknown";
-            var isNullable = reader["is_nullable"] is not DBNull && Convert.ToBoolean(reader["is_nullable"]);
-            var maxLength = reader["max_length"] is DBNull ? (int?)null : Convert.ToInt32(reader["max_length"]);
-            var precision = reader["precision"] is DBNull ? (int?)null : Convert.ToInt32(reader["precision"]);
-            var scale = reader["scale"] is DBNull ? (int?)null : Convert.ToInt32(reader["scale"]);
-            var ordinal = reader["column_ordinal"] is DBNull ? 0 : Convert.ToInt32(reader["column_ordinal"]);
-
-            // Extract base type name before length/precision suffix, e.g. "nvarchar(50)" -> "nvarchar"
-            var baseType = typeName.Split('(')[0].Trim();
-
-            columns.Add(new ColumnDescriptor(
-                Name: name,
-                DataType: baseType,
-                MaxLength: maxLength,
-                Precision: precision,
-                Scale: scale,
-                IsNullable: isNullable,
-                CharUsed: null,
-                CharLength: maxLength,
-                DataDefault: null,
-                ColumnId: ordinal));
-        }
-
-        return columns;
-    }
-}
-
-/// <summary>
 /// Validates live database result set columns against C# object mapping expected properties.
-/// Connects to the database (using sys.sp_describe_first_result_set for SQL Server) to verify shape.
+/// Describes the query through the injected <see cref="ILiveQuerySchemaProvider"/> (each provider adapter supplies one; the
+/// SQL Server adapter uses sys.sp_describe_first_result_set). A connection string without a provider is reported as
+/// unevaluated: Core references no database driver.
 /// A query whose shape cannot be described is recorded as an unevaluated contract (<see cref="UndeterminedShapeRuleId"/>),
 /// never downgraded to a warning and never compared against fabricated columns (red-team H1/H2).
 /// </summary>
@@ -257,16 +179,10 @@ public class LiveSqlShapeValidationRule : ContractRuleBase, IContractEvaluationS
                 return; // No connection and no provider; skip live DB checks
             }
 
-            if (_provider.Equals("sqlserver", StringComparison.OrdinalIgnoreCase))
-            {
-                provider = new SqlServerLiveQuerySchemaProvider(_connectionString);
-            }
-            else
-            {
-                // A connection without a describer is not a pass: say the shape was not checked (red-team H2).
-                MarkUnevaluated(rawSql, $"No live query schema provider is registered for provider '{_provider}'.");
-                return;
-            }
+            // Core has no database driver: the describer comes from the provider adapter (ProviderRuleCatalog injects it).
+            // A connection without a describer is not a pass: say the shape was not checked (red-team H2).
+            MarkUnevaluated(rawSql, $"No live query schema provider is registered for provider '{_provider}'.");
+            return;
         }
 
         _progress?.Emit(new ProgressEvent(

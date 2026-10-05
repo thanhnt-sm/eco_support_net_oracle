@@ -176,7 +176,7 @@ public interface IContractSource
 | `DisplayName` | Human-readable name for CLI output |
 | `ExtractContractsAsync` | Returns all discovered descriptors; cancellation-safe |
 
-Built-in implementations: `EfModelSource`, `SqlServerStoredProcedureParser`, `RawSqlParser`, `ManualContractSource`.
+Built-in implementations: `EfModelSource`, `ManualContractSource`, `ProjectCSharpSqlSource` (Core); `SqlServerStoredProcedureParser`, `RawSqlParser` (`DataGuard.SqlServer.Adapter`) and the Oracle/PostgreSQL/MySQL adapter parsers.
 
 ## IContractRule Interface
 

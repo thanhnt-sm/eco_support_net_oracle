@@ -83,7 +83,7 @@ graph TD
 | Thuộc Tính | Giá Trị |
 |------------|---------|
 | **Target** | `net9.0` |
-| **Phụ Thuộc** | `DataGuard.Contracts`, EF Core 9.0.19, Roslyn 5.9.0, ScriptDom, AWSSDK.SecretsManager |
+| **Phụ Thuộc** | `DataGuard.Contracts`, EF Core, Roslyn 5.9.0, AWSSDK.SecretsManager (không còn SqlClient/ScriptDom từ red-team A1/R33) |
 | **Vai Trò** | Engine validation cốt lõi — không phụ thuộc database vendor |
 
 **Các Module Nội Bộ:**
@@ -93,7 +93,7 @@ graph TD
 | **Abstractions** | `IContractSource`, `IContractRule`, `ContractDescriptor`, `ContractViolation`, các descriptor records | Domain model và interfaces |
 | **Rules** | `ContractRuleBase`, `ParameterCountRule` (DG001), `ParameterTypeMatchRule` (DG002), `ColumnShapeMatchRule` (DG003), `NullableMismatchRule` (DG004), `NamingConventionRule` (DG005), `LengthMismatchRule` (DG006), `DialectCheckRule` (DG007), `PhantomTableRule` (DG015), `PhantomColumnRule` (DG016), `RawSqlParseStatusRule` (DG019) | Triển khai rules |
 | **Rules** | `RuleDependencyGraph`, `BuiltInRuleDependencies` | Sắp xếp topo cho thứ tự thực thi tối ưu |
-| **Sources** | `EfModelSource`, `SqlServerStoredProcedureParser`, `RawSqlParser` | Trích xuất contract từ EF Core và SQL Server |
+| **Sources** | `EfModelSource`, `ManualContractSource`, `ProjectCSharpSqlSource` | Trích xuất contract từ EF Core, assembly và mã C# |
 | **Security** | `ZeroTrustCredentialProvider`, `CredentialManager`, `IAuditLogger`, `FileAuditLogger` | Xử lý credential zero-trust |
 | **Baseline** | `BaselineManager` | Chụp snapshot, phát hiện drift, hash schema |
 | **Reporting** | `DiagnosticEmitter`, `ContractEvidenceWriter`, `ContractExportWriter`, `TypeScriptContractWriter` | Output đa định dạng |
@@ -133,8 +133,8 @@ graph TD
 | Thuộc Tính | Giá Trị |
 |------------|---------|
 | **Target** | `net9.0` |
-| **Phụ Thuộc** | `DataGuard.Core`, `Microsoft.Data.SqlClient` 7.0.2, `ScriptDom` 180.102.0 |
-| **Vai Trò** | Trích xuất contract đặc thù SQL Server |
+| **Phụ Thuộc** | `DataGuard.Core`, `Microsoft.Data.SqlClient` 7.1.1, `ScriptDom` 180.117.0 |
+| **Vai Trò** | Toàn bộ code đặc thù SQL Server: trích xuất catalog, describe live, bảng kiểu, parse T-SQL |
 
 **Types Chính:**
 
@@ -143,6 +143,9 @@ graph TD
 | `SqlServerStoredProcedureParser` | Đọc tham số SP qua `SqlConnection` |
 | `RawSqlParser` | Parse raw SQL bằng `ScriptDom` AST visitor |
 | `SqlParameterVisitor` | T-SQL fragment visitor cho trích xuất tham số |
+| `SqlServerLiveQuerySchemaProvider` | `ILiveQuerySchemaProvider` qua `sp_describe_first_result_set` |
+| `SqlServerTypeCompatibility` | Bảng `ITypeCompatibility` CLR ↔ SQL Server |
+| `TSqlStatementParser`, `TSqlPhantomAnalyzer` | `ISqlStatementParser` (DG019) và `IPhantomReferenceAnalyzer` (DG015/DG016) dùng ScriptDom |
 
 ---
 

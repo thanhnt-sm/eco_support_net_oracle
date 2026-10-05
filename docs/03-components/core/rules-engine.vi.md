@@ -150,7 +150,7 @@ Cảnh báo các thuộc tính mà `MaxLength` được suy ra từ giá trị m
 **Phạm vi:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
 **Nguồn:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, hợp đồng analyzer `Sql/IPhantomReferenceAnalyzer.cs`, analyzer tokenizer mặc định `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, tra cứu catalog `Sql/SchemaTableIndex.cs`, tên `Sql/SqlIdentifier.cs`); analyzer AST cho SQL Server `src/DataGuard.SqlServer.Adapter/TSqlPhantomAnalyzer.cs` + `TSqlPhantomScopeVisitor.cs`
 
-Phát hiện tham chiếu bảng/cột trong SQL không tồn tại trong schema database — một **chế độ lỗi ảo giác AI** phổ biến khi LLM tạo câu lệnh SQL. Hai ID là hai rule riêng, nên `--skip-rules DG015` hoặc `--skip-rules DG016` tắt đúng một loại finding. Lỗi parse raw SQL là rule khác, **DG019** (`RawSqlParseStatusRule`).
+Phát hiện tham chiếu bảng/cột trong SQL không tồn tại trong schema database — một **chế độ lỗi ảo giác AI** phổ biến khi LLM tạo câu lệnh SQL. Hai ID là hai rule riêng, nên `--skip-rules DG015` hoặc `--skip-rules DG016` tắt đúng một loại finding. Lỗi parse raw SQL là rule khác, **DG019** (`RawSqlParseStatusRule`): với `sqlserver` rule parse từng contract raw SQL (không gồm lời gọi stored procedure) bằng `TSqlStatementParser` (ScriptDOM) của adapter SQL Server (điểm nối Core `Sql/ISqlStatementParser.cs`, được `ProviderRuleCatalog` inject); provider khác chỉ báo trạng thái parse đặt lúc thu thập.
 
 ```mermaid
 flowchart LR

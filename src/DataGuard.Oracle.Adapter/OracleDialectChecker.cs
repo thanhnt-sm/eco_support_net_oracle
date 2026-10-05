@@ -3,7 +3,6 @@ namespace DataGuard.Oracle.Adapter;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
 using Microsoft.CodeAnalysis;
-using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 /// <summary>
 /// Oracle dialect checker - detects Oracle-specific syntax in non-Oracle context and vice versa.

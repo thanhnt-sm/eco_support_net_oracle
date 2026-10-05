@@ -3,7 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
-using DataGuard.Core.Sources;
+using DataGuard.SqlServer.Adapter;
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
 using Testcontainers.MsSql;
