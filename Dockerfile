@@ -8,7 +8,7 @@
 # without emulation.
 
 # ---------- Build stage ----------
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0@sha256:35048e3a81e6a07c316e7bbbd80d80d2ba705fe5f23a8ed42b6638c8f4c20d30 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317 AS build
 # BuildKit platform args are only visible to RUN when re-declared in the stage.
 ARG TARGETARCH
 # Release version to bake into the binary (e.g. 1.2.3); the csproj files
