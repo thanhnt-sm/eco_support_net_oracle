@@ -102,7 +102,7 @@ Caller chọn tường minh một DLL không phải link và đúng concrete `Mo
 
 ### Trạng thái parse raw SQL
 
-`RawSqlParser` ghi `RawSqlParseStatus.Invalid` và nội dung lỗi ScriptDOM cho input malformed. Built-in rule `DG016` báo trạng thái đó là Error, nên lỗi parser không thể xuất hiện như kết quả validation clean.
+`RawSqlParser` ghi `RawSqlParseStatus.Invalid` và nội dung lỗi ScriptDOM cho input malformed. Built-in rule `DG019` (`RawSqlParseStatusRule`; DG016 là Phantom Column Reference) báo trạng thái đó là Error, nên lỗi parser không thể xuất hiện như kết quả validation clean.
 
 ## SqlServerStoredProcedureParser
 

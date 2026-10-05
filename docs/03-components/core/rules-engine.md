@@ -1,6 +1,6 @@
 # Rules Engine
 
-> Source: `src/DataGuard.Core/Rules/ContractRules.cs`, `PhantomIdentifierRule.cs`, `RuleDependencyGraph.cs`
+> Source: `src/DataGuard.Core/Rules/ContractRules.cs`, `PhantomTableRule.cs`, `PhantomColumnRule.cs`, `Sql/`, `RuleDependencyGraph.cs`
 
 The rules engine is the heart of DataGuard. It contains 11 built-in validation rules (DG001–DG009, DG015–DG016), a dependency graph for optimal execution ordering, and the abstract base class that all rules extend.
 
@@ -19,7 +19,9 @@ flowchart TB
         CRB --> OLR1[OracleLengthRule<br/>DG007]
         CRB --> OLR2[OracleCharSemanticsRule<br/>DG008]
         CRB --> ISF[InferredSizeFallbackRule<br/>DG009]
-        CRB --> PIR[PhantomIdentifierRule<br/>DG015/DG016]
+        CRB --> PTB[PhantomTableRule<br/>DG015]
+        CRB --> PCL[PhantomColumnRule<br/>DG016]
+        CRB --> RPS[RawSqlParseStatusRule<br/>DG019]
     end
 
     subgraph Dependency Graph
@@ -117,9 +119,9 @@ Uses regex-based column extraction that handles `AS` aliases, skips expressions,
 **Severity:** Warning
 **Scope:** `EntityDescriptor` + `DatabaseSchemaDescriptor`
 
-Compares entity property nullability annotations against database column nullability:
-- `[Required]` property + nullable DB column → violation
-- Optional property + `NOT NULL` DB column → violation
+Compares `PropertyDescriptor.IsNullable` (a `Required` annotation forces non-nullable) against the nullability of the column resolved by `(entity.TableName, property.ColumnName)`. `SCHEMA.TABLE` entity names resolve by full key first, then bare name; a bare name shared by several schemas, an unknown table or an unknown column produces no finding. Columns are never merged across tables. Both directions are Warnings with distinct messages and `Properties` `{entity, property, table, column}`:
+- Non-nullable property + nullable DB column → violation (reading NULL fails at runtime)
+- Nullable property + `NOT NULL` DB column → violation (writing null fails with a constraint violation)
 
 ### DG006 — NamingConventionRule
 
@@ -144,12 +146,13 @@ Oracle-specific rules validating `VARCHAR2`/`NVARCHAR2` length semantics:
 
 Flags properties where `MaxLength` is inferred from CLR type defaults rather than explicitly configured — a common source of truncation bugs when the database column is smaller than the default.
 
-### DG015/DG016 — PhantomIdentifierRule
+### DG015 — PhantomTableRule / DG016 — PhantomColumnRule
 
 **Severity:** Error
 **Scope:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
+**Source:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, shared `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, catalog lookup `Sql/SchemaTableIndex.cs`, names `Sql/SqlIdentifier.cs`)
 
-Detects table/column references in raw SQL that do not exist in the database schema — a common **AI hallucination failure mode** when LLMs generate SQL queries.
+Detects table/column references in raw SQL that do not exist in the database schema — a common **AI hallucination failure mode** when LLMs generate SQL queries. The two IDs are separate rules, so `--skip-rules DG015` or `--skip-rules DG016` disables exactly one finding kind. Raw SQL parse errors are a different rule, **DG019** (`RawSqlParseStatusRule`).
 
 ```mermaid
 flowchart LR
@@ -162,11 +165,16 @@ flowchart LR
     CHECK --> |column missing| DG016[DG016: Phantom Column]
 ```
 
-**Detection strategy:**
-1. Collect CTE names (`WITH X AS (...)`) to exclude from phantom checks
-2. Extract table references from `FROM`/`JOIN` clauses (strips schema qualifiers)
-3. Check qualified column references (`alias.column`) against known table columns
-4. Check unqualified columns in `SELECT` list against the primary table
+**Detection strategy (token-based, no regex):**
+1. Tokenize with comments (`--`, `/* */`) and string literals masked, so `FROM`/identifiers inside them are never scanned
+2. Index catalog tables by both `(schema, name)` and bare `name` (catalog keys such as `dbo.Orders` are split with `SchemaObjectName.Parse`); a reference resolves by full key first, then bare name
+3. Collect every CTE name of `WITH [RECURSIVE] a AS (...), b AS (...)`
+4. Extract table references from `FROM`/`JOIN`, ignoring the `FROM` inside `EXTRACT(`, `TRIM(`, `SUBSTRING(`, `OVERLAY(` and `IS [NOT] DISTINCT FROM`
+5. Treat as unknown (never phantom, columns not checked): CTEs, derived tables, table-valued functions (`name(`), `#temp`, `@table` variables, three-part cross-database names, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`
+6. Check qualified `alias.column` against the nearest table reference in scope (innermost subquery first, so an alias reused in a subquery resolves to the subquery's table)
+7. Check single-identifier items of each `SELECT` list (parenthesis-aware split) against the union of all tables that `SELECT` references; `AS alias` and implicit trailing aliases are output names, never column references
+
+AST-based scope resolution (ScriptDOM for SQL Server) is planned for a later phase; non-T-SQL dialects keep this tokenizer.
 
 ## RuleDependencyGraph
 
@@ -179,7 +187,8 @@ graph TD
     DG002[DG002<br/>ParameterType] --> DG005[DG005<br/>NullableMismatch]
     DG101 --> DG006[DG006<br/>NamingConvention]
     DG004 --> DG006
-    DG015[DG015<br/>PhantomIdentifier]
+    DG015[DG015<br/>PhantomTable]
+    DG016[DG016<br/>PhantomColumn]
 
     style DG101 fill:#e1f5fe
     style DG002 fill:#e1f5fe
@@ -226,7 +235,10 @@ public static RuleDependencyGraph CreateDefault()
     graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
 
     // Level 6: Phantom identifiers (schema ground truth)
-    graph.AddRule(new PhantomIdentifierRule());
+    graph.AddRule(new PhantomTableRule());       // DG015
+    graph.AddRule(new PhantomColumnRule());      // DG016
+    graph.AddRule(new RawSqlParseStatusRule());  // DG019
+    graph.AddRule(new SelectStarUsageRule());    // DG017
 
     return graph;
 }

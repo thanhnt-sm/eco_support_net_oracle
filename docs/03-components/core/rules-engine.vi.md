@@ -1,6 +1,6 @@
 # Rules Engine
 
-> Nguồn: `src/DataGuard.Core/Rules/ContractRules.cs`, `PhantomIdentifierRule.cs`, `RuleDependencyGraph.cs`
+> Nguồn: `src/DataGuard.Core/Rules/ContractRules.cs`, `PhantomTableRule.cs`, `PhantomColumnRule.cs`, `Sql/`, `RuleDependencyGraph.cs`
 
 Rules engine là trái tim của DataGuard. Nó chứa 11 rules tích hợp (DG001–DG009, DG015–DG016), đồ thị phụ thuộc để tối ưu thứ tự thực thi, và lớp trừu tượng mà mọi rules kế thừa.
 
@@ -19,7 +19,9 @@ flowchart TB
         CRB --> OLR1[OracleLengthRule<br/>DG007]
         CRB --> OLR2[OracleCharSemanticsRule<br/>DG008]
         CRB --> ISF[InferredSizeFallbackRule<br/>DG009]
-        CRB --> PIR[PhantomIdentifierRule<br/>DG015/DG016]
+        CRB --> PTB[PhantomTableRule<br/>DG015]
+        CRB --> PCL[PhantomColumnRule<br/>DG016]
+        CRB --> RPS[RawSqlParseStatusRule<br/>DG019]
     end
 
     subgraph Dependency Graph
@@ -115,9 +117,9 @@ So sánh các cột result set trích xuất từ mệnh đề `SELECT` với c�
 **Mức độ:** Warning
 **Phạm vi:** `EntityDescriptor` + `DatabaseSchemaDescriptor`
 
-So sánh annotation nullability của thuộc tính entity với nullability cột database:
-- Thuộc tính `[Required]` + cột DB nullable → violation
-- Thuộc tính tùy chọn + cột DB `NOT NULL` → violation
+So sánh `PropertyDescriptor.IsNullable` (annotation `Required` ép thành non-nullable) với nullability của cột được resolve theo `(entity.TableName, property.ColumnName)`. Tên entity dạng `SCHEMA.TABLE` được resolve theo key đầy đủ trước, sau đó theo tên trần; tên trần trùng ở nhiều schema, bảng hoặc cột không tồn tại thì không có finding. Không bao giờ gộp cột giữa các bảng. Cả hai chiều là Warning với message riêng và `Properties` `{entity, property, table, column}`:
+- Thuộc tính non-nullable + cột DB nullable → violation (đọc NULL lỗi lúc runtime)
+- Thuộc tính nullable + cột DB `NOT NULL` → violation (ghi null lỗi constraint)
 
 ### DG006 — NamingConventionRule
 
@@ -142,12 +144,13 @@ Rules đặc thù Oracle kiểm tra length semantics `VARCHAR2`/`NVARCHAR2`:
 
 Cảnh báo các thuộc tính mà `MaxLength` được suy ra từ giá trị mặc định CLR type thay vì được cấu hình rõ ràng — nguồn phổ biến lỗi cắt ngắn khi cột database nhỏ hơn giá trị mặc định.
 
-### DG015/DG016 — PhantomIdentifierRule
+### DG015 — PhantomTableRule / DG016 — PhantomColumnRule
 
 **Mức độ:** Error
 **Phạm vi:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
+**Nguồn:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, dùng chung `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, tra cứu catalog `Sql/SchemaTableIndex.cs`, tên `Sql/SqlIdentifier.cs`)
 
-Phát hiện tham chiếu bảng/cột trong SQL không tồn tại trong schema database — một **chế độ lỗi ảo giác AI** phổ biến khi LLM tạo câu lệnh SQL.
+Phát hiện tham chiếu bảng/cột trong SQL không tồn tại trong schema database — một **chế độ lỗi ảo giác AI** phổ biến khi LLM tạo câu lệnh SQL. Hai ID là hai rule riêng, nên `--skip-rules DG015` hoặc `--skip-rules DG016` tắt đúng một loại finding. Lỗi parse raw SQL là rule khác, **DG019** (`RawSqlParseStatusRule`).
 
 ```mermaid
 flowchart LR
@@ -160,11 +163,16 @@ flowchart LR
     CHECK --> |thiếu cột| DG016[DG016: Cột Ảo]
 ```
 
-**Chiến lược phát hiện:**
-1. Thu thập tên CTE (`WITH X AS (...)`) để loại trừ khỏi kiểm tra phantom
-2. Trích xuất tham chiếu bảng từ mệnh đề `FROM`/`JOIN` (loại bỏ schema qualifier)
-3. Kiểm tra tham chiếu cột qualified (`alias.column`) với các cột bảng đã biết
-4. Kiểm tra cột unqualified trong danh sách `SELECT` với bảng chính
+**Chiến lược phát hiện (dựa trên token, không regex):**
+1. Tokenize với comment (`--`, `/* */`) và string literal bị che, nên `FROM`/identifier bên trong không bao giờ được quét
+2. Đánh index bảng catalog theo cả `(schema, name)` và `name` trần (key catalog như `dbo.Orders` được tách bằng `SchemaObjectName.Parse`); tham chiếu được resolve theo key đầy đủ trước, sau đó theo tên trần
+3. Thu thập mọi tên CTE của `WITH [RECURSIVE] a AS (...), b AS (...)`
+4. Trích xuất tham chiếu bảng từ `FROM`/`JOIN`, bỏ qua `FROM` trong `EXTRACT(`, `TRIM(`, `SUBSTRING(`, `OVERLAY(` và `IS [NOT] DISTINCT FROM`
+5. Coi là không xác định (không bao giờ phantom, không kiểm tra cột): CTE, derived table, table-valued function (`name(`), `#temp`, biến `@table`, tên ba phần cross-database, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`
+6. Kiểm tra `alias.column` qualified với tham chiếu bảng gần nhất trong scope (subquery trong cùng trước, nên alias dùng lại trong subquery resolve về bảng của subquery)
+7. Kiểm tra các item một identifier của từng danh sách `SELECT` (tách theo ngoặc) với hợp cột của mọi bảng mà `SELECT` đó tham chiếu; `AS alias` và alias ngầm phía sau là tên output, không bao giờ là tham chiếu cột
+
+Resolve scope dựa trên AST (ScriptDOM cho SQL Server) được lên kế hoạch ở phase sau; các dialect không phải T-SQL giữ tokenizer này.
 
 ## RuleDependencyGraph
 
@@ -177,7 +185,8 @@ graph TD
     DG002[DG002<br/>ParameterType] --> DG005[DG005<br/>NullableMismatch]
     DG101 --> DG006[DG006<br/>NamingConvention]
     DG004 --> DG006
-    DG015[DG015<br/>PhantomIdentifier]
+    DG015[DG015<br/>PhantomTable]
+    DG016[DG016<br/>PhantomColumn]
 
     style DG101 fill:#e1f5fe
     style DG002 fill:#e1f5fe
@@ -224,7 +233,10 @@ public static RuleDependencyGraph CreateDefault()
     graph.AddRule(new NamingConventionRule(), "DG101", "DG004");
 
     // Level 6: Phantom identifiers (schema ground truth)
-    graph.AddRule(new PhantomIdentifierRule());
+    graph.AddRule(new PhantomTableRule());       // DG015
+    graph.AddRule(new PhantomColumnRule());      // DG016
+    graph.AddRule(new RawSqlParseStatusRule());  // DG019
+    graph.AddRule(new SelectStarUsageRule());    // DG017
 
     return graph;
 }

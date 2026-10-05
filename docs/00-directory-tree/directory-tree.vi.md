@@ -108,7 +108,8 @@ Thư viện lõi chứa toàn bộ logic miền, quy tắc validation và abstra
 | `Abstractions/Contracts.cs` | Mô hình miền lõi: `IContractSource`, `IContractRule`, `ContractViolation`, `EntityDescriptor`, `StoredProcedureDescriptor`, `RawSqlDescriptor`, `ColumnDescriptor`, `ParameterDescriptor`, `DatabaseSchemaDescriptor` | Miền | C# |
 | **Rules/** | | | |
 | `Rules/ContractRules.cs` | Các quy tắc validation tích hợp: `ParameterCountRule` (DG101), `ParameterTypeMatchRule` (DG002), `ParameterDirectionRule` (DG003), `ColumnShapeMatchRule` (DG004), `NullableMismatchRule` (DG005), `NamingConventionRule` (DG006) | Miền | C# |
-| `Rules/PhantomIdentifierRule.cs` | Phát hiện bảng/cột ma: `PhantomTable` (DG015), `PhantomColumn` (DG016) — xác minh tham chiếu SQL với schema database | Miền | C# |
+| `Rules/PhantomTableRule.cs`, `Rules/PhantomColumnRule.cs` | Phát hiện bảng ma (DG015) và cột ma (DG016) — xác minh tham chiếu SQL với schema database | Miền | C# |
+| `Rules/Sql/` | `SchemaObjectName` (`SqlIdentifier.cs`), `SqlTokenizer`, `SchemaTableIndex`, `PhantomSqlAnalyzer` dùng chung cho DG015/DG016 và DG005 | Miền | C# |
 | `Rules/RuleDependencyGraph.cs` | Thứ tự thực thi quy tắc dựa trên DAG với phân giải phụ thuộc và sắp xếp topo | Miền | C# |
 | **Sources/** | | | |
 | `Sources/EfModelSource.cs` | Trích xuất contract descriptor từ mô hình EF Core `DbContext` qua reflection | Hạ tầng | C# |

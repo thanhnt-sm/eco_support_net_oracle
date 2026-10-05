@@ -36,7 +36,7 @@ You can access the configuration settings at: **Tools** -> **Options** -> **Data
 ## 5. Filtering Validation Results
 
 1. Go to **Tools** -> **Options** -> **DataGuard** -> **Validation Rules**.
-2. Uncheck any rule (e.g., *DG016: Phantom Column & Raw SQL Parse Status*).
+2. Uncheck any rule (e.g., *DG016: Phantom Column Reference*).
 3. Run validation again (via **Tools** -> **DataGuard** -> **Run Validation**).
 4. The extension passes the disabled rule IDs to the CLI via `validate --skip-rules <ids>` (for example `--skip-rules DG016`), so the CLI never emits those violations.
 5. Check the **Error List**: you will notice that the violations for the disabled rule are no longer present.

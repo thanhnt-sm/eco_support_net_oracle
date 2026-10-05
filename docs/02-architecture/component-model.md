@@ -100,7 +100,7 @@ graph TD
 | Module | Key Types | Purpose |
 |--------|-----------|---------|
 | **Abstractions** | `IContractSource`, `IContractRule`, `ContractViolation`, `EntityDescriptor`, `StoredProcedureDescriptor`, `RawSqlDescriptor`, `DatabaseSchemaDescriptor`, `PropertyDescriptor`, `ParameterDescriptor`, `ColumnDescriptor` | Domain model and interfaces |
-| **Rules** | `ContractRuleBase`, parameter/type/direction/shape/nullability/naming rules (DG001–DG007), length & dialect rules (DG008–DG014), `PhantomIdentifierRule` (DG015/DG016) | Rule implementations |
+| **Rules** | `ContractRuleBase`, parameter/type/direction/shape/nullability/naming rules (DG001–DG007), length & dialect rules (DG008–DG014), `PhantomTableRule` (DG015), `PhantomColumnRule` (DG016), `RawSqlParseStatusRule` (DG019) | Rule implementations |
 | **Rules** | `RuleDependencyGraph`, `BuiltInRuleDependencies`, `ValidationResult` | Topological sort for optimal rule execution order |
 | **Sources** | `EfModelSource` (runtime IModel + design-time snapshot), `SqlServerStoredProcedureParser`, `RawSqlParser`, `SqlParameterVisitor` | Contract extraction from EF Core and SQL Server |
 | **Security** | `ZeroTrustCredentialProvider`, `CredentialHandle`, `CredentialManager`, `IAuditLogger`, `FileAuditLogger`, `AuditEntry` | Zero-trust credential handling and tamper-evident audit trail |

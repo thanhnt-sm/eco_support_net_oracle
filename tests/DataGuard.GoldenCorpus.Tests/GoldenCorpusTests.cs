@@ -263,7 +263,8 @@ public class GoldenCorpusTests
             new ColumnShapeMatchRule(),
             new NullableMismatchRule(),
             new NamingConventionRule(),
-            new PhantomIdentifierRule(),
+            new PhantomTableRule(),
+            new PhantomColumnRule(),
         };
 
         // Add provider-specific rules
