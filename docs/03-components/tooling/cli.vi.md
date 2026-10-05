@@ -45,12 +45,12 @@ dataguard validate [options]
 | Tùy chọn | Mặc định | Mô tả |
 |-----------|----------|-------|
 | `--connection` | — | Chuỗi kết nối database |
-| `--config` | — | Đường dẫn file `.dataguard.yml` |
+| `--config` | — | Đường dẫn file `.dataguard.yml`; file không tồn tại => exit 2 |
 | `--output` | — | Đường dẫn file output (bắt buộc cho sarif/evidence) |
 | `--format` | `text` | Định dạng output: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
-| `--offline` | `false` | Chạy ở chế độ offline (không kết nối DB, cần `--assembly` hoặc `--project`) |
+| `--offline` | `false` | Không kết nối DB: Snapshot mode (snapshot đã commit); có `--assembly` thì Manual mode |
 | `--verbose` | `false` | Bật output chi tiết |
-| `--provider` | `DefaultProvider` trong config, rồi `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` |
+| `--provider` | `DefaultProvider` trong config, rồi `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` (`postgres`), không phân biệt hoa thường; giá trị khác => exit 2 |
 | `--schema` | — | Tên schema/owner |
 | `--assembly` | — | Đường dẫn assembly cho chế độ Manual ground-truth |
 | `--ef-snapshot` | — | Source `ModelSnapshot.cs` tường minh, parse bằng Roslyn; không load hay thực thi assembly |
@@ -61,10 +61,16 @@ dataguard validate [options]
 | `--progress` | `false` | Xuất luồng sự kiện tiến trình JSON an toàn từng dòng qua stderr |
 | `--ide-safe` | `false` | Chạy theo chính sách an toàn IDE: ngăn load assembly, kết nối secret manager, và ghi file tùy ý |
 | `--allow-env-connection` | `false` | Khi dùng `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp nhưng vẫn bỏ qua chuỗi kết nối từ file config |
+| `--fail-on-unavailable` | `false` | Exit 3 khi có rule không khả dụng cho provider (config `FailOnUnavailableRules: true`) |
+| `--allow-syntactic-only` | `false` | Chạy khi không có ground truth: cảnh báo thay vì exit 3 |
 
 **Hành vi:**
 - Không có `--connection`: xác thực với snapshot đã commit (chế độ Snapshot)
-- Với `--offline`: chạy xác thực mà không cần kết nối database. Yêu cầu `--assembly` (chế độ Manual ground-truth dùng attribute) hoặc `--project` (chế độ trích xuất Roslyn AST cho SQL inline và model). Không cần build sẵn binary/assembly khi dùng `--project`.
+- Không có connection và không đặt `SnapshotFilePath`: dùng `.dataguard-snapshot.json` cạnh `--config`, nếu không thì trong thư mục hiện tại, và in `Using snapshot <path>` ra stdout
+- Với `--offline`: không bao giờ kết nối. `--offline` không kèm `--assembly` là Snapshot mode (cùng cách tìm snapshot mặc định); `--offline --assembly <path>` là Manual mode dùng attribute (không đổi)
+- Cổng ground truth: nếu contract thu được không có schema, stored procedure hay entity (chỉ có SQL inline từ `--project`), `validate` in `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` và exit 3. `--allow-syntactic-only` hạ thành cảnh báo; `--format contracts|yaml|typescript` không bị chặn; dưới `--ide-safe` luôn chỉ là cảnh báo
+- Rule không khả dụng (ví dụ `DG012` Oracle, `PG004` PostgreSQL) in một lần ra stderr `Rule <id> not evaluated: <reason>` và không đổi exit code trừ khi có `--fail-on-unavailable`; `--skip-rules` được áp dụng trước
+- Config: key top-level không biết in `Warning: unknown configuration keys: a, b` (exit 2 khi `StrictConfig: true`); giá trị sai kiểu => exit 2. Dưới `--ide-safe`, `--config` thiếu file chỉ là cảnh báo vì IDE host luôn truyền đường dẫn workspace
 - `--project`: phát hiện contract và câu lệnh SQL inline (Dapper, ADO.NET) trực tiếp từ mã nguồn C# (`.csproj`, `.sln`, hoặc thư mục) qua Roslyn AST mà không cần build assembly trước
 - `--progress`: xuất các sự kiện tiến trình thời gian thực dưới dạng dòng JSON (NDJSON) an toàn sang `stderr` để tích hợp công cụ và IDE (ví dụ VS Code extension)
 - `--verbose`: in báo cáo quét chi tiết bao gồm chuỗi/gợi ý kết nối được phát hiện, các câu lệnh SQL kèm số dòng, loại thao tác AST, các bảng được tham chiếu, mapping DTO đích, và chẩn đoán cột/thuộc tính chưa được map

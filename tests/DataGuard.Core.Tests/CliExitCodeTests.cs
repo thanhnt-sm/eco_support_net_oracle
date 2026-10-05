@@ -1,3 +1,5 @@
+using DataGuard.Core.Abstractions;
+using DataGuard.Core.Baseline;
 using FluentAssertions;
 using Xunit;
 
@@ -234,13 +236,23 @@ public class CliExitCodeTests
     }
 
     [Fact]
-    public void Validate_UnavailableProviderRule_Exit3AndSuppressesSuccessPayload()
+    public void Validate_NoSource_Exit3AndSuppressesSuccessPayload()
     {
-        var (exitCode, output) = RunCli("validate", "--provider", "postgresql");
+        // Was "UnavailableProviderRule_Exit3": PG004 no longer blocks (red-team C2); with no source at all the run is
+        // still unevaluated, now because acquisition found nothing.
+        var dir = Directory.CreateTempSubdirectory("dg-cli-nosource").FullName;
+        try
+        {
+            var (exitCode, output) = RunCliInDirectory(dir, null, "validate", "--provider", "postgresql");
 
-        exitCode.Should().Be(3);
-        output.Should().Contain("PG004 unavailable");
-        output.Should().NotContain("Validation complete");
+            exitCode.Should().Be(3);
+            output.Should().Contain("UNEVALUATED");
+            output.Should().NotContain("Validation complete");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     [Fact]
@@ -450,6 +462,383 @@ public class CliExitCodeTests
             var (exitCode, output) = RunCliInDirectory(dir, null, "verify-shape", "--project", dir, "--format", "json");
             exitCode.Should().Be(2);
             output.Should().Contain("verify-shape requires --connection");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // ---- Empty-pass gate (red-team C4) and unavailable rules (red-team C2) ----
+
+    /// <summary>Writes a schema-bearing <c>.dataguard-snapshot.json</c> (v3) through the production BaselineManager API.</summary>
+    private static async Task<string> WriteDefaultSnapshotAsync(string dir, string provider)
+    {
+        var path = Path.Combine(dir, ".dataguard-snapshot.json");
+        var schema = new List<SnapshotTable>
+        {
+            new("CUSTOMERS", new List<SnapshotColumn>
+            {
+                new("ID", "NUMBER", null, null, 22, 0, false, null),
+                new("NAME", "VARCHAR2", 100, 100, null, null, true, "C"),
+            }),
+        };
+        await new BaselineManager(path).CreateBaselineAsync(
+            Array.Empty<ContractViolation>(), "1.0", "Snapshot", "19.0", schema: schema, provider: provider);
+        return path;
+    }
+
+    private static string NewTempDirectory(string prefix) => Directory.CreateTempSubdirectory(prefix).FullName;
+
+    [Theory]
+    [InlineData("validate")]
+    [InlineData("scan", "--project", ".")]
+    [InlineData("baseline")]
+    [InlineData("snapshot", "refresh")]
+    [InlineData("snapshot", "diff")]
+    [InlineData("verify-shape", "--project", ".", "--connection", "Server=127.0.0.1,1")]
+    [InlineData("preflight", "--target", "t", "--output", "manifest.json", "--connection", "Server=127.0.0.1,1")]
+    [InlineData("init", "--output", "init.yml")]
+    public void UnknownProvider_Exit2WithAllowedValues_ForEveryCommand(params string[] command)
+    {
+        var dir = NewTempDirectory("dg-cli-provider");
+        try
+        {
+            var run = CliProcessTestRunner.Run(dir, null, null, command.Concat(new[] { "--provider", "orcl" }).ToArray());
+
+            run.ExitCode.Should().Be(2, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("Unsupported provider 'orcl'")
+                .And.Contain("sqlserver, oracle, mysql, postgresql, postgres");
+            File.Exists(Path.Combine(dir, "init.yml")).Should().BeFalse("nothing is written for a rejected provider");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConfigDefaultProvider_IsWhitelistedToo()
+    {
+        var dir = NewTempDirectory("dg-cli-provider-config");
+        try
+        {
+            var config = Path.Combine(dir, "dataguard.yml");
+            File.WriteAllText(config, "DefaultProvider: oracel\n");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--config", config);
+
+            run.ExitCode.Should().Be(2);
+            run.Stderr.Should().Contain("Unsupported provider 'oracel' (config DefaultProvider)");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("validate")]
+    [InlineData("baseline")]
+    [InlineData("snapshot", "refresh")]
+    [InlineData("snapshot", "show")]
+    [InlineData("snapshot", "diff")]
+    [InlineData("config", "show")]
+    [InlineData("config", "validate")]
+    [InlineData("oracle-check")]
+    public void MissingConfigFile_Exit2_ForEveryCommand(params string[] command)
+    {
+        var dir = NewTempDirectory("dg-cli-missing-config");
+        try
+        {
+            var missing = Path.Combine(dir, "missing.yml");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, command.Concat(new[] { "--config", missing }).ToArray());
+
+            run.ExitCode.Should().Be(2, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("Configuration file not found");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void InvalidConfigValue_Exit2()
+    {
+        var dir = NewTempDirectory("dg-cli-invalid-config");
+        try
+        {
+            var config = Path.Combine(dir, "dataguard.yml");
+            File.WriteAllText(config, "EnableBaseline: maybe\n");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--config", config);
+
+            run.ExitCode.Should().Be(2);
+            run.Stderr.Should().Contain("Configuration invalid");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StrictConfig_UnknownKeys_Exit2()
+    {
+        var dir = NewTempDirectory("dg-cli-strict");
+        try
+        {
+            var config = Path.Combine(dir, "dataguard.yml");
+            File.WriteAllText(config, "StrictConfig: true\nSnapshotPath: x.json\nProvidr: oracle\n");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--config", config);
+
+            run.ExitCode.Should().Be(2);
+            run.Stderr.Should().Contain("unknown configuration keys: SnapshotPath, Providr");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NonStrictConfig_UnknownKeys_WarnsAndProceeds()
+    {
+        var dir = NewTempDirectory("dg-cli-nonstrict");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, "sqlserver");
+            var config = Path.Combine(dir, "dataguard.yml");
+            File.WriteAllText(config, "SnapshotPath: x.json\nProvidr: oracle\n");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--config", config);
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("Warning: unknown configuration keys: SnapshotPath, Providr");
+            run.Stdout.Should().Contain("Using snapshot");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_ProjectOnlyWithoutGroundTruth_Exit3Unevaluated()
+    {
+        var dir = NewTempDirectory("dg-cli-syntactic");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT Id, Name FROM Users\"; } }");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--project", dir);
+
+            run.ExitCode.Should().Be(3);
+            run.Stderr.Should().Contain("UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_ProjectOnlyWithAllowSyntacticOnly_WarnsAndExitsByViolations()
+    {
+        var dir = NewTempDirectory("dg-cli-syntactic-ok");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT Id, Name FROM Users\"; } }");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--project", dir, "--allow-syntactic-only");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("Warning: no ground truth").And.NotContain("UNEVALUATED");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_ContractsExportWithoutGroundTruth_IsNotGated()
+    {
+        var dir = NewTempDirectory("dg-cli-export");
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT Id FROM Users\"; } }");
+            var output = Path.Combine(dir, "contracts.json");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--project", dir, "--format", "contracts", "--output", output);
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            File.Exists(output).Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_DefaultSnapshotDiscovered_Exit0()
+    {
+        var dir = NewTempDirectory("dg-cli-default-snapshot");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, "sqlserver");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stdout.Should().Contain("Using snapshot .dataguard-snapshot.json");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_DefaultSnapshotNextToConfig_IsUsed()
+    {
+        var cwd = NewTempDirectory("dg-cli-snapshot-cwd");
+        var configDir = NewTempDirectory("dg-cli-snapshot-config");
+        try
+        {
+            var snapshot = await WriteDefaultSnapshotAsync(configDir, "sqlserver");
+            var config = Path.Combine(configDir, ".dataguard.yml");
+            File.WriteAllText(config, "GroundTruthMode: Snapshot\n");
+
+            var run = CliProcessTestRunner.Run(cwd, null, null, "validate", "--config", config);
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stdout.Should().Contain("Using snapshot " + snapshot);
+        }
+        finally
+        {
+            Directory.Delete(cwd, recursive: true);
+            Directory.Delete(configDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_BareOffline_UsesSnapshotAndNeverConnects()
+    {
+        var dir = NewTempDirectory("dg-cli-offline");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, "sqlserver");
+
+            // An unroutable credential: bare --offline must drop it, use the snapshot, and finish quickly.
+            var run = CliProcessTestRunner.Run(dir, null, "Server=127.0.0.1,1;Connect Timeout=1", "validate", "--offline");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stdout.Should().Contain("Using snapshot");
+            run.Stderr.Should().NotContain("Manual mode requires --assembly");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_BareOfflineWithoutSnapshot_Exit3()
+    {
+        var dir = NewTempDirectory("dg-cli-offline-nosnap");
+        try
+        {
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--offline");
+
+            run.ExitCode.Should().Be(3, "bare --offline means Snapshot mode; no snapshot is unevaluated, not a Manual-mode usage error");
+            run.Stderr.Should().Contain("UNEVALUATED");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("oracle", "DG012")]
+    [InlineData("postgresql", "PG004")]
+    [InlineData("postgres", "PG004")]
+    public async Task Validate_UnavailableRule_ReportedButDoesNotBlock(string provider, string ruleId)
+    {
+        var dir = NewTempDirectory("dg-cli-unavailable");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, provider);
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--provider", provider);
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain($"Rule {ruleId} not evaluated: ");
+            run.Stderr.Split('\n').Count(line => line.Contains($"{ruleId} not evaluated", StringComparison.Ordinal)).Should().Be(1);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_FailOnUnavailable_Exit3()
+    {
+        var dir = NewTempDirectory("dg-cli-fail-unavailable");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, "oracle");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--provider", "oracle", "--fail-on-unavailable");
+
+            run.ExitCode.Should().Be(3);
+            run.Stderr.Should().Contain("DG012 not evaluated").And.Contain("UNEVALUATED");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_FailOnUnavailableRulesConfigKey_Exit3()
+    {
+        var dir = NewTempDirectory("dg-cli-fail-unavailable-config");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, "oracle");
+            var config = Path.Combine(dir, ".dataguard.yml");
+            File.WriteAllText(config, "DefaultProvider: oracle\nFailOnUnavailableRules: true\nStrictConfig: true\n");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--config", config);
+
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("DG012 not evaluated");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Validate_FailOnUnavailableWithSkippedRule_Exit0()
+    {
+        var dir = NewTempDirectory("dg-cli-skip-unavailable");
+        try
+        {
+            await WriteDefaultSnapshotAsync(dir, "oracle");
+
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--provider", "oracle", "--fail-on-unavailable", "--skip-rules", "DG012");
+
+            run.ExitCode.Should().Be(0, run.Stdout + run.Stderr);
+            run.Stderr.Should().NotContain("DG012");
         }
         finally
         {

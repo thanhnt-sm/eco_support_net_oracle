@@ -104,13 +104,13 @@ var formatOption = new Option<string>("--format");
 formatOption.Description = "Output format: text (default), sarif, or evidence";
 formatOption.DefaultValueFactory = (_) => "text";
 var offlineOption = new Option<bool>("--offline");
-offlineOption.Description = "Run in offline mode (no DB connection)";
+offlineOption.Description = "Offline mode (no DB connection): validate against the committed snapshot, or against --assembly attributes when --assembly is given (Manual mode)";
 var verboseOption = new Option<bool>("--verbose");
 verboseOption.Description = "Enable verbose output";
 var providerOption = new Option<string>("--provider");
-providerOption.Description = "Database provider: sqlserver, oracle, mysql, postgresql";
+providerOption.Description = "Database provider: sqlserver, oracle, mysql, postgresql (alias postgres); any other value exits 2";
 var assemblyOption = new Option<string>("--assembly");
-assemblyOption.Description = "Path to compiled assembly for Manual ground-truth mode (--offline)";
+assemblyOption.Description = "Path to compiled assembly for Manual ground-truth mode (with --offline)";
 var schemaOption = new Option<string>("--schema");
 schemaOption.Description = "Database schema/owner name";
 var packageOption = new Option<string>("--package");
@@ -134,6 +134,10 @@ var projectOption = new Option<string>("--project");
 projectOption.Description = "Path to C# project (.csproj), solution (.sln), or directory to extract inline SQL queries and C# models";
 var ideSafeOption = new Option<bool>(IdeSafePolicy.OptionName);
 ideSafeOption.Description = "IDE-safe mode for untrusted repositories: never load assemblies, never open database, secret-manager or network connections, ignore connection strings from config and environment";
+var failOnUnavailableOption = new Option<bool>("--fail-on-unavailable");
+failOnUnavailableOption.Description = "Exit 3 when a provider rule cannot be evaluated (config: FailOnUnavailableRules); by default unavailable rules are reported on stderr only";
+var allowSyntacticOnlyOption = new Option<bool>("--allow-syntactic-only");
+allowSyntacticOnlyOption.Description = "Allow validate without ground truth (snapshot, connection, manual assembly or EF model): warn instead of exiting 3";
 var allowEnvConnectionOption = new Option<bool>(IdeSafePolicy.AllowEnvConnectionOptionName);
 allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DATAGUARD_CONNECTION_STRING (config-file connection strings are still ignored); no effect without --ide-safe";
 
@@ -143,7 +147,7 @@ allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DA
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption,
+    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -196,9 +200,19 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     }
 
     efSnapshotPath = snapshotResolution.Path;
-    var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+
+    // IDE hosts always pass the conventional workspace config path, present or not.
+    if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption), allowMissingConfig: ideSafe) is not { } resolved)
+    {
+        return;
+    }
+
     var config = resolved.Configuration;
     var provider = resolved.Provider;
+    var failOnUnavailable = result.GetValue(failOnUnavailableOption) || config.FailOnUnavailableRules;
+
+    // IDE-safe strips every code-loading and connection source by design, so a lint-only run is its expected outcome.
+    var allowSyntacticOnly = result.GetValue(allowSyntacticOnlyOption) || ideSafe;
 
     // Connection-bound rules share the acquisition credential unless the IDE-safe policy withholds it (review H1).
     var rulesConnectionString = config.ConnectionString;
@@ -218,18 +232,16 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         IdeSafeEnvironment.Scrub(allowEnvConnection);
     }
 
-    if (offline)
+    if (offline && !string.IsNullOrEmpty(assemblyPath))
     {
+        // --offline --assembly: Manual mode reads [ExpectedColumn]/[ExpectedSpParameter] attributes (unchanged).
         config = config with { GroundTruthMode = GroundTruthMode.Manual, ManualAssemblyPath = assemblyPath };
-        if (string.IsNullOrEmpty(assemblyPath))
-        {
-            if (string.IsNullOrWhiteSpace(projectPath))
-            {
-                Console.Error.WriteLine("Manual mode requires --assembly <path-to-user-assembly.dll> to read [ExpectedColumn]/[ExpectedSpParameter] attributes.");
-                Environment.ExitCode = 1;
-                return;
-            }
-        }
+    }
+    else if (offline)
+    {
+        // Bare --offline: the committed snapshot, never a database connection.
+        config = config with { GroundTruthMode = GroundTruthMode.Snapshot, ConnectionString = null };
+        rulesConnectionString = null;
     }
     else if (config.GroundTruthMode != GroundTruthMode.Manual && string.IsNullOrEmpty(config.ConnectionString))
     {
@@ -237,11 +249,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         config = config with { GroundTruthMode = GroundTruthMode.Snapshot };
     }
 
-    config = config with
-    {
-        GroundTruthMode = offline ? GroundTruthMode.Manual : config.GroundTruthMode,
-        DefaultSchema = schema ?? config.DefaultSchema
-    };
+    config = config with { DefaultSchema = schema ?? config.DefaultSchema };
 
     var normalizedFormat = format.Trim().ToLowerInvariant();
     if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "yaml" or "typescript"))
@@ -263,6 +271,16 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     if (normalizedFormat is not "text" && RefuseUnsafeOutput(output!, normalizedFormat == "sarif" ? "SARIF" : normalizedFormat + " output"))
     {
         return;
+    }
+
+    if (config.GroundTruthMode == GroundTruthMode.Snapshot
+        && string.IsNullOrEmpty(config.ConnectionString)
+        && string.IsNullOrWhiteSpace(config.SnapshotFilePath)
+        && CliConfigurationResolver.FindDefaultSnapshot(configPath, Directory.GetCurrentDirectory()) is { } defaultSnapshot)
+    {
+        // Same file name snapshot refresh/show/diff default to; next to --config first, then the current directory.
+        config = config with { SnapshotFilePath = defaultSnapshot };
+        Console.WriteLine($"Using snapshot {RelativizeToWorkspace(Directory.GetCurrentDirectory(), defaultSnapshot)}");
     }
 
     progress?.Emit(new ProgressEvent(
@@ -350,21 +368,6 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
             Console.WriteLine();
         }
 
-        var unavailableOutcomes = ProviderRuleCatalog.Get(provider)
-            .Where(registration => registration.Availability == RuleAvailability.Unavailable)
-            .Select(registration => registration.CreateUnavailableOutcome())
-            .ToList();
-        if (unavailableOutcomes.Count > 0)
-        {
-            foreach (var outcome in unavailableOutcomes)
-            {
-                Console.Error.WriteLine($"Validation incomplete: {outcome.RuleId} unavailable: {outcome.PrerequisiteReason}");
-            }
-
-            Environment.ExitCode = 3;
-            return;
-        }
-
         if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0)
         {
             Console.Error.WriteLine($"UNEVALUATED: contract acquisition {acquisition.Status.ToString().ToLowerInvariant()}: {acquisition.Message}");
@@ -390,6 +393,38 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
         {
             await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>(), ct);
             Console.WriteLine($"TypeScript DTOs exported to {output}.");
+            return;
+        }
+
+        // Ground-truth gate (red-team C4): inline SQL alone is not a validation; without a schema, procedure or entity
+        // model the database-backed rules have nothing to compare against and a clean result would be an empty PASS.
+        if (!contracts.Any(contract => contract is DatabaseSchemaDescriptor or StoredProcedureDescriptor or EntityDescriptor))
+        {
+            if (!allowSyntacticOnly)
+            {
+                Console.Error.WriteLine("UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran");
+                Environment.ExitCode = 3;
+                return;
+            }
+
+            Console.Error.WriteLine("Warning: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran");
+        }
+
+        // Unavailable rules (red-team C2) are reported once, after --skip-rules, and only block with --fail-on-unavailable.
+        var unavailableOutcomes = ProviderRuleCatalog.Get(provider)
+            .Where(registration => registration.Availability == RuleAvailability.Unavailable)
+            .Where(registration => skipRuleIds is null || !skipRuleIds.Contains(registration.Rule.RuleId))
+            .Select(registration => registration.CreateUnavailableOutcome())
+            .ToList();
+        foreach (var outcome in unavailableOutcomes)
+        {
+            Console.Error.WriteLine($"Rule {outcome.RuleId} not evaluated: {outcome.PrerequisiteReason}");
+        }
+
+        if (unavailableOutcomes.Count > 0 && failOnUnavailable)
+        {
+            Console.Error.WriteLine($"UNEVALUATED: {unavailableOutcomes.Count} rule(s) not evaluated and --fail-on-unavailable (FailOnUnavailableRules) is set.");
+            Environment.ExitCode = 3;
             return;
         }
 
@@ -446,7 +481,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
 
         if (verbose)
         {
-            Console.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings)");
+            Console.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings, {unavailableOutcomes.Count} rules not evaluated)");
         }
 
         Environment.ExitCode = hasErrors ? 1 : 0;
@@ -460,6 +495,7 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
                 ["ErrorCount"] = violations.Count(v => v.Severity == DiagnosticSeverity.Error),
                 ["WarningCount"] = violations.Count(v => v.Severity == DiagnosticSeverity.Warning),
                 ["ViolationCount"] = violations.Count,
+                ["UnavailableRuleCount"] = unavailableOutcomes.Count,
             }));
     }
     catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -493,7 +529,10 @@ scanCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
     var format = (result.GetValue(formatOption) ?? "text").ToLowerInvariant();
     var verbose = result.GetValue(verboseOption);
     var progressEnabled = result.GetValue(progressOption);
-    var provider = result.GetValue(providerOption) ?? "sqlserver";
+    if (TryNormalizeProviderOrFail(result.GetValue(providerOption) ?? "sqlserver", "--provider") is not { } provider)
+    {
+        return;
+    }
 
     if (string.IsNullOrWhiteSpace(project))
     {
@@ -621,8 +660,12 @@ verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
     var connectionString = result.GetValue(connectionOption);
     var configPath = result.GetValue(configOption);
     var providerInput = result.GetValue(providerOption);
-    var resolved = ResolveCommandConfiguration(configPath, connectionString, providerInput);
-    var provider = resolved.Provider.Trim().ToLowerInvariant();
+    if (ResolveCommandConfiguration(configPath, connectionString, providerInput) is not { } resolved)
+    {
+        return;
+    }
+
+    var provider = resolved.Provider;
     var connStr = resolved.Configuration.ConnectionString;
 
     var project = result.GetValue(projectOption);
@@ -882,14 +925,12 @@ preflightCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
         return;
     }
 
-    var resolved = ResolveCommandConfiguration(result.GetValue(configOption), result.GetValue(connectionOption), result.GetValue(providerOption));
-    var provider = resolved.Provider.Trim().ToLowerInvariant();
-    if (provider is not ("sqlserver" or "postgresql" or "mysql" or "oracle"))
+    if (ResolveCommandConfiguration(result.GetValue(configOption), result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
     {
-        Console.Error.WriteLine($"Unsupported --provider '{provider}'.");
-        Environment.ExitCode = 2;
         return;
     }
+
+    var provider = resolved.Provider;
 
     if (string.IsNullOrWhiteSpace(resolved.Configuration.ConnectionString))
     {
@@ -940,7 +981,11 @@ baselineCommand.SetAction(
         var verbose = result.GetValue(verboseOption);
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
+        {
+            return;
+        }
+
         var config = resolved.Configuration;
         var provider = resolved.Provider;
         config = config with
@@ -1000,7 +1045,11 @@ snapshotRefreshCommand.SetAction(
         var verbose = result.GetValue(verboseOption);
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
+        {
+            return;
+        }
+
         var config = resolved.Configuration with { GroundTruthMode = GroundTruthMode.Snapshot };
         var provider = resolved.Provider;
         config = config with
@@ -1029,7 +1078,7 @@ snapshotRefreshCommand.SetAction(
 
             var violations = await ValidateContractsAsync(acquisition.Contracts, config, provider, config.ConnectionString, ct);
 
-            var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
+            var snapshotPath = config.SnapshotFilePath ?? CliConfigurationResolver.DefaultSnapshotFileName;
             var baselineManager = new BaselineManager(snapshotPath);
 
             var dbVersion = await GetDatabaseVersionAsync(config, provider, ct);
@@ -1111,8 +1160,12 @@ snapshotShowCommand.SetAction(
     async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
         var configPath = result.GetValue(configOption);
-        var config = LoadConfig(configPath);
-        var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
+        if (TryLoadConfig(configPath) is not { } config)
+        {
+            return;
+        }
+
+        var snapshotPath = config.SnapshotFilePath ?? CliConfigurationResolver.DefaultSnapshotFileName;
 
         if (!File.Exists(snapshotPath))
         {
@@ -1162,7 +1215,11 @@ snapshotDiffCommand.SetAction(
         var package = result.GetValue(packageOption);
         var failOnDrift = result.GetValue(failOnDriftOption);
         var legacyViolationDiff = result.GetValue(legacyViolationDiffOption);
-        var resolved = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption));
+        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
+        {
+            return;
+        }
+
         var config = resolved.Configuration;
         var provider = resolved.Provider;
         config = config with
@@ -1171,7 +1228,7 @@ snapshotDiffCommand.SetAction(
             DefaultPackage = package ?? config.DefaultPackage
         };
 
-        var snapshotPath = config.SnapshotFilePath ?? ".dataguard-snapshot.json";
+        var snapshotPath = config.SnapshotFilePath ?? CliConfigurationResolver.DefaultSnapshotFileName;
         if (!File.Exists(snapshotPath))
         {
             Console.Error.WriteLine($"Snapshot file not found: {snapshotPath}");
@@ -1353,7 +1410,10 @@ initCommand.SetAction(
     async (ParseResult result, System.Threading.CancellationToken ct) =>
     {
         var output = result.GetValue(initOutputOption);
-        var provider = result.GetValue(initProviderOption);
+        if (TryNormalizeProviderOrFail(result.GetValue(initProviderOption), "--provider") is not { } provider)
+        {
+            return;
+        }
         if (result.GetValue(initWizardOption))
         {
             var configPath = Path.GetFullPath(output!);
@@ -1459,7 +1519,10 @@ configShowCommand.SetAction(
     (ParseResult result) =>
     {
         var configPath = result.GetValue(configOption);
-        var config = LoadConfig(configPath);
+        if (TryLoadConfig(configPath) is not { } config)
+        {
+            return;
+        }
 
         // Never print secrets: redact connection string and vault/key material.
         var redacted = config with
@@ -1482,7 +1545,11 @@ configValidateCommand.SetAction(
         var configPath = result.GetValue(configOption);
         try
         {
-            var config = LoadConfig(configPath);
+            if (TryLoadConfig(configPath) is not { } config)
+            {
+                return;
+            }
+
             Console.WriteLine("Configuration is valid");
             Console.WriteLine($"  GroundTruthMode: {config.GroundTruthMode}");
             Console.WriteLine($"  NamingConvention: {config.NamingConvention}");
@@ -1517,7 +1584,12 @@ oracleCheckCommand.SetAction(
         var verbose = result.GetValue(verboseOption);
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        var config = ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), "oracle").Configuration with { GroundTruthMode = GroundTruthMode.Full };
+        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), "oracle") is not { } resolved)
+        {
+            return;
+        }
+
+        var config = resolved.Configuration with { GroundTruthMode = GroundTruthMode.Full };
         config = config with
         {
             DefaultSchema = schema ?? config.DefaultSchema,
@@ -1909,15 +1981,70 @@ catch (OperationCanceledException)
 
 #region Helper Methods
 
-static DataGuardConfiguration LoadConfig(string? configPath)
+// Loads --config. No path: defaults. An explicit path that does not exist, an unparsable file, or unknown keys under
+// StrictConfig write one stderr line, set exit 2 and return null (red-team C4: never a silent default).
+// allowMissingConfig: IDE hosts always pass the conventional workspace path, so under --ide-safe a missing file warns.
+static DataGuardConfiguration? TryLoadConfig(string? configPath, bool allowMissingConfig = false)
 {
-    if (string.IsNullOrEmpty(configPath) || !File.Exists(configPath))
+    if (string.IsNullOrEmpty(configPath))
     {
         return new DataGuardConfiguration();
     }
 
-    var yaml = File.ReadAllText(configPath);
-    return DeserializeConfig(yaml);
+    if (!File.Exists(configPath))
+    {
+        if (allowMissingConfig)
+        {
+            Console.Error.WriteLine($"Warning: configuration file not found: {configPath}; using defaults.");
+            return new DataGuardConfiguration();
+        }
+
+        Console.Error.WriteLine($"Configuration file not found: {configPath}");
+        Environment.ExitCode = 2;
+        return null;
+    }
+
+    DataGuardConfiguration config;
+    IReadOnlyList<string> unknownKeys;
+    try
+    {
+        var yaml = File.ReadAllText(configPath);
+        config = DeserializeConfig(yaml);
+        unknownKeys = CliConfigurationResolver.FindUnknownTopLevelKeys(yaml);
+    }
+    catch (Exception ex) when (ex is FormatException or ArgumentException or OverflowException or IOException or UnauthorizedAccessException or YamlDotNet.Core.YamlException)
+    {
+        Console.Error.WriteLine($"Configuration invalid: {configPath}: {ex.Message}");
+        Environment.ExitCode = 2;
+        return null;
+    }
+
+    if (unknownKeys.Count > 0)
+    {
+        if (config.StrictConfig)
+        {
+            Console.Error.WriteLine($"Error: unknown configuration keys: {string.Join(", ", unknownKeys)} (StrictConfig: true)");
+            Environment.ExitCode = 2;
+            return null;
+        }
+
+        Console.Error.WriteLine($"Warning: unknown configuration keys: {string.Join(", ", unknownKeys)}");
+    }
+
+    return config;
+}
+
+// Writes the allowed-values error and sets exit 2 when provider is not on the whitelist.
+static string? TryNormalizeProviderOrFail(string? provider, string source)
+{
+    if (CliConfigurationResolver.TryNormalizeProvider(provider, out var normalized))
+    {
+        return normalized;
+    }
+
+    Console.Error.WriteLine(CliConfigurationResolver.FormatUnsupportedProvider(provider, source));
+    Environment.ExitCode = 2;
+    return null;
 }
 
 static bool TryParseHookType(string? value, out HookType hookType)
@@ -1934,17 +2061,28 @@ static bool TryParseHookType(string? value, out HookType hookType)
     return hookType != HookType.None;
 }
 
-static (DataGuardConfiguration Configuration, string Provider) ResolveCommandConfiguration(
+// Null after writing the reason to stderr with exit 2: missing/invalid --config, or a provider (from --provider or the
+// config DefaultProvider) outside the whitelist. The returned provider is normalized (lower-case, postgres => postgresql).
+static (DataGuardConfiguration Configuration, string Provider)? ResolveCommandConfiguration(
     string? configPath,
     string? commandLineConnection,
-    string? commandLineProvider)
+    string? commandLineProvider,
+    bool allowMissingConfig = false)
 {
-    var config = LoadConfig(configPath);
-    return CliConfigurationResolver.Resolve(
+    var config = TryLoadConfig(configPath, allowMissingConfig);
+    if (config is null)
+    {
+        return null;
+    }
+
+    var resolved = CliConfigurationResolver.Resolve(
         config,
         commandLineConnection,
         commandLineProvider,
         Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING"));
+    var source = !string.IsNullOrWhiteSpace(commandLineProvider) ? "--provider" : "config DefaultProvider";
+    var provider = TryNormalizeProviderOrFail(resolved.Provider, source);
+    return provider is null ? null : (resolved.Configuration, provider);
 }
 
 static (bool Success, string? Path, string? Error) ResolveEfSnapshotSource(
@@ -2114,6 +2252,8 @@ static DataGuardConfiguration DeserializeConfig(string yaml)
             "TelemetryServiceName" => config with { TelemetryServiceName = value },
             "TelemetryServiceVersion" => config with { TelemetryServiceVersion = value },
             "IncludeTelemetryEventDetails" => config with { IncludeTelemetryEventDetails = B() },
+            "FailOnUnavailableRules" => config with { FailOnUnavailableRules = B() },
+            "StrictConfig" => config with { StrictConfig = B() },
             _ => config
         };
     }

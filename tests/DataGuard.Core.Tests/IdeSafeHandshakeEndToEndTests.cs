@@ -68,10 +68,39 @@ public class IdeSafeHandshakeEndToEndTests
         try
         {
             File.WriteAllText(Path.Combine(dir, "Repo.cs"), "public class Repo { public void F() { var s = \"SELECT 1 FROM Dual\"; } }");
-            var (exitCode, _, stderr) = RunCli(null, dir, "validate", "--allow-env-connection", "--project", dir);
+
+            // --allow-syntactic-only: a project-only run without ground truth is otherwise exit 3 (red-team C4 gate).
+            var (exitCode, _, stderr) = RunCli(null, dir, "validate", "--allow-env-connection", "--project", dir, "--allow-syntactic-only");
 
             exitCode.Should().Be(0, stderr);
             stderr.Should().NotContain("ide-safe");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_IdeSafe_MissingConventionalConfigWarns_AndAcceptsFailOnUnavailable()
+    {
+        var dir = Directory.CreateTempSubdirectory("dg-ide-safe-gates").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Repo.cs"), RepoSource);
+            var missingConfig = Path.Combine(dir, ".dataguard.yml");
+
+            // Hosts always pass the workspace config path; under --ide-safe a missing file is a warning, the run stays
+            // lint-only without exit 3, and --fail-on-unavailable is an accepted option (PG004 is then blocking).
+            var (lenientExit, _, lenientStderr) = RunCli(null, dir, "validate", "--ide-safe", "--config", missingConfig, "--project", dir, "--provider", "postgresql");
+            Lines(lenientStderr)[0].Should().Be("ide-safe: active");
+            lenientStderr.Should().Contain("Warning: configuration file not found").And.Contain("Rule PG004 not evaluated");
+            lenientExit.Should().Be(0, lenientStderr);
+
+            var (strictExit, _, strictStderr) = RunCli(null, dir, "validate", "--ide-safe", "--config", missingConfig, "--project", dir, "--provider", "postgresql", "--fail-on-unavailable");
+            Lines(strictStderr)[0].Should().Be("ide-safe: active");
+            strictStderr.Should().NotContain("is not allowed with --ide-safe");
+            strictExit.Should().Be(3, strictStderr);
         }
         finally
         {

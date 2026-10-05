@@ -45,12 +45,12 @@ dataguard validate [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--connection` | — | Database connection string |
-| `--config` | — | Path to `.dataguard.yml` config file |
+| `--config` | — | Path to `.dataguard.yml` config file; a path that does not exist exits 2 |
 | `--output` | — | Output file path (required for sarif/evidence) |
 | `--format` | `text` | Output format: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
-| `--offline` | `false` | Run in offline mode (no DB connection, requires `--assembly` or `--project`) |
+| `--offline` | `false` | No DB connection: Snapshot mode (committed snapshot); with `--assembly`, Manual mode |
 | `--verbose` | `false` | Enable verbose output |
-| `--provider` | Config `DefaultProvider`, then `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` |
+| `--provider` | Config `DefaultProvider`, then `sqlserver` | Database provider: `sqlserver`, `oracle`, `mysql`, `postgresql` (alias `postgres`), case-insensitive; any other value exits 2 |
 | `--schema` | — | Database schema/owner name |
 | `--assembly` | — | Path to compiled assembly for Manual ground-truth mode |
 | `--ef-snapshot` | — | Explicit `ModelSnapshot.cs` source parsed with Roslyn; no assembly is loaded or executed |
@@ -61,10 +61,16 @@ dataguard validate [options]
 | `--progress` | `false` | Stream safe line-delimited JSON progress events to stderr |
 | `--ide-safe` | `false` | Run under IDE-safe execution policy: suppresses assembly loading, secret-manager connections, and arbitrary file writes |
 | `--allow-env-connection` | `false` | With `--ide-safe`: retain host-supplied `DATAGUARD_CONNECTION_STRING` while still ignoring config-file connection strings |
+| `--fail-on-unavailable` | `false` | Exit 3 when a provider rule cannot be evaluated (config `FailOnUnavailableRules: true`) |
+| `--allow-syntactic-only` | `false` | Run without ground truth: warn instead of exiting 3 |
 
 **Behavior:**
 - Without `--connection`: validates against committed snapshot (Snapshot mode)
-- With `--offline`: runs validation without database access. Requires either `--assembly` (Manual ground-truth mode with attributes) or `--project` (Roslyn AST extraction mode for inline SQL and models). No compiled binary is required when using `--project`.
+- Without a connection and without `SnapshotFilePath`: uses `.dataguard-snapshot.json` next to `--config`, else in the current directory, and prints `Using snapshot <path>` to stdout
+- With `--offline`: never connects. Bare `--offline` is Snapshot mode (same default snapshot discovery); `--offline --assembly <path>` is Manual ground-truth mode with attributes (unchanged)
+- Ground-truth gate: when the acquired contracts hold no schema, stored procedure or entity descriptor (only inline SQL from `--project`), `validate` prints `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` and exits 3. `--allow-syntactic-only` downgrades it to a warning; `--format contracts|yaml|typescript` is not gated; under `--ide-safe` it is always a warning
+- Unavailable rules (for example `DG012` on Oracle, `PG004` on PostgreSQL) print `Rule <id> not evaluated: <reason>` once to stderr and do not change the exit code unless `--fail-on-unavailable` is set; `--skip-rules` is applied first
+- Configuration: unknown top-level keys print `Warning: unknown configuration keys: a, b` (exit 2 with `StrictConfig: true`); a value of the wrong type exits 2. Under `--ide-safe` a missing `--config` file is a warning, because IDE hosts always pass the workspace path
 - `--project`: discovers C# source contracts and inline SQL queries (Dapper, ADO.NET) directly from source code (`.csproj`, `.sln`, or directory) via Roslyn AST without requiring a pre-compiled assembly
 - `--progress`: outputs real-time step progress events as newline-delimited JSON (NDJSON) lines to `stderr` for tooling and IDE integration (e.g., VS Code extension)
 - `--verbose`: prints detailed scan report including discovered connection strings/hints, detected SQL queries with line numbers, AST operation types, referenced tables, target DTO mappings, and unmapped column/property diagnostics
@@ -443,7 +449,7 @@ dataguard init [--output <path>] [--provider <name>] [--wizard]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output` | `.dataguard.yml` | Output config file path |
-| `--provider` | `sqlserver` | Default provider |
+| `--provider` | `sqlserver` | Default provider (same whitelist as `validate`; other values exit 2) |
 | `--wizard` | `false` | Prompt for setup choices interactively and write to `--output` |
 
 The wizard reads from the terminal and writes only to the explicit `--output` path (default `.dataguard.yml`). It does not put a connection string in generated configuration; use `DATAGUARD_CONNECTION_STRING` for credentials.
