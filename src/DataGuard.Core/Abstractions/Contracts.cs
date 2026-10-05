@@ -152,7 +152,8 @@ public record ParameterDescriptor(
     string? TypeName = null,
     string? TypeSubname = null,
     string? ClrType = null,
-    ParameterDirection? CallSiteDirection = null);
+    ParameterDirection? CallSiteDirection = null,
+    bool HasDefault = false);
 
 /// <summary>
 /// Parameter direction.
@@ -176,7 +177,8 @@ public record StoredProcedureDescriptor(
     IReadOnlyList<ParameterDescriptor> Parameters,
     IReadOnlyList<ColumnDescriptor> ResultColumns,
     bool ReturnsRefCursor,
-    Location? Location = null) : ContractDescriptor(Id, Name, ContractType.StoredProcedure, Location);
+    Location? Location = null,
+    string? ReturnType = null) : ContractDescriptor(Id, Name, ContractType.StoredProcedure, Location);
 
 /// <summary>
 /// Represents a column descriptor in a result set.
@@ -191,7 +193,8 @@ public record ColumnDescriptor(
     string? CharUsed, // 'C' = CHAR, 'B' = BYTE for Oracle
     int? CharLength = null,
     string? DataDefault = null,
-    int ColumnId = 0);
+    int ColumnId = 0,
+    string? Charset = null);
 
 /// <summary>
 /// Identifies the high-level operation category of a SQL statement.
@@ -234,6 +237,12 @@ public record RawSqlDescriptor(
 
     /// <summary>The bare procedure name (without EXEC/CALL prefix), or null for plain SQL.</summary>
     public string? ProcedureName { get; init; } = null;
+
+    /// <summary>Schema (owner) qualifier of the procedure at the call site, when written explicitly.</summary>
+    public string? ProcedureSchema { get; init; } = null;
+
+    /// <summary>Package qualifier of the procedure at the call site (Oracle), when written explicitly.</summary>
+    public string? ProcedurePackage { get; init; } = null;
 }
 
 public enum RawSqlParseStatus
@@ -256,4 +265,5 @@ public record DatabaseSchemaDescriptor(
 /// </summary>
 public record DatabaseTableDescriptor(
     string Name,
-    IReadOnlyList<ColumnDescriptor> Columns);
+    IReadOnlyList<ColumnDescriptor> Columns,
+    string? Schema = null);
