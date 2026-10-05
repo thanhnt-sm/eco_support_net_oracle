@@ -25,6 +25,22 @@
 | **Testing** | QA and test strategy | [EN](07-testing/test-strategy.md) · [VI](07-testing/test-strategy.vi.md) |
 | **Developers** | Contributor guide | [EN](08-developers/contributor-guide.md) · [VI](08-developers/contributor-guide.vi.md) |
 
+## Architecture Decision Records
+
+Component decisions measured against the original goals ([index](adr/README.md)):
+
+- [ADR-0000](adr/ADR-0000-adr-process.md): ADR process and template
+- [ADR-0001](adr/ADR-0001-visual-studio-extension.md): Visual Studio extension (`freeze`)
+- [ADR-0002](adr/ADR-0002-vscode-extension-and-language-server.md): VS Code extension and Language Server (`freeze`)
+- [ADR-0003](adr/ADR-0003-observability-packages.md): Observability packages (`extract`)
+- [ADR-0004](adr/ADR-0004-host-and-health.md): Host and Core/Health (`extract`)
+- [ADR-0005](adr/ADR-0005-assessment-and-osv-client.md): Assessment and OSV client (`freeze`)
+- [ADR-0006](adr/ADR-0006-telemetry-http-export.md): Telemetry HTTP export (`extract`)
+- [ADR-0007](adr/ADR-0007-rule-plugins.md): Rule plugins (`freeze`, revisit after Phase 4.2)
+- [ADR-0008](adr/ADR-0008-auto-detection.md): AutoDetection and `init --wizard` (`freeze`)
+- [ADR-0009](adr/ADR-0009-mysql-and-postgresql-adapters.md): MySQL and PostgreSQL adapters (`keep`, preview)
+- [ADR-0010](adr/ADR-0010-telemetry-vs-observability.md): Core/Telemetry vs Observability (one stack: Core/Telemetry)
+
 ## Quick Links
 
 - [README](../README.md) · [README.vi](../README.vi.md)
