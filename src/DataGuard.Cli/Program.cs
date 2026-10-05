@@ -2605,36 +2605,18 @@ static async Task<IReadOnlyList<ContractDescriptor>> BuildContractsAsync(
     {
         if (!string.IsNullOrEmpty(config.ConnectionString))
         {
-            var argumentsReader = new AllArgumentsReader(config.ConnectionString, config.Oracle ?? new OracleConfiguration(), null);
             var owner = config.DefaultSchema ?? config.Oracle?.Owner;
-            var packageName = config.DefaultPackage ?? "";
             if (!string.IsNullOrEmpty(owner))
             {
-                foreach (var procName in await argumentsReader.GetProcedureNamesAsync(owner, string.IsNullOrEmpty(packageName) ? null : packageName, cancellationToken))
-                {
-                    foreach (var proc in await argumentsReader.GetOverloadsAsync(owner, packageName, procName, cancellationToken))
-                    {
-                        contracts.Add(new StoredProcedureDescriptor(
-                            Id: $"oracle:{owner}.{procName}:{proc.SignatureKey}",
-                            Name: procName,
-                            Schema: owner,
-                            PackageName: packageName,
-                            Parameters: proc.Parameters,
-                            ResultColumns: new List<ColumnDescriptor>(),
-                            ReturnsRefCursor: false));
-                    }
-                }
-
-                var columnsReader = new AllTabColumnsReader(config.ConnectionString);
-                var allColumns = await columnsReader.GetAllColumnsAsync(owner, cancellationToken);
-                var lengthSemantics = await new LengthSemanticsResolver(config.ConnectionString)
-                    .ResolveAsync(cancellationToken);
-                contracts.Add(new DatabaseSchemaDescriptor(
-                    Id: $"oracle:schema:{owner}",
-                    Tables: allColumns
-                        .Select(pair => new DatabaseTableDescriptor(pair.Key, pair.Value))
-                        .ToList(),
-                    LengthSemantics: lengthSemantics.ToString()));
+                // Every package subprogram (each overload, including 0-argument ones) and standalone unit of the owner,
+                // Id oracle:{OWNER}.{PKG|_}.{NAME}#{SUBPROGRAM_ID}; DefaultPackage only drives call-site resolution.
+                // The schema descriptor carries NLS_CHARACTERSET / NLS_NCHAR_CHARACTERSET / MAX_STRING_SIZE and per-column
+                // charsets. REF CURSOR shapes are described (by executing the procedure) only with Oracle.DescribeRefCursors.
+                contracts.AddRange(await OracleCatalogBuilder.BuildAsync(
+                    config.ConnectionString,
+                    owner,
+                    config.Oracle,
+                    cancellationToken));
             }
         }
     }

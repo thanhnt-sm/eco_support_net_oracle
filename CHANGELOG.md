@@ -38,6 +38,38 @@ All notable changes to DataGuard are documented here. Format based on
 - **Connection provider inference**: `ConnectionDiscovery.InferProviderFromConnectionString` scores provider-specific keys instead of taking the first match, so `Data Source=...;Initial Catalog=...;User Id=...` is SQL Server (was Oracle) and `Server=...;Uid=...;SslMode=...` is MySQL (was SQL Server); a tie is `unknown`.
 - **Contracts** (preparation for stored-procedure matching): `ParameterDescriptor.HasDefault`, `ColumnDescriptor.Charset`, `DatabaseTableDescriptor.Schema`, `StoredProcedureDescriptor.ReturnType`, `RawSqlDescriptor.ProcedureSchema`/`ProcedurePackage` added as optional trailing members.
 
+### Fixed (red-team C6, H7, H8: provider catalogs and length semantics)
+- **Oracle package catalog** (C6): `AllArgumentsReader.GetProceduresAsync` reads `ALL_ARGUMENTS` (`DATA_LEVEL = 0`) together with `ALL_PROCEDURES` header rows in one statement and groups by `(package_name, object_name, subprogram_id)`.
+  - Every package overload is kept, including 0-argument subprograms. Oracle 18c+ has no argument row for those.
+  - `DEFAULTED` maps to `HasDefault`, and the function return row maps to `ReturnType`.
+  - `GetProcedureNamesAsync` no longer references the non-existent `ALL_PROCEDURES.PACKAGE_NAME`, which raised ORA-00904.
+  - An empty package filter now means standalone units only.
+  - Stored-procedure ids are `oracle:{OWNER}.{PACKAGE|_}.{NAME}#{SUBPROGRAM_ID}` with `PackageName` set. **Breaking for baselines keyed on the old Oracle ids.** `DefaultPackage` no longer filters the catalog.
+- **Oracle NLS facts**: `NLS_CHARACTERSET`/`NLS_NCHAR_CHARACTERSET` are read from `nls_database_parameters`; the session view never had them. `MAX_STRING_SIZE` comes from `v$parameter`, falling back to `STANDARD`. The schema descriptor carries these facts, and each character column gets `ColumnDescriptor.Charset`.
+- **`Oracle.DescribeRefCursors`** (new, default `false`): when enabled, catalog extraction **executes** every procedure or function that returns a REF CURSOR, binding NULL to its IN parameters, and records the cursor's `ResultColumns`. `ReturnsRefCursor` now always comes from the catalog.
+- **Oracle DG008** (H8): the byte factor is now `bytesPerUtf16Unit(charset, IsUnicode)` (AL32UTF8 3, AL16UTF16 2, single-byte 1, unknown 3); the old fixed factor was 4.
+  - CHAR-semantics columns are checked against `min(CHAR_LENGTH × maxBytesPerChar, 2000|4000|32767)`.
+  - `IsUnicode(false)` is honored through `Annotations["IsUnicode"]`, which `EfModelSource` now emits.
+  - Column lookup tries the EF column name, then `CUSTOMERID`, then `CUSTOMER_ID`.
+- **Length rules on schema-qualified entities** (H7): Oracle, PostgreSQL and MySQL length rules resolve `SCHEMA.TABLE` entity names by `(schema, name)` instead of comparing the whole string. Before, they were silent for every schema-qualified entity.
+- **PostgreSQL catalog**:
+  - `RETURNS TABLE` columns (`proargmodes 't'`) become `ResultColumns`.
+  - `pronargdefaults` sets `HasDefault` on the trailing inputs, and unnamed arguments are named `p{i}`.
+  - Ids are `postgres:{schema}.{name}({in-arg types})` instead of the OID.
+  - Materialized views are included, and table keys are case-sensitive.
+  - PG003 reports at most one finding per property, without the UTF-8 byte check, and tries snake_case column names.
+- **MySQL catalog**:
+  - Functions are read, with `ReturnType` and Id `mysql:{schema}.{name}#function`.
+  - An empty schema means `DATABASE()` instead of every schema on the server.
+  - Table keys follow `@@lower_case_table_names`, and the charset moves from `CharUsed` to `ColumnDescriptor.Charset`.
+  - MY006 compares TEXT limits in bytes, and `utf8mb3` is 3 bytes.
+  - MY005 is now a row-size check (65,535 bytes).
+  - MY007 fires only for a string without MaxLength on a `varchar(n)`/`char(n)` column (Pomelo maps such a string to `longtext`).
+- **SQL Server catalog**:
+  - `nchar`/`nvarchar` `max_length` is converted to characters in `sys.parameters` and `sp_describe_first_result_set`, so `nvarchar(50)` gives `MaxLength = 50`.
+  - One failing `sp_describe_first_result_set` no longer aborts extraction; that procedure gets `ReturnType = "unknown:<error>"`.
+  - Schema tables are `Name` = bare table name plus `Schema`, and the phantom/nullability table index uses `DatabaseTableDescriptor.Schema`.
+
 ### Fixed (red-team C2, C4: CLI exit gates)
 - **Unavailable rules no longer block `validate`** (C2): a rule the provider cannot evaluate (`DG012` on Oracle, `PG004` on PostgreSQL) prints `Rule <id> not evaluated: <reason>` once on stderr and no longer forces exit 3. `--fail-on-unavailable` or config `FailOnUnavailableRules: true` restores exit 3; `--skip-rules` is applied first.
 - **Empty-pass gate** (C4): `--provider` and config `DefaultProvider` accept only `sqlserver`, `oracle`, `mysql`, `postgresql` (`postgres`) on every command, otherwise exit 2; `--config` pointing to a missing file exits 2 (was silent defaults; still a warning under `--ide-safe`, because IDE hosts always pass the workspace path); a config value of the wrong type exits 2; unknown top-level keys print a warning, exit 2 with `StrictConfig: true`.

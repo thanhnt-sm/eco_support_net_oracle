@@ -104,7 +104,8 @@ EnableTelemetry: false             # Opt-in telemetry
 # Oracle-specific (nếu dùng Oracle)
 Oracle:
   Owner: MY_SCHEMA                 # Schema owner
-  UseRefCursorDescribe: true       # Dùng DBMS_SQL.DESCRIBE_COLUMNS
+  UseRefCursorDescribe: false      # Không còn dùng cho catalog; xem DescribeRefCursors
+  DescribeRefCursors: false        # true = THỰC THI procedure trả REF CURSOR (IN = NULL) để đọc cột kết quả; chỉ dùng account read-only
   UseAllArguments: true            # Dùng ALL_ARGUMENTS
   UseAllTabColumns: true           # Dùng ALL_TAB_COLUMNS
 

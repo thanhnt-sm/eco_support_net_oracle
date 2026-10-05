@@ -53,11 +53,7 @@
       "ruleId": "PG003",
       "messageContains": "MaxLength=200 exceeds PostgreSQL column 'full_name'",
       "severity": "Error"
-    },
-    {
-      "ruleId": "PG003",
-      "messageContains": "UTF-8 overflow risk",
-      "severity": "Warning"
     }
-  ]
+  ],
+  "notes": "Exactly one PG003 per property since 2026-10-05 (red-team H8): varchar(n) counts characters, so no separate UTF-8 byte warning."
 }

@@ -340,7 +340,7 @@ public sealed class MySqlDialectChecker : IDialectAnalyzer
             }
 
             var dataType = column.DataType.ToUpperInvariant();
-            var charSetName = column.CharUsed ?? "utf8mb4";
+            var charSetName = column.Charset ?? column.CharUsed ?? "utf8mb4";
             var bytesPerChar = GetBytesPerChar(charSetName);
 
             // Check VARCHAR limit: max 65535 bytes total for the row
@@ -407,14 +407,19 @@ public sealed class MySqlDialectChecker : IDialectAnalyzer
     /// </summary>
     internal static int GetBytesPerChar(string charSetName)
     {
+        // MySQL's maximum bytes per character (mbmaxlen), as used for row-size accounting.
         return charSetName?.ToLowerInvariant() switch
         {
-            "utf8mb4" or "utf8mb3" => 4, // utf8mb4 = full UTF-8 (4 bytes max); utf8mb3 alias
-            "utf8" => 3,                   // MySQL's "utf8" is actually utf8mb3 (3 bytes max)
+            "utf8mb4" => 4,                            // full UTF-8
+            "utf8mb3" or "utf8" => 3,                  // MySQL's "utf8" is utf8mb3 (BMP only, 3 bytes max)
             "ucs2" => 2,
-            "utf16" or "utf16le" => 4,
-            "utf32" => 4,
-            "latin1" or "ascii" or "binary" => 1,
+            "utf16" or "utf16le" or "utf32" => 4,
+            "gbk" or "big5" or "sjis" or "cp932" or "euckr" or "gb2312" => 2,
+            "ujis" or "eucjpms" => 3,
+            "gb18030" => 4,
+            "latin1" or "latin2" or "latin5" or "latin7" or "ascii" or "binary" or "cp850" or "cp852" or "cp866"
+                or "cp1250" or "cp1251" or "cp1256" or "cp1257" or "dec8" or "hp8" or "koi8r" or "koi8u" or "swe7"
+                or "greek" or "hebrew" or "tis620" or "armscii8" or "geostd8" or "keybcs2" or "macce" or "macroman" => 1,
             _ => 4, // Conservative default: assume 4 bytes per char (utf8mb4)
         };
     }

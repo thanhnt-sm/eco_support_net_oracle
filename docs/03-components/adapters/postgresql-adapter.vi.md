@@ -184,3 +184,11 @@ PostgreSQL cho phép nhiều function cùng tên nhưng khác kiểu tham số (
 ### Hệ thống kiểu
 
 PostgreSQL có hệ thống kiểu phong phú bao gồm array, kiểu composite, và domain tùy chỉnh. Adapter hiện chỉ đọc `data_type` cơ bản từ `information_schema.parameters`, bao gồm các kiểu tiêu chuẩn nhưng có thể không biểu diễn đầy đủ các kiểu phức tạp.
+
+## Cập nhật catalog (Phase 3.3/3.7)
+
+- Đối số `proargmodes 't'` (RETURNS TABLE) trở thành `ResultColumns`, không phải tham số. `'o'` là Output, `'b'` là InputOutput, `'v'` là Input. `pronargdefaults = N` đặt `HasDefault` cho N tham số input cuối. Tên rỗng trong `proargnames` trở thành `p{i}`.
+- Id có dạng `postgres:{schema}.{name}({kiểu IN})`, ví dụ `postgres:public.find_orders(int4,text)`.
+- Materialized view được đọc qua `pg_matviews`. Khóa bảng giữ đúng tên catalog (so sánh Ordinal), và `DatabaseTableDescriptor.Schema` được gán.
+- PG003: mỗi property có tối đa một vi phạm. Không còn kiểm tra byte UTF-8, vì `varchar(n)` của PostgreSQL giới hạn theo ký tự. Tên cột được thử thêm dạng snake_case.
+

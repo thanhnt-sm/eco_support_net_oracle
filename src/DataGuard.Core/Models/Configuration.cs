@@ -107,7 +107,18 @@ public record OracleConfiguration(
     string? Owner = null,
     bool UseRefCursorDescribe = false,
     bool UseAllArguments = true,
-    bool UseAllTabColumns = true);
+    bool UseAllTabColumns = true)
+{
+    /// <summary>
+    /// When true, catalog extraction (validate/snapshot refresh with a connection) <b>executes</b> each procedure or
+    /// function that returns a REF CURSOR, binding NULL to its IN parameters, so <c>DBMS_SQL.DESCRIBE_COLUMNS3</c> can
+    /// record the cursor's result columns. Default false: REF CURSOR procedures are catalogued with
+    /// <c>ReturnsRefCursor = true</c> and an unknown (empty) result shape. Enable only with a read-only account on a
+    /// database where running the procedures has no side effects. <see cref="UseRefCursorDescribe"/> is not honored
+    /// for this purpose.
+    /// </summary>
+    public bool DescribeRefCursors { get; init; }
+}
 
 /// <summary>
 /// Extension methods for smart defaults.

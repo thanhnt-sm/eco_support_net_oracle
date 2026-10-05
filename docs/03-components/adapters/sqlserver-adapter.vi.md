@@ -239,3 +239,10 @@ Khi `--provider sqlserver` (hoặc không chỉ định provider), CLI:
 2. Đọc tham số qua `sys.parameters`
 3. Mô tả bộ kết quả qua `sp_describe_first_result_set`
 4. Chạy core rules (DG001-DG006) với các contract đã trích xuất
+
+## Cập nhật (Phase 3.3)
+
+- `max_length` được chuẩn hóa về số ký tự ở cả `sys.parameters` và `sp_describe_first_result_set`: `nchar`/`nvarchar` chia 2, còn `-1` (MAX) thành `null`. Ví dụ `nvarchar(50)` cho `MaxLength = 50`.
+- Lỗi describe của một procedure không còn dừng toàn bộ quá trình trích xuất: procedure đó có `ResultColumns` rỗng và `ReturnType = "unknown:<mã lỗi>"`.
+- `DatabaseTableDescriptor.Name` là tên bảng trần, và `Schema` là owner.
+

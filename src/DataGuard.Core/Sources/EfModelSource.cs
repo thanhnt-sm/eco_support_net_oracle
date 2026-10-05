@@ -86,8 +86,10 @@ public class EfModelSource : IContractSource
                 var isUnicode = property.IsUnicode();
                 var valueGenerated = property.ValueGenerated;
 
-                var annotations = property.GetAnnotations()
-                    .ToImmutableDictionary(a => a.Name, a => a.Value);
+                // IsUnicode flows to the length rules (Oracle DG008 bytes per character); absent = EF default (Unicode).
+                var annotations = WithUnicodeFacet(
+                    property.GetAnnotations().ToImmutableDictionary(a => a.Name, a => a.Value),
+                    isUnicode);
 
                 properties.Add(new PropertyDescriptor(
                     Name: property.Name,
@@ -136,6 +138,10 @@ public class EfModelSource : IContractSource
 
     private static string BuildFullName(string? schema, string name)
         => string.IsNullOrEmpty(schema) ? name : $"{schema}.{name}";
+
+    /// <summary>Adds <c>Annotations["IsUnicode"]</c> when the EF unicode facet is configured (null = EF default, Unicode).</summary>
+    private static ImmutableDictionary<string, object?> WithUnicodeFacet(ImmutableDictionary<string, object?> annotations, bool? isUnicode)
+        => isUnicode.HasValue ? annotations.SetItem("IsUnicode", isUnicode.Value) : annotations;
 
     private async Task<Location?> GetEntityLocationAsync(IEntityType entityType, CancellationToken cancellationToken)
     {
@@ -592,6 +598,14 @@ public class EfModelSource : IContractSource
                                         break;
                                     }
 
+                                case "IsUnicode":
+                                    {
+                                        var unicode = !(callObj.TryGetPropertyValue("Arguments", out var iuArgs) && iuArgs is JsonArray iuArr && iuArr.Count > 0)
+                                            || iuArr[0]!.GetValue<bool>();
+                                        annotations = annotations.SetItem("IsUnicode", unicode);
+                                        break;
+                                    }
+
                                 case "IsPrimaryKey":
                                     isPrimaryKey = true;
                                     break;
@@ -747,7 +761,9 @@ public class EfModelSource : IContractSource
                     property.GetMaxLength(),
                     property.IsPrimaryKey(),
                     property.IsForeignKey(),
-                    property.GetAnnotations().ToImmutableDictionary(annotation => annotation.Name, annotation => annotation.Value));
+                    WithUnicodeFacet(
+                        property.GetAnnotations().ToImmutableDictionary(annotation => annotation.Name, annotation => annotation.Value),
+                        property.IsUnicode()));
             }).ToList();
 
             entities.Add(new EntityDescriptor(
