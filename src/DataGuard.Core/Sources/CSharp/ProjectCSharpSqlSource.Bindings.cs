@@ -630,6 +630,21 @@ public sealed partial class ProjectCSharpSqlSource
         return added;
     }
 
+    /// <summary>
+    /// True when <paramref name="scope"/> uses <c>receiverName.Parameters</c> and never hands the collection to another
+    /// method (<c>AddParameters(cmd.Parameters)</c>), i.e. every parameter is added where the extractor can see it.
+    /// </summary>
+    private static bool UsesParametersCollection(string receiverName, SyntaxNode scope)
+    {
+        var accesses = scope.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+            .Where(member =>
+                member.Name.Identifier.ValueText == "Parameters" &&
+                member.Expression is IdentifierNameSyntax owner &&
+                owner.Identifier.ValueText == receiverName)
+            .ToList();
+        return accesses.Count > 0 && !accesses.Any(member => member.Parent is ArgumentSyntax);
+    }
+
     private static bool IsParametersCall(InvocationExpressionSyntax invocation, string receiverName, out string method)
     {
         method = string.Empty;

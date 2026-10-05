@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.TypeCompatibility;
 using DataGuard.Core.Sources;
 using Microsoft.CodeAnalysis;
 
@@ -368,32 +369,32 @@ public sealed class MySqlDialectChecker : IDialectAnalyzer
                 }
             }
 
-            // Check for TEXT/LONGTEXT/MEDIUMTEXT overflow risk when entity has MaxLength
-            if (dataType is "LONGTEXT" or "MEDIUMTEXT" or "TEXT" or "TINYTEXT")
+            // TEXT family overflow: the TEXT limits are bytes, not characters, so the entity length is converted with the
+            // same worst-case bytes per UTF-16 unit MY006 (MySqlLengthMismatchDetector) uses; byte[] lengths are bytes.
+            if (MySqlLengthMismatchDetector.TryGetTextTypeMaxBytes(dataType, out var dbMaxBytes))
             {
-                var dbMaxChars = dataType switch
-                {
-                    "TINYTEXT" => 255,
-                    "TEXT" => 65_535,
-                    "MEDIUMTEXT" => 16_777_215,
-                    "LONGTEXT" => 4_294_967_295L,
-                    _ => 0L,
-                };
-
-                if (property.MaxLength.Value > dbMaxChars)
+                var textCharset = MySqlLengthMismatchDetector.ResolveCharset(column);
+                var bytesPerUnit = MySqlLengthMismatchDetector.IsStringType(property.ClrTypeName)
+                    ? MySqlLengthMismatchDetector.BytesPerUtf16Unit(textCharset)
+                    : 1;
+                var entityMaxBytes = (long)property.MaxLength.Value * bytesPerUnit;
+                if (entityMaxBytes > dbMaxBytes)
                 {
                     violations.Add(new ContractViolation(
                         "MY003",
-                        $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} " +
-                        $"exceeds MySQL {dataType} maximum of {dbMaxChars} characters",
+                        $"Entity property '{property.Name}' MaxLength={property.MaxLength.Value} may need {entityMaxBytes} bytes " +
+                        $"({bytesPerUnit} per character in {textCharset}) but MySQL {dataType} holds at most {dbMaxBytes} bytes",
                         DiagnosticSeverity.Error,
                         location,
                         new Dictionary<string, object?>
                         {
                             { "property", property.Name },
                             { "entityMaxLength", property.MaxLength.Value },
-                            { "dbMaxChars", dbMaxChars },
+                            { "bytesPerChar", bytesPerUnit },
+                            { "entityMaxBytes", entityMaxBytes },
+                            { "dbMaxBytes", dbMaxBytes },
                             { "dbType", dataType },
+                            { "charSet", textCharset },
                         }));
                 }
             }
@@ -428,9 +429,26 @@ public sealed class MySqlDialectChecker : IDialectAnalyzer
 /// <summary>
 /// Rule MY001: MySQL syntax in non-MySQL context.
 /// </summary>
+/// <remarks>
+/// The rule reports MySQL syntax only outside a MySQL context. The context of a raw-SQL descriptor is its
+/// <see cref="RawSqlDescriptor.ConnectionProviderHint"/>, or, when the descriptor carries no hint, the provider the rule
+/// was built for (<c>ProviderRuleCatalog</c> passes the catalog provider). When that context is <c>mysql</c> the rule is a
+/// no-op, so the provider's own syntax is never reported as foreign. Built without a provider and given no hint, the
+/// rule keeps its original behavior and treats the context as non-MySQL.
+/// </remarks>
 public class MySqlSyntaxInNonMySqlContextRule : ContractRuleBase
 {
     private static readonly IDialectAnalyzer Analyzer = new MySqlDialectChecker();
+
+    /// <summary>Initializes a new instance of the <see cref="MySqlSyntaxInNonMySqlContextRule"/> class.</summary>
+    /// <param name="provider">Provider the rule runs for when a descriptor carries no provider hint; null = unknown.</param>
+    public MySqlSyntaxInNonMySqlContextRule(string? provider = null)
+    {
+        Provider = string.IsNullOrWhiteSpace(provider) ? null : TypeCompatibilityRegistry.NormalizeProvider(provider);
+    }
+
+    /// <summary>Gets the normalized fallback provider, or null.</summary>
+    public string? Provider { get; }
 
     public override string RuleId => "MY001";
 
@@ -446,12 +464,20 @@ public class MySqlSyntaxInNonMySqlContextRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor rawSql && !IsMySqlContext(rawSql))
         {
             violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: false, contract.Location));
         }
 
         return Task.CompletedTask;
+    }
+
+    private bool IsMySqlContext(RawSqlDescriptor rawSql)
+    {
+        var context = string.IsNullOrWhiteSpace(rawSql.ConnectionProviderHint)
+            ? Provider
+            : TypeCompatibilityRegistry.NormalizeProvider(rawSql.ConnectionProviderHint);
+        return string.Equals(context, "mysql", StringComparison.Ordinal);
     }
 }
 

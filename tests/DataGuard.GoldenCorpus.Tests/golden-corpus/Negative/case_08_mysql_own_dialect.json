@@ -1,0 +1,27 @@
+{
+  "testCase": "NEG_008",
+  "category": "Negative",
+  "description": "MySQL-specific syntax (backtick identifiers, IFNULL, GROUP_CONCAT, LIMIT offset, count) under provider mysql is the provider's own dialect: no MY001",
+  "provenance": {
+    "source": "manual",
+    "model": null,
+    "date": "2026-10-05"
+  },
+  "input": {
+    "sql": "SELECT `customer_id`, IFNULL(GROUP_CONCAT(`status`), 'none') AS statuses FROM `orders` GROUP BY `customer_id` LIMIT 0, 10",
+    "provider": "MySql",
+    "databaseSchema": {
+      "tables": [
+        {
+          "name": "orders",
+          "columns": [
+            "id",
+            "customer_id",
+            "status"
+          ]
+        }
+      ]
+    }
+  },
+  "expectedDiagnostics": []
+}

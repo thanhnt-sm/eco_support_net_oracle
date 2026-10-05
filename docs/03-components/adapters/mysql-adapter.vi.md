@@ -136,6 +136,7 @@ foreach (var property in entity.Properties)
 | **Mức độ** | Warning |
 | **Kích hoạt** | Từ khóa MySQL (`ON DUPLICATE KEY`, backticks, etc.) trong SQL không phải MySQL |
 | **Thông báo** | MySQL-specific syntax '{syntax}' used in non-MySQL context |
+| **Ngữ cảnh** | `ConnectionProviderHint` của descriptor, hoặc provider của catalog khi không có hint. Rule không làm gì khi ngữ cảnh là `mysql`, nên cú pháp của chính MySQL không bao giờ bị báo dưới `--provider mysql`. Khi không có cả provider lẫn hint, ngữ cảnh được coi là không phải MySQL. |
 
 ### MY002 — Cú pháp không phải MySQL trong ngữ cảnh MySQL
 
@@ -152,6 +153,8 @@ foreach (var property in entity.Properties)
 | **Mức độ** | Error |
 | **Kích hoạt** | `property.MaxLength > column.MaxLength` |
 | **Thông báo** | Entity property '{name}' MaxLength={n} exceeds column '{col}' length={m} |
+
+Dạng MY003 của `MySqlVarcharByteLimitRule` cũng kiểm tra các cột họ TEXT. Giới hạn của chúng tính bằng byte, nên độ dài entity được quy đổi giống MY006: `MaxLength × số byte mỗi đơn vị UTF-16` (utf8mb4/utf8mb3/utf8 là 3, ucs2/utf16 là 2, bộ ký tự một byte là 1, `byte[]` là 1). Một `string` có `MaxLength = 30000` trên cột `TEXT` utf8mb4 (90.000 byte) sẽ bị báo: `may need 90000 bytes (3 per character in utf8mb4) but MySQL TEXT holds at most 65535 bytes`.
 
 ## Sử dụng trong CLI
 

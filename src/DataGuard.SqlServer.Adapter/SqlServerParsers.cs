@@ -33,17 +33,20 @@ public class SqlServerStoredProcedureParser : IContractSource
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        // Get all stored procedures
+        // Get all stored procedures, with the T-SQL definition (null for encrypted and CLR procedures): it is the only
+        // source of parameter defaults, because sys.parameters.has_default_value is populated for CLR procedures only.
         const string procSql = @"
-            SELECT 
+            SELECT
                 p.object_id,
                 p.name,
-                s.name AS schema_name
+                s.name AS schema_name,
+                m.definition
             FROM sys.procedures p
             INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+            LEFT JOIN sys.sql_modules m ON m.object_id = p.object_id
             WHERE p.is_ms_shipped = 0";
 
-        var procedures = new List<(int ObjectId, string Name, string Schema)>();
+        var procedures = new List<(int ObjectId, string Name, string Schema, string? Definition)>();
         {
             await using var cmd = new SqlCommand(procSql, connection);
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
@@ -52,21 +55,22 @@ public class SqlServerStoredProcedureParser : IContractSource
                 procedures.Add((
                     reader.GetInt32(0),
                     reader.GetString(1),
-                    reader.GetString(2)));
+                    reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3)));
             }
         }
 
         // Process each procedure. One procedure whose metadata cannot be read (sp_describe_first_result_set
         // rejects temp tables, dynamic SQL, missing objects, ...) must not abort the extraction: it is kept with
         // an empty result shape and ReturnType "unknown:<error number>" so rules can treat it as unevaluated.
-        foreach (var (objectId, name, schema) in procedures)
+        foreach (var (objectId, name, schema, definition) in procedures)
         {
             List<ParameterDescriptor> parameters;
             List<ColumnDescriptor> resultColumns;
             string? unknownMarker = null;
             try
             {
-                parameters = await GetParametersAsync(connection, objectId, cancellationToken);
+                parameters = await GetParametersAsync(connection, objectId, ParseDefaultedParameters(definition), cancellationToken);
             }
             catch (SqlException ex)
             {
@@ -156,15 +160,53 @@ public class SqlServerStoredProcedureParser : IContractSource
             LengthSemantics: "CHAR");
     }
 
+    /// <summary>
+    /// Returns the names (with <c>@</c>, case-insensitive) of the parameters that declare a default
+    /// (<c>@name type = value</c>) in a <c>CREATE</c>/<c>ALTER</c>/<c>CREATE OR ALTER PROCEDURE</c> definition, parsed with
+    /// ScriptDOM (<c>ProcedureParameter.Value</c> is not null). Empty for a null definition (encrypted or CLR
+    /// procedure) or one that does not parse.
+    /// </summary>
+    /// <param name="definition">The <c>sys.sql_modules.definition</c> text.</param>
+    /// <returns>The defaulted parameter names.</returns>
+    public static IReadOnlySet<string> ParseDefaultedParameters(string? definition)
+    {
+        var defaulted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(definition))
+        {
+            return defaulted;
+        }
+
+        var parser = new TSql160Parser(initialQuotedIdentifiers: true);
+        using var reader = new StringReader(definition);
+        var fragment = parser.Parse(reader, out var errors);
+        if (fragment is null || errors.Count > 0)
+        {
+            return defaulted;
+        }
+
+        var visitor = new ProcedureParameterDefaultVisitor();
+        fragment.Accept(visitor);
+        foreach (var parameter in visitor.Parameters)
+        {
+            if (parameter.Value is not null && parameter.VariableName?.Value is { Length: > 0 } parameterName)
+            {
+                defaulted.Add(parameterName);
+            }
+        }
+
+        return defaulted;
+    }
+
     private async Task<List<ParameterDescriptor>> GetParametersAsync(
         SqlConnection connection,
         int objectId,
+        IReadOnlySet<string> defaultedParameters,
         CancellationToken cancellationToken)
     {
         var parameters = new List<ParameterDescriptor>();
 
         const string paramSql = @"
-            SELECT 
+            SELECT
                 p.name,
                 t.name AS DataType,
                 p.max_length,
@@ -173,7 +215,8 @@ public class SqlServerStoredProcedureParser : IContractSource
                 p.is_nullable,
                 p.parameter_id,
                 p.is_output,
-                t.system_type_id
+                t.system_type_id,
+                p.has_default_value
             FROM sys.parameters p
             INNER JOIN sys.types t ON p.user_type_id = t.user_type_id
             WHERE p.object_id = @ObjectId
@@ -195,6 +238,9 @@ public class SqlServerStoredProcedureParser : IContractSource
             var isOutput = reader.GetBoolean(7);
             var systemTypeId = reader.IsDBNull(8) ? 0 : Convert.ToInt32(reader.GetValue(8), System.Globalization.CultureInfo.InvariantCulture);
 
+            // has_default_value covers CLR procedures; T-SQL defaults come from the parsed definition.
+            var hasDefault = (!reader.IsDBNull(9) && reader.GetBoolean(9)) || defaultedParameters.Contains(name);
+
             var direction = isOutput
                 ? DataGuard.Core.Abstractions.ParameterDirection.InputOutput
                 : DataGuard.Core.Abstractions.ParameterDirection.Input;
@@ -207,7 +253,8 @@ public class SqlServerStoredProcedureParser : IContractSource
                 Precision: precision,
                 Scale: scale,
                 IsNullable: isNullable,
-                OrdinalPosition: ordinal));
+                OrdinalPosition: ordinal,
+                HasDefault: hasDefault));
         }
 
         return parameters;
@@ -286,6 +333,18 @@ public class SqlServerStoredProcedureParser : IContractSource
 
     private static string UnknownMarker(SqlException ex)
         => "unknown:" + ex.Number.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
+/// <summary>Collects the parameters of every procedure body (<c>CREATE</c>, <c>ALTER</c>, <c>CREATE OR ALTER</c>).</summary>
+internal sealed class ProcedureParameterDefaultVisitor : TSqlFragmentVisitor
+{
+    public List<ProcedureParameter> Parameters { get; } = new();
+
+    public override void Visit(ProcedureStatementBody node)
+    {
+        Parameters.AddRange(node.Parameters);
+        base.Visit(node);
+    }
 }
 
 /// <summary>

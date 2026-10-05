@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.TypeCompatibility;
 using Microsoft.CodeAnalysis;
 
 namespace DataGuard.PostgreSql.Adapter;
@@ -84,7 +85,7 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
         // SQL Server functions
         "ISNULL", "GETDATE", "GETUTCDATE", "DATEADD", "DATEDIFF",
         "DATEPART", "DATENAME", "DATETRUNC", "EOMONTH",
-        "IDENTITY", "NEWID", "NEWSEQUENTIALID",
+        "NEWID", "NEWSEQUENTIALID", // IDENTITY( is a dedicated check; "AS IDENTITY" is PostgreSQL syntax
         "IIF", "CHOOSE", "FORMAT", "CONVERT", "TRY_CAST", "TRY_CONVERT", "TRY_PARSE",
         "SCOPE_IDENTITY", "@@IDENTITY", "IDENT_CURRENT",
         "TOP", "WITH(NOLOCK)", "NOLOCK",
@@ -112,6 +113,7 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
         "GO", // batch separator
     };
 
+    // COALESCE is ANSI SQL (and PostgreSQL's own spelling of NVL), so it is never listed as Oracle-specific.
     private static readonly HashSet<string> OracleKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "DECODE", "NVL", "NVL2", "DUAL", "ROWNUM", "CONNECT BY", "START WITH",
@@ -119,7 +121,6 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
         "LISTAGG", "WM_CONCAT",
         "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR",
         "TO_CHAR", "TO_NUMBER", "TO_DATE", // Oracle-specific forms (PG has to_char but different syntax)
-        "NVL2", "COALESCE", // COALESCE is standard, NVL2 is Oracle-only
         "SOUNDEX", // exists in PG too, but often an Oracle leak
         "UTL_FILE", "UTL_HTTP", "DBMS_OUTPUT", "DBMS_LOB",
         "BFILE", "LONG RAW", "RAW",
@@ -129,7 +130,7 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
 
     private static readonly HashSet<string> MySqlKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
-        "IFNULL", "GROUP_CONCAT", "LIMIT", // LIMIT exists in PG too, but "LIMIT x, y" offset syntax is MySQL
+        "IFNULL", "GROUP_CONCAT", // plain LIMIT n is PostgreSQL syntax; "LIMIT x, y" is checked by a dedicated pattern
         "AUTO_INCREMENT",
         "ENGINE=", "CHARSET=", "COLLATE=",
         "UNSIGNED", "ZEROFILL",
@@ -231,150 +232,77 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
 
         var violations = new List<ContractViolation>();
 
-        // Check SQL Server keywords
-        foreach (var keyword in SqlServerKeywords)
+        // Dedicated patterns first (they carry a precise message and suggestion). A keyword that a dedicated pattern
+        // already reported is skipped by the keyword lists below, so NVL/DECODE/TOP/ISNULL/... are reported once.
+        var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var check in DedicatedChecks)
         {
-            if (ContainsKeyword(sqlText, keyword))
+            if (check.Pattern.IsMatch(sqlText))
             {
+                reported.Add(check.Keyword);
                 violations.Add(new ContractViolation(
                     "PG002",
-                    $"SQL Server-specific keyword '{keyword}' used in PostgreSQL context",
+                    check.Message,
                     DiagnosticSeverity.Warning,
                     location,
                     new Dictionary<string, object?>
                     {
-                        { "keyword", keyword },
-                        { "source", "SqlServer" },
+                        { "keyword", check.Keyword },
+                        { "source", check.Source },
+                        { "suggestion", check.Suggestion },
                     }));
             }
         }
 
-        // Check Oracle keywords
-        foreach (var keyword in OracleKeywords)
-        {
-            if (ContainsKeyword(sqlText, keyword))
-            {
-                violations.Add(new ContractViolation(
-                    "PG002",
-                    $"Oracle-specific keyword '{keyword}' used in PostgreSQL context",
-                    DiagnosticSeverity.Warning,
-                    location,
-                    new Dictionary<string, object?>
-                    {
-                        { "keyword", keyword },
-                        { "source", "Oracle" },
-                    }));
-            }
-        }
-
-        // Check MySQL keywords
-        foreach (var keyword in MySqlKeywords)
-        {
-            if (ContainsKeyword(sqlText, keyword))
-            {
-                violations.Add(new ContractViolation(
-                    "PG002",
-                    $"MySQL-specific keyword '{keyword}' used in PostgreSQL context",
-                    DiagnosticSeverity.Warning,
-                    location,
-                    new Dictionary<string, object?>
-                    {
-                        { "keyword", keyword },
-                        { "source", "MySql" },
-                    }));
-            }
-        }
-
-        // Check SQL Server TOP clause (word-boundary: TOP n, not TOPIC)
-        if (Regex.IsMatch(sqlText, @"\bTOP\s+\d+", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "SQL Server TOP clause used in PostgreSQL context (use LIMIT n)",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "LIMIT" } }));
-        }
-
-        // Check SQL Server EXEC dbo.Procedure syntax
-        if (Regex.IsMatch(sqlText, @"\bEXEC\s+\w+\.", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "SQL Server EXEC dbo.Procedure syntax used in PostgreSQL context. Use CALL or SELECT.",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "CALL" } }));
-        }
-
-        // Check MySQL LIMIT offset, count syntax (dual-arg LIMIT)
-        if (Regex.IsMatch(sqlText, @"\bLIMIT\s+\d+\s*,\s*\d+", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "MySQL-style 'LIMIT offset, count' used in PostgreSQL context. Use 'LIMIT count OFFSET offset'.",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "LIMIT count OFFSET offset" } }));
-        }
-
-        // Check Oracle NVL (PostgreSQL uses COALESCE)
-        if (Regex.IsMatch(sqlText, @"\bNVL\s*\(", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "Oracle NVL() used in PostgreSQL context. Use COALESCE() instead.",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "COALESCE" } }));
-        }
-
-        // Check Oracle DECODE (PostgreSQL uses CASE WHEN)
-        if (Regex.IsMatch(sqlText, @"\bDECODE\s*\(", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "Oracle DECODE() used in PostgreSQL context. Use CASE WHEN instead.",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "CASE WHEN" } }));
-        }
-
-        // Check ISNULL (SQL Server; PostgreSQL uses COALESCE)
-        if (Regex.IsMatch(sqlText, @"\bISNULL\s*\(", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "SQL Server ISNULL() used in PostgreSQL context. Use COALESCE() instead.",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "COALESCE" } }));
-        }
-
-        // Check GETDATE() (SQL Server; PostgreSQL uses NOW() or CURRENT_TIMESTAMP)
-        if (Regex.IsMatch(sqlText, @"\bGETDATE\s*\(\s*\)", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "SQL Server GETDATE() used in PostgreSQL context. Use NOW() or CURRENT_TIMESTAMP.",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "NOW()" } }));
-        }
-
-        // Check IDENTITY column syntax (SQL Server; PostgreSQL uses GENERATED ALWAYS AS IDENTITY or SERIAL)
-        if (Regex.IsMatch(sqlText, @"\bIDENTITY\s*\(", RegexOptions.IgnoreCase))
-        {
-            violations.Add(new ContractViolation(
-                "PG002",
-                "SQL Server IDENTITY() used in PostgreSQL context. Use GENERATED ALWAYS AS IDENTITY or SERIAL.",
-                DiagnosticSeverity.Warning,
-                location,
-                new Dictionary<string, object?> { { "suggestion", "GENERATED ALWAYS AS IDENTITY" } }));
-        }
+        AddKeywordFindings(violations, sqlText, SqlServerKeywords, "SQL Server", "SqlServer", reported, location);
+        AddKeywordFindings(violations, sqlText, OracleKeywords, "Oracle", "Oracle", reported, location);
+        AddKeywordFindings(violations, sqlText, MySqlKeywords, "MySQL", "MySql", reported, location);
 
         return violations;
     }
+
+    private static void AddKeywordFindings(
+        List<ContractViolation> violations,
+        string sqlText,
+        IEnumerable<string> keywords,
+        string dialectLabel,
+        string source,
+        HashSet<string> reported,
+        Location? location)
+    {
+        foreach (var keyword in keywords)
+        {
+            if (!reported.Contains(keyword.Trim()) && ContainsKeyword(sqlText, keyword))
+            {
+                reported.Add(keyword.Trim());
+                violations.Add(new ContractViolation(
+                    "PG002",
+                    $"{dialectLabel}-specific keyword '{keyword}' used in PostgreSQL context",
+                    DiagnosticSeverity.Warning,
+                    location,
+                    new Dictionary<string, object?>
+                    {
+                        { "keyword", keyword },
+                        { "source", source },
+                    }));
+            }
+        }
+    }
+
+    private sealed record DedicatedCheck(string Keyword, Regex Pattern, string Message, string Suggestion, string Source);
+
+    // Keyword is the entry of the keyword lists the pattern supersedes (matched case-insensitively, trimmed).
+    private static readonly DedicatedCheck[] DedicatedChecks =
+    {
+        new("TOP", new Regex(@"\bTOP\s*\(?\s*\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "SQL Server TOP clause used in PostgreSQL context (use LIMIT n)", "LIMIT", "SqlServer"),
+        new("EXEC", new Regex(@"\bEXEC\s+\w+\.", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "SQL Server EXEC dbo.Procedure syntax used in PostgreSQL context. Use CALL or SELECT.", "CALL", "SqlServer"),
+        new("LIMIT", new Regex(@"\bLIMIT\s+\d+\s*,\s*\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "MySQL-style 'LIMIT offset, count' used in PostgreSQL context. Use 'LIMIT count OFFSET offset'.", "LIMIT count OFFSET offset", "MySql"),
+        new("NVL", new Regex(@"\bNVL\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "Oracle NVL() used in PostgreSQL context. Use COALESCE() instead.", "COALESCE", "Oracle"),
+        new("DECODE", new Regex(@"\bDECODE\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "Oracle DECODE() used in PostgreSQL context. Use CASE WHEN instead.", "CASE WHEN", "Oracle"),
+        new("ISNULL", new Regex(@"\bISNULL\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "SQL Server ISNULL() used in PostgreSQL context. Use COALESCE() instead.", "COALESCE", "SqlServer"),
+        new("GETDATE", new Regex(@"\bGETDATE\s*\(\s*\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "SQL Server GETDATE() used in PostgreSQL context. Use NOW() or CURRENT_TIMESTAMP.", "NOW()", "SqlServer"),
+        new("IDENTITY", new Regex(@"\bIDENTITY\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), "SQL Server IDENTITY() used in PostgreSQL context. Use GENERATED ALWAYS AS IDENTITY or SERIAL.", "GENERATED ALWAYS AS IDENTITY", "SqlServer"),
+    };
 
     /// <summary>
     /// Checks for provider option mismatch.
@@ -478,9 +406,26 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
 /// <summary>
 /// Rule PG001: PostgreSQL syntax in non-PostgreSQL context.
 /// </summary>
+/// <remarks>
+/// The rule reports PostgreSQL syntax only outside a PostgreSQL context. The context of a raw-SQL descriptor is its
+/// <see cref="RawSqlDescriptor.ConnectionProviderHint"/>, or, when the descriptor carries no hint, the provider the rule
+/// was built for (<c>ProviderRuleCatalog</c> passes the catalog provider). When that context is <c>postgresql</c> the rule is a
+/// no-op, so the provider's own syntax is never reported as foreign. Built without a provider and given no hint, the
+/// rule keeps its original behavior and treats the context as non-PostgreSQL.
+/// </remarks>
 public class PostgreSqlSyntaxInNonPostgreSqlContextRule : ContractRuleBase
 {
     private static readonly IDialectAnalyzer Analyzer = new PostgreSqlDialectChecker();
+
+    /// <summary>Initializes a new instance of the <see cref="PostgreSqlSyntaxInNonPostgreSqlContextRule"/> class.</summary>
+    /// <param name="provider">Provider the rule runs for when a descriptor carries no provider hint; null = unknown.</param>
+    public PostgreSqlSyntaxInNonPostgreSqlContextRule(string? provider = null)
+    {
+        Provider = string.IsNullOrWhiteSpace(provider) ? null : TypeCompatibilityRegistry.NormalizeProvider(provider);
+    }
+
+    /// <summary>Gets the normalized fallback provider, or null.</summary>
+    public string? Provider { get; }
 
     public override string RuleId => "PG001";
 
@@ -496,12 +441,20 @@ public class PostgreSqlSyntaxInNonPostgreSqlContextRule : ContractRuleBase
         List<ContractViolation> violations,
         CancellationToken cancellationToken)
     {
-        if (contract is RawSqlDescriptor rawSql)
+        if (contract is RawSqlDescriptor rawSql && !IsPostgreSqlContext(rawSql))
         {
             violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: false, contract.Location));
         }
 
         return Task.CompletedTask;
+    }
+
+    private bool IsPostgreSqlContext(RawSqlDescriptor rawSql)
+    {
+        var context = string.IsNullOrWhiteSpace(rawSql.ConnectionProviderHint)
+            ? Provider
+            : TypeCompatibilityRegistry.NormalizeProvider(rawSql.ConnectionProviderHint);
+        return string.Equals(context, "postgresql", StringComparison.Ordinal);
     }
 }
 

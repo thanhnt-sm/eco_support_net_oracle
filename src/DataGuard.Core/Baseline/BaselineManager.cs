@@ -62,9 +62,16 @@ public partial class BaselineManager
     public static BaselineCacheMetrics CacheMetrics => new(Interlocked.Read(ref _baselineCacheHits), Interlocked.Read(ref _baselineCacheMisses));
 
     /// <summary>
-    /// Creates a new baseline from current violations.
+    /// Creates a new baseline from current violations. Without <paramref name="schema"/> the file is format version 2
+    /// (violations only, <paramref name="schemaHash"/> or the violation hash). With a schema the file is format version 4
+    /// (<see cref="SnapshotFormat.WithStoredProceduresVersion"/>) with an empty stored-procedure list, the same shape
+    /// <see cref="CreateSnapshotAsync"/> writes for tables-only input: the hash is always the
+    /// <see cref="SnapshotFormat.CanonicalSchemaV2HashKind"/> hash recomputed over the content, so
+    /// <paramref name="schemaHash"/>, <paramref name="schemaHashKind"/> and <paramref name="schemaCanonicalizationVersion"/>
+    /// are ignored for schema-bearing baselines (a caller-supplied version 3 hash would fail the integrity check).
+    /// Version 3 files written by earlier releases still load and verify.
     /// </summary>
-    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
+    /// <returns>The persisted baseline.</returns>
     public async Task<BaselineFile> CreateBaselineAsync(
         IEnumerable<ContractViolation> violations,
         string schemaVersion,
@@ -80,25 +87,31 @@ public partial class BaselineManager
     {
         violations = violations.ToList();
         var baselineViolations = ToBaselineViolations(violations);
-
-        var computedSchemaHash = schemaHash ?? (schema is not null
-            ? ComputeSchemaHash(schema, provider, schemaScope, schemaCanonicalizationVersion ?? "v1")
-            : ComputeSchemaHash(violations));
         var dbVersion = databaseVersion ?? "unknown";
 
-        var baseline = new BaselineFile(
-            Version: schema is null ? 2 : 3,
-            CreatedAt: DateTimeOffset.UtcNow,
-            SchemaVersion: schemaVersion,
-            GroundTruthMode: groundTruthMode,
-            DatabaseVersion: dbVersion,
-            SchemaHash: computedSchemaHash,
-            Violations: baselineViolations,
-            Schema: schema,
-            SchemaHashKind: schemaHashKind ?? (schema is null ? "violation-sha256-prefix" : "canonical-schema-v1"),
-            Provider: provider,
-            SchemaScope: schemaScope,
-            SchemaCanonicalizationVersion: schemaCanonicalizationVersion ?? (schema is null ? null : "v1"));
+        var baseline = schema is null
+            ? new BaselineFile(
+                Version: SnapshotFormat.ViolationsOnlyVersion,
+                CreatedAt: DateTimeOffset.UtcNow,
+                SchemaVersion: schemaVersion,
+                GroundTruthMode: groundTruthMode,
+                DatabaseVersion: dbVersion,
+                SchemaHash: schemaHash ?? ComputeSchemaHash(violations),
+                Violations: baselineViolations,
+                SchemaHashKind: schemaHashKind ?? SnapshotFormat.ViolationHashKind,
+                Provider: provider,
+                SchemaScope: schemaScope)
+            : BuildSnapshotFile(
+                baselineViolations,
+                schemaVersion,
+                groundTruthMode,
+                dbVersion,
+                schema,
+                Array.Empty<SnapshotStoredProcedure>(),
+                provider,
+                schemaScope,
+                lengthSemantics: null,
+                charset: null);
 
         await SaveAsync(baseline, cancellationToken);
         return baseline;

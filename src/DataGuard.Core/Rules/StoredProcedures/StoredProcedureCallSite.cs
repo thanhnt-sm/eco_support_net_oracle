@@ -45,7 +45,10 @@ public sealed record StoredProcedureCallArgument(int Index, string? Name, string
 /// <param name="ExplicitPackage">Package from <see cref="RawSqlDescriptor.ProcedurePackage"/>, when the extractor set it.</param>
 /// <param name="Syntax">How the call was written.</param>
 /// <param name="Arguments">Call-site arguments in written order.</param>
-/// <param name="ArgumentsKnown">False when the argument list cannot be observed (name-only call without extracted parameters).</param>
+/// <param name="ArgumentsKnown">
+/// False when the argument list cannot be observed: a name-only call without extracted parameters, or a descriptor whose
+/// <see cref="RawSqlDescriptor.ArgumentsKnown"/> is false. Missing and extra arguments are then never reported.
+/// </param>
 public sealed record StoredProcedureCallSite(
     IReadOnlyList<SqlNamePart> NameParts,
     SqlNamePart? ExplicitSchema,

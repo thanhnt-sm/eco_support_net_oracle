@@ -285,6 +285,7 @@ Phát hiện vấn đề cú pháp SQL cross-dialect. Sử dụng regex word-bou
 | **Kích hoạt** | Từ khóa/toán tử Oracle trong SQL không phải Oracle |
 | **Thông báo** | `[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)` |
 | **Properties Bag** | `keyword`, `migration`, `targetProvider` |
+| **Ngữ cảnh / đích** | `ConnectionProviderHint` của descriptor, hoặc provider của catalog mà rule được tạo cùng (`ProviderRuleCatalog` truyền vào). Rule không làm gì khi ngữ cảnh là `oracle`. Ngược lại `{targetProvider}` chính là ngữ cảnh đó (`Oracle -> postgresql` dưới PostgreSQL, `Oracle -> mysql` dưới MySQL); là `sqlserver` khi không biết cả hai. Với đích `postgresql` hoặc `mysql`, các gợi ý nhắc tới cấu trúc SQL Server được thay bằng gợi ý của chính đích đó (ví dụ `SYSDATE` ⇒ `Use CURRENT_TIMESTAMP or NOW() (PostgreSQL)`). |
 
 #### Từ Điển Gợi Ý Di Chuyển (Migration Dictionary)
 

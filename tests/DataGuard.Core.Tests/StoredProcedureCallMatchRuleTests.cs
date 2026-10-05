@@ -284,6 +284,60 @@ public class StoredProcedureCallMatchRuleTests
     }
 
     [Fact]
+    public async Task ArgumentsNotKnown_SkipsMissingAndExtra_ButStillResolvesAndChecksObservedTypes()
+    {
+        // CommandType.StoredProcedure whose argument list the extractor could only partly see: @CustomerId was observed
+        // (wrong CLR type), @Status and an unknown @Extra may be added elsewhere. Never "missing" or "unknown argument".
+        var partial = Call("EXEC dbo.usp_GetOrders", Arg("@CustomerId", "Guid", In), Arg("@Extra", "int", In)) with
+        {
+            IsStoredProcedure = true,
+            ProcedureName = "usp_GetOrders",
+            ProcedureSchema = "dbo",
+            ArgumentsKnown = false,
+        };
+
+        var resolution = Resolve(partial, "sqlserver", SqlServerOrders());
+        resolution.Status.Should().Be(StoredProcedureResolutionStatus.Resolved);
+        resolution.MissingRequired.Should().BeEmpty();
+        resolution.ExtraArguments.Should().BeEmpty();
+
+        var violations = await RunAllAsync(SqlServerRules(), partial, SqlServerOrders());
+        violations.Should().NotContain(v => v.RuleId == "DG101");
+        violations.Should().ContainSingle(v => v.RuleId == "DG002").Which.Message.Should().Contain("@CustomerId");
+    }
+
+    [Fact]
+    public async Task ArgumentsNotKnown_UnknownProcedure_IsStillReported()
+    {
+        var call = Call("EXEC dbo.usp_GetOrdes") with
+        {
+            IsStoredProcedure = true,
+            ProcedureName = "usp_GetOrdes",
+            ProcedureSchema = "dbo",
+            ArgumentsKnown = false,
+        };
+
+        Resolve(call, "sqlserver", SqlServerOrders()).Status.Should().Be(StoredProcedureResolutionStatus.NoCandidate);
+        (await RunAsync(new ParameterCountRule("sqlserver"), call, SqlServerOrders()))
+            .Should().ContainSingle(v => v.RuleId == "DG101").Which.Message.Should().Contain("not found in catalog");
+    }
+
+    [Fact]
+    public async Task ArgumentsKnown_Default_ReportsMissingRequired()
+    {
+        var call = Call("EXEC dbo.usp_GetOrders", Arg("@CustomerId", "int", In)) with
+        {
+            IsStoredProcedure = true,
+            ProcedureName = "usp_GetOrders",
+            ProcedureSchema = "dbo",
+        };
+
+        call.ArgumentsKnown.Should().BeTrue();
+        (await RunAsync(new ParameterCountRule("sqlserver"), call, SqlServerOrders()))
+            .Should().ContainSingle(v => v.RuleId == "DG101").Which.Message.Should().Contain("missing required parameter(s) @Status");
+    }
+
+    [Fact]
     public async Task ExecuteKeywordAndReturnValueParameter_AreHandled()
     {
         var call = Call("EXECUTE dbo.usp_GetOrders", Arg("@RETURN_VALUE", "int", ParameterDirection.ReturnValue), Arg("@CustomerId", "int", In)) with

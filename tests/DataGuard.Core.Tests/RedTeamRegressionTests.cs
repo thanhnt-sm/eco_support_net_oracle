@@ -221,6 +221,83 @@ public class RedTeamRegressionTests : IDisposable
     }
 
     [Fact]
+    public async Task SqlSource_AdoStoredProcedureWithVisibleParameters_ArgumentsKnown()
+    {
+        const string Code = """
+            using System.Data;
+            using System.Data.SqlClient;
+
+            class Repository
+            {
+                void CallSp(SqlConnection conn, int id)
+                {
+                    var cmd = new SqlCommand("GET_CUSTOMER_BY_ID", conn);
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@Id", id);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(Code);
+        var call = contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(d => d.IsStoredProcedure).Subject;
+        call.ArgumentsKnown.Should().BeTrue();
+        call.Parameters.Should().ContainSingle(p => p.Name == "@Id");
+    }
+
+    [Theory]
+    [InlineData("AddParameters(cmd.Parameters, id);")] // the collection is filled by a helper
+    [InlineData("")] // no Parameters collection use at all
+    public async Task SqlSource_AdoStoredProcedureWithUnseenParameters_ArgumentsNotKnown(string parameterStatement)
+    {
+        var code = $$"""
+            using System.Data;
+            using System.Data.SqlClient;
+
+            class Repository
+            {
+                void CallSp(SqlConnection conn, int id)
+                {
+                    var cmd = new SqlCommand("GET_CUSTOMER_BY_ID", conn);
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    {{parameterStatement}}
+                    cmd.ExecuteNonQuery();
+                }
+
+                static void AddParameters(SqlParameterCollection parameters, int id) => parameters.AddWithValue("@Id", id);
+            }
+            """;
+        var contracts = await ExtractContractsAsync(code);
+        contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(d => d.IsStoredProcedure)
+            .Which.ArgumentsKnown.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("new { Id = id }", true)]
+    [InlineData("null", true)]
+    [InlineData("BuildParameters(id)", false)]
+    public async Task SqlSource_DapperStoredProcedure_ArgumentsKnownOnlyWhenTheParamObjectIsVisible(string param, bool known)
+    {
+        var code = $$"""
+            using System.Data;
+
+            class Repository
+            {
+                void CallSp(System.Data.IDbConnection conn, int id)
+                {
+                    Execute(conn, "MY_PROC", {{param}}, commandType: CommandType.StoredProcedure);
+                }
+
+                static object BuildParameters(int id) => new { Id = id };
+
+                static void Execute(System.Data.IDbConnection cnn, string sql, object param = null, CommandType? commandType = null) { }
+            }
+            """;
+        var contracts = await ExtractContractsAsync(code);
+        contracts.OfType<RawSqlDescriptor>().Should().ContainSingle(d => d.IsStoredProcedure && d.ProcedureName == "MY_PROC")
+            .Which.ArgumentsKnown.Should().Be(known);
+    }
+
+    [Fact]
     public async Task SqlSource_PlainSelect_ExtractedWithIsStoredProcedureFalse()
     {
         const string Code = """

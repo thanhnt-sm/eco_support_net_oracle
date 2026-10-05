@@ -7,8 +7,9 @@ namespace DataGuard.Core.Rules.TypeCompatibility;
 /// (<see cref="LiveSqlShapeValidationRule"/>, <see cref="ParameterTypeMatchRule.IsTypeCompatible"/>, rules built without
 /// an injected table). <c>ProviderRuleCatalog</c> registers the adapter table for the provider it builds rules for.
 /// Core references no provider driver, so an unregistered provider falls back to <see cref="UnknownTypeCompatibility"/>
-/// (no findings; borrowing another provider's table produced false findings, red-team H6/A1), except the pre-3.1 Oracle
-/// map that is kept for library callers of the Oracle shim.
+/// (no findings; borrowing another provider's table produced false findings, red-team H6/A1). This applies to Oracle too:
+/// library callers that use the registry (for example <see cref="ParameterTypeMatchRule.IsTypeCompatible"/> with
+/// <c>isOracle: true</c>) register <c>OracleTypeCompatibility.Instance</c> from the Oracle adapter first.
 /// </summary>
 public static class TypeCompatibilityRegistry
 {
@@ -22,7 +23,7 @@ public static class TypeCompatibilityRegistry
         Tables[NormalizeProvider(table.Provider)] = table;
     }
 
-    /// <summary>Returns the registered table for <paramref name="provider"/>, or the built-in fallback.</summary>
+    /// <summary>Returns the registered table for <paramref name="provider"/>, or <see cref="UnknownTypeCompatibility"/>.</summary>
     /// <param name="provider">Provider key (sqlserver, oracle, postgresql/postgres, mysql); null means sqlserver.</param>
     /// <returns>A table; never null.</returns>
     public static ITypeCompatibility Resolve(string? provider)
@@ -33,9 +34,7 @@ public static class TypeCompatibilityRegistry
             return table;
         }
 
-        return key == "oracle"
-            ? LegacyOracleTypeCompatibility.Instance
-            : UnknownTypeCompatibility.For(key);
+        return UnknownTypeCompatibility.For(key);
     }
 
     /// <summary>Maps provider spellings to the canonical key.</summary>
@@ -50,50 +49,5 @@ public static class TypeCompatibilityRegistry
             "postgres" or "pg" or "npgsql" => "postgresql",
             _ => key,
         };
-    }
-}
-
-/// <summary>
-/// The pre-3.1 Oracle map, kept only as the fallback when the Oracle adapter table has not been registered
-/// (library callers of <c>ParameterTypeMatchRule.IsTypeCompatible</c> and rules constructed without a provider).
-/// </summary>
-internal sealed class LegacyOracleTypeCompatibility : ITypeCompatibility
-{
-    private static readonly Dictionary<string, string[]> Map = new(StringComparer.Ordinal)
-    {
-        [ClrTypeNames.Int] = new[] { "NUMBER", "INTEGER", "INT" },
-        [ClrTypeNames.Long] = new[] { "NUMBER", "BIGINT" },
-        [ClrTypeNames.Short] = new[] { "NUMBER", "SMALLINT" },
-        [ClrTypeNames.Byte] = new[] { "NUMBER" },
-        [ClrTypeNames.Bool] = new[] { "NUMBER(1)" },
-        [ClrTypeNames.Decimal] = new[] { "NUMBER", "DECIMAL", "NUMERIC" },
-        [ClrTypeNames.Double] = new[] { "BINARY_DOUBLE", "FLOAT" },
-        [ClrTypeNames.Float] = new[] { "BINARY_FLOAT" },
-        [ClrTypeNames.String] = new[] { "VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR", "CLOB", "NCLOB" },
-        [ClrTypeNames.DateTime] = new[] { "DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE" },
-        [ClrTypeNames.DateTimeOffset] = new[] { "TIMESTAMP WITH TIME ZONE" },
-        [ClrTypeNames.Guid] = new[] { "RAW(16)" },
-        [ClrTypeNames.ByteArray] = new[] { "RAW", "BLOB" },
-    };
-
-    public static LegacyOracleTypeCompatibility Instance { get; } = new();
-
-    public string Provider => "oracle";
-
-    public TypeCompatibilityResult Check(string? clrType, string? dbType, int? precision = null, int? scale = null, int? maxLength = null)
-    {
-        var clr = ClrTypeNames.Normalize(clrType);
-        if (clr is null || string.IsNullOrWhiteSpace(dbType) || !Map.TryGetValue(clr, out var accepted))
-        {
-            return TypeCompatibilityResult.Unknown;
-        }
-
-        // Exact token or whole-type equality only (never substring: "POINT" must not match "INT").
-        var tokens = dbType.Split(new[] { '(', ')', ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var full = string.Concat(dbType.Where(c => !char.IsWhiteSpace(c)));
-        var match = accepted.Any(t =>
-            tokens.Contains(t, StringComparer.OrdinalIgnoreCase) ||
-            string.Equals(string.Concat(t.Where(c => !char.IsWhiteSpace(c))), full, StringComparison.OrdinalIgnoreCase));
-        return match ? TypeCompatibilityResult.Compatible : TypeCompatibilityResult.Incompatible;
     }
 }

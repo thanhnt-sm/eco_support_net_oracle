@@ -472,7 +472,7 @@ public class CliExitCodeTests
 
     // ---- Empty-pass gate (red-team C4) and unavailable rules (red-team C2) ----
 
-    /// <summary>Writes a schema-bearing <c>.dataguard-snapshot.json</c> (v3) through the production BaselineManager API.</summary>
+    /// <summary>Writes a tables-only <c>.dataguard-snapshot.json</c> in the version 3 format earlier releases wrote.</summary>
     private static async Task<string> WriteDefaultSnapshotAsync(string dir, string provider)
     {
         var path = Path.Combine(dir, ".dataguard-snapshot.json");
@@ -484,8 +484,7 @@ public class CliExitCodeTests
                 new("NAME", "VARCHAR2", 100, 100, null, null, true, "C"),
             }),
         };
-        await new BaselineManager(path).CreateBaselineAsync(
-            Array.Empty<ContractViolation>(), "1.0", "Snapshot", "19.0", schema: schema, provider: provider);
+        await LegacySnapshotFiles.WriteV3Async(path, schema, provider);
         return path;
     }
 

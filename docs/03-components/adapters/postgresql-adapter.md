@@ -132,6 +132,7 @@ Columns match on the EF column name, then the property name, then snake_case (`C
 | **Severity** | Warning |
 | **Trigger** | PostgreSQL keywords (`SERIAL`, `ILIKE`, `::`, etc.) in non-PostgreSQL SQL |
 | **Message** | PostgreSQL-specific syntax '{syntax}' used in non-PostgreSQL context |
+| **Context** | The descriptor's `ConnectionProviderHint`, or the catalog provider when there is no hint. The rule is a no-op when the context is `postgresql`, so PostgreSQL's own syntax is never reported under `--provider postgresql`. Without a provider and a hint the context counts as non-PostgreSQL. |
 
 ### PG002 — Non-PostgreSQL Syntax in PostgreSQL Context
 
@@ -140,6 +141,8 @@ Columns match on the EF column name, then the property name, then snake_case (`C
 | **Severity** | Warning |
 | **Trigger** | Oracle/SQL Server keywords (`NVL`, `TOP`, `GETDATE`, `CONVERT`, etc.) in PostgreSQL SQL |
 | **Message** | Non-PostgreSQL syntax '{syntax}' used in PostgreSQL context |
+
+Each construct is reported once. The dedicated patterns (`TOP n`, `EXEC schema.proc`, `LIMIT offset, count`, `NVL(`, `DECODE(`, `ISNULL(`, `GETDATE()`, `IDENTITY(`) run first and carry a `suggestion`; a keyword they already reported is skipped by the keyword lists. PostgreSQL's own syntax is not reported: plain `LIMIT n`, `GENERATED ... AS IDENTITY`, and `COALESCE` (ANSI SQL, never listed as Oracle-specific in any dialect checker).
 
 ### PG003 — Entity Length Exceeds PostgreSQL Column Length
 

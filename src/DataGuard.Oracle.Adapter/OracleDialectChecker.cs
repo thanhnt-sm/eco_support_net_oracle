@@ -2,6 +2,7 @@ namespace DataGuard.Oracle.Adapter;
 
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
+using DataGuard.Core.Rules.TypeCompatibility;
 using Microsoft.CodeAnalysis;
 
 /// <summary>
@@ -45,6 +46,41 @@ public class OracleDialectChecker : IDialectAnalyzer
         ["REGEXP_INSTR"] = "Use CHARINDEX or PATINDEX; no direct equivalent without CLR",
     };
 
+    // Target-specific hints that replace the SQL Server wording above when the migration target is PostgreSQL or MySQL.
+    private static readonly Dictionary<string, Dictionary<string, string>> TargetKeywordMigrations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["postgresql"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DUAL"] = "Remove FROM DUAL: PostgreSQL allows SELECT without FROM",
+            ["ROWNUM"] = "Use LIMIT n or ROW_NUMBER() OVER (ORDER BY …) (ANSI SQL)",
+            ["SYSDATE"] = "Use CURRENT_TIMESTAMP or NOW() (PostgreSQL)",
+            ["SYSTIMESTAMP"] = "Use CURRENT_TIMESTAMP or CLOCK_TIMESTAMP() (PostgreSQL)",
+            ["NEXTVAL"] = "Use nextval('sequence_name') or an IDENTITY column (PostgreSQL)",
+            ["CURRVAL"] = "Use currval('sequence_name') or RETURNING (PostgreSQL)",
+            ["ROWID"] = "Use a primary key column (ctid is not stable across updates)",
+            ["LISTAGG"] = "Use STRING_AGG(col, ',' ORDER BY col) (PostgreSQL)",
+            ["WM_CONCAT"] = "Use STRING_AGG(col, ',') (PostgreSQL)",
+            ["XMLAGG"] = "Use STRING_AGG or xmlagg() (PostgreSQL)",
+            ["REGEXP_LIKE"] = "Use the ~ / ~* operators (PostgreSQL)",
+            ["REGEXP_SUBSTR"] = "Use substring(text FROM pattern) or regexp_match() (PostgreSQL)",
+            ["REGEXP_INSTR"] = "Use regexp_match() or strpos() (PostgreSQL 15+: regexp_instr)",
+        },
+        ["mysql"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DUAL"] = "FROM DUAL is optional in MySQL; remove it",
+            ["ROWNUM"] = "Use LIMIT n or ROW_NUMBER() OVER (ORDER BY …) (MySQL 8+)",
+            ["SYSDATE"] = "Use NOW() or CURRENT_TIMESTAMP (MySQL)",
+            ["SYSTIMESTAMP"] = "Use NOW(6) or CURRENT_TIMESTAMP(6) (MySQL)",
+            ["NEXTVAL"] = "Use an AUTO_INCREMENT column (MySQL has no sequences)",
+            ["CURRVAL"] = "Use LAST_INSERT_ID() (MySQL)",
+            ["ROWID"] = "Use a primary key column",
+            ["LISTAGG"] = "Use GROUP_CONCAT(col ORDER BY col SEPARATOR ',') (MySQL)",
+            ["WM_CONCAT"] = "Use GROUP_CONCAT(col) (MySQL)",
+            ["XMLAGG"] = "Use GROUP_CONCAT or JSON_ARRAYAGG (MySQL)",
+            ["REGEXP_LIKE"] = "Use REGEXP_LIKE() or the REGEXP operator (MySQL 8+)",
+        },
+    };
+
     // Maps Oracle operator to migration hint. Key preserved as "operator" property.
     private static readonly Dictionary<string, string> OracleOperatorMigrations = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -65,7 +101,8 @@ public class OracleDialectChecker : IDialectAnalyzer
     };
 
     /// <summary>
-    /// Checks for Oracle syntax in non-Oracle context.
+    /// Checks for Oracle syntax in non-Oracle context. <paramref name="targetProvider"/> is the migration target named in
+    /// the message (<c>[Migration: Oracle -&gt; postgresql]</c>) and selects target-specific hints for PostgreSQL and MySQL.
     /// </summary>
     /// <returns></returns>
     public IReadOnlyList<ContractViolation> CheckOracleSyntaxInNonOracleContext(
@@ -84,10 +121,12 @@ public class OracleDialectChecker : IDialectAnalyzer
         var sanitized = MaskCommentsAndLiterals(sqlText);
 
         // Check for Oracle-specific keywords (emits "keyword" and "migration" properties).
-        foreach (var (keyword, hint) in OracleKeywordMigrations)
+        TargetKeywordMigrations.TryGetValue(targetProvider ?? string.Empty, out var targetHints);
+        foreach (var (keyword, defaultHint) in OracleKeywordMigrations)
         {
             if (ContainsKeyword(sanitized, keyword))
             {
+                var hint = targetHints is not null && targetHints.TryGetValue(keyword, out var targetHint) ? targetHint : defaultHint;
                 violations.Add(new ContractViolation(
                     "DG010",
                     $"[Migration: Oracle -> {targetProvider}] Keyword '{keyword}' is unsupported. {hint}. (If targeting Oracle, set 'default_provider: oracle' in .dataguard.yml)",
@@ -312,10 +351,28 @@ public class OracleDialectChecker : IDialectAnalyzer
 
 /// <summary>
 /// Rule: Oracle syntax in non-Oracle context. Stored-procedure call descriptors (synthesized SQL) are skipped.
+/// The message names the context provider as the migration target (<c>Oracle -&gt; postgresql</c> under PostgreSQL).
 /// </summary>
+/// <remarks>
+/// The rule reports Oracle syntax only outside a Oracle context. The context of a raw-SQL descriptor is its
+/// <see cref="RawSqlDescriptor.ConnectionProviderHint"/>, or, when the descriptor carries no hint, the provider the rule
+/// was built for (<c>ProviderRuleCatalog</c> passes the catalog provider). When that context is <c>oracle</c> the rule is a
+/// no-op, so the provider's own syntax is never reported as foreign. Built without a provider and given no hint, the
+/// rule keeps its original behavior and treats the context as non-Oracle.
+/// </remarks>
 public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
 {
-    private static readonly IDialectAnalyzer Analyzer = new OracleDialectChecker();
+    private static readonly OracleDialectChecker Analyzer = new();
+
+    /// <summary>Initializes a new instance of the <see cref="OracleSyntaxInNonOracleContextRule"/> class.</summary>
+    /// <param name="provider">Provider the rule runs for when a descriptor carries no provider hint; null = unknown.</param>
+    public OracleSyntaxInNonOracleContextRule(string? provider = null)
+    {
+        Provider = string.IsNullOrWhiteSpace(provider) ? null : TypeCompatibilityRegistry.NormalizeProvider(provider);
+    }
+
+    /// <summary>Gets the normalized fallback provider, or null.</summary>
+    public string? Provider { get; }
 
     public override string RuleId => "DG010";
 
@@ -333,8 +390,17 @@ public class OracleSyntaxInNonOracleContextRule : ContractRuleBase
     {
         if (contract is RawSqlDescriptor { IsStoredProcedure: false } rawSql)
         {
-            // Oracle syntax leaking into a non-Oracle context: the analyzer's non-target direction.
-            violations.AddRange(Analyzer.Analyze(rawSql.SqlText, isTargetDialect: false, contract.Location));
+            var context = string.IsNullOrWhiteSpace(rawSql.ConnectionProviderHint)
+                ? Provider
+                : TypeCompatibilityRegistry.NormalizeProvider(rawSql.ConnectionProviderHint);
+
+            // Oracle syntax leaking into a non-Oracle context: the analyzer's non-target direction, with the context
+            // provider as the migration target (SQL Server when the context is unknown, as before).
+            violations.AddRange(Analyzer.CheckOracleSyntaxInNonOracleContext(
+                rawSql.SqlText,
+                isOracleContext: string.Equals(context, "oracle", StringComparison.Ordinal),
+                contract.Location,
+                context ?? "sqlserver"));
         }
 
         return Task.CompletedTask;
