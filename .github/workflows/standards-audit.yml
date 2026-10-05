@@ -12,7 +12,9 @@ permissions: read-all
 
 jobs:
   audit:
-    name: Golden standard checklist
+    # The job's display name is the check-run name GitHub matches against the main-branch ruleset's
+    # required status check "Standards audit"; keep the two identical or the merge waits forever.
+    name: Standards audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
