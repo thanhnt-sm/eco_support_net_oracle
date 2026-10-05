@@ -98,8 +98,8 @@ public static class ProviderRuleCatalog
         Add(rules, new ColumnShapeMatchRule());
         Add(rules, new NullableMismatchRule());
         Add(rules, new NamingConventionRule());
-        Add(rules, new PhantomTableRule());
-        Add(rules, new PhantomColumnRule());
+        Add(rules, new PhantomTableRule(string.Equals(provider, "sqlserver", StringComparison.OrdinalIgnoreCase) ? new DataGuard.SqlServer.Adapter.TSqlPhantomAnalyzer() : null));
+        Add(rules, new PhantomColumnRule(string.Equals(provider, "sqlserver", StringComparison.OrdinalIgnoreCase) ? new DataGuard.SqlServer.Adapter.TSqlPhantomAnalyzer() : null));
         Add(rules, new RawSqlParseStatusRule());
         Add(rules, new SelectStarUsageRule());
         if (!string.IsNullOrWhiteSpace(connectionString))

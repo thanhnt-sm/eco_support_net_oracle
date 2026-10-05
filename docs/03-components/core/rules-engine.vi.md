@@ -148,7 +148,7 @@ Cảnh báo các thuộc tính mà `MaxLength` được suy ra từ giá trị m
 
 **Mức độ:** Error
 **Phạm vi:** `RawSqlDescriptor` + `DatabaseSchemaDescriptor`
-**Nguồn:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, dùng chung `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, tra cứu catalog `Sql/SchemaTableIndex.cs`, tên `Sql/SqlIdentifier.cs`)
+**Nguồn:** `PhantomTableRule.cs`, `PhantomColumnRule.cs`, hợp đồng analyzer `Sql/IPhantomReferenceAnalyzer.cs`, analyzer tokenizer mặc định `Sql/PhantomSqlAnalyzer.cs` (tokenizer `Sql/SqlTokenizer.cs`, tra cứu catalog `Sql/SchemaTableIndex.cs`, tên `Sql/SqlIdentifier.cs`); analyzer AST cho SQL Server `src/DataGuard.SqlServer.Adapter/TSqlPhantomAnalyzer.cs` + `TSqlPhantomScopeVisitor.cs`
 
 Phát hiện tham chiếu bảng/cột trong SQL không tồn tại trong schema database — một **chế độ lỗi ảo giác AI** phổ biến khi LLM tạo câu lệnh SQL. Hai ID là hai rule riêng, nên `--skip-rules DG015` hoặc `--skip-rules DG016` tắt đúng một loại finding. Lỗi parse raw SQL là rule khác, **DG019** (`RawSqlParseStatusRule`).
 
@@ -172,7 +172,14 @@ flowchart LR
 6. Kiểm tra `alias.column` qualified với tham chiếu bảng gần nhất trong scope (subquery trong cùng trước, nên alias dùng lại trong subquery resolve về bảng của subquery)
 7. Kiểm tra các item một identifier của từng danh sách `SELECT` (tách theo ngoặc) với hợp cột của mọi bảng mà `SELECT` đó tham chiếu; `AS alias` và alias ngầm phía sau là tên output, không bao giờ là tham chiếu cột
 
-Resolve scope dựa trên AST (ScriptDOM cho SQL Server) được lên kế hoạch ở phase sau; các dialect không phải T-SQL giữ tokenizer này.
+Cả hai rule nhận `IPhantomReferenceAnalyzer` tùy chọn (mặc định: tokenizer ở trên); một kết quả cho mỗi raw SQL contract được cache và dùng chung cho DG015 và DG016. `ProviderRuleCatalog` truyền `TSqlPhantomAnalyzer` cho `--provider sqlserver`; mọi provider khác giữ tokenizer (parse AST cho dialect không phải T-SQL nằm ngoài phạm vi).
+
+**SQL Server (`TSqlPhantomAnalyzer`, ScriptDOM `TSql160Parser`, bật quoted identifier):**
+1. Placeholder phía client không phải T-SQL (`:name`, `{0}`, `?`) được đổi thành biến `@` ngoài literal/comment; còn lỗi parse ⇒ `ParseFailed`, không DG015/DG016 (DG019 báo lỗi parse)
+2. Một scope cho mỗi query specification và mỗi câu DML. Bảng gốc: `NamedTableReference` và đích DML (`INSERT INTO t`, `UPDATE t`, `DELETE FROM t`, `MERGE INTO t`; `UPDATE o … FROM dbo.Orders o` resolve `o` về nguồn trong FROM). Tên không qualified mặc định schema `dbo`; tra cứu theo `(schema, name)` rồi tên trần như tokenizer
+3. Nguồn mờ (không bao giờ báo; không kiểm tra cột): tên CTE trong `WITH` của câu lệnh (kể cả trong thân CTE đệ quy), derived table và bảng `VALUES`, TVF (`dbo.fn_X(@id)`, `STRING_SPLIT`), `OPENJSON`/`OPENROWSET`/`OPENQUERY`, output của `PIVOT`/`UNPIVOT`, `#temp`/`##temp`, biến `@table`, tên ba/bốn phần, `sys.*`, `INFORMATION_SCHEMA.*`, view cũ kiểu `sysobjects`. Synonym và view được kiểm tra như bảng trừ khi catalog chứa chúng
+4. `alias.column` / `schema.table.column` resolve qua chuỗi scope, trong cùng trước; qualifier không biết (`inserted`, `deleted`) được bỏ qua
+5. Cột không qualified: bỏ qua khi bất kỳ scope có nguồn nào trên chuỗi chứa nguồn mờ; ngược lại tìm trong bảng của scope trong cùng (hợp cột khi JOIN) hoặc scope ngoài (subquery tương quan), không thấy thì báo theo bảng của scope trong cùng. Alias output (`AS x`, `x = expr`, alias không `AS`), `SELECT *`/`o.*`, đối số date-part và `ORDER BY` của `UNION` không bao giờ là tham chiếu cột
 
 ## RuleDependencyGraph
 
