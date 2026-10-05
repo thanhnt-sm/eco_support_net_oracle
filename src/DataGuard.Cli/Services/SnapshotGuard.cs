@@ -90,6 +90,13 @@ internal static class SnapshotGuard
             return $"snapshot format version {snapshot.Version} is newer than this DataGuard supports ({SnapshotFormat.LatestVersion})";
         }
 
+        // Version 4 writers always record the provider, so an empty one is a mismatch, not a reason to skip the check;
+        // v2/v3 files keep the lenient behavior (their provider was optional).
+        if (snapshot.Version >= SnapshotFormat.WithStoredProceduresVersion && string.IsNullOrWhiteSpace(snapshot.Provider))
+        {
+            return $"snapshot format version {snapshot.Version} records no provider (expected '{provider}'); run 'dataguard snapshot refresh'";
+        }
+
         if (!string.IsNullOrWhiteSpace(snapshot.Provider)
             && !string.Equals(CanonicalProviderName(snapshot.Provider), CanonicalProviderName(provider), StringComparison.Ordinal))
         {

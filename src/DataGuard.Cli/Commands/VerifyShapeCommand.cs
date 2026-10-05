@@ -4,6 +4,7 @@ using System.Text.Json;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Reporting;
 using DataGuard.Core.Sources;
+using DataGuard.MySql.Adapter;
 using DataGuard.Oracle.Adapter;
 using DataGuard.PostgreSql.Adapter;
 using DataGuard.SqlServer.Adapter;
@@ -78,6 +79,7 @@ internal static class VerifyShapeCommand
                 {
                     "oracle" => new OracleLiveQuerySchemaProvider(connStr),
                     "postgresql" or "postgres" => new PostgreSqlLiveQuerySchemaProvider(connStr),
+                    "mysql" => new MySqlLiveQuerySchemaProvider(connStr),
                     "sqlserver" => new SqlServerLiveQuerySchemaProvider(connStr),
                     _ => null,
                 };

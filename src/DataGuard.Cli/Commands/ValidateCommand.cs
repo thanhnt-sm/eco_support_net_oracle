@@ -462,7 +462,9 @@ internal static class ValidateCommand
 
                 WriteUnevaluated(unevaluated, string.Empty);
 
-                foreach (var diagnostic in acquisitionDiagnostics)
+                // An oversized literal was already reported once by the extractor ("[WARN] DG1291 ..."); it still makes
+                // the result incomplete below, but is not printed a second time.
+                foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
                 {
                     Console.Error.WriteLine($"ACQUISITION: {diagnostic.Path}: {diagnostic.Message}");
                 }

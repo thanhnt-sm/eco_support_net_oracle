@@ -165,6 +165,13 @@ internal static class ConfigLoader
         return true;
     }
 
+    // Binds every key, nested Oracle/SqlServer/Plugins blocks and the Excluded* lists through ConfigDocument; unknown
+    // keys are ignored here (TryLoadConfig warns about them, or fails under StrictConfig).
+    private static readonly YamlDotNet.Serialization.IDeserializer TypedConfigDeserializer =
+        new YamlDotNet.Serialization.DeserializerBuilder()
+            .IgnoreUnmatchedProperties()
+            .Build();
+
     internal static DataGuardConfiguration DeserializeConfig(string yaml)
     {
         var config = new DataGuardConfiguration
@@ -173,20 +180,16 @@ internal static class ConfigLoader
             ExcludedEntities = Array.Empty<string>(),
         };
 
-        // Typed round-trip via YamlDotNet: handles comments, quotes, lists and nested
-        // blocks, and preserves every configuration field (including Excluded*/Oracle/SqlServer).
+        // Typed binding via YamlDotNet: handles comments, quotes, lists and nested blocks, and preserves every
+        // configuration field. An empty document keeps the defaults.
         try
         {
-            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder().Build();
-            var typed = deserializer.Deserialize<DataGuardConfiguration>(yaml);
-            if (typed != null)
-            {
-                return typed;
-            }
+            return TypedConfigDeserializer.Deserialize<ConfigDocument?>(yaml)?.ToConfiguration() ?? config;
         }
-        catch
+        catch (YamlDotNet.Core.YamlException)
         {
-            // Fall through to the scalar mapping below for partially valid files.
+            // Last resort for files the typed binding rejects (e.g. a scalar where a block is expected): map the
+            // top-level scalars below, which reports an invalid value with the offending key's parse error.
         }
 
         var stream = new YamlDotNet.RepresentationModel.YamlStream();
@@ -263,6 +266,8 @@ internal static class ConfigLoader
                 "StrictConfig" => config with { StrictConfig = B() },
                 "SnapshotMaxAgeDays" => config with { SnapshotMaxAgeDays = I() },
                 "StrictProcedureContracts" => config with { StrictProcedureContracts = B() },
+                "AuditKeyFile" => config with { AuditKeyFile = value },
+                "RequireEncryptedCredentialStore" => config with { RequireEncryptedCredentialStore = B() },
                 _ => config
             };
         }

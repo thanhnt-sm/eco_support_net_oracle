@@ -88,6 +88,7 @@ internal static class BaselineCommand
                         config.GroundTruthMode.ToString(),
                         dbVersion,
                         schemaHash,
+                        provider: provider,
                         cancellationToken: ct);
 
                     Console.WriteLine($"Baseline created with {violations.Count} violations ({baseline.Violations.Count} fingerprints) at {outputPath}");
