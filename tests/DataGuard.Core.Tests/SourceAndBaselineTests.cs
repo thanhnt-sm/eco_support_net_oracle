@@ -245,6 +245,56 @@ public class EfModelSourceTests
         act.Should().Throw<EfModelExtractionException>().WithMessage("*No supported*");
     }
 
+    private const string PartialModelSnapshot = """
+        class Snapshot { void Build(ModelBuilder modelBuilder) {
+          modelBuilder.Entity<Customer>(b => { b.ToTable("CUSTOMERS"); b.Property(x => x.Name).HasMaxLength(120); });
+          modelBuilder.Entity("Shop.Order", b => { b.ToTable("ORDERS"); });
+        }}
+        """;
+
+    [Fact]
+    public void ParseModelSnapshotWithDiagnostics_PartialParseKeepsEntitiesAndExposesDiagnostics()
+    {
+        var extraction = EfModelSource.ParseModelSnapshotWithDiagnostics(PartialModelSnapshot, sourcePath: "Migrations/AppModelSnapshot.cs");
+
+        extraction.Entities.Should().ContainSingle().Which.TableName.Should().Be("CUSTOMERS");
+        var diagnostic = extraction.Diagnostics.Should().ContainSingle().Subject;
+        diagnostic.Kind.Should().Be(EfModelSource.ModelSnapshotPartialParseKind);
+        diagnostic.Path.Should().Be("Migrations/AppModelSnapshot.cs");
+        diagnostic.Message.Should().Contain("DG1304").And.Contain("line 3").And.Contain("skipped");
+
+        // The list-only API still returns the parsed entities (unchanged contract for existing callers).
+        EfModelSource.ParseModelSnapshot(PartialModelSnapshot).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task ExtractFromModelSnapshotWithDiagnosticsAsync_ReportsFilePathAndCleanSnapshotHasNoDiagnostics()
+    {
+        var dir = Directory.CreateTempSubdirectory("dg-ef-partial").FullName;
+        try
+        {
+            var partial = Path.Combine(dir, "PartialModelSnapshot.cs");
+            await File.WriteAllTextAsync(partial, PartialModelSnapshot);
+            var clean = Path.Combine(dir, "CleanModelSnapshot.cs");
+            await File.WriteAllTextAsync(clean, """
+                class Snapshot { void Build(ModelBuilder modelBuilder) {
+                  modelBuilder.Entity<Customer>(b => { b.ToTable("CUSTOMERS"); });
+                }}
+                """);
+
+            var partialExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(partial);
+            var cleanExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(clean);
+
+            partialExtraction.Diagnostics.Should().ContainSingle().Which.Path.Should().Be(partial);
+            cleanExtraction.Entities.Should().ContainSingle();
+            cleanExtraction.Diagnostics.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ExtractFromTrustedCompiledModelSnapshotAsync_UsesExactType()
     {

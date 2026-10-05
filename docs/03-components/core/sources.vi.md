@@ -90,6 +90,12 @@ giới hạn source-size và syntax-node, trả diagnostic hiển thị khi synt
 vào unsupported, và không khởi tạo `DbContext`, factory, host hay application code.
 Tự động discovery project/assembly vẫn unsupported.
 
+Khi chỉ một phần cấu hình entity parse được, các entity đã parse được giữ lại và
+`EfModelSource.ParseModelSnapshotWithDiagnostics` / `ExtractFromModelSnapshotWithDiagnosticsAsync`
+trả một `AcquisitionDiagnostic(Kind, Path, Message)` cho mỗi cấu hình bị bỏ qua
+(`Kind = ModelSnapshotPartialParse`). `validate` in chúng dạng `ACQUISITION: <path>: <message>`
+và exit 3 trừ khi có `--allow-unevaluated`. Khi không parse được gì, ném `EfModelExtractionException`.
+
 ```csharp
 var entities = await EfModelSource.ExtractFromTrustedCompiledModelSnapshotAsync(
     trustedAssemblyPath: "/approved/output/MyApp.dll",

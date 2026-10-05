@@ -91,6 +91,12 @@ syntax errors or unsupported input; it never instantiates a `DbContext`, factory
 host, or arbitrary application code. Automatic project/assembly discovery remains
 unsupported.
 
+When some entity configurations parse and others do not, the parsed entities are kept and
+`EfModelSource.ParseModelSnapshotWithDiagnostics` / `ExtractFromModelSnapshotWithDiagnosticsAsync`
+return one `AcquisitionDiagnostic(Kind, Path, Message)` per skipped configuration
+(`Kind = ModelSnapshotPartialParse`). `validate` prints them as `ACQUISITION: <path>: <message>`
+and exits 3 unless `--allow-unevaluated`. When nothing parses, `EfModelExtractionException` is thrown.
+
 ```csharp
 var entities = await EfModelSource.ExtractFromTrustedCompiledModelSnapshotAsync(
     trustedAssemblyPath: "/approved/output/MyApp.dll",

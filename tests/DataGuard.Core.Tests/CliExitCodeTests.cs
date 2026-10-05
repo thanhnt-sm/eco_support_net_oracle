@@ -845,4 +845,112 @@ public class CliExitCodeTests
             Directory.Delete(dir, recursive: true);
         }
     }
+    private const string UnreachableOracleConnection = "Data Source=127.0.0.1:1/XEPDB1;User Id=u;Password=oracle-secret;Connection Timeout=2";
+
+    /// <summary>
+    /// A typed Dapper query plus a source-only EF snapshot (ground truth) for the Oracle provider. With no DefaultSchema the
+    /// Oracle catalog is not read, so only the live shape rule touches the (unreachable) database.
+    /// </summary>
+    private static string WriteUnevaluatedFixture(string dir, bool partialSnapshot = false)
+    {
+        File.WriteAllText(Path.Combine(dir, "Repo.cs"), """
+            using Dapper;
+            public class Customer { public int Id { get; set; } public string Name { get; set; } }
+            public class Repo { public void F(System.Data.IDbConnection c) { var rows = c.Query<Customer>("SELECT Id, Name FROM Customers"); } }
+            """);
+        var snapshotDir = Directory.CreateDirectory(Path.Combine(dir, "Migrations")).FullName;
+        var snapshot = Path.Combine(snapshotDir, "AppModelSnapshot.cs");
+        var extraEntity = partialSnapshot ? "\n  modelBuilder.Entity(\"Shop.Order\", b => { b.ToTable(\"ORDERS\"); });" : string.Empty;
+        File.WriteAllText(snapshot, "class Snapshot { void Build(ModelBuilder modelBuilder) {\n  modelBuilder.Entity<Customer>(b => { b.ToTable(\"Customers\"); b.HasKey(x => x.Id); b.Property(x => x.Name).HasMaxLength(120); });" + extraEntity + "\n}}\n");
+        return snapshot;
+    }
+
+    [Fact]
+    public void Validate_LiveDescribeFails_ListsUnevaluatedContractAndExits3()
+    {
+        var dir = NewTempDirectory("dg-cli-unevaluated");
+        try
+        {
+            var snapshot = WriteUnevaluatedFixture(dir);
+
+            var run = CliProcessTestRunner.Run(dir, null, null,
+                "validate", "--provider", "oracle", "--connection", UnreachableOracleConnection,
+                "--project", Path.Combine(dir, "Repo.cs"), "--ef-snapshot", snapshot);
+
+            run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
+            run.Stderr.Should().Contain("UNEVALUATED: 1 contract(s) could not be evaluated:");
+            run.Stderr.Should().MatchRegex(@"DG020 project-sql:[^\s]*Repo\.cs:\d+: Cannot determine result set shape for query \(describe failed\)");
+            (run.Stdout + run.Stderr).Should().NotContain("[WARNING] DG020", "an undescribed shape is no longer a DG020 warning");
+            (run.Stdout + run.Stderr).Should().NotContain("oracle-secret");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_LiveDescribeFailsWithAllowUnevaluated_StillListsButExitsByViolations()
+    {
+        var dir = NewTempDirectory("dg-cli-allow-unevaluated");
+        try
+        {
+            var snapshot = WriteUnevaluatedFixture(dir);
+
+            var run = CliProcessTestRunner.Run(dir, null, null,
+                "validate", "--provider", "oracle", "--connection", UnreachableOracleConnection,
+                "--project", Path.Combine(dir, "Repo.cs"), "--ef-snapshot", snapshot, "--allow-unevaluated");
+
+            run.Stderr.Should().Contain("UNEVALUATED: 1 contract(s) could not be evaluated:");
+            run.Stderr.Should().NotContain("pass --allow-unevaluated");
+            var hasErrors = (run.Stdout + run.Stderr).Contains("[ERROR]", StringComparison.Ordinal);
+            run.ExitCode.Should().Be(hasErrors ? 1 : 0, run.Stdout + run.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_PartialEfSnapshot_PrintsAcquisitionDiagnosticAndExits3UnlessAllowed()
+    {
+        var dir = NewTempDirectory("dg-cli-acquisition");
+        try
+        {
+            var snapshot = WriteUnevaluatedFixture(dir, partialSnapshot: true);
+
+            var gated = CliProcessTestRunner.Run(dir, null, null, "validate", "--ef-snapshot", snapshot);
+            var allowed = CliProcessTestRunner.Run(dir, null, null, "validate", "--ef-snapshot", snapshot, "--allow-unevaluated");
+
+            gated.ExitCode.Should().Be(3, gated.Stdout + gated.Stderr);
+            gated.Stderr.Should().Contain($"ACQUISITION: {snapshot}: DG1304 (line 3)");
+            allowed.Stderr.Should().Contain("ACQUISITION: ");
+            allowed.ExitCode.Should().BeOneOf(new[] { 0, 1 }, allowed.Stdout + allowed.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_IdeSafe_AcceptsAllowUnevaluated()
+    {
+        var dir = NewTempDirectory("dg-cli-ide-safe-unevaluated");
+        try
+        {
+            WriteUnevaluatedFixture(dir);
+
+            // --ide-safe already implies --allow-unevaluated (like --allow-syntactic-only); passing it explicitly is allowed.
+            var run = CliProcessTestRunner.Run(dir, null, null, "validate", "--ide-safe", "--allow-unevaluated", "--project", Path.Combine(dir, "Repo.cs"));
+
+            run.Stderr.Should().StartWith("ide-safe: active");
+            run.ExitCode.Should().BeOneOf(new[] { 0, 1 }, run.Stdout + run.Stderr);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

@@ -7,9 +7,49 @@ using System.Threading;
 using System.Threading.Tasks;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Reporting;
+using DataGuard.Core.Validation;
 using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Rules;
+
+/// <summary>Outcome of one live result-set describe.</summary>
+public enum LiveSchemaStatus
+{
+    /// <summary>The database described the statement; <see cref="LiveSchemaResult.Columns"/> is ground truth.</summary>
+    Described,
+
+    /// <summary>The describe was attempted and failed (connection, permission, compile or timeout error).</summary>
+    Failed,
+
+    /// <summary>
+    /// The provider refused to describe the statement (non read-only statement, stacked statements, malformed or
+    /// guard-evading text) or has no live describe for this database.
+    /// </summary>
+    Unsupported,
+}
+
+/// <summary>
+/// Result of <see cref="ILiveQuerySchemaProvider.DescribeResultSetAsync"/>. Only <see cref="LiveSchemaStatus.Described"/>
+/// carries database ground truth. A non-described result may carry syntactically extracted column names when a provider
+/// was explicitly constructed with a non-live syntactic fallback; such columns are never ground truth.
+/// </summary>
+/// <param name="Columns">Result-set columns (empty unless described, or a non-live syntactic hint when explicitly enabled).</param>
+/// <param name="Status">Whether the database actually described the statement.</param>
+/// <param name="Error">Sanitized single-line reason when not described; never contains credentials.</param>
+public sealed record LiveSchemaResult(IReadOnlyList<ColumnDescriptor> Columns, LiveSchemaStatus Status, string? Error = null)
+{
+    /// <summary>Creates a described result.</summary>
+    public static LiveSchemaResult FromColumns(IReadOnlyList<ColumnDescriptor> columns) =>
+        new(columns ?? throw new ArgumentNullException(nameof(columns)), LiveSchemaStatus.Described);
+
+    /// <summary>Creates a failed result; <paramref name="error"/> is sanitized.</summary>
+    public static LiveSchemaResult Fail(string error, IReadOnlyList<ColumnDescriptor>? nonLiveColumns = null) =>
+        new(nonLiveColumns ?? Array.Empty<ColumnDescriptor>(), LiveSchemaStatus.Failed, LiveSqlShapeValidationRule.SanitizeErrorMessage(error));
+
+    /// <summary>Creates an unsupported result; <paramref name="reason"/> is sanitized.</summary>
+    public static LiveSchemaResult NotSupported(string reason, IReadOnlyList<ColumnDescriptor>? nonLiveColumns = null) =>
+        new(nonLiveColumns ?? Array.Empty<ColumnDescriptor>(), LiveSchemaStatus.Unsupported, LiveSqlShapeValidationRule.SanitizeErrorMessage(reason));
+}
 
 /// <summary>
 /// Abstraction for describing live database result set schemas for arbitrary SQL queries.
@@ -17,9 +57,42 @@ namespace DataGuard.Core.Rules;
 public interface ILiveQuerySchemaProvider
 {
     /// <summary>
-    /// Describes the result set columns produced by the given SQL query text.
+    /// Describes the result set columns produced by the given SQL query text. Implementations report database errors as
+    /// <see cref="LiveSchemaStatus.Failed"/> and refused statements as <see cref="LiveSchemaStatus.Unsupported"/>; they never
+    /// fabricate columns as a described result. Only cancellation is thrown.
     /// </summary>
-    Task<IReadOnlyList<ColumnDescriptor>> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken);
+    Task<LiveSchemaResult> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken);
+}
+
+/// <summary>Thrown by <see cref="LiveQuerySchemaProviderExtensions.DescribeColumnsOrThrowAsync"/> when a statement was not described.</summary>
+public sealed class LiveSchemaUnavailableException : InvalidOperationException
+{
+    public LiveSchemaUnavailableException(LiveSchemaResult result)
+        : base(result?.Error ?? "Result set was not described.")
+    {
+        Result = result ?? throw new ArgumentNullException(nameof(result));
+    }
+
+    /// <summary>The non-described result.</summary>
+    public LiveSchemaResult Result { get; }
+}
+
+/// <summary>Compatibility helpers for callers that only want the column list.</summary>
+public static class LiveQuerySchemaProviderExtensions
+{
+    /// <summary>
+    /// Returns the described columns, or throws <see cref="LiveSchemaUnavailableException"/> when the statement was not
+    /// described (failed or unsupported). Never returns non-live syntactic columns.
+    /// </summary>
+    public static async Task<IReadOnlyList<ColumnDescriptor>> DescribeColumnsOrThrowAsync(
+        this ILiveQuerySchemaProvider provider,
+        string sqlText,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        var result = await provider.DescribeResultSetAsync(sqlText, cancellationToken).ConfigureAwait(false);
+        return result.Status == LiveSchemaStatus.Described ? result.Columns : throw new LiveSchemaUnavailableException(result);
+    }
 }
 
 /// <summary>
@@ -34,7 +107,29 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
         _connectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
     }
 
-    public async Task<IReadOnlyList<ColumnDescriptor>> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
+    public async Task<LiveSchemaResult> DescribeResultSetAsync(string sqlText, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(sqlText))
+        {
+            return LiveSchemaResult.NotSupported("Empty SQL text cannot be described.");
+        }
+
+        try
+        {
+            return LiveSchemaResult.FromColumns(await DescribeCoreAsync(sqlText, cancellationToken).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // sp_describe_first_result_set rejects temp tables and dynamic SQL; connection errors land here too.
+            return LiveSchemaResult.Fail(ex.Message);
+        }
+    }
+
+    private async Task<IReadOnlyList<ColumnDescriptor>> DescribeCoreAsync(string sqlText, CancellationToken cancellationToken)
     {
         var columns = new List<ColumnDescriptor>();
         using var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString);
@@ -83,8 +178,10 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
 /// <summary>
 /// Validates live database result set columns against C# object mapping expected properties.
 /// Connects to the database (using sys.sp_describe_first_result_set for SQL Server) to verify shape.
+/// A query whose shape cannot be described is recorded as an unevaluated contract (<see cref="UndeterminedShapeRuleId"/>),
+/// never downgraded to a warning and never compared against fabricated columns (red-team H1/H2).
 /// </summary>
-public class LiveSqlShapeValidationRule : ContractRuleBase
+public class LiveSqlShapeValidationRule : ContractRuleBase, IContractEvaluationStatusReporter
 {
     public const string MismatchRuleId = "DG018";
     public const string UndeterminedShapeRuleId = "DG020";
@@ -100,6 +197,7 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
     private readonly string _provider;
     private readonly ProgressEmitter? _progress;
     private readonly ILiveQuerySchemaProvider? _schemaProvider;
+    private readonly UnevaluatedContractCollector _unevaluated = new();
 
     public LiveSqlShapeValidationRule()
         : this(null, "sqlserver", null, null)
@@ -119,6 +217,19 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
         _provider = provider;
         _progress = progress;
         _schemaProvider = schemaProvider;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<UnevaluatedContract> DrainUnevaluatedContracts() => _unevaluated.Drain();
+
+    /// <summary>
+    /// Records that <paramref name="contract"/> could not be evaluated. The engine drains these into
+    /// <see cref="ValidationExecutionResult.UnevaluatedContracts"/>.
+    /// </summary>
+    protected void MarkUnevaluated(ContractDescriptor contract, string reason)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        _unevaluated.Add(new UnevaluatedContract(UndeterminedShapeRuleId, contract.Id, SanitizeErrorMessage(reason), contract.Location));
     }
 
     protected override async Task ValidateCoreAsync(
@@ -152,7 +263,9 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
             }
             else
             {
-                return; // Other database providers can be hooked in
+                // A connection without a describer is not a pass: say the shape was not checked (red-team H2).
+                MarkUnevaluated(rawSql, $"No live query schema provider is registered for provider '{_provider}'.");
+                return;
             }
         }
 
@@ -163,22 +276,31 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
 
         Console.WriteLine("[INFO] Validating query shape against DB schema");
 
-        IReadOnlyList<ColumnDescriptor> dbColumns;
+        LiveSchemaResult described;
         try
         {
-            dbColumns = await provider.DescribeResultSetAsync(rawSql.SqlText, cancellationToken).ConfigureAwait(false);
+            described = await provider.DescribeResultSetAsync(rawSql.SqlText, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            // If sp_describe fails (temp tables, dynamic SQL), emit DG020 warning instead of crashing
-            violations.Add(CreateViolation(
-                UndeterminedShapeRuleId,
-                $"Cannot determine result set shape for query: {SanitizeErrorMessage(ex.Message)}",
-                DiagnosticSeverity.Warning,
-                rawSql.Location));
+            // Third-party providers may still throw; that is a failed describe, not a finding.
+            described = LiveSchemaResult.Fail(ex.Message);
+        }
+
+        if (described.Status != LiveSchemaStatus.Described)
+        {
+            // Failed or refused describe: unevaluated (exit 3 unless --allow-unevaluated). Any non-live columns a provider
+            // attached are deliberately ignored; comparing against them would report fabricated mismatches or passes.
+            var kind = described.Status == LiveSchemaStatus.Failed ? "describe failed" : "describe not supported";
+            MarkUnevaluated(rawSql, $"Cannot determine result set shape for query ({kind}): {described.Error ?? "no reason given"}");
             return;
         }
 
+        var dbColumns = described.Columns;
         if (dbColumns.Count == 0)
         {
             return;
