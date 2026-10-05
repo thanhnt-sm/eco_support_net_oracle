@@ -137,4 +137,19 @@ public class NullableMismatchRuleTests
         (await RunAsync(Entity("SUPPLIERS", Prop("Name", "NAME", nullable: true)), schema)).Should().BeEmpty();
         (await RunAsync(Entity("CUSTOMERS", Prop("Phone", "PHONE", nullable: true)), schema)).Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task DG005_SameTableNameInTwoSchemas_ResolvesByEntitySchema()
+    {
+        // Mutation guard: the index must key tables by (Schema, Name) when DatabaseTableDescriptor.Schema is set and Name is bare;
+        // otherwise two schemas sharing a table name are "ambiguous" and the real mismatch is silently skipped.
+        var schema = Schema(
+            new DatabaseTableDescriptor("ORDERS", new[] { Col("NOTE", nullable: false) }, Schema: "DBO"),
+            new DatabaseTableDescriptor("ORDERS", new[] { Col("NOTE", nullable: true) }, Schema: "SALES"));
+        var entity = Entity("SALES.ORDERS", Prop("Note", "NOTE", nullable: false));
+
+        var violations = await RunAsync(entity, schema);
+
+        violations.Should().ContainSingle(v => v.RuleId == "DG005" && v.Message.Contains("NOTE"));
+    }
 }

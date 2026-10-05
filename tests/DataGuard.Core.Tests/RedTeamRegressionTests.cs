@@ -116,6 +116,19 @@ public class RedTeamRegressionTests : IDisposable
         violations.Should().ContainSingle(v => v.RuleId == "DG101");
     }
 
+    [Theory]
+    [InlineData("EXECUTE GET_CUSTOMER_BY_ID")]
+    [InlineData("execute dbo.usp_GetCustomer")]
+    [InlineData("   exec dbo.usp_GetCustomer")]
+    public async Task DG101_ExecuteKeywordAndCase_NoParams_Fires(string sql)
+    {
+        // Mutation guard (red-team mutation check): the legacy heuristic must accept EXECUTE, lower case and leading whitespace.
+        var rule = new ParameterCountRule();
+        var desc = new RawSqlDescriptor("x", sql, new List<ParameterDescriptor>(), new List<ColumnDescriptor>());
+        var violations = await rule.ValidateAsync(desc, new List<ContractDescriptor>(), CancellationToken.None);
+        violations.Should().ContainSingle(v => v.RuleId == "DG101");
+    }
+
     // ── OracleDialectChecker property keys (3.I.4) ───────────────────────────
     [Fact]
     public void OracleDialect_DG010_Keyword_HasKeywordKey()
