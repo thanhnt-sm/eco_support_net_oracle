@@ -57,6 +57,15 @@ public record DataGuardConfiguration(
 
     /// <summary>Allows only redacted, bounded event details in local observability files.</summary>
     public bool IncludeTelemetryEventDetails { get; init; }
+
+    /// <summary>
+    /// When true, <c>validate</c> exits 3 if any registered rule cannot be evaluated (same as <c>--fail-on-unavailable</c>).
+    /// Default false: unavailable rules are reported on stderr and do not block the run.
+    /// </summary>
+    public bool FailOnUnavailableRules { get; init; }
+
+    /// <summary>When true, unknown top-level configuration keys are an error (exit 2) instead of a warning.</summary>
+    public bool StrictConfig { get; init; }
 }
 
 /// <summary>

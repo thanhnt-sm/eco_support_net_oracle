@@ -21,6 +21,13 @@ All notable changes to DataGuard are documented here. Format based on
 ### Added
 - **CI (v0.4.0)**: `scripts/check-license-consistency.py` (+ 17 unit tests in `scripts/tests/test_check_license_consistency.py`) fails on stale MIT mentions in the documentation surface, non-central package licence declarations, a non-GPL `LICENSE`, and drift between `LICENSE` / `docs/legal/*` and their six shipped copies. Run by `scripts/verify_docs_sync.sh` and the `build-and-test` job.
 
+### Fixed (red-team C2, C4: CLI exit gates)
+- **Unavailable rules no longer block `validate`** (C2): a rule the provider cannot evaluate (`DG012` on Oracle, `PG004` on PostgreSQL) prints `Rule <id> not evaluated: <reason>` once on stderr and no longer forces exit 3. `--fail-on-unavailable` or config `FailOnUnavailableRules: true` restores exit 3; `--skip-rules` is applied first.
+- **Empty-pass gate** (C4): `--provider` and config `DefaultProvider` accept only `sqlserver`, `oracle`, `mysql`, `postgresql` (`postgres`) on every command, otherwise exit 2; `--config` pointing to a missing file exits 2 (was silent defaults; still a warning under `--ide-safe`, because IDE hosts always pass the workspace path); a config value of the wrong type exits 2; unknown top-level keys print a warning, exit 2 with `StrictConfig: true`.
+- **Ground-truth gate**: `validate` with no schema, stored procedure or entity contract (inline SQL from `--project` only) prints `UNEVALUATED: no ground truth ...` and exits 3. **Breaking for lint-only CI runs**: add `--allow-syntactic-only`. `--ide-safe` runs and `--format contracts|yaml|typescript` are not gated.
+- **Default snapshot**: without a connection or `SnapshotFilePath`, `validate` uses `.dataguard-snapshot.json` next to `--config`, else in the current directory, and prints `Using snapshot <path>`.
+- **`--offline` semantics** (risk R3): bare `--offline` now means Snapshot mode and drops any connection (was Manual mode without an assembly, or exit 1); `--offline --assembly <path>` is unchanged (Manual).
+
 ### Last MIT nightly (snapshot before the first GPL nightly)
 The `nightly` GitHub release was published 2026-09-30T07:09:25Z and holds the last MIT-licensed development builds
 (0.3.0-nightly.20260930.11). The next merge to `main` publishes a GPL-3.0-only nightly over it. Assets and SHA-256:

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
+using DataGuard.Cli;
 using DataGuard.Core.Models;
 using DataGuard.Core.Security;
 using FluentAssertions;
@@ -536,5 +537,100 @@ public class NullAuditLoggerTests
         var task = logger.LogConfigurationChangeAsync("setting", "old", "new");
         task.Should().Be(Task.CompletedTask);
         await task;
+    }
+}
+
+/// <summary>Configuration keys and CLI resolution helpers behind the empty-pass gate (red-team C2/C4).</summary>
+public class CliConfigurationGateTests
+{
+    [Fact]
+    public void DataGuardConfiguration_GateKeys_DefaultToFalse_AndAreAdditive()
+    {
+        var config = new DataGuardConfiguration();
+
+        config.FailOnUnavailableRules.Should().BeFalse("unavailable rules must not block by default");
+        config.StrictConfig.Should().BeFalse();
+        var enabled = new DataGuardConfiguration { FailOnUnavailableRules = true, StrictConfig = true };
+        enabled.FailOnUnavailableRules.Should().BeTrue();
+        enabled.StrictConfig.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("sqlserver", "sqlserver")]
+    [InlineData("Oracle", "oracle")]
+    [InlineData(" MySQL ", "mysql")]
+    [InlineData("postgresql", "postgresql")]
+    [InlineData("POSTGRES", "postgresql")]
+    public void TryNormalizeProvider_AcceptsWhitelistCaseInsensitively(string input, string expected)
+    {
+        CliConfigurationResolver.TryNormalizeProvider(input, out var normalized).Should().BeTrue();
+        normalized.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("orcl")]
+    [InlineData("pg")]
+    [InlineData("sql server")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void TryNormalizeProvider_RejectsAnythingElse(string? input)
+    {
+        CliConfigurationResolver.TryNormalizeProvider(input, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void FormatUnsupportedProvider_ListsEveryAllowedValue()
+    {
+        var message = CliConfigurationResolver.FormatUnsupportedProvider("orcl", "--provider");
+
+        message.Should().Contain("'orcl'").And.Contain("--provider");
+        foreach (var provider in new[] { "sqlserver", "oracle", "mysql", "postgresql", "postgres" })
+        {
+            message.Should().Contain(provider);
+        }
+    }
+
+    [Fact]
+    public void FindUnknownTopLevelKeys_ReportsOnlyUnknownKeysInDocumentOrder()
+    {
+        const string yaml = "GroundTruthMode: Snapshot\nZeta: 1\nStrictConfig: true\nFailOnUnavailableRules: false\nAlpha:\n  Nested: x\nOracle:\n  Owner: HR\ngroundTruthMode: Full\n";
+
+        CliConfigurationResolver.FindUnknownTopLevelKeys(yaml)
+            .Should().Equal("Zeta", "Alpha", "groundTruthMode");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("# only a comment\n")]
+    [InlineData("- a\n- b\n")]
+    public void FindUnknownTopLevelKeys_NonMappingDocument_ReportsNothing(string yaml)
+    {
+        CliConfigurationResolver.FindUnknownTopLevelKeys(yaml).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void FindDefaultSnapshot_PrefersConfigDirectory_ThenCurrentDirectory()
+    {
+        var cwd = Directory.CreateTempSubdirectory("dg-snap-cwd").FullName;
+        var configDir = Directory.CreateTempSubdirectory("dg-snap-cfg").FullName;
+        try
+        {
+            var configPath = Path.Combine(configDir, ".dataguard.yml");
+            CliConfigurationResolver.FindDefaultSnapshot(configPath, cwd).Should().BeNull();
+
+            var inCwd = Path.Combine(cwd, CliConfigurationResolver.DefaultSnapshotFileName);
+            File.WriteAllText(inCwd, "{}");
+            CliConfigurationResolver.FindDefaultSnapshot(null, cwd).Should().Be(inCwd);
+            CliConfigurationResolver.FindDefaultSnapshot(configPath, cwd).Should().Be(inCwd, "snapshot refresh writes to the current directory by default");
+
+            var nextToConfig = Path.Combine(configDir, ".dataguard-snapshot.json");
+            File.WriteAllText(nextToConfig, "{}");
+            CliConfigurationResolver.FindDefaultSnapshot(configPath, cwd).Should().Be(nextToConfig);
+        }
+        finally
+        {
+            Directory.Delete(cwd, recursive: true);
+            Directory.Delete(configDir, recursive: true);
+        }
     }
 }

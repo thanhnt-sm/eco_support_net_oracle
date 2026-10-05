@@ -94,8 +94,10 @@ GroundTruthMode: Snapshot          # Snapshot | Full | Manual
 EnableSmartDefaults: true          # Tự động phát hiện provider/EF/Dapper
 EnableBaseline: true               # Bật baseline cho legacy
 NamingConvention: SnakeCaseToPascalCase  # SnakeCaseToPascalCase | PascalCaseToSnakeCase | ExactMatch
-DefaultProvider: SqlServer         # SqlServer | Oracle
+DefaultProvider: sqlserver         # sqlserver | oracle | mysql | postgresql (postgres); giá trị khác => exit 2
 SnapshotFilePath: .dataguard-snapshot.json
+FailOnUnavailableRules: false      # true = exit 3 khi rule không khả dụng (như --fail-on-unavailable)
+StrictConfig: false                # true = key top-level không biết => exit 2 (mặc định chỉ cảnh báo)
 BaselineFilePath: .dataguard-baseline.json
 EnableTelemetry: false             # Opt-in telemetry
 
@@ -130,14 +132,20 @@ AuditLogPath: ""                   # Tùy chọn custom path
 # Cơ bản
 dataguard validate --connection "Server=...;Database=...;"
 
-# Chế độ offline (nhanh, không cần DB)
+# Chế độ offline (không DB): dùng snapshot đã commit (.dataguard-snapshot.json)
 dataguard validate --offline --format text
+
+# Offline Manual mode: đọc attribute [ExpectedColumn]/[ExpectedSpParameter] từ assembly
+dataguard validate --offline --assembly bin/Release/net9.0/MyApp.dll
+
+# Chỉ lint cú pháp SQL inline, không có ground truth (nếu không có cờ này => exit 3)
+dataguard validate --project src/MyApp --allow-syntactic-only
 
 # Output SARIF cho GitHub Code Scanning
 dataguard validate --connection "..." --format sarif --output results.sarif
 
 # Chỉ định provider
-dataguard validate --connection "..." --provider Oracle
+dataguard validate --connection "..." --provider oracle
 
 # Verbose logging
 dataguard validate --connection "..." --verbose
@@ -147,16 +155,19 @@ dataguard validate --connection "..." --verbose
 | Option | Mô Tả | Mặc Định |
 |--------|-------|----------|
 | `--connection` | Connection string | Từ config/env |
-| `--config` | Đường dẫn .dataguard.yml | `.dataguard.yml` |
+| `--config` | Đường dẫn .dataguard.yml; file không tồn tại => exit `2` (không tự dùng mặc định) | - (mặc định cấu hình built-in) |
 | `--output` | File output SARIF/JSON | Stdout |
 | `--format` | `sarif` \| `json` \| `text` | `sarif` |
-| `--offline` | Chế độ offline (không DB) | `false` |
+| `--offline` | Không DB. Không có `--assembly` => Snapshot mode (dùng snapshot đã commit); có `--assembly` => Manual mode | `false` |
+| `--assembly` | Assembly cho Manual mode (cùng `--offline`) | - |
 | `--verbose` | Log chi tiết | `false` |
-| `--provider` | `SqlServer` \| `Oracle` | Từ config |
+| `--provider` | `sqlserver` \| `oracle` \| `mysql` \| `postgresql` (`postgres`), không phân biệt hoa thường; giá trị khác => exit `2` kèm danh sách hợp lệ | Từ config, rồi `sqlserver` |
 | `--schema` | Schema/owner name | Từ config |
 | `--package` | Oracle package name | Từ config |
 | `--project` | `.csproj` / `.sln` / thư mục để trích SQL inline và model C# | - |
-| `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`) | - |
+| `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`); áp dụng trước kiểm tra rule không khả dụng | - |
+| `--fail-on-unavailable` | Exit `3` khi có rule không khả dụng cho provider (config `FailOnUnavailableRules`) | `false` |
+| `--allow-syntactic-only` | Cho phép chạy khi không có ground truth: cảnh báo thay vì exit `3` | `false` |
 | `--progress` | Ghi JSON progress event từng dòng ra stderr (IDE dùng) | `false` |
 | `--ide-safe` | Chế độ IDE-safe cho repo chưa tin cậy (xem dưới) | `false` |
 | `--allow-env-connection` | Chỉ với `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp (chỉ `validate`) | `false` |
@@ -170,11 +181,17 @@ dataguard validate --connection "..." --verbose
 - **Baseline**: vẫn được áp dụng, nhưng mọi suppression đều hiển thị: stderr `baseline: <n> violations suppressed by <path>` và progress event `BaselineApplied` (`--progress`); host echo thành `[WARN]`.
 - **Gia cố regex**: mọi regex trong tiến trình CLI có match timeout 1 giây; input bệnh hoạn làm regex vượt timeout được **báo là rule failure** (rule đó không bị bỏ qua âm thầm) thay vì treo tiến trình; SQL literal dài hơn 256 KiB bị bỏ qua với `[WARN] DG1291 SQL literal in <file>:<line> is <n> chars (cap 262144); skipped`.
 
+**Cổng chống "PASS rỗng" (empty-pass gate)**:
+- **Snapshot mặc định**: khi không có connection và config không đặt `SnapshotFilePath`, `validate` tìm `.dataguard-snapshot.json` cạnh file `--config`, rồi trong thư mục hiện tại (nơi `snapshot refresh` ghi mặc định); nếu thấy, stdout in `Using snapshot <path>`.
+- **Ground truth bắt buộc**: nếu sau khi thu thập không có schema (snapshot/connection), stored procedure, hay entity (assembly Manual / EF `--ef-snapshot`/`--ef-project`) — tức chỉ có SQL inline từ `--project` — stderr in `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` và exit `3`. `--allow-syntactic-only` hạ xuống cảnh báo. Không áp dụng cho `--format contracts|yaml|typescript`. Dưới `--ide-safe` cổng này luôn chỉ là cảnh báo (IDE-safe đã cố ý tắt mọi nguồn nạp code/kết nối), và `--config` thiếu file chỉ là cảnh báo vì host luôn truyền đường dẫn config chuẩn của workspace.
+- **Rule không khả dụng** (ví dụ `DG012` Oracle, `PG004` PostgreSQL cần metadata DbContext từ analyzer): in một lần ra stderr `Rule <id> not evaluated: <reason>` và **không** chặn run. `--fail-on-unavailable` / `FailOnUnavailableRules: true` khôi phục exit `3`; rule nằm trong `--skip-rules` không được tính.
+- **Config**: key top-level không biết => stderr `Warning: unknown configuration keys: a, b`; `StrictConfig: true` => exit `2`. Giá trị sai kiểu (ví dụ `EnableBaseline: maybe`) => exit `2`.
+
 **Exit Codes**:
 - `0` = Pass (không violation mới)
 - `1` = Fail (có violation mới, hoặc CLI lỗi trước khi in summary)
-- `2` = Sai tham số / config (kể cả option bị `--ide-safe` từ chối; lưu ý CLI ≤ 0.2.2 không biết `--ide-safe` thì exit `1`)
-- `3` = Validation incomplete (rule không khả dụng cho provider, hoặc không có nguồn contract)
+- `2` = Sai tham số / config: `--provider` hoặc `DefaultProvider` ngoài danh sách, `--config` trỏ tới file không tồn tại, config sai kiểu hoặc có key lạ khi `StrictConfig: true` (kể cả option bị `--ide-safe` từ chối; lưu ý CLI ≤ 0.2.2 không biết `--ide-safe` thì exit `1`)
+- `3` = Validation incomplete: không có nguồn contract, không có ground truth (trừ khi `--allow-syntactic-only`), hoặc rule không khả dụng khi bật `--fail-on-unavailable`
 - `130` = Bị huỷ (Ctrl+C)
 
 ---
@@ -230,7 +247,7 @@ dataguard snapshot diff --connection "CI Schema"
 dataguard init --wizard
 
 # Tự động với provider
-dataguard init --provider Oracle --output .dataguard.yml
+dataguard init --provider oracle --output .dataguard.yml
 ```
 
 **Wizard Steps**:
