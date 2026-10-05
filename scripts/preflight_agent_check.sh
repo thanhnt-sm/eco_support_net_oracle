@@ -64,7 +64,6 @@ ALLOWED_ROOT_PATTERNS=(
     "^scratch"
     "^tests"
     "^samples"
-    "^benchmarks"
     "^tools"
     "^src"
     "^coverage$"

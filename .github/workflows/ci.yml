@@ -433,6 +433,12 @@ jobs:
       - name: Validate benchmark metadata
         run: python3 tools/benchmarks/DataGuard.Benchmarks/scripts/validate_benchmark_claim.py tools/benchmarks/DataGuard.Benchmarks/BenchmarkDotNet.Artifacts/benchmark-metadata.json
 
+      - name: Restore observability benchmark project
+        run: dotnet restore tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj --locked-mode
+
+      - name: Build observability benchmark project
+        run: dotnet build tools/benchmarks/DataGuard.Observability.Benchmarks/DataGuard.Observability.Benchmarks.csproj --configuration Release --no-restore
+
       - name: Upload benchmark artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

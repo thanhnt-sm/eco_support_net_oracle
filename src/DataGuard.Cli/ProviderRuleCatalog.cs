@@ -8,7 +8,6 @@ using DataGuard.PostgreSql.Adapter;
 using DataGuard.SqlServer.Adapter;
 using DataGuard.Core.Validation;
 using DataGuard.Core.Reporting;
-using DataGuard.Core.Sources;
 
 namespace DataGuard.Cli;
 
