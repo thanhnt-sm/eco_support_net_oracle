@@ -90,13 +90,11 @@ else
 fi
 
 printf '[verify-local-gates] Running tests with coverage.\n'
-dotnet test "$SOLUTION" --configuration Release --no-restore --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx" || {
-    if [[ -n "${WINDIR:-}" || "${OSTYPE:-}" == "msys"* || "${OSTYPE:-}" == "cygwin"* ]]; then
-        printf '[verify-local-gates] Note: Windows local privilege limitations encountered; verifying coverage threshold.\n'
-    else
-        fail 'dotnet test failed.'
-    fi
-}
+# A failing test fails the gate on every OS (no Windows exception). Category=LiveDb tests need real
+# databases and run in CI's live-db-integration job; run them locally with
+# DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 dotnet test --filter Category=LiveDb.
+dotnet test "$SOLUTION" --configuration Release --no-restore --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx" ||
+    fail 'dotnet test failed.'
 printf '[verify-local-gates] Checking coverage threshold.\n'
 "$PYTHON_BIN" - <<'PY'
 import glob, sys, xml.etree.ElementTree as ET

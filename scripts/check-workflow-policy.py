@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Workflow policy check for the Visual Studio VSIX gate.
+"""Workflow policy check for the Visual Studio VSIX gate and the publish-after-test rule.
 
-Asserts, over .github/workflows/ci.yml, release.yml, installers.yml and marketplace.yml:
+Asserts, over .github/workflows/ci.yml, release.yml, installers.yml, marketplace.yml and
+build_release.yml:
   (a) every step that builds DataGuard.VisualStudio.csproj with MSBuild is followed, in the
       same job, by an *effective* step (no `if: false`, no `continue-on-error: true`) whose
       non-comment `run` lines invoke scripts/assert-vsix.ps1;
@@ -11,7 +12,15 @@ Asserts, over .github/workflows/ci.yml, release.yml, installers.yml and marketpl
       the VSIX but never publish it); listing both PR triggers fails closed;
   (c) release.yml's visual-studio-package job runs the Visual Studio unit tests
       (`dotnet test tests/DataGuard.VisualStudio.Tests --configuration Release`) as an effective
-      step before packaging.
+      step before packaging;
+  (d) the nightly/release signing and attestation jobs keep their permissions and steps;
+  (e) every Dockerfile `dotnet restore` uses --locked-mode;
+  (f) every job that signs, attests or publishes (a step running `cosign`, `gh release`,
+      `vsce publish`, `dotnet nuget push` or `docker push`, using `attest-build-provenance` or a
+      cosign action, or `docker/build-push-action` with `push` not false) transitively `needs` a
+      job that runs `dotnet test` of the product solution (DataGuard.CrossPlatform.slnf or
+      DataGuard.sln, directly or via env.CROSS_PLATFORM_SOLUTION) as an effective step, in a job
+      that is not continue-on-error. Visual Studio unit tests alone do not satisfy it.
 
 Scope note for (b): only VSIX uploads are guarded. Test results, coverage, SBOM and benchmark
 artifacts are not installable binaries, and stripping them from fork PRs would remove debugging
@@ -38,7 +47,18 @@ WORKFLOWS = [
     ".github/workflows/release.yml",
     ".github/workflows/installers.yml",
     ".github/workflows/marketplace.yml",
+    ".github/workflows/build_release.yml",
 ]
+# Rule (f): substrings of a step's non-comment `run` text that sign, attest or publish.
+PUBLISH_RUN_MARKERS = ("cosign", "gh release", "vsce publish", "dotnet nuget push", "docker push")
+# Rule (f): substrings of a step's `uses` that sign or attest.
+PUBLISH_USES_MARKERS = ("attest-build-provenance", "cosign")
+DOCKER_BUILD_PUSH_ACTION = "docker/build-push-action"
+TEST_COMMAND = "dotnet test"
+# Rule (f): the test step must cover the product suite, not one side project (the Visual Studio unit
+# tests alone do not count). Either solution file, named directly or through the workflow env var.
+PRODUCT_TEST_TARGETS = ("DataGuard.CrossPlatform.slnf", "env.CROSS_PLATFORM_SOLUTION", "$CROSS_PLATFORM_SOLUTION",
+                        "DataGuard.sln")
 VS_PROJECT = "DataGuard.VisualStudio.csproj"
 ASSERT_SCRIPT = "scripts/assert-vsix.ps1"
 SAME_REPO_GUARD = "github.event.pull_request.head.repo.full_name == github.repository"
@@ -53,6 +73,11 @@ def load_workflow(relative: str) -> dict:
     if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), dict):
         raise ValueError(f"{relative}: not a workflow document (missing 'jobs')")
     return doc
+
+
+def is_workflow(relative: str, file_name: str) -> bool:
+    """Exact file-name match: `build_release.yml` is not `release.yml`."""
+    return relative.replace("\\", "/").rsplit("/", 1)[-1] == file_name
 
 
 def triggers(doc: dict) -> set[str]:
@@ -176,9 +201,79 @@ def check_workflow(relative: str, doc: dict) -> list[str]:
                     failures.append(f"(b) {label}: workflow lists both {' and '.join(pr_events)}; a single `!=` guard cannot cover both")
                 elif not has_same_repo_guard(step.get("if", ""), pr_events[0]):
                     failures.append(f"(b) {label}: VSIX upload `if:` must AND in `github.event_name != '{pr_events[0]}' || {SAME_REPO_GUARD}`")
-    if relative.endswith("release.yml"):
+    if is_workflow(relative, "release.yml"):
         failures.extend(check_release_vs_tests(relative, doc["jobs"].get("visual-studio-package")))
     failures.extend(check_supply_chain_policies(relative, doc))
+    failures.extend(check_publish_needs_test(relative, doc))
+    return failures
+
+
+def publish_markers(job: dict) -> list[str]:
+    """Rule (f): what makes a job a signing/attesting/publishing job (empty when it is none)."""
+    found: list[str] = []
+    for step in job.get("steps") or []:
+        text = step_text(step)
+        uses = str(step.get("uses", ""))
+        found.extend(marker for marker in PUBLISH_RUN_MARKERS if marker in text)
+        found.extend(marker for marker in PUBLISH_USES_MARKERS if marker in uses)
+        if uses.startswith(DOCKER_BUILD_PUSH_ACTION):
+            push = (step.get("with") or {}).get("push", False)
+            if push is not False and normalize_expression(push) != "false":
+                found.append("docker push")
+    return sorted(set(found))
+
+
+def is_product_test_step(step: dict) -> bool:
+    # Shell line continuations are joined so `dotnet test \` + `DataGuard.sln` on the next line counts.
+    for line in re.sub(r"\\\n", " ", step_text(step)).splitlines():
+        if TEST_COMMAND in line:
+            tail = line.split(TEST_COMMAND, 1)[1]
+            if any(target in tail for target in PRODUCT_TEST_TARGETS):
+                return True
+    return False
+
+
+def runs_dotnet_test(job: dict) -> bool:
+    """Rule (f): an effective `dotnet test` of the product solution in a job whose failure is not ignored."""
+    if not is_effective_step({"continue-on-error": job.get("continue-on-error"), "if": job.get("if")}):
+        return False
+    return any(is_effective_step(step) and is_product_test_step(step) for step in job.get("steps") or [])
+
+
+def job_needs(job: dict) -> list[str]:
+    needs = job.get("needs") or []
+    return [needs] if isinstance(needs, str) else [str(name) for name in needs]
+
+
+def transitive_needs(jobs: dict, job_name: str) -> set[str]:
+    """Every job reachable through `needs` from `job_name` (the job itself excluded)."""
+    seen: set[str] = set()
+    pending = list(job_needs(jobs.get(job_name) or {}))
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        pending.extend(job_needs(jobs.get(name) or {}))
+    return seen
+
+
+def check_publish_needs_test(relative: str, doc: dict) -> list[str]:
+    failures: list[str] = []
+    jobs = doc.get("jobs") or {}
+    for job_name, job in jobs.items():
+        markers = publish_markers(job or {})
+        if not markers:
+            continue
+        upstream = transitive_needs(jobs, job_name)
+        missing = sorted(name for name in upstream if name not in jobs)
+        if missing:
+            failures.append(f"(f) {relative} job '{job_name}': needs unknown job(s) {', '.join(missing)}")
+        if not any(runs_dotnet_test(jobs[name] or {}) for name in upstream if name in jobs):
+            failures.append(
+                f"(f) {relative} job '{job_name}' ({', '.join(markers)}) does not transitively need a job "
+                f"that runs an effective `{TEST_COMMAND}` of the product solution ({PRODUCT_TEST_TARGETS[0]} or "
+                f"{PRODUCT_TEST_TARGETS[-1]})")
     return failures
 
 
@@ -196,7 +291,7 @@ def check_release_vs_tests(relative: str, job: dict | None) -> list[str]:
 
 def check_supply_chain_policies(relative: str, doc: dict) -> list[str]:
     failures: list[str] = []
-    if relative.endswith("installers.yml"):
+    if is_workflow(relative, "installers.yml"):
         publish = doc.get("jobs", {}).get("publish")
         if publish is not None:
             perms = publish.get("permissions", {})
@@ -209,7 +304,7 @@ def check_supply_chain_policies(relative: str, doc: dict) -> list[str]:
                 failures.append(f"(d) {relative} job 'publish': missing cosign sign-blob step")
             if not any("actions/attest-build-provenance" in str(s.get("uses", "")) for s in steps):
                 failures.append(f"(d) {relative} job 'publish': missing actions/attest-build-provenance step")
-    elif relative.endswith("release.yml"):
+    elif is_workflow(relative, "release.yml"):
         sign_job = doc.get("jobs", {}).get("sign-packages")
         if sign_job is not None:
             perms = sign_job.get("permissions", {})
@@ -260,7 +355,8 @@ def main() -> int:
         for failure in failures:
             print(f"  - {failure}")
         return 1
-    print("check-workflow-policy: OK (VSIX assert, fork-PR upload guard, release VS tests, supply-chain signing & Dockerfile lock)")
+    print("check-workflow-policy: OK (VSIX assert, fork-PR upload guard, release VS tests, supply-chain signing, "
+          f"Dockerfile lock, publish-after-test; {len(WORKFLOWS)} workflows)")
     return 0
 
 

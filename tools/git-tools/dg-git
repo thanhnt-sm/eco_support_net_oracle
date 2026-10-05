@@ -13,11 +13,12 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Defaults - FULL MODE by default
+# Defaults. Nothing is committed or pushed without an explicit command and, for a commit, an explicit
+# `-m` message; confirmations are on by default (DG_YES_MODE=false), see rules/git_workflow.md.
 DG_GIT_DIR="${DG_GIT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 DG_CONFIG_FILE="${DG_GIT_DIR}/.dg-git.yml"
 DG_FIX_MODE="${DG_FIX_MODE:-true}"
-DG_YES_MODE="${DG_YES_MODE:-true}"
+DG_YES_MODE="${DG_YES_MODE:-false}"
 DG_STRICT_MODE="${DG_STRICT_MODE:-false}"
 # Support a per-user SDK installed by dotnet-install so direct `bash dg-git`
 # works as reliably as the Windows dg-git.cmd wrapper.
@@ -157,7 +158,7 @@ preflight_stage() {
     if [[ ${#files[@]} -eq 0 ]]; then log_info "Working tree clean - nothing to commit"; return 1; fi
     log_info "Files to stage (${#files[@]}):"
     printf '  %s\n' "${files[@]}"
-    if [[ "${DG_YES_MODE:-true}" != "true" ]]; then
+    if [[ "${DG_YES_MODE:-false}" != "true" ]]; then
         read -p "Stage and commit all? (y/N) " -n 1 -r; echo
         [[ $REPLY =~ ^[Yy]$ ]] || { log_warn "Aborted"; return 1; }
     fi
@@ -246,17 +247,29 @@ run_local_github_workflows() {
 
 cmd_sync() {
     require_git_repo
-    auto_heal_workspace || return 1
-    local msg="" fix_mode=true yes_mode=true
+    local msg=""
     while [[ $# -gt 0 ]]; do
         case $1 in
-            -m) shift; msg="$1";;
-            --no-fix) fix_mode=false;;
+            -m)
+                [[ $# -ge 2 && -n "$2" ]] || { log_error "-m requires a non-empty Conventional Commit message."; return 1; }
+                shift; msg="$1";;
+            --no-fix) DG_FIX_MODE=false;;
             --no-yes) DG_YES_MODE=false;;
-            *) break;;
+            *) log_error "Unknown sync option: $1"; print_usage >&2; return 1;;
         esac
         shift
     done
+
+    # A commit always needs an explicit message: no generated `chore(...)` / auto-sync messages.
+    # Checked before any fetch/stash/rebase so a refused run leaves the repository untouched.
+    if ! git diff --cached --quiet && [[ -z "$msg" ]]; then
+        log_error "Staged changes found but no commit message: run 'dg-git sync -m \"<type>(<scope>): <subject>\"'."
+        return 1
+    fi
+    if [[ -n "$msg" ]]; then
+        reject_auto_msg "$msg" || return 1
+    fi
+    auto_heal_workspace || return 1
 
     echo -e "${CYAN}=======================================================${NC}"
     echo -e "${CYAN}🚀 [DataGuard Git] BẮT ĐẦU QUY TRÌNH ĐỒNG BỘ TOÀN DIỆN...${NC}"
@@ -312,7 +325,7 @@ cmd_sync() {
     fi
 
     # 4. BẢO VỆ CODE ĐANG SỬA DỞ CỦA NGƯỜI DÙNG (AUTO-STASH)
-    local autostashed=false
+    local autostashed=false autostash_sha=""
     local changes
     changes=$(git status --porcelain)
     if [[ -n "$changes" ]]; then
@@ -323,8 +336,19 @@ cmd_sync() {
             return 1
         fi
 
-        # Stash untracked and tracked uncommitted changes safely
-        git stash push --include-untracked -m "dg-git-autostash-$(date +%s)" >/dev/null 2>&1
+        # Stash untracked and tracked uncommitted changes safely. The stash is later restored by
+        # its own commit id (never a bare `stash pop`, which could pop another tool's entry).
+        local stash_name
+        stash_name="dg-git-autostash-$(date +%s)-$$"
+        if ! git stash push --include-untracked -m "$stash_name" >/dev/null 2>&1; then
+            log_error "Không thể cất tạm thay đổi (git stash push thất bại); dừng để bảo toàn WIP."
+            return 1
+        fi
+        autostash_sha=$(git stash list --format='%H %gs' | awk -v name="$stash_name" '$0 ~ name"$" {print $1; exit}')
+        if [[ -z "$autostash_sha" ]]; then
+            log_error "Không tìm thấy stash '$stash_name' vừa tạo; dừng để bảo toàn WIP."
+            return 1
+        fi
         autostashed=true
         log_success "Đã bảo vệ code dở dang vào bộ nhớ tạm. Working tree hiện đã sạch."
     else
@@ -411,17 +435,27 @@ cmd_sync() {
     # 7. KHÔI PHỤC LẠI CODE ĐANG LÀM DỞ CỦA NGƯỜI DÙNG
     if [[ "$autostashed" == true ]]; then
         log_info "📦 [6/7] Khôi phục lại các file đang làm dở lên nền code mới nhất..."
-        if ! git stash pop >/dev/null 2>&1; then
+        # --index keeps the caller's staged selection; fall back to a plain apply only if the
+        # index itself cannot be restored. The entry is dropped by id only after a clean apply.
+        if ! git stash apply --index "$autostash_sha" >/dev/null 2>&1 && ! git stash apply "$autostash_sha" >/dev/null 2>&1; then
             show_conflict_guide
+            log_error "WIP vẫn an toàn trong stash $autostash_sha (git stash list)."
             return 1
         fi
+        local stash_ref
+        stash_ref=$(git stash list --format='%gd %H' | awk -v sha="$autostash_sha" '$2 == sha {print $1; exit}')
+        [[ -n "$stash_ref" ]] && git stash drop "$stash_ref" >/dev/null 2>&1 || true
         log_success "Code đang làm dở đã được khôi phục nguyên vẹn trên nền code mới nhất từ GitHub."
     fi
 
-    # 8. Commit only caller-selected staged changes, if any.
+    # 8. Commit only caller-selected staged changes, if any, with the caller's explicit -m.
     local final_changes
     final_changes=$(git diff --cached --name-only)
     if [[ -n "$final_changes" ]]; then
+        if [[ -z "$msg" ]]; then
+            log_error "Staged changes present after sync but no -m message given; nothing committed."
+            return 1
+        fi
         log_info "💾 Đang commit các file đã được chọn và stage..."
         if ! cmd_secret; then
             log_error "Phát hiện nguy cơ lộ secret trong staged changes. Hủy commit để an toàn."
@@ -435,13 +469,6 @@ cmd_sync() {
             }
         fi
         run_local_github_workflows || return 1
-        if [[ -z "$msg" ]]; then
-            local file_count
-            file_count=$(printf '%s\n' "$final_changes" | wc -l | tr -d ' ')
-            msg="chore(workspace): synchronize selected changes ($file_count files) $(date +'%Y-%m-%d %H:%M:%S')"
-        else
-            reject_auto_msg "$msg" || return 1
-        fi
         if git diff --cached --quiet; then
             log_error "Staged scope changed during verification; refusing to commit."
             return 1
@@ -547,10 +574,10 @@ cmd_config() {
     case "$action" in show) [[ -f "$DG_GIT_DIR/.dg-git.yml" ]] && cat "$DG_GIT_DIR/.dg-git.yml" || log_info "No config";; set) mkdir -p "$(dirname "$DG_GIT_DIR/.dg-git.yml")"; echo "$key: $value" >> "$DG_GIT_DIR/.dg-git.yml"; log_success "Set $key=$value";; get) grep "^$key:" "$DG_GIT_DIR/.dg-git.yml" 2>/dev/null | cut -d' ' -f2- || true;; reset) rm -f "$DG_GIT_DIR/.dg-git.yml"; log_success "Config reset";; *) echo "Usage: dg-git config [--show|--set key val|--get key|--reset]";; esac
 }
 
-# Reject generic auto-sync / timestamp-junk commit messages.
+# Reject generic auto-sync / timestamp-junk commit messages (same patterns as .githooks/commit-msg).
 reject_auto_msg() {
     local m="$1"
-    if printf '%s' "$m" | grep -Eq '^[[:space:]]*chore:[[:space:]]*auto[-_ ]?sync'; then
+    if printf '%s' "$m" | grep -Eiq '^[[:space:]]*((chore:[[:space:]]*)?auto[-_ ]?sync|chore\(sync\))|automated workspace synchronization'; then
         log_error "Refusing generic auto-sync commit message: '$m'"
         log_error "Provide a meaningful Conventional Commit (feat/fix/chore/docs/refactor/test/ci/build/perf)."
         return 1
@@ -558,15 +585,58 @@ reject_auto_msg() {
     return 0
 }
 
+print_usage() {
+    cat <<'EOF'
+DataGuard Git Tools (dg-git) - Safe git operations
+
+Usage: dg-git <command> [options]
+  A command is required: a bare `dg-git` prints this help and exits 1 (it never commits or pushes).
+  Nothing is committed without an explicit -m "<type>(<scope>): <subject>" (Conventional Commits).
+
+Commands:
+  doctor      Read-only repository health check
+  secret      Scan uncommitted files for secret-shaped values
+  pull        Fast-forward the configured upstream (refuses a dirty tree)
+  commit      Commit already-staged files: dg-git commit -m "<message>" [--file <path>...]
+  push        Push the current branch (no force; refuses a diverged branch)
+  sync        Fetch, rebase main, restore WIP; commits staged files only with -m, then pushes
+  branch      Branch management (--create/--rename/--delete/--list)
+  config      Manage .dg-git.yml
+  release     Multi-platform release through tag + workflows (tools/git-tools/dg-release)
+  help        Show this help
+
+Environment Variables (or .dg-git.yml):
+  DG_FIX_MODE=true       Auto-fix safe issues (default: true)
+  DG_YES_MODE=false      Skip confirmations (default: false; set true only in an explicit script)
+  DG_STRICT_MODE=false   Strict mode (default: false)
+  DG_DRY_RUN=false       Dry run mode (default: false)
+
+Examples:
+  dg-git doctor                               # Read-only repo health check
+  dg-git pull                                 # Fast-forward from upstream
+  dg-git commit -m "fix(cli): close reader"   # Commit the staged selection
+  dg-git sync -m "docs: update usage"         # Sync, commit staged files, push
+  dg-git push                                 # Safe push
+  dg-git branch --create feat/new
+  dg-git secret                               # Scan secrets
+  dg-git config --show
+
+Policy: rules/git_workflow.md (agents never run `dg-git sync` without an explicit user request).
+EOF
+}
+
 # Main
 main() {
     load_config() { [[ -f "$DG_GIT_DIR/.dg-git.yml" ]] && while IFS='=' read -r k v; do [[ $k =~ ^[[:space:]]*# ]] && continue; [[ -z $k ]] && continue; k=$(echo "$k"|xargs); v=$(echo "$v"|xargs); export "DG_${k^^}"="$v"; done < "$DG_GIT_DIR/.dg-git.yml"; :; }
     load_config
-    
-    cmd="${1:-sync}"
-    if [[ $# -gt 0 ]]; then
-        shift
+
+    if [[ $# -eq 0 ]]; then
+        print_usage >&2
+        log_error "No command given. A bare 'dg-git' no longer runs sync; choose a command explicitly."
+        exit 1
     fi
+    cmd="$1"
+    shift
     case "$cmd" in
         doctor) cmd_doctor "$@" ;;
         commit) cmd_commit "$@" ;;
@@ -577,48 +647,8 @@ main() {
         secret) cmd_secret "$@" ;;
         config) cmd_config "$@" ;;
         release) exec "$(dirname "${BASH_SOURCE[0]}")/dg-release" "$@" ;;
-        help|--help|-h)
-            cat <<'EOF'
-DataGuard Git Tools (dg-git) - Safe git operations
-
-Usage: dg-git [command] [options]
-  (default: no command = full automated sync: doctor → secret scan → commit → pull/rebase → push)
-
-Commands:
-  sync        Full sync: check → commit → pull/rebase → push (default)
-  pull        Fetch and fast-forward the configured upstream
-  push        Safe push (no force, auto upstream)
-  commit      Safe commit with validation
-  doctor      Check repo health (default: fix=yes, yes=yes, strict=no)
-  branch      Branch management
-  secret      Scan for secrets
-  config      Manage config
-  release     One-click multi-platform release (NuGet, GitHub, GHCR, Marketplaces)
-Environment Variables (or .dg-git.yml):
-  DG_FIX_MODE=true       Auto-fix safe issues (default: true)
-  DG_YES_MODE=true       Skip confirmations (default: true)
-  DG_STRICT_MODE=false   Strict mode (default: false)
-  DG_DRY_RUN=false       Dry run mode (default: false)
-
-Config file: .dg-git.yml
-  fix_mode: true
-  yes_mode: true
-  strict_mode: false
-  dry_run: false
-
-Examples:
-  dg-git                    # Full automated sync (check → commit → pull/rebase → push)
-  dg-git pull               # Fetch and fast-forward the configured upstream
-  dg-git sync -m "feat"     # Full sync with custom commit message
-  dg-git doctor             # Read-only repo health check
-  dg-git commit -m "feat"   # Safe commit
-  dg-git push               # Safe push
-  dg-git branch --create feat/new
-  dg-git secret             # Scan secrets
-  dg-git config --show
-EOF
-            exit 0;;
-        *) log_error "Unknown: $cmd"; exit 1;; esac
+        help|--help|-h) print_usage; exit 0;;
+        *) log_error "Unknown command: $cmd"; print_usage >&2; exit 1;; esac
 }
 
 # Helpers

@@ -1,4 +1,4 @@
-# Dependabot — keep GitHub Actions and NuGet dependencies up to date.
+# Dependabot — keep GitHub Actions, NuGet, npm (VS Code extension) and Docker base images up to date.
 # https://docs.github.com/en/code-security/dependabot/working-with-dependabot
 # NuGet: the VSIX csproj gates VSSDKBuildToolsAutoSetup to Windows so the Linux updater can evaluate DataGuard.sln (see CHANGELOG 2026-09-30).
 version: 2
@@ -31,6 +31,28 @@ updates:
       # MessagePack is a CVE pin for the VS SDK's transitive 2.5.x; VS 17.x ships 2.5.x, so stay in the 2.x line.
       - dependency-name: "MessagePack"
         update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # VS Code extension (package-lock.json). Production dependencies are audited in ci.yml
+  # (npm audit --omit=dev) and licence-checked by scripts/check-nuget-licences.py.
+  - package-ecosystem: "npm"
+    directory: "/src/DataGuard.VSCode"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # Root Dockerfile base images (pinned by digest; Dependabot bumps tag + digest together).
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
