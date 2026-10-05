@@ -54,9 +54,9 @@ Goal: every item in §3 (Critical C1–C6, High H1–H15, Medium list) and §6 (
 | 1 | [Stop the bleeding: CLI gates and rule correctness](./phase-01-stop-the-bleeding.md) | Completed (6b8a991, e4b7eff, 713781f) |
 | 2 | [Test and CI integrity](./phase-02-test-and-ci-integrity.md) | Completed (fa00c74, d74ef86, 3d7a720, 1fbcfc9) |
 | 3 | [Wire the MVP core](./phase-03-wire-the-mvp-core.md) | Completed (bd6bd23, b68c5cf, 91a7822, b1a78c0, e498afa, 64e4c74; merged at 979ef18) |
-| 4 | [Architecture: adapters, pipeline, analyzer, credentials](./phase-04-architecture.md) | In progress |
-| 5 | [Hygiene: dead code, god files, governance, docs](./phase-05-hygiene-and-docs.md) | Pending |
-| 6 | [Verification, ADRs, journal, PR](./phase-06-verification-and-handoff.md) | Pending |
+| 4 | [Architecture: adapters, pipeline, analyzer, credentials](./phase-04-architecture.md) | Completed (9d81238, 02103a5, ae4aabd, f3b03fb; merged at e797cfe) |
+| 5 | [Hygiene: dead code, god files, governance, docs](./phase-05-hygiene-and-docs.md) | In progress (5A merged: 4a814f6, b79faba) |
+| 6 | [Verification, ADRs, journal, PR](./phase-06-verification-and-handoff.md) | In progress (ADRs merged: a6a2a66) |
 
 ## Traceability: report item → phase
 
