@@ -97,6 +97,8 @@ public sealed class MySqlStoredProcedureParser : IContractSource
     {
         var result = new List<ContractDescriptor>();
 
+        // codeql[dataguard/sql-injection-pattern]: by design. SchemaFilter returns a constant SQL template; the schema
+        // value only ever travels through the @schema parameter.
         var sql = $@"
             SELECT r.ROUTINE_NAME, p.PARAMETER_NAME, p.DATA_TYPE, p.PARAMETER_MODE,
                    p.ORDINAL_POSITION, p.CHARACTER_MAXIMUM_LENGTH, p.NUMERIC_PRECISION, p.NUMERIC_SCALE,
@@ -182,6 +184,8 @@ public sealed class MySqlStoredProcedureParser : IContractSource
     {
         var result = new List<ContractDescriptor>();
 
+        // codeql[dataguard/sql-injection-pattern]: by design. SchemaFilter returns a constant SQL template; the schema
+        // value only ever travels through the @schema parameter.
         var sql = $@"
             SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH,
                    NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE, COLUMN_TYPE,

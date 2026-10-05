@@ -268,12 +268,16 @@ public class SqlServerStoredProcedureParser : IContractSource
     {
         var columns = new List<ColumnDescriptor>();
 
-        // sp_describe_first_result_set requires @tsql to be a valid batch: 'EXEC [schema].[proc]'.
+        // sp_describe_first_result_set requires @tsql to be a valid batch: 'EXEC [schema].[proc]'. The batch travels as
+        // an NVARCHAR parameter (never inside an N'...' literal), so a catalog identifier containing a quote cannot
+        // break out of it; the identifiers themselves are bracket-quoted with ']' doubled.
         // Result-set ordinals: is_hidden(0), column_ordinal(1), name(2), is_nullable(3),
         // system_type_id(4), system_type_name(5), max_length(6), precision(7), scale(8).
-        var describeSql = $"EXEC sp_describe_first_result_set N'EXEC [{EscapeSqlName(schemaName)}].[{EscapeSqlName(procName)}]', NULL, 1";
+        const string describeSql = "EXEC sys.sp_describe_first_result_set @tsql = @batch, @params = NULL, @browse_information_mode = 1";
+        var batch = $"EXEC [{EscapeSqlName(schemaName)}].[{EscapeSqlName(procName)}]";
 
         await using var cmd = new SqlCommand(describeSql, connection);
+        cmd.Parameters.Add(new SqlParameter("@batch", System.Data.SqlDbType.NVarChar, -1) { Value = batch });
         try
         {
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);

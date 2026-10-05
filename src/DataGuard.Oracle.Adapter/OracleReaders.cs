@@ -167,6 +167,8 @@ public class AllArgumentsReader
             headerFilter.Append(" AND UPPER(NVL(p.procedure_name, p.object_name)) = UPPER(:procedureName)");
         }
 
+        // codeql[dataguard/sql-injection-pattern]: by design. Both holes are constant filter fragments assembled above
+        // from literals; the owner and procedure names only ever travel through the :owner / :procedureName binds.
         return $"""
             SELECT 'A' AS row_kind, a.package_name, a.object_name, a.subprogram_id, a.overload, a.position, a.sequence,
                    a.argument_name, a.in_out, a.data_type, a.data_length, a.data_precision, a.data_scale,

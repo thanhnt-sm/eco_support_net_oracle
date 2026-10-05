@@ -109,6 +109,9 @@ public sealed class MySqlLiveQuerySchemaProvider : ILiveQuerySchemaProvider
 
             await using var command = connection.CreateCommand();
             command.CommandTimeout = 5;
+
+            // codeql[dataguard/sql-injection-pattern]: by design. The wrapped text is the scanned repository's own SQL,
+            // compiled schema-only (WHERE 1=0, every parameter bound to NULL, 5 s timeout) against the developer's database.
             command.CommandText = $"SELECT * FROM (\n{trimmed}\n) AS _dg_subq WHERE 1=0 LIMIT 0";
 
             // Bind every named parameter to NULL so the statement compiles; values never reach a row (WHERE 1=0 LIMIT 0).

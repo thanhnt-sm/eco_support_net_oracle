@@ -94,6 +94,9 @@ public sealed class OracleLiveQuerySchemaProvider : ILiveQuerySchemaProvider
             using var command = connection.CreateCommand();
             command.CommandTimeout = 5;
             command.BindByName = true;
+
+            // codeql[dataguard/sql-injection-pattern]: by design. The wrapped text is the scanned repository's own SQL,
+            // compiled schema-only (WHERE 1=0, every parameter bound to NULL, 5 s timeout) against the developer's database.
             command.CommandText = $"SELECT * FROM (\n{trimmed}\n) WHERE 1=0";
 
             // Bind dummy parameters to prevent ORA-01008 (not all variables bound) during SchemaOnly query compilation

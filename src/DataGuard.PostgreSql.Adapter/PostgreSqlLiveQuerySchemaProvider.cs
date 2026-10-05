@@ -93,6 +93,9 @@ public sealed class PostgreSqlLiveQuerySchemaProvider : ILiveQuerySchemaProvider
 
             using var command = connection.CreateCommand();
             command.CommandTimeout = 5;
+
+            // codeql[dataguard/sql-injection-pattern]: by design. The wrapped text is the scanned repository's own SQL,
+            // compiled schema-only (WHERE 1=0, every parameter bound to NULL, 5 s timeout) against the developer's database.
             command.CommandText = $"SELECT * FROM (\n{trimmed}\n) AS _dg_subq WHERE 1=0";
 
             // Bind dummy parameters to prevent 42P02 / unbound parameter exceptions during SchemaOnly query compilation
