@@ -6,11 +6,11 @@
 
 | Nhóm | Paths | Quy tắc |
 |---|---|---|
-| Production | `src/`, `DataGuard.sln`, `DataGuard.CrossPlatform.slnf`, `Directory.Build.props`, `Directory.Build.targets` | `DataGuard.sln` is the complete developer/Windows solution; the filter is the non-Windows build surface. |
-| Tests | `tests/DataGuard.Core.Tests/`, `tests/DataGuard.GoldenCorpus.Tests/` | Mirror và xác minh contract DataGuard. |
+| Production | `src/`, `DataGuard.sln`, `DataGuard.CrossPlatform.slnf`, `Directory.Build.props`, `Directory.Build.targets`, `global.json` (SDK 9.0, `latestFeature`), `NuGet.config` (chỉ nuget.org, có source mapping), `.nvmrc` (Node 22 cho `src/DataGuard.VSCode`) | `DataGuard.sln` is the complete developer/Windows solution; the filter is the non-Windows build surface. |
+| Tests | 7 project dưới `tests/`: `DataGuard.Core.Tests/`, `DataGuard.GoldenCorpus.Tests/`, `DataGuard.Analyzers.Tests/`, `DataGuard.CodeFixes.Tests/`, `DataGuard.Observability.Tests/` (5 project này nằm trong `DataGuard.CrossPlatform.slnf`), `DataGuard.VisualStudio.Tests/` (chỉ Windows), `DataGuard.BinaryCompatibilityFixture/` (consumer fixture của public API, CI chỉ compile); thêm shell test `tests/git-tools/*.sh` | Mirror và xác minh contract DataGuard. CI (`ci.yml`): Linux build/test `DataGuard.CrossPlatform.slnf` (job `build-and-test` lọc `Category!=LiveDb`; job `live-db-integration` chạy `Category=LiveDb` với Testcontainers), compile `BinaryCompatibilityFixture`, chạy `tests/git-tools` (job `scripts-tests`) và test TypeScript của VS Code extension (job `vscode-extension`); Windows build/test `DataGuard.VisualStudio` + `DataGuard.VisualStudio.Tests` và gate đóng gói VSIX. |
 | Documentation/tri thức | `docs/`, `plans/`, `research/`, `grants/`, `brainstorm/`, root README/contributing/security/license | Không lẫn production source; historical material phải được gắn nhãn rõ. |
 | Discovery evidence | `_observability_discovery/` | Chỉ chứa hồ sơ discovery tĩnh, redacted và bundle bằng chứng do owner yêu cầu; không chứa source, secret, payload, runtime state hoặc generated build output. |
-| Automation | `.github/`, `.githooks/`, `scripts/`, `tools/`, `Dockerfile`, `.dockerignore` | Chỉ giữ khi CI, release, hook hoặc runbook DataGuard có reference. |
+| Automation | `.github/`, `.githooks/`, `scripts/`, `tools/`, `Dockerfile`, `.dockerignore` | Chỉ giữ khi CI, release, hook hoặc runbook DataGuard có reference. Mọi job ký/attest/publish phải `needs` (bắc cầu) một job `dotnet test` solution sản phẩm (`scripts/check-workflow-policy.py` rule f). Hook bật bằng `./scripts/install-hooks.sh`; `scripts/git_sync.sh` và `scripts/github_automator.sh` bị tắt trừ khi `DG_ALLOW_AUTO_PUSH=1`. |
 | Local runtime/state | `.omp/`, `.omo/`, `.claude/` (Claude Code kit: agent memory, routing logs), `.codegraph/`, `.codex/` (skills symlink-only), cache lint/test | Không commit output generated (`.claude/` nằm trong `.gitignore` và allowlist của `scripts/preflight_agent_check.sh`); không xóa session/state khi process còn dùng. |
 
 ## Cleanup di sản (đã hoàn tất 2026-08-24)
@@ -33,5 +33,5 @@ Cleanup di sản EcoSupport đã hoàn tất theo manifest được owner phê d
 ## Xác minh
 
 - Product change: `dotnet restore DataGuard.sln`, `dotnet build DataGuard.sln --configuration Release`, và test bị ảnh hưởng.
-- Workflow/container change: YAML/actionlint và Docker smoke test khi daemon sẵn sàng.
+- Workflow/container change: YAML/actionlint, `python3 scripts/check-workflow-policy.py`, `python3 -m unittest discover -s scripts/tests`, và Docker smoke test khi daemon sẵn sàng.
 - Docs/rules change: `./scripts/verify_docs_sync.sh`, sau đó kiểm tra nội dung/link vì script hiện chỉ xác nhận file tồn tại.

@@ -8,8 +8,10 @@ msg_file="$1"
 msg="$(cat "$msg_file")"
 first="$(printf '%s' "$msg" | sed -n '1p')"
 
-# 1. Reject generic auto-sync / timestamp-junk messages.
-if printf '%s' "$msg" | grep -Eq '^[[:space:]]*(chore:[[:space:]]*)?auto[-_ ]?sync'; then
+# 1. Reject generic auto-sync / timestamp-junk messages: `auto-sync`, `chore: auto-sync`,
+#    `chore(sync): ...` (the old scripts/git_sync.sh + github_automator.sh default) and any message
+#    containing "automated workspace synchronization". Case-insensitive.
+if printf '%s' "$msg" | grep -Eiq '^[[:space:]]*((chore:[[:space:]]*)?auto[-_ ]?sync|chore\(sync\))|automated workspace synchronization'; then
     printf '[commit-msg] Refusing generic auto-sync commit message.\n' >&2
     printf 'Use a meaningful Conventional Commit message (feat/fix/chore/docs/refactor/test/ci/build/perf).\n' >&2
     exit 1

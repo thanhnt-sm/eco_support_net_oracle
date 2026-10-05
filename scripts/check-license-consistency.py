@@ -31,6 +31,8 @@ FILE_LIST = [
     "README.md", "README.vi.md", "SUPPORT.md", "CONTRIBUTING.md", "CONTRIBUTING.vi.md", "SECURITY.md",
     "docs/**/*.md", "grants/*.md", "rules/*.md",
     "src/*/README.md", "src/DataGuard.VisualStudio/overview.md",
+    # GitHub surfaces read by contributors and coding assistants (copilot-instructions.md, PR/issue templates).
+    ".github/**/*.md", ".github/ISSUE_TEMPLATE/*.yml",
 ]
 # docs/legal quotes the historical MIT text on purpose, decisions/ records it, discovery is third-party research.
 EXCLUDED_PREFIXES = ("docs/legal/", "docs/decisions/", "docs/product-discovery/")

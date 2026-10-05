@@ -33,6 +33,9 @@ ALLOWED_ROOT_PATTERNS=(
     "^DataGuard\.CrossPlatform\.slnf$"
     "^Directory\.Build\.props$"
     "^Directory\.Build\.targets$"
+    "^global\.json$"
+    "^NuGet\.config$"
+    "^\.nvmrc$"
     "^Dockerfile$"
     "^\.dockerignore$"
     "^\.env(\..+)?$"
@@ -50,7 +53,6 @@ ALLOWED_ROOT_PATTERNS=(
     "^\.github"
     "^\.githooks"
     "^\.git$"
-    "^claude"
     "^docs"
     "^_observability_discovery$"
     "^rules"
@@ -102,7 +104,9 @@ fi
 
 # 2. Check bilingual documentation
 echo -e "${CYAN}2. Verifying bilingual documentation sync...${NC}"
-./scripts/verify_docs_sync.sh > /dev/null
-echo -e "  ${GREEN}✓ All 30 bilingual docs and rules are present and synchronized.${NC}"
+# The count comes from the validator's own output, so it cannot drift from its REQUIRED_DOCS list.
+DOCS_OUTPUT="$(./scripts/verify_docs_sync.sh)"
+DOCS_FOUND="$(printf '%s\n' "$DOCS_OUTPUT" | grep -c 'Found:' || true)"
+echo -e "  ${GREEN}✓ All ${DOCS_FOUND} required bilingual docs and rules are present and synchronized.${NC}"
 
 echo -e "\n${GREEN}🚀 [Pre-Flight OK] Workspace is in perfect state. Proceed with confidence!${NC}"

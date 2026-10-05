@@ -8,12 +8,15 @@
 # Inspired by eco_support_GV/scripts/github_automator.sh, adapted for the
 # DataGuard .NET / C# workspace and its CI/CD pipeline.
 #
+# DISABLED BY DEFAULT: when nothing is staged it runs `git add -A` (every change, including
+# unrelated WIP), commits and can push. rules/git_workflow.md forbids that without an explicit user
+# request, so every mode except --help requires DG_ALLOW_AUTO_PUSH=1 and a Conventional Commit -m.
+#
 # Usage:
-#   ./scripts/github_automator.sh              # full sync + verify + commit
-#   ./scripts/github_automator.sh -m "msg"     # custom conventional commit msg
-#   ./scripts/github_automator.sh --push       # also push to remote
-#   ./scripts/github_automator.sh --dry-run    # simulate without commit/push
-#   ./scripts/github_automator.sh --help       # show help
+#   DG_ALLOW_AUTO_PUSH=1 ./scripts/github_automator.sh -m "fix(cli): close reader"          # sync + verify + commit
+#   DG_ALLOW_AUTO_PUSH=1 ./scripts/github_automator.sh -m "fix(cli): close reader" --push   # also push
+#   DG_ALLOW_AUTO_PUSH=1 ./scripts/github_automator.sh -m "fix(cli): close reader" --dry-run
+#   ./scripts/github_automator.sh --help
 # ==============================================================================
 
 set -euo pipefail
@@ -56,6 +59,7 @@ DO_PUSH=false
 DRY_RUN=false
 STASH_REF=""
 STASHED=false
+REMOTE_BRANCH=""
 export SKIP_ACT="${SKIP_ACT:-1}"
 # ── Logging helpers ──────────────────────────────────────────────────────────
 log_info()    { printf "${BLUE}ℹ️  %s${NC}\n" "$*"; }
@@ -69,10 +73,13 @@ print_help() {
     cat <<'EOF'
 DataGuard GitHub Automator — full sync & CI verification pipeline
 
-Usage: github_automator.sh [OPTIONS] [COMMIT_MSG]
+Usage: DG_ALLOW_AUTO_PUSH=1 github_automator.sh -m MSG [OPTIONS]
+
+Disabled unless DG_ALLOW_AUTO_PUSH=1: with nothing staged it stages ALL changes (git add -A),
+commits and (with --push) pushes. Prefer: git add <files> && tools/git-tools/dg-git commit -m MSG.
 
 Options:
-  -m, --message MSG   Conventional Commit message (default: chore(sync): ... )
+  -m, --message MSG   Conventional Commit message (required to commit; no generated default)
   -p, --push          Also push commits to the remote after verification
   -n, --dry-run       Simulate without committing or pushing
   -h, --help          Show this help message
@@ -80,10 +87,9 @@ Options:
   --with-act          Force local act and TruffleHog container runs
 
 Examples:
-  ./scripts/github_automator.sh
-  ./scripts/github_automator.sh -m "feat: add new analyzer"
-  ./scripts/github_automator.sh --push
-  ./scripts/github_automator.sh --dry-run
+  DG_ALLOW_AUTO_PUSH=1 ./scripts/github_automator.sh -m "feat: add new analyzer"
+  DG_ALLOW_AUTO_PUSH=1 ./scripts/github_automator.sh -m "fix(ci): pin vsce" --push
+  DG_ALLOW_AUTO_PUSH=1 ./scripts/github_automator.sh -m "docs: usage" --dry-run
 EOF
 }
 
@@ -107,13 +113,23 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$COMMIT_MSG" ]]; then
-    COMMIT_MSG="chore(sync): automated workspace synchronization [$(date -u +'%Y-%m-%dT%H:%M:%SZ')]"
-else
-    COMMIT_MSG="$(printf '%s' "$COMMIT_MSG" | sed -e 's/^[\\\"'\'']*//' -e 's/[\\\"'\'']*$//')"
+if [[ "${DG_ALLOW_AUTO_PUSH:-0}" != "1" ]]; then
+    log_error "Refusing to run: github_automator.sh can stage EVERY change (git add -A), commit and push."
+    log_error "It is disabled by default (rules/git_workflow.md: no automatic commit/push, no 'git add -A')."
+    printf '%s\n' \
+        "  Safer: git add <files> && tools/git-tools/dg-git commit -m \"<type>(<scope>): <subject>\" && git push" \
+        "  To run it anyway, deliberately: DG_ALLOW_AUTO_PUSH=1 $0 -m \"<type>(<scope>): <subject>\" [--push]" >&2
+    exit 1
 fi
 
+# No generated default message: a commit needs the caller's explicit Conventional Commit (checked in step 6).
+COMMIT_MSG="$(printf '%s' "$COMMIT_MSG" | sed -e 's/^[\\\"'\'']*//' -e 's/[\\\"'\'']*$//')"
+
 # ── Pre-flight ────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}${BOLD}=====================================================================${NC}"
+echo -e "${YELLOW}${BOLD}  DG_ALLOW_AUTO_PUSH=1: this run may stage ALL changes (git add -A),  ${NC}"
+echo -e "${YELLOW}${BOLD}  commit them$([[ "$DO_PUSH" == true ]] && echo ' and PUSH to the remote').${NC}"
+echo -e "${YELLOW}${BOLD}=====================================================================${NC}"
 echo -e "${CYAN}${BOLD}🌿 [DataGuard GitHub Automator] Starting automated sync & CI verification...${NC}"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -321,7 +337,11 @@ echo -e "${BLUE}${BOLD}[6/6] 🚀 Finalizing commit${NC}"
 if git diff --cached --quiet; then
     echo -e "${GREEN}✨ No new changes to commit (working tree clean).${NC}"
 else
-    if printf '%s' "$COMMIT_MSG" | grep -Eq '^[[:space:]]*chore:[[:space:]]*auto[-_ ]?sync'; then
+    if [[ -z "$COMMIT_MSG" ]]; then
+        log_error "Staged changes found but no -m message; nothing committed (no generated messages)."
+        exit 1
+    fi
+    if printf '%s' "$COMMIT_MSG" | grep -Eiq '^[[:space:]]*((chore:[[:space:]]*)?auto[-_ ]?sync|chore\(sync\))|automated workspace synchronization'; then
         log_error "Refusing generic auto-sync commit message: '$COMMIT_MSG'"
         log_error "Provide a meaningful Conventional Commit (feat/fix/chore/docs/refactor/test/ci/build/perf)."
         exit 1

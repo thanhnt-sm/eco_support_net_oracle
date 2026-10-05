@@ -97,6 +97,17 @@ class FileListTests(unittest.TestCase):
             found = {p.relative_to(root).as_posix() for p in gate.collect_files(root)}
         self.assertEqual(found, {"README.md", "docs/a.md", "docs/deep/b.md"})
 
+    def test_github_surfaces_are_scanned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root, ".github/copilot-instructions.md", "This repository is licensed under the **MIT License**.\n")
+            write(root, ".github/ISSUE_TEMPLATE/bug_report.yml", "name: Bug\n")
+            write(root, ".github/workflows/ci.yml", "# Contracts stays MIT\n")
+            found = {p.relative_to(root).as_posix() for p in gate.collect_files(root)}
+            problems = gate.check_mentions(root)
+        self.assertEqual(found, {".github/copilot-instructions.md", ".github/ISSUE_TEMPLATE/bug_report.yml"})
+        self.assertTrue(any(p.startswith(".github/copilot-instructions.md:1:") for p in problems), problems)
+
 
 class CopyTests(unittest.TestCase):
     GROUPS = [("LICENSE", ["src/ext/LICENSE.txt", "src/ext2/LICENSE"])]

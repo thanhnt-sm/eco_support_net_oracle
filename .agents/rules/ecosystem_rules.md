@@ -13,7 +13,8 @@ This adapter defers to the canonical workspace rules rather than defining a comp
 ## Boundaries
 
 - Production DataGuard source: `src/`.
-- Production tests: `tests/DataGuard.Core.Tests/`, `tests/DataGuard.GoldenCorpus.Tests/`.
+- Production tests (7 projects under `tests/`): `DataGuard.Core.Tests/`, `DataGuard.GoldenCorpus.Tests/`, `DataGuard.Analyzers.Tests/`, `DataGuard.CodeFixes.Tests/`, `DataGuard.Observability.Tests/`, `DataGuard.VisualStudio.Tests/` (Windows only), `DataGuard.BinaryCompatibilityFixture/` (public-API consumer fixture, compiled in CI); shell tests in `tests/git-tools/`.
+- CI builds and tests `DataGuard.CrossPlatform.slnf` on Linux (`build-and-test` excludes `Category=LiveDb`; `live-db-integration` runs it) and `DataGuard.VisualStudio` + `DataGuard.VisualStudio.Tests` on Windows.
 - Documentation and knowledge: `docs/`, `plans/`, `research/`, `grants/`, and `brainstorm/`.
 - Operational automation: `.github/`, `.githooks/`, `scripts/`, `tools/`, root build manifests, and Docker files when verified by an entrypoint or CI.
 - Local runtime/state: `.omp/`, `.omo/`, `.codegraph/`, and caches. These paths are not documentation and must not be purged while the owning process/session is active.
@@ -42,4 +43,4 @@ This adapter defers to the canonical workspace rules rather than defining a comp
 2. Không bao giờ gọi `dg-git` trần hoặc `dg-git sync` (foot-gun tự commit+push). `dg-git` trần giờ exit 1.
 3. Conventional Commits bắt buộc; cấm `auto-sync` / timestamp-junk.
 4. Không `--no-verify`, `--force`, `git clean -fdx`; không push thẳng `main` khi chưa được phép.
-5. Bật hook một lần: `git config core.hooksPath .githooks` (pre-commit, pre-push, commit-msg).
+5. Bật hook một lần: `./scripts/install-hooks.sh` (đặt `core.hooksPath=.githooks`: pre-commit, pre-push, commit-msg).
