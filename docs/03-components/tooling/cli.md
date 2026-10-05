@@ -44,7 +44,9 @@ dataguard validate [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--connection` | — | Database connection string |
+| `--connection` | — | Database connection string (deprecated: prints `warning: a connection string on the command line is visible to process listings; prefer --connection-env`) |
+| `--connection-env` | — | **Name** of the environment variable holding the connection string; unset/empty => exit 2. Under `--ide-safe` only together with `--allow-env-connection` |
+| `--allow-assembly-from-config` | `false` | Let Manual mode read `ManualAssemblyPath` from the config file (otherwise exit 2); `--offline --assembly` needs no flag; rejected with `--ide-safe` (`validate`, `baseline`) |
 | `--config` | — | Path to `.dataguard.yml` config file; a path that does not exist exits 2 |
 | `--output` | — | Output file path (required for sarif/evidence) |
 | `--format` | `text` | Output format: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
@@ -60,13 +62,13 @@ dataguard validate [options]
 | `--project` | — | Path to C# project (`.csproj`), solution (`.sln`), or directory to extract inline SQL queries and C# models |
 | `--progress` | `false` | Stream safe line-delimited JSON progress events to stderr |
 | `--ide-safe` | `false` | Run under IDE-safe execution policy: suppresses assembly loading, secret-manager connections, and arbitrary file writes |
-| `--allow-env-connection` | `false` | With `--ide-safe`: retain host-supplied `DATAGUARD_CONNECTION_STRING` while still ignoring config-file connection strings |
+| `--allow-env-connection` | `false` | With `--ide-safe`: retain host-supplied `DATAGUARD_CONNECTION_STRING` (or the `--connection-env` variable) while still ignoring config-file connection strings |
 | `--fail-on-unavailable` | `false` | Exit 3 when a provider rule cannot be evaluated (config `FailOnUnavailableRules: true`) |
 | `--allow-syntactic-only` | `false` | Run without ground truth: warn instead of exiting 3 |
 | `--allow-unevaluated` | `false` | Still list unevaluated contracts and acquisition diagnostics, but exit by violations (0/1) instead of 3; implied by `--ide-safe` |
 
 **Behavior:**
-- Without `--connection`: validates against committed snapshot (Snapshot mode)
+- Without any connection (`--connection`, `--connection-env`, `DATAGUARD_CONNECTION_STRING`, credential provider, or an opted-in plaintext config value): validates against committed snapshot (Snapshot mode)
 - Without a connection and without `SnapshotFilePath`: uses `.dataguard-snapshot.json` next to `--config`, else in the current directory, and prints `Using snapshot <path>` to stdout
 - With `--offline`: never connects. Bare `--offline` is Snapshot mode (same default snapshot discovery); `--offline --assembly <path>` is Manual ground-truth mode with attributes (unchanged)
 - Ground-truth gate: when the acquired contracts hold no schema, stored procedure or entity descriptor (only inline SQL from `--project`), `validate` prints `UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` and exits 3. `--allow-syntactic-only` downgrades it to a warning; `--format contracts|yaml|typescript` is not gated; under `--ide-safe` it is always a warning
@@ -564,7 +566,8 @@ dataguard version
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--connection` | — | Database connection string |
+| `--connection` | — | Database connection string (deprecated; prefer `--connection-env`) |
+| `--connection-env` | — | Name of the environment variable holding the connection string |
 | `--config` | `-c` | Path to `.dataguard.yml` |
 | `--output` | `-o` | Output file path |
 | `--format` | `-f` | Output format |
@@ -644,7 +647,7 @@ MaxDegreeOfParallelism: 4
 
 **Security note:** Never commit connection strings to source control. Use environment variable `DATAGUARD_CONNECTION_STRING` instead.
 
-For every database-backed command, connection resolution is deterministic: `--connection` takes precedence, then `DATAGUARD_CONNECTION_STRING`, then `ConnectionString` from the selected config file. Provider resolution is `--provider`, then the config's persisted `DefaultProvider`, then `sqlserver`. `dataguard init --provider oracle` writes that fallback without storing a credential.
+For every database-backed command, connection resolution is deterministic (red-team D1): `--connection` (with a one-time process-listing warning), then `--connection-env NAME`, then `DATAGUARD_CONNECTION_STRING`, then the credential provider (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault when configured, `DATAGUARD_DATABASECONNECTION`, then the encrypted credential file; a failing store prints `warning: Secret store <Name> lookup ... failed` and the next source is tried; skipped under `--offline` and `--ide-safe`), then `ConnectionString` from the selected config file **only** with `AllowPlaintextConfigFallback: true` — by default that key is ignored with `warning: ignoring the plaintext ConnectionString key in the configuration file ...`. Credential-provider access is recorded in the audit log (HMAC-SHA256 chain when `DATAGUARD_AUDIT_KEY` or `AuditKeyFile` is set). A `ManualAssemblyPath` from the config file requires `--allow-assembly-from-config`; Manual mode reads attributes through `MetadataLoadContext` and never executes the assembly. Provider resolution is `--provider`, then the config's persisted `DefaultProvider`, then `sqlserver`. `dataguard init --provider oracle` writes that fallback without storing a credential.
 
 When a selected provider includes a rule whose required analyzer context is unavailable, `validate` reports the rule ID and prerequisite, exits with code `3`, and suppresses normal text/SARIF/evidence/contracts/TypeScript success output. This is an incomplete run, not a clean result.
 
@@ -652,6 +655,8 @@ When a selected provider includes a rule whose required analyzer context is unav
 
 | Variable | Purpose |
 |----------|---------|
-| `DATAGUARD_CONNECTION_STRING` | Database connection string (overrides config) |
+| `DATAGUARD_CONNECTION_STRING` | Database connection string (after `--connection`/`--connection-env`; overrides config) |
+| `DATAGUARD_DATABASECONNECTION` | Connection string read by the credential provider |
+| `DATAGUARD_AUDIT_KEY` | HMAC key (at least 16 bytes) for the audit hash chain; wins over `AuditKeyFile` |
 | `CI` | Detected for CI-specific behavior |
 | `GITHUB_ACTIONS` | Detected for GitHub Actions-specific behavior |

@@ -2,15 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Security.Cryptography;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Amazon;
-using Amazon.SecretsManager;
-using Amazon.SecretsManager.Model;
 using DataGuard.Core.Models;
+using DataGuard.Core.Security.SecretStores;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -23,16 +18,20 @@ namespace DataGuard.Core.Security;
 /// </summary>
 public sealed class ZeroTrustCredentialProvider : ICredentialProvider
 {
-    private readonly IConfiguration _configuration;
-    private readonly ILogger<ZeroTrustCredentialProvider>? _logger;
-    private readonly CredentialManager _credentialManager;
-    private readonly IAuditLogger _auditLogger;
-    private readonly DataGuardConfiguration _config;
+    /// <summary>Store name a host uses when it registers AWS Secrets Manager (the CLI does).</summary>
+    public const string AwsSecretsManagerStoreName = "AwsSecretsManager";
 
     // Shared process-lifetime client: per-call instantiation causes socket
     // exhaustion under repeated resolution (SEC-005). HttpClient is thread-safe
     // for concurrent requests; per-request headers go on HttpRequestMessage.
     private static readonly HttpClient SharedHttpClient = new();
+
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<ZeroTrustCredentialProvider>? _logger;
+    private readonly CredentialManager _credentialManager;
+    private readonly IAuditLogger _auditLogger;
+    private readonly DataGuardConfiguration _config;
+    private readonly IReadOnlyList<ISecretStore> _secretStores;
 
     public ZeroTrustCredentialProvider(
         IConfiguration configuration,
@@ -40,15 +39,41 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         CredentialManager credentialManager,
         IAuditLogger auditLogger,
         ILogger<ZeroTrustCredentialProvider>? logger = null)
+        : this(configuration, config, credentialManager, auditLogger, additionalSecretStores: null, logger)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ZeroTrustCredentialProvider"/> class with host-registered secret
+    /// stores. Lookup order: Azure Key Vault, then
+    /// <paramref name="additionalSecretStores"/> in the given order (the CLI registers AWS Secrets Manager here), then
+    /// HashiCorp Vault, then the local encrypted credential file. A store is consulted only when its
+    /// <see cref="ISecretStore.IsConfigured"/> returns true.
+    /// </summary>
+    public ZeroTrustCredentialProvider(
+        IConfiguration configuration,
+        DataGuardConfiguration config,
+        CredentialManager credentialManager,
+        IAuditLogger auditLogger,
+        IEnumerable<ISecretStore>? additionalSecretStores,
+        ILogger<ZeroTrustCredentialProvider>? logger = null)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _credentialManager = credentialManager ?? throw new ArgumentNullException(nameof(credentialManager));
         _auditLogger = config.EnableAuditLogging
-            ? (auditLogger ?? new FileAuditLogger(config.AuditLogPath))
+            ? (auditLogger ?? FileAuditLogger.Create(config))
             : new NullAuditLogger();
         _logger = logger;
+
+        var stores = new List<ISecretStore> { new AzureKeyVaultSecretStore(SharedHttpClient) };
+        stores.AddRange(additionalSecretStores ?? Enumerable.Empty<ISecretStore>());
+        stores.Add(new HashiCorpVaultSecretStore(SharedHttpClient));
+        _secretStores = stores;
     }
+
+    /// <summary>Names of the secret stores in lookup order (for diagnostics and tests).</summary>
+    public IReadOnlyList<string> SecretStoreNames => _secretStores.Select(store => store.Name).ToList();
 
     /// <summary>
     /// Gets a credential without ever exposing it in logs, memory dumps, or serialization.
@@ -60,31 +85,43 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         CredentialType type,
         CancellationToken cancellationToken = default)
     {
-        var handle = new CredentialHandle(credentialName, type);
-
         try
         {
-            await _auditLogger.LogCredentialAccessAsync(
-                "GetCredential",
-                "ZeroTrustProvider",
-                ComputeHash(credentialName),
-                cancellationToken);
-
-            var value = await ResolveCredentialAsync(credentialName, type, cancellationToken);
-
-            if (string.IsNullOrEmpty(value))
-            {
-                throw new InvalidOperationException($"Credential '{credentialName}' not found in any source");
-            }
-
-            handle.SetValue(value);
-            return handle;
+            return await TryGetCredentialAsync(credentialName, type, cancellationToken)
+                ?? throw new InvalidOperationException($"Credential '{credentialName}' not found in any source");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger?.LogError(ex, "Credential resolution failed for '{CredentialName}'", credentialName);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Like <see cref="GetCredentialAsync"/> but returns null when no source holds the credential, so a caller with a
+    /// further fallback (the CLI) does not log an error for an absent credential.
+    /// </summary>
+    /// <returns>The credential handle, or null.</returns>
+    public async Task<CredentialHandle?> TryGetCredentialAsync(
+        string credentialName,
+        CredentialType type,
+        CancellationToken cancellationToken = default)
+    {
+        await _auditLogger.LogCredentialAccessAsync(
+            "GetCredential",
+            "ZeroTrustProvider",
+            _auditLogger.HashSensitiveValue(credentialName),
+            cancellationToken);
+
+        var value = await ResolveCredentialAsync(credentialName, type, cancellationToken);
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        var handle = new CredentialHandle(credentialName, type);
+        handle.SetValue(value);
+        return handle;
     }
 
     /// <summary>
@@ -100,9 +137,9 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     /// <summary>
     /// Resolves credential from multiple sources in priority order:
     /// 1. Environment variable (highest priority - CI/CD injection)
-    /// 2. Azure Key Vault / AWS Secrets Manager / HashiCorp Vault
+    /// 2. Azure Key Vault, host-registered stores (AWS Secrets Manager in the CLI), HashiCorp Vault
     /// 3. Local encrypted credential store
-    /// 4. Configuration file (lowest priority - dev only).
+    /// 4. Configuration file (lowest priority - dev only, requires AllowPlaintextConfigFallback).
     /// </summary>
     private async Task<string> ResolveCredentialAsync(
         string credentialName,
@@ -114,7 +151,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
             var connectionString = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING");
             if (!string.IsNullOrEmpty(connectionString))
             {
-                await LogSourceAsync("EnvironmentVariable", credentialName);
+                LogSource("EnvironmentVariable", credentialName);
                 return connectionString;
             }
         }
@@ -124,52 +161,69 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
         var envValue = Environment.GetEnvironmentVariable(envVar);
         if (!string.IsNullOrEmpty(envValue))
         {
-            await LogSourceAsync("EnvironmentVariable", credentialName);
+            LogSource("EnvironmentVariable", credentialName);
             return envValue;
         }
 
-        // Priority 2: Azure Key Vault
-        if (!string.IsNullOrEmpty(_config.KeyVaultUri))
+        // Priority 2: secret managers, in registration order.
+        if (!string.IsNullOrEmpty(_config.AwsRegion)
+            && !_secretStores.Any(store => string.Equals(store.Name, AwsSecretsManagerStoreName, StringComparison.Ordinal)))
         {
-            var kvValue = await GetFromKeyVaultAsync(credentialName, cancellationToken);
-            if (!string.IsNullOrEmpty(kvValue))
+            _logger?.LogWarning(
+                "AwsRegion is configured but no {Store} secret store is registered; the lookup is skipped (the DataGuard CLI registers it)",
+                AwsSecretsManagerStoreName);
+        }
+
+        foreach (var store in _secretStores)
+        {
+            if (!store.IsConfigured(_config))
             {
-                await LogSourceAsync("AzureKeyVault", credentialName);
-                return kvValue;
+                continue;
+            }
+
+            string? storeValue;
+            try
+            {
+                storeValue = await store.GetSecretAsync(credentialName, _config, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Warning, never Debug (red-team D1): a misconfigured or unreachable store must be visible. The message
+                // names the store and the exception type only; store exceptions never carry the secret.
+                LogStoreFailure(store.Name, credentialName, ex);
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(storeValue))
+            {
+                LogSource(store.Name, credentialName);
+                return storeValue;
             }
         }
 
-        // Priority 3: AWS Secrets Manager
-        if (!string.IsNullOrEmpty(_config.AwsRegion))
+        // Priority 3: Local encrypted credential store
+        string? storedConnection;
+        try
         {
-            var awsValue = await GetFromAwsSecretsManagerAsync(credentialName, cancellationToken);
-            if (!string.IsNullOrEmpty(awsValue))
-            {
-                await LogSourceAsync("AwsSecretsManager", credentialName);
-                return awsValue;
-            }
+            storedConnection = await _credentialManager.GetStoredConnectionStringAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is PlatformNotSupportedException or InvalidOperationException or System.IO.IOException)
+        {
+            LogStoreFailure("LocalEncryptedStore", credentialName, ex);
+            storedConnection = null;
         }
 
-        // Priority 4: HashiCorp Vault
-        if (!string.IsNullOrEmpty(_config.VaultAddress))
-        {
-            var vaultValue = await GetFromHashiCorpVaultAsync(credentialName, cancellationToken);
-            if (!string.IsNullOrEmpty(vaultValue))
-            {
-                await LogSourceAsync("HashiCorpVault", credentialName);
-                return vaultValue;
-            }
-        }
-
-        // Priority 5: Local encrypted credential store
-        var storedConnection = await _credentialManager.GetStoredConnectionStringAsync(cancellationToken);
         if (!string.IsNullOrEmpty(storedConnection))
         {
-            await LogSourceAsync("LocalEncryptedStore", credentialName);
+            LogSource("LocalEncryptedStore", credentialName);
             return storedConnection;
         }
 
-        // Priority 6: Configuration file (dev only, fail-closed unless explicitly allowed)
+        // Priority 4: Configuration file (dev only, fail-closed unless explicitly allowed)
         var configValue = _configuration.GetConnectionString(credentialName)
                        ?? _configuration[credentialName];
         if (!string.IsNullOrEmpty(configValue))
@@ -186,154 +240,32 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
             // WARNING: Config file credentials are not secure for production
             Console.Error.WriteLine($"⚠ WARNING: Using credential from config file for '{credentialName}'. " +
                                   "This is not secure for production. Use environment variables or secret managers.");
-            await LogSourceAsync("ConfigFile", credentialName);
+            LogSource("ConfigFile", credentialName);
             return configValue;
         }
 
         return string.Empty;
     }
 
-    private string GetEnvironmentVariableName(string credentialName)
+    private void LogStoreFailure(string storeName, string credentialName, Exception exception)
+    {
+        _logger?.LogWarning(
+            "Secret store {Store} lookup for '{CredentialName}' failed ({ErrorType}: {ErrorMessage}); trying the next source",
+            storeName,
+            credentialName,
+            exception.GetType().Name,
+            exception.Message);
+    }
+
+    private static string GetEnvironmentVariableName(string credentialName)
     {
         return $"DATAGUARD_{credentialName.ToUpperInvariant().Replace("-", "_")}";
     }
 
-    private async Task<string> GetFromKeyVaultAsync(string credentialName, CancellationToken cancellationToken)
-    {
-        if (!IsAzureKeyVaultUri(_config.KeyVaultUri))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            var client = SharedHttpClient;
-
-            // Azure managed identity token (IMDS endpoint) for Key Vault.
-            using var tokenRequest = new HttpRequestMessage(
-                HttpMethod.Get,
-                "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net");
-            tokenRequest.Headers.Add("Metadata", "true");
-            var tokenResponse = await client.SendAsync(tokenRequest, cancellationToken);
-            if (!tokenResponse.IsSuccessStatusCode)
-            {
-                return string.Empty;
-            }
-
-            var tokenJson = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var tokenDoc = JsonDocument.Parse(tokenJson);
-            var accessToken = tokenDoc.RootElement.GetProperty("access_token").GetString();
-            if (string.IsNullOrEmpty(accessToken))
-            {
-                return string.Empty;
-            }
-
-            // Key Vault REST: GET secrets/{name}?api-version=7.4
-            using var secretRequest = new HttpRequestMessage(
-                HttpMethod.Get,
-                $"{_config.KeyVaultUri!.TrimEnd('/')}/secrets/{Uri.EscapeDataString(credentialName)}?api-version=7.4");
-            secretRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            var secretResponse = await client.SendAsync(secretRequest, cancellationToken);
-            if (!secretResponse.IsSuccessStatusCode)
-            {
-                return string.Empty;
-            }
-
-            var secretJson = await secretResponse.Content.ReadAsStringAsync(cancellationToken);
-            using var secretDoc = JsonDocument.Parse(secretJson);
-            return secretDoc.RootElement.GetProperty("value").GetString() ?? string.Empty;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogDebug(ex, "Azure Key Vault lookup failed for '{CredentialName}'", credentialName);
-            return string.Empty;
-        }
-    }
-
-    private async Task<string> GetFromAwsSecretsManagerAsync(string credentialName, CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var client = new AmazonSecretsManagerClient(RegionEndpoint.GetBySystemName(_config.AwsRegion!));
-            var response = await client.GetSecretValueAsync(new GetSecretValueRequest { SecretId = credentialName }, cancellationToken);
-            return response.SecretString ?? string.Empty;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogDebug(ex, "AWS Secrets Manager lookup failed for '{CredentialName}'", credentialName);
-            return string.Empty;
-        }
-    }
-
-    private async Task<string> GetFromHashiCorpVaultAsync(string credentialName, CancellationToken cancellationToken)
-    {
-        if (!IsHttpsUri(_config.VaultAddress))
-        {
-            return string.Empty;
-        }
-
-        var token = Environment.GetEnvironmentVariable("VAULT_TOKEN");
-        if (string.IsNullOrEmpty(token))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            var url = $"{_config.VaultAddress!.TrimEnd('/')}/v1/secret/data/{Uri.EscapeDataString(credentialName)}";
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-
-            // Per-request header: the client is shared process-wide, so
-            // DefaultRequestHeaders would accumulate tokens across calls.
-            request.Headers.Add("X-Vault-Token", token);
-            var response = await SharedHttpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return string.Empty;
-            }
-
-            var json = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("data", out var secretData) &&
-                secretData.TryGetProperty("value", out var value))
-            {
-                return value.GetString() ?? string.Empty;
-            }
-
-            return string.Empty;
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogDebug(ex, "HashiCorp Vault lookup failed for '{CredentialName}'", credentialName);
-            return string.Empty;
-        }
-    }
-
-    private async Task LogSourceAsync(string source, string credentialName)
+    private static void LogSource(string source, string credentialName)
     {
         // Log credential source for audit (without the actual value)
         Console.Error.WriteLine($"[Security] Credential '{credentialName}' resolved from: {source}");
-    }
-
-    private static bool IsAzureKeyVaultUri(string? uri)
-    {
-        return Uri.TryCreate(uri, UriKind.Absolute, out var u) &&
-               u.Scheme == Uri.UriSchemeHttps &&
-               u.Host.EndsWith("vault.azure.net", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsHttpsUri(string? uri)
-    {
-        return Uri.TryCreate(uri, UriKind.Absolute, out var u) &&
-               u.Scheme == Uri.UriSchemeHttps;
-    }
-
-    private static string ComputeHash(string input)
-    {
-        using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(hash)[..16];
     }
 }
 

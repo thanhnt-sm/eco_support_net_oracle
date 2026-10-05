@@ -336,3 +336,102 @@ public sealed class TrustedSnapshotEntity
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Manual mode reads attributes through MetadataLoadContext (red-team Medium: Assembly.LoadFrom): a compiled assembly on
+/// disk is inspected without running any of its code and without entering the default load context.
+/// </summary>
+public class ManualContractSourceMetadataTests
+{
+    private const string Source = """
+        using System.Runtime.CompilerServices;
+        using DataGuard.Contracts;
+
+        namespace Hostile.Fixture;
+
+        public static class Trap
+        {
+            [ModuleInitializer]
+            public static void Init() => System.IO.File.WriteAllText(System.Environment.GetEnvironmentVariable("DG_MLC_MARKER") ?? "dg-mlc-marker.txt", "executed");
+        }
+
+        [DataContract("ORDERS")]
+        public class Order
+        {
+            static Order() => Trap.Init();
+
+            [ExpectedColumn("order_id", "long", IsNullable = false)]
+            public long Id { get; set; }
+
+            public decimal? Total { get; set; }
+
+            [ExpectedSpParameter("p_id", "NUMBER", "InputOutput", MaxLength = 12, ClrType = "long")]
+            [ResultSet("ORDER_TOTAL", "decimal", IsNullable = true)]
+            public void GetOrder([SqlParameter("p_tenant", "VARCHAR2", MaxLength = 30, Direction = ParameterDirection.Output)] string tenant) { }
+        }
+        """;
+
+    private static string CompileFixture(string directory)
+    {
+        var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
+            .Split(Path.PathSeparator)
+            .Where(path => Path.GetFileName(path).StartsWith("System.", StringComparison.Ordinal) || Path.GetFileName(path) is "netstandard.dll" or "mscorlib.dll")
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Append(MetadataReference.CreateFromFile(typeof(global::DataGuard.Contracts.ExpectedColumnAttribute).Assembly.Location))
+            .ToList();
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
+            "Hostile.Fixture." + Guid.NewGuid().ToString("N"),
+            new[] { Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(Source) },
+            references,
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var path = Path.Combine(directory, compilation.AssemblyName + ".dll");
+        var emit = compilation.Emit(path);
+        emit.Success.Should().BeTrue(string.Join(Environment.NewLine, emit.Diagnostics));
+        File.Copy(typeof(global::DataGuard.Contracts.ExpectedColumnAttribute).Assembly.Location, Path.Combine(directory, "DataGuard.Contracts.dll"));
+        return path;
+    }
+
+    [Fact]
+    public async Task ExtractContractsAsync_CompiledAssemblyOnDisk_ReadsAttributesWithoutExecutingOrLoadingIt()
+    {
+        var directory = Directory.CreateTempSubdirectory("dg-mlc").FullName;
+        try
+        {
+            var assemblyPath = CompileFixture(directory);
+            var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+            var contracts = await new ManualContractSource(assemblyPath).ExtractContractsAsync();
+
+            var entity = contracts.OfType<global::DataGuard.Core.Abstractions.EntityDescriptor>().Should().ContainSingle().Subject;
+            entity.TableName.Should().Be("ORDERS");
+            entity.Properties.Should().ContainSingle(p => p.ColumnName == "order_id" && p.ClrTypeName == "long" && !p.IsNullable);
+            entity.Properties.Should().ContainSingle(p => p.Name == "Total" && p.IsNullable, "Nullable<T> is recognized without the runtime type");
+
+            var procedure = contracts.OfType<global::DataGuard.Core.Abstractions.StoredProcedureDescriptor>().Should().ContainSingle().Subject;
+            procedure.Parameters.Should().ContainSingle(p => p.Name == "p_id" && p.Direction == global::DataGuard.Core.Abstractions.ParameterDirection.InputOutput && p.MaxLength == 12 && p.ClrType == "long");
+            procedure.Parameters.Should().ContainSingle(p => p.Name == "p_tenant" && p.DataType == "VARCHAR2" && p.Direction == global::DataGuard.Core.Abstractions.ParameterDirection.Output && p.MaxLength == 30);
+            procedure.ResultColumns.Should().ContainSingle(c => c.Name == "ORDER_TOTAL" && c.IsNullable);
+
+            System.Runtime.Loader.AssemblyLoadContext.All
+                .SelectMany(context => context.Assemblies)
+                .Should().NotContain(loaded => loaded.GetName().Name == assemblyName, "metadata inspection never loads the assembly for execution");
+            File.Exists(Path.Combine(directory, "dg-mlc-marker.txt")).Should().BeFalse();
+            File.Exists("dg-mlc-marker.txt").Should().BeFalse("no module initializer or static constructor ran");
+
+            // The context is disposed: the file is not held open (deletable on every OS).
+            File.Delete(assemblyPath);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExtractContractsAsync_MissingAssembly_ThrowsFileNotFound()
+    {
+        var act = () => new ManualContractSource(Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll")).ExtractContractsAsync();
+
+        await act.Should().ThrowAsync<FileNotFoundException>();
+    }
+}

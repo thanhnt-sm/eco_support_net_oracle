@@ -30,9 +30,20 @@ tùy theo mức độ nghiêm trọng.
 
 ## Tư thế bảo mật
 
-- **Thông tin xác thực (Credentials)**: secret manager (Azure Key Vault, AWS Secrets Manager,
-  HashiCorp Vault) hoặc biến môi trường là các nguồn duy nhất được hỗ trợ trong production; thông tin
-  xác thực plaintext trong file cấu hình bị tắt theo mặc định (`AllowPlaintextConfigFallback=false`).
+- **Thông tin xác thực (Credentials)**: các lệnh CLI dùng database resolve connection theo thứ tự:
+  `--connection-env NAME` (tên một biến môi trường) → `DATAGUARD_CONNECTION_STRING` → credential
+  provider (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault nếu được cấu hình, rồi file credential
+  đã mã hoá) → `ConnectionString` trong `.dataguard.yml` **chỉ khi** `AllowPlaintextConfigFallback: true`
+  (mặc định `false`: key bị bỏ qua kèm một dòng cảnh báo nêu tên key, không bao giờ nêu giá trị).
+  `--connection <value>` vẫn hoạt động nhưng in
+  `warning: a connection string on the command line is visible to process listings; prefer --connection-env`.
+  Secret store lỗi được báo ở mức Warning kèm tên store (không bao giờ kèm secret) rồi thử nguồn kế tiếp.
+  `--offline` và `--ide-safe` không bao giờ tra secret store. AWS SDK chỉ đi kèm CLI; `DataGuard.Core`
+  cung cấp `ISecretStore` để host tự đăng ký store.
+- **File credential khi lưu (at rest)**: `EncryptConnectionStringAtRest` mặc định `true` — Windows DPAPI,
+  macOS Keychain, hoặc Linux Secret Service qua `/usr/bin/secret-tool`. Khi không có backend nào, file
+  quay về plaintext chỉ chủ sở hữu đọc được kèm cảnh báo; đặt `RequireEncryptedCredentialStore: true`
+  để từ chối thay vì vậy.
 - **Chuỗi cung ứng**: package NuGet được ký (Sigstore keyless), publish qua Trusted Publishing
   (OIDC), kèm SBOM + provenance attestation; GitHub Actions được pin theo SHA.
 - **Allow-list giấy phép**: CI fail khi bất kỳ package NuGet nào được resolve bởi `DataGuard.sln`
@@ -41,8 +52,18 @@ tùy theo mức độ nghiêm trọng.
   được neo theo marker, ví dụ Visual Studio SDK và driver Oracle); xem `scripts/check-nuget-licences.py`.
 - **CI gates**: quét lỗ hổng (fail khi có package vulnerable), quét secret bằng TruffleHog, và CodeQL
   chạy trên mọi branch/PR và tag release.
-- **Audit**: việc truy cập credential được ghi vào log hash-chain chỉ-ghi-thêm chống giả mạo với khả
-  năng phát hiện tail-truncation.
+- **Audit**: việc truy cập credential được ghi vào log hash-chain chỉ-ghi-thêm với khả năng phát hiện
+  tail-truncation. Khi có khoá (`DATAGUARD_AUDIT_KEY`, hoặc file nêu trong `AuditKeyFile`; tối thiểu 16
+  byte, đặt ngoài repository và ngoài thư mục log) mỗi mắt xích là HMAC-SHA256, nên kẻ tấn công ghi được
+  thư mục log nhưng không có khoá không thể giả mạo hay nối lại chuỗi. Không có khoá, chuỗi là SHA-256 thường
+  và `VerifyIntegrityAsync` báo `Unkeyed` (nguyên vẹn nhưng có thể giả mạo) thay vì `Valid`.
+  `CredentialManager` và mọi thành phần khác ghi qua cùng một `IAuditLogger` (một chuỗi, không ghi dòng
+  thô); dấu vân tay connection string là HMAC với salt ngẫu nhiên theo từng file log (lưu trong header
+  checkpoint), và giá trị cấu hình được che chỉ giữ tối đa bốn ký tự.
+- **Manual mode**: `ManualContractSource` đọc attribute qua `MetadataLoadContext`: không chạy mã nào của
+  assembly và assembly không bao giờ vào default load context. `ManualAssemblyPath` lấy từ
+  `.dataguard.yml` cần thêm `--allow-assembly-from-config` (nếu không: exit 2); `--offline --assembly <path>`
+  trên dòng lệnh không cần cờ.
 - **Plugins**: rule plugin chỉ được nạp từ thư mục được cấu hình rõ ràng vào isolated, collectible
   assembly-load context.
 - **IDE hosts (`validate` / `assess`)**: extension Visual Studio và VS Code chạy `validate` và `assess`
@@ -55,7 +76,9 @@ tùy theo mức độ nghiêm trọng.
   đều hiển thị: dòng stderr `baseline: <n> violations suppressed by <path>` và progress event
   `BaselineApplied`.
 - **IDE hosts (credential của người dùng)**: `--allow-env-connection` (chỉ đi kèm `--ide-safe`, chỉ với
-  `validate`) giữ lại credential `DATAGUARD_CONNECTION_STRING` do host cung cấp; connection string trong
+  `validate`) giữ lại credential `DATAGUARD_CONNECTION_STRING` do host cung cấp (hoặc biến nêu bởi
+  `--connection-env`, mà `--ide-safe` từ chối trừ khi có thêm `--allow-env-connection`;
+  `--allow-assembly-from-config` luôn bị từ chối dưới `--ide-safe`); connection string trong
   `.dataguard.yml` luôn bị xoá. VS Code chỉ truyền cờ này khi có credential lưu trong SecretStorage.
   Dưới `--ide-safe`, `validate` dùng credential đó **chỉ để đọc catalog ground-truth** (schema và định
   nghĩa stored procedure); không bao giờ gửi hay describe SQL trích từ repository lên database — kiểm tra

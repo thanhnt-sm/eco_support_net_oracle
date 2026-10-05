@@ -305,8 +305,8 @@ sequenceDiagram
     participant REF as Reflection
 
     CLI->>MS: ExtractContractsAsync()
-    MS->>ASM: Assembly.LoadFrom(path)
-    MS->>REF: GetTypes() → GetProperties()
+    MS->>ASM: MetadataLoadContext.LoadFromAssemblyPath(path) (metadata only)
+    MS->>REF: GetTypes() → GetProperties() → GetCustomAttributesData()
     REF-->>MS: Attributes [ExpectedColumn]
     MS->>REF: GetTypes() → GetMethods()
     REF-->>MS: Attributes [ExpectedSpParameter]

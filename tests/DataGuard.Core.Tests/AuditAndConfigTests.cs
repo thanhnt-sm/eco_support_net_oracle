@@ -95,9 +95,10 @@ public class AuditAndConfigTests
         using var doc = JsonDocument.Parse(lines[0]);
         var details = doc.RootElement.GetProperty("Details").GetString()!;
 
-        // Masking applies to the whole value: first 4 + **** + last 4 chars.
+        // Masking keeps at most four characters of the whole value: first 2 + **** + last 2.
         // The full secrets must never appear in the audit log.
-        details.Should().Contain("Serv****cret");
+        details.Should().Contain("Se****et");
+        details.Should().NotContain("Serv");
         details.Should().NotContain("supersecret");
         details.Should().NotContain("anothersecret");
     }
@@ -247,7 +248,7 @@ public class AuditAndConfigTests
             second.RootElement.GetProperty("Hash").GetString().Should().NotBe(firstHash);
         }
 
-        (await logger.VerifyIntegrityAsync()).Should().BeTrue();
+        (await logger.VerifyIntegrityAsync()).IsIntact.Should().BeTrue();
 
         await ReadLinesAndCleanup(path);
     }
@@ -258,7 +259,7 @@ public class AuditAndConfigTests
         var path = NewTempLogPath();
         var logger = new FileAuditLogger(path);
 
-        (await logger.VerifyIntegrityAsync()).Should().BeTrue();
+        (await logger.VerifyIntegrityAsync()).IsIntact.Should().BeTrue();
 
         File.Exists(path).Should().BeFalse();
     }
@@ -272,7 +273,7 @@ public class AuditAndConfigTests
         await logger.LogCredentialAccessAsync("one", "p", "h1");
         await File.AppendAllTextAsync(path, "{\"Timestamp\":\"2020-01-01T00:00:00+00:00\",\"EventType\":\"Forged\"}\n");
 
-        (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+        (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Tampered);
 
         await ReadLinesAndCleanup(path);
     }
@@ -286,7 +287,7 @@ public class AuditAndConfigTests
         await logger.LogCredentialAccessAsync("one", "p", "h1");
         await File.AppendAllTextAsync(path, "not-json\n");
 
-        (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+        (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Tampered);
 
         await ReadLinesAndCleanup(path);
     }
@@ -312,7 +313,7 @@ public class AuditAndConfigTests
                 .Should().Be(first.RootElement.GetProperty("Hash").GetString());
         }
 
-        (await logger.VerifyIntegrityAsync()).Should().BeFalse();
+        (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Tampered);
 
         await ReadLinesAndCleanup(path);
     }
@@ -335,7 +336,9 @@ public class ConfigurationDefaultsTests
         config.MaxViolationQueueSize.Should().Be(100000);
         config.EnableCredentialRotationDetection.Should().BeTrue();
         config.CredentialRotationWarningDays.Should().Be(30);
-        config.EncryptConnectionStringAtRest.Should().BeFalse();
+        config.EncryptConnectionStringAtRest.Should().BeTrue("encrypt-at-rest is the default; the store falls back to plaintext with a warning only when no OS backend exists");
+        config.RequireEncryptedCredentialStore.Should().BeFalse();
+        config.AuditKeyFile.Should().BeNull();
         config.EnableAuditLogging.Should().BeTrue();
         config.AllowPlaintextConfigFallback.Should().BeFalse("fail-closed is the default posture");
         config.AutoDetectProvider.Should().BeTrue();

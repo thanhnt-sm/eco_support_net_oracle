@@ -22,7 +22,11 @@ public record DataGuardConfiguration(
     // Security settings
     bool EnableCredentialRotationDetection = true,
     int CredentialRotationWarningDays = 30,
-    bool EncryptConnectionStringAtRest = false,
+
+    // Default true: DPAPI on Windows, Keychain on macOS, Secret Service (secret-tool) on Linux. When no backend is
+    // available the credential store falls back to owner-only plaintext with a warning, unless
+    // RequireEncryptedCredentialStore is set.
+    bool EncryptConnectionStringAtRest = true,
     string? KeyVaultUri = null,
     string? AwsRegion = null,
     string? VaultAddress = null,
@@ -78,6 +82,20 @@ public record DataGuardConfiguration(
     /// <see cref="DefaultPackage"/> (Oracle) for resolution.
     /// </summary>
     public bool StrictProcedureContracts { get; init; }
+
+    /// <summary>
+    /// Path of a file whose trimmed text is the HMAC-SHA256 key for the audit-log hash chain. <c>DATAGUARD_AUDIT_KEY</c>
+    /// wins when both are set. Keep the key outside the repository and outside the audit-log directory: a key an attacker
+    /// can read lets them rewrite the chain. Null (default) with no environment key keeps the unkeyed SHA-256 chain,
+    /// which <c>FileAuditLogger.VerifyIntegrityAsync</c> reports as <c>Unkeyed</c>.
+    /// </summary>
+    public string? AuditKeyFile { get; init; }
+
+    /// <summary>
+    /// When true, storing a connection string fails (instead of falling back to owner-only plaintext with a warning) if
+    /// <see cref="EncryptConnectionStringAtRest"/> is set and no OS protection backend is available. Default false.
+    /// </summary>
+    public bool RequireEncryptedCredentialStore { get; init; }
 }
 
 /// <summary>

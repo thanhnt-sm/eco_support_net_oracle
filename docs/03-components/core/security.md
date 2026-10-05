@@ -4,7 +4,7 @@
 
 The security subsystem implements zero-trust credential handling, hash-chain audit logging, and supply chain integrity verification. Every component follows the principle: **never log or serialize secrets, minimize secret lifetime with best-effort clearing, and fail closed by default**. Managed runtimes cannot promise that a secret never appears in a memory dump; callers must treat process-memory access as privileged.
 
-`EncryptConnectionStringAtRest` uses Windows DPAPI on Windows, the login Keychain on macOS, and Linux Secret Service through `secret-tool` on Linux. The Keychain bridge calls Security.framework directly; the Linux bridge supplies a secret on standard input, so neither puts it in command-line arguments. Linux helper output is bounded (1 MiB for the secret and 16 KiB for errors) and operations time out after 10 seconds. If the platform backend or Secret Service is unavailable, an encrypted write fails before any file is written and protected references fail closed. DataGuard never writes plaintext while marking it encrypted. Plaintext storage remains an explicit choice (`EncryptConnectionStringAtRest: false`).
+`EncryptConnectionStringAtRest` uses Windows DPAPI on Windows, the login Keychain on macOS, and Linux Secret Service through `secret-tool` on Linux. The Keychain bridge calls Security.framework directly; the Linux bridge supplies a secret on standard input, so neither puts it in command-line arguments. Linux helper output is bounded (1 MiB for the secret and 16 KiB for errors) and operations time out after 10 seconds. `EncryptConnectionStringAtRest` defaults to `true`. When no backend exists (`CredentialManager.IsPlatformProtectionAvailable()` is false: Linux without `/usr/bin/secret-tool`, other OSes) the write falls back to owner-only plaintext with a warning, or fails before any file is written with `RequireEncryptedCredentialStore: true`. When a backend exists but the write fails (for example no Secret Service session), it fails closed and protected references fail closed. DataGuard never writes plaintext while marking it encrypted. Plaintext storage without a warning is an explicit choice (`EncryptConnectionStringAtRest: false`).
 The additive `ICredentialSecretStore` contract allows platform-gated fakes in tests; production selection remains OS-specific and an unavailable implementation throws before persistence.
 
 ## Security Flow
@@ -104,13 +104,7 @@ Uses Azure Managed Identity via IMDS endpoint (`169.254.169.254`):
 
 ### AWS Secrets Manager Integration
 
-Uses `AmazonSecretsManagerClient` with region from configuration:
-```csharp
-using var client = new AmazonSecretsManagerClient(
-    RegionEndpoint.GetBySystemName(_config.AwsRegion!));
-var response = await client.GetSecretValueAsync(
-    new GetSecretValueRequest { SecretId = credentialName });
-```
+`DataGuard.Core` carries no AWS SDK. Secret managers implement `ISecretStore` (`Name`, `IsConfigured`, `GetSecretAsync`; null = absent, an exception = failure that the provider logs at **Warning** with the store name and then tries the next source). Core ships `AzureKeyVaultSecretStore` and `HashiCorpVaultSecretStore`; the CLI registers `DataGuard.Cli.Security.AwsSecretsManagerSecretStore` (`AmazonSecretsManagerClient` for `AwsRegion`) through the `ZeroTrustCredentialProvider(..., IEnumerable<ISecretStore> additionalSecretStores, ...)` constructor. Lookup order: Key Vault → registered stores → HashiCorp Vault → encrypted credential file. A library host that sets `AwsRegion` without registering a store gets a warning.
 
 ### HashiCorp Vault Integration
 
@@ -246,11 +240,16 @@ var hash = ComputeHash((previousHash ?? "") + content);
 var chained = entry with { Hash = hash, PreviousHash = previousHash };
 ```
 
-**Integrity verification** (`VerifyIntegrityAsync`):
+**Keyed chain**: with `DATAGUARD_AUDIT_KEY` or `AuditKeyFile` (at least 16 bytes; `FileAuditLogger.Create(config)`), each link is `HMAC-SHA256(key, previousHash + content)` and the entry carries `HashAlgorithm: "HMAC-SHA256"` (covered by the link). Without a key the link is SHA-256 and the field is omitted (legacy line format).
+
+**Single writer**: `CredentialManager` writes through the injected `IAuditLogger` (`LogSecurityEventAsync`), never raw lines. Every `FileAuditLogger` instance appends under a per-path lock and re-reads the chain tail before writing, so several writers in one process keep one chain. The checkpoint (`<log>.checkpoint`, JSON) records the last hash, whether the chain is keyed, and a random per-file salt; `HashSensitiveValue` returns `HMAC-SHA256(salt, value)[..16]` for connection-string fingerprints (rotation events).
+
+**Integrity verification** (`VerifyIntegrityAsync` → `AuditIntegrityResult`):
 1. Read all log lines
-2. Recompute hash chain from scratch
-3. Compare each entry's hash against expected
-4. Verify checkpoint matches last hash (detects tail truncation)
+2. Recompute hash chain from scratch (`PreviousHash` must match; keyed links need the key)
+3. An unkeyed entry after a keyed one is tampering (downgrade)
+4. Verify checkpoint matches last hash (detects tail truncation; a legacy bare-hash checkpoint is accepted)
+5. Status: `Valid` (keyed and intact), `Unkeyed` (intact SHA-256 chain), `Tampered`, or `KeyRequired` (keyed entries, no key)
 
 ### NullAuditLogger
 
@@ -259,8 +258,8 @@ No-op implementation when audit logging is disabled. All methods return `Task.Co
 ### Sensitive Value Masking
 
 `MaskValue()` redacts sensitive values in configuration change logs:
-- Short values (≤8 chars): `"****"`
-- Long values: `"abcd****wxyz"` (first 4 + last 4)
+- Values of 12 characters or fewer: `"****"`
+- Longer values: `"ab****yz"` (first 2 + last 2; at most four characters kept)
 
 ## SupplyChainVerifier
 
@@ -333,7 +332,9 @@ Security settings in `DataGuardConfiguration`:
 |---------|---------|-------------|
 | `EnableCredentialRotationDetection` | `true` | Detect connection string changes |
 | `CredentialRotationWarningDays` | `30` | Days before rotation warning |
-| `EncryptConnectionStringAtRest` | `false` | DPAPI (Windows), Keychain (macOS), or Secret Service (Linux when available) |
+| `EncryptConnectionStringAtRest` | `true` | DPAPI (Windows), Keychain (macOS), or Secret Service (Linux when available); plaintext with a warning when no backend exists |
+| `RequireEncryptedCredentialStore` | `false` | Refuse to store when encryption is requested but no backend exists |
+| `AuditKeyFile` | `null` | File whose trimmed text is the audit HMAC key (`DATAGUARD_AUDIT_KEY` wins) |
 | `KeyVaultUri` | `null` | Azure Key Vault URI |
 | `AwsRegion` | `null` | AWS region for Secrets Manager |
 | `VaultAddress` | `null` | HashiCorp Vault address |

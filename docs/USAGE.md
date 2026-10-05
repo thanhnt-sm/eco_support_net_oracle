@@ -117,10 +117,15 @@ SqlServer:
 # Bảo mật / Security
 EnableCredentialRotationDetection: true
 CredentialRotationWarningDays: 30
-EncryptConnectionStringAtRest: false
+EncryptConnectionStringAtRest: true   # mặc định: DPAPI / Keychain / Secret Service; không có backend => plaintext + cảnh báo
+RequireEncryptedCredentialStore: false # true = từ chối lưu khi không có backend mã hoá
 KeyVaultUri: ""                    # Azure Key Vault URI (nếu có)
+AwsRegion: ""                      # AWS Secrets Manager (CLI đăng ký store)
+VaultAddress: ""                   # HashiCorp Vault (https, VAULT_TOKEN)
+AllowPlaintextConfigFallback: false # true = cho phép dùng ConnectionString plaintext trong file này (chỉ dev)
 EnableAuditLogging: true
 AuditLogPath: ""                   # Tùy chọn custom path
+AuditKeyFile: ""                   # File chứa khoá HMAC cho audit chain (hoặc env DATAGUARD_AUDIT_KEY); đặt ngoài repo
 ```
 
 ---
@@ -130,7 +135,11 @@ AuditLogPath: ""                   # Tùy chọn custom path
 ### 1. `dataguard validate` - Xác Thực Hợp Đồng
 
 ```bash
-# Cơ bản
+# Cơ bản: connection lấy từ biến môi trường do bạn đặt tên (không lộ trên process listing)
+export ORACLE_CI="User Id=...;Password=...;Data Source=..."
+dataguard validate --connection-env ORACLE_CI
+
+# --connection vẫn chạy nhưng in cảnh báo: chuỗi trên dòng lệnh hiện trong process listing
 dataguard validate --connection "Server=...;Database=...;"
 
 # Chế độ offline (không DB): dùng snapshot đã commit (.dataguard-snapshot.json)
@@ -155,7 +164,9 @@ dataguard validate --connection "..." --verbose
 **Options / Tùy Chọn**:
 | Option | Mô Tả | Mặc Định |
 |--------|-------|----------|
-| `--connection` | Connection string | Từ config/env |
+| `--connection` | Connection string (deprecated: in `warning: a connection string on the command line is visible to process listings; prefer --connection-env`) | - |
+| `--connection-env` | **Tên** biến môi trường chứa connection string; biến chưa đặt/rỗng => exit `2`. Dưới `--ide-safe` chỉ được dùng cùng `--allow-env-connection` | - |
+| `--allow-assembly-from-config` | Cho phép Manual mode đọc `ManualAssemblyPath` trong file config (thiếu cờ => exit `2`); `--offline --assembly` không cần cờ; luôn bị từ chối dưới `--ide-safe`. Có ở `validate` và `baseline` | `false` |
 | `--config` | Đường dẫn .dataguard.yml; file không tồn tại => exit `2` (không tự dùng mặc định) | - (mặc định cấu hình built-in) |
 | `--output` | File output SARIF/JSON | Stdout |
 | `--format` | `sarif` \| `json` \| `text` | `sarif` |
@@ -174,8 +185,17 @@ dataguard validate --connection "..." --verbose
 | `--ide-safe` | Chế độ IDE-safe cho repo chưa tin cậy (xem dưới) | `false` |
 | `--allow-env-connection` | Chỉ với `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp (chỉ `validate`) | `false` |
 
+**Thứ tự resolve connection** (mọi lệnh dùng database: `validate`, `baseline`, `snapshot refresh/diff`, `oracle-check`, `verify-shape`, `preflight`):
+1. `--connection <value>` (kèm cảnh báo deprecated)
+2. `--connection-env NAME`
+3. `DATAGUARD_CONNECTION_STRING`
+4. Credential provider: Azure Key Vault (`KeyVaultUri`) → AWS Secrets Manager (`AwsRegion`) → HashiCorp Vault (`VaultAddress` + `VAULT_TOKEN`) → biến `DATAGUARD_DATABASECONNECTION` → file credential đã mã hoá (`ApplicationData/DataGuard/credentials.json`). Store lỗi => một dòng `warning: Secret store <Name> lookup ... failed` (không bao giờ in secret) rồi thử nguồn kế tiếp. Bỏ qua hoàn toàn với `--offline`/`--ide-safe`.
+5. `ConnectionString` trong `.dataguard.yml` **chỉ khi** `AllowPlaintextConfigFallback: true`; mặc định key này bị bỏ qua kèm `warning: ignoring the plaintext ConnectionString key in the configuration file ...`.
+
+Khi credential provider được dùng, mọi truy cập được ghi vào audit log (`AuditLogPath`) qua một writer duy nhất; đặt `DATAGUARD_AUDIT_KEY` (hoặc `AuditKeyFile`, ≥ 16 byte) để chuỗi được khoá bằng HMAC-SHA256 — xem `SECURITY.md`.
+
 **`--ide-safe` (IDE hosts / untrusted repositories — chỉ `validate` và `assess`)**:
-`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--ef-snapshot`, `--ef-project`, `--ef-context` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`.
+`.dataguard.yml` nằm trong repo nên attacker kiểm soát được nó. Với `--ide-safe`, CLI **bỏ qua** mọi thứ trong config/env có thể nạp code hoặc mở kết nối: `GroundTruthMode` bị ép về `Snapshot`, `ManualAssemblyPath`, `ConnectionString` (kể cả `DATAGUARD_CONNECTION_STRING`, trừ khi có `--allow-env-connection`), `KeyVaultUri`/`AwsRegion`/`VaultAddress`, `AuditLogPath`, `EnableTelemetry`/`TelemetryFileDirectory` đều bị xoá và liệt kê trong một dòng stderr `ide-safe: suppressed ...`. Các option `--connection`, `--offline`, `--assembly`, `--allow-assembly-from-config`, `--ef-snapshot`, `--ef-project`, `--ef-context`, `--connection-env` khi thiếu `--allow-env-connection` (validate) và `--allow-network`, `--remote-advisories` (assess) bị từ chối với exit code `2`. Extension Visual Studio và VS Code luôn truyền cờ này cho `validate`/`assess`.
 
 - **Handshake**: dòng stderr **đầu tiên** luôn là `ide-safe: active` (in trước cả dòng từ chối option). Host chỉ chấp nhận kết quả khi thấy dòng này; CLI cũ (≤ 0.2.2) không biết cờ, in `Unrecognized command or argument '--ide-safe'` và **exit `1`** — host báo "CLI quá cũ" và không bao giờ chạy lại mà thiếu cờ.
 - **`--allow-env-connection`** (chỉ `validate`, không có tác dụng nếu thiếu `--ide-safe`): giữ lại đúng một credential là `DATAGUARD_CONNECTION_STRING` do host đặt; `ConnectionString` trong file config **luôn** bị xoá. Khi giữ, stderr in `ide-safe: kept environment connection (--allow-env-connection)`; `GroundTruthMode: Manual` bị ép về `Snapshot`. Credential được giữ **chỉ dùng để đọc catalog ground-truth** (schema, định nghĩa stored procedure); `validate` không gửi hay describe SQL trích từ repo lên database — rule live SQL shape (`sp_describe_first_result_set` trên SQL của repo) vẫn tắt dưới `--ide-safe` (stderr liệt kê `live SQL shape rule disabled (use verify-shape)`), chỉ `verify-shape` (có xác nhận) mới thực hiện. VS Code chỉ truyền cờ này khi có credential trong SecretStorage.
@@ -746,7 +766,9 @@ protected override void OnConfiguring(DbContextOptionsBuilder options)
 
 | Variable | Mô Tả | Ví Dụ |
 |----------|-------|-------|
-| `DATAGUARD_CONNECTION_STRING` | Connection string chính | `Server=...;Database=...` |
+| `DATAGUARD_CONNECTION_STRING` | Connection string chính (sau `--connection-env`) | `Server=...;Database=...` |
+| `DATAGUARD_DATABASECONNECTION` | Connection string đọc bởi credential provider | `Server=...;Database=...` |
+| `DATAGUARD_AUDIT_KEY` | Khoá HMAC (≥ 16 byte) cho audit hash chain; thắng `AuditKeyFile` | (secret) |
 | `DATAGUARD_PROVIDER` | Provider mặc định | `Oracle` / `SqlServer` |
 | `DATAGUARD_CONFIG` | Config file path | `.dataguard.yml` |
 | `DATAGUARD_BASELINE_PATH` | Baseline file path | `.dataguard-baseline.json` |

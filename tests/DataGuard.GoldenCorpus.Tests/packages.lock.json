@@ -627,8 +627,8 @@
       },
       "System.Collections.Immutable": {
         "type": "Transitive",
-        "resolved": "10.0.3",
-        "contentHash": "gpKPycgDFS2oAPr0yaqwBmShE1ya4yMMkn3lxBPcXrsCI4KL10xSu0cSUzeajQ7LKjb3EsUAgjhBiPGrGU6vSQ=="
+        "resolved": "10.0.12",
+        "contentHash": "tRMzrybcwEEaudfpL9ghzfnSjEVVuhKa5sR86q30mYxXJdcKOLSBkpMFm62CGsbB50diPZta73Pxu8DgjGdDbA=="
       },
       "System.CommandLine": {
         "type": "Transitive",
@@ -751,10 +751,19 @@
       },
       "System.Reflection.Metadata": {
         "type": "Transitive",
-        "resolved": "10.0.1",
-        "contentHash": "zpcfT/wacPPhE17zcudozlxQtWN/84qyiMyZNGLnK4cj2IMBtLsZYwYjVnALUhPliwyUVj/P7kaZvBWYBCnf2Q==",
+        "resolved": "10.0.12",
+        "contentHash": "GvhJ5dVmJAw89wCWCyHXaU4A9iZjUtAW/ucshV6EpDW3l7VD8zHSWO14SHVD3m3jSuSE+FcNTrQFquJSQqJVVA==",
         "dependencies": {
-          "System.Collections.Immutable": "10.0.1"
+          "System.Collections.Immutable": "10.0.12"
+        }
+      },
+      "System.Reflection.MetadataLoadContext": {
+        "type": "Transitive",
+        "resolved": "10.0.12",
+        "contentHash": "+DWu1fzj75I1FgdHSg3crgeZmfF2z55x1+OXF2IO2Lcq/iNgM9tL734pxAG0vo5iE82FVPHwbqUt31o8ipPBWg==",
+        "dependencies": {
+          "System.Collections.Immutable": "10.0.12",
+          "System.Reflection.Metadata": "10.0.12"
         }
       },
       "System.Runtime.CompilerServices.Unsafe": {
@@ -873,6 +882,7 @@
       "dataguard.cli": {
         "type": "Project",
         "dependencies": {
+          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Analyzers": "[1.0.0, )",
           "DataGuard.Core": "[1.0.0, )",
           "DataGuard.MySql.Adapter": "[1.0.0, )",
@@ -888,7 +898,6 @@
       "dataguard.core": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.14, )",
           "DataGuard.Contracts": "[1.0.0, )",
           "Microsoft.CodeAnalysis.CSharp": "[5.9.0, )",
           "Microsoft.CodeAnalysis.CSharp.Workspaces": "[5.9.0, )",
@@ -901,6 +910,7 @@
           "Microsoft.Extensions.Logging": "[10.0.12, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.12, )",
           "System.Composition.Hosting": "[10.0.12, )",
+          "System.Reflection.MetadataLoadContext": "[10.0.12, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )",
           "System.Text.Json": "[10.0.12, )",
           "YamlDotNet": "[18.1.0, )"

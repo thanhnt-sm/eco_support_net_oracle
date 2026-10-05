@@ -21,6 +21,8 @@ using DataGuard.Core.Rules;
 using DataGuard.Core.Validation;
 using DataGuard.Cli;
 using DataGuard.Cli.Hooks;
+using DataGuard.Cli.Security;
+using DataGuard.Core.Security.SecretStores;
 
 // Bound every regex in the process before any type with a static Regex field is touched (red-team F11).
 RegexMatchTimeoutStartup.Apply();
@@ -96,7 +98,7 @@ var rootCommand = new RootCommand("DataGuard - Entity ↔ SP/Raw SQL Contract Va
 #region Common Options
 
 var connectionOption = new Option<string>("--connection");
-connectionOption.Description = "Database connection string";
+connectionOption.Description = "Database connection string (deprecated: visible to process listings; prefer --connection-env)";
 var configOption = new Option<string>("--config");
 configOption.Description = "Path to .dataguard.yml config file";
 var outputOption = new Option<string>("--output");
@@ -142,7 +144,11 @@ allowSyntacticOnlyOption.Description = "Allow validate without ground truth (sna
 var allowUnevaluatedOption = new Option<bool>("--allow-unevaluated");
 allowUnevaluatedOption.Description = "Report contracts that could not be evaluated (failed live describe, partial acquisition) without exiting 3; the exit code then follows the violations. Implied by --ide-safe";
 var allowEnvConnectionOption = new Option<bool>(IdeSafePolicy.AllowEnvConnectionOptionName);
-allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DATAGUARD_CONNECTION_STRING (config-file connection strings are still ignored); no effect without --ide-safe";
+allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DATAGUARD_CONNECTION_STRING (or the --connection-env variable); config-file connection strings are still ignored; no effect without --ide-safe";
+var connectionEnvOption = new Option<string>(IdeSafePolicy.ConnectionEnvOptionName);
+connectionEnvOption.Description = "Name of the environment variable that holds the connection string (preferred over --connection). Without either, DATAGUARD_CONNECTION_STRING, then configured secret stores and the encrypted credential file are used";
+var allowAssemblyFromConfigOption = new Option<bool>(IdeSafePolicy.AllowAssemblyFromConfigOptionName);
+allowAssemblyFromConfigOption.Description = "Allow Manual mode to read the ManualAssemblyPath set in the configuration file (--assembly on the command line needs no flag); rejected with --ide-safe";
 
 #endregion
 
@@ -150,7 +156,7 @@ allowEnvConnectionOption.Description = "With --ide-safe: keep a host-supplied DA
 
 var validateCommand = new Command("validate", "Validate contracts against database")
 {
-    connectionOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption,
+    connectionOption, connectionEnvOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, allowAssemblyFromConfigOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption,
 };
 
 validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -169,7 +175,12 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     var projectPath = result.GetValue(projectOption);
     var ideSafe = result.GetValue(ideSafeOption);
     var allowEnvConnection = ideSafe && result.GetValue(allowEnvConnectionOption);
-    var environmentConnection = Environment.GetEnvironmentVariable(IdeSafeEnvironment.ConnectionVariable);
+    var connectionEnvName = result.GetValue(connectionEnvOption);
+    var allowAssemblyFromConfig = result.GetValue(allowAssemblyFromConfigOption);
+
+    // Under --ide-safe --allow-env-connection, --connection-env names the variable that replaces DATAGUARD_CONNECTION_STRING.
+    var environmentConnection = Environment.GetEnvironmentVariable(
+        string.IsNullOrWhiteSpace(connectionEnvName) ? IdeSafeEnvironment.ConnectionVariable : connectionEnvName.Trim());
     if (ideSafe)
     {
         // Hosts require this acknowledgement as the first stderr line, before any progress event.
@@ -177,7 +188,8 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
 
         // IDE-safe: reject every option that would load code or open a connection before doing any work.
         var rejectedOption = IdeSafePolicy.FirstRejectedValidateOption(
-            result.GetValue(connectionOption), offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName);
+            result.GetValue(connectionOption), offline, assemblyPath, efSnapshotPath, efProjectPath, efContextName,
+            connectionEnvName, allowEnvConnection, allowAssemblyFromConfig);
         if (rejectedOption is not null)
         {
             Console.Error.WriteLine(IdeSafePolicy.FormatRejectionLine(rejectedOption));
@@ -205,7 +217,10 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     efSnapshotPath = snapshotResolution.Path;
 
     // IDE hosts always pass the conventional workspace config path, present or not.
-    if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption), allowMissingConfig: ideSafe) is not { } resolved)
+    // Credentials (red-team D1): argv, --connection-env, DATAGUARD_CONNECTION_STRING, credential provider, then plaintext
+    // config only with AllowPlaintextConfigFallback. Bare --offline never consults secret stores.
+    var bareOffline = offline && string.IsNullOrEmpty(assemblyPath);
+    if (await ResolveCommandConfigurationAsync(configPath, result.GetValue(connectionOption), connectionEnvName, result.GetValue(providerOption), ct, allowMissingConfig: ideSafe, ideSafe: ideSafe, offline: offline, warnAboutPlaintext: !bareOffline) is not { } resolved)
     {
         return;
     }
@@ -256,6 +271,12 @@ validateCommand.SetAction(async (ParseResult result, System.Threading.Cancellati
     }
 
     config = config with { DefaultSchema = schema ?? config.DefaultSchema };
+
+    // A ManualAssemblyPath from the repository's YAML needs an explicit opt-in; --assembly on the command line does not.
+    if (RefuseAssemblyFromConfig(config, assemblyPath, allowAssemblyFromConfig))
+    {
+        return;
+    }
 
     var normalizedFormat = format.Trim().ToLowerInvariant();
     if (normalizedFormat is not ("text" or "sarif" or "evidence" or "contracts" or "yaml" or "typescript"))
@@ -704,7 +725,7 @@ scanCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
 
 var verifyShapeCommand = new Command("verify-shape", "Verify SQL query result shapes against a live database schema")
 {
-    connectionOption, providerOption, projectOption, outputOption, formatOption, configOption, verboseOption,
+    connectionOption, connectionEnvOption, providerOption, projectOption, outputOption, formatOption, configOption, verboseOption,
 };
 
 verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
@@ -712,7 +733,7 @@ verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
     var connectionString = result.GetValue(connectionOption);
     var configPath = result.GetValue(configOption);
     var providerInput = result.GetValue(providerOption);
-    if (ResolveCommandConfiguration(configPath, connectionString, providerInput) is not { } resolved)
+    if (await ResolveCommandConfigurationAsync(configPath, connectionString, result.GetValue(connectionEnvOption), providerInput, ct) is not { } resolved)
     {
         return;
     }
@@ -727,7 +748,7 @@ verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
 
     if (string.IsNullOrWhiteSpace(connStr))
     {
-        Console.Error.WriteLine("verify-shape requires --connection or a configured connection string.");
+        Console.Error.WriteLine("verify-shape requires --connection-env NAME, DATAGUARD_CONNECTION_STRING, a configured secret store or credential file, or --connection.");
         Environment.ExitCode = 2;
         return;
     }
@@ -964,7 +985,7 @@ verifyShapeCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
 var preflightTargetOption = new Option<string>("--target") { Description = "Bounded operator-owned target identifier for the offline manifest" };
 var preflightCommand = new Command("preflight", "Acquire approved metadata and write a bounded offline manifest")
 {
-    connectionOption, configOption, outputOption, providerOption, preflightTargetOption,
+    connectionOption, connectionEnvOption, configOption, outputOption, providerOption, preflightTargetOption,
 };
 preflightCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
 {
@@ -977,7 +998,7 @@ preflightCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
         return;
     }
 
-    if (ResolveCommandConfiguration(result.GetValue(configOption), result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
+    if (await ResolveCommandConfigurationAsync(result.GetValue(configOption), result.GetValue(connectionOption), result.GetValue(connectionEnvOption), result.GetValue(providerOption), ct) is not { } resolved)
     {
         return;
     }
@@ -1022,7 +1043,7 @@ preflightCommand.SetAction(async (ParseResult result, CancellationToken ct) =>
 
 var baselineCommand = new Command("baseline", "Create baseline from current violations")
 {
-    connectionOption, configOption, outputOption, verboseOption, providerOption, schemaOption, packageOption,
+    connectionOption, connectionEnvOption, configOption, outputOption, verboseOption, providerOption, schemaOption, packageOption, allowAssemblyFromConfigOption,
 };
 
 baselineCommand.SetAction(
@@ -1033,7 +1054,7 @@ baselineCommand.SetAction(
         var verbose = result.GetValue(verboseOption);
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
+        if (await ResolveCommandConfigurationAsync(configPath, result.GetValue(connectionOption), result.GetValue(connectionEnvOption), result.GetValue(providerOption), ct) is not { } resolved)
         {
             return;
         }
@@ -1048,6 +1069,11 @@ baselineCommand.SetAction(
             // The baseline being (re)written must see every current finding, not only those the old baseline lets through.
             EnableBaseline = false,
         };
+
+        if (RefuseAssemblyFromConfig(config, commandLineAssemblyPath: null, result.GetValue(allowAssemblyFromConfigOption)))
+        {
+            return;
+        }
 
         try
         {
@@ -1107,7 +1133,7 @@ baselineCommand.SetAction(
 var snapshotCommand = new Command("snapshot", "Manage schema snapshots");
 var snapshotRefreshCommand = new Command("refresh", "Refresh snapshot from database")
 {
-    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption,
+    connectionOption, connectionEnvOption, configOption, verboseOption, providerOption, schemaOption, packageOption,
 };
 
 snapshotRefreshCommand.SetAction(
@@ -1117,7 +1143,7 @@ snapshotRefreshCommand.SetAction(
         var verbose = result.GetValue(verboseOption);
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
+        if (await ResolveCommandConfigurationAsync(configPath, result.GetValue(connectionOption), result.GetValue(connectionEnvOption), result.GetValue(providerOption), ct) is not { } resolved)
         {
             return;
         }
@@ -1254,7 +1280,7 @@ var legacyViolationDiffOption = new Option<bool>("--legacy-violation-diff");
 legacyViolationDiffOption.Description = "Explicitly compare violation hashes for legacy snapshots (deprecated; not structural drift)";
 var snapshotDiffCommand = new Command("diff", "Compare current schema with snapshot")
 {
-    connectionOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption, legacyViolationDiffOption,
+    connectionOption, connectionEnvOption, configOption, verboseOption, providerOption, schemaOption, packageOption, failOnDriftOption, legacyViolationDiffOption,
 };
 
 snapshotDiffCommand.SetAction(
@@ -1266,7 +1292,7 @@ snapshotDiffCommand.SetAction(
         var package = result.GetValue(packageOption);
         var failOnDrift = result.GetValue(failOnDriftOption);
         var legacyViolationDiff = result.GetValue(legacyViolationDiffOption);
-        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), result.GetValue(providerOption)) is not { } resolved)
+        if (await ResolveCommandConfigurationAsync(configPath, result.GetValue(connectionOption), result.GetValue(connectionEnvOption), result.GetValue(providerOption), ct) is not { } resolved)
         {
             return;
         }
@@ -1709,7 +1735,7 @@ configCommand.Add(configValidateCommand);
 
 var oracleCheckCommand = new Command("oracle-check", "Run Oracle-specific dialect and length checks")
 {
-    connectionOption, configOption, outputOption, formatOption, verboseOption, schemaOption, packageOption,
+    connectionOption, connectionEnvOption, configOption, outputOption, formatOption, verboseOption, schemaOption, packageOption,
 };
 
 oracleCheckCommand.SetAction(
@@ -1721,7 +1747,7 @@ oracleCheckCommand.SetAction(
         var verbose = result.GetValue(verboseOption);
         var schema = result.GetValue(schemaOption);
         var package = result.GetValue(packageOption);
-        if (ResolveCommandConfiguration(configPath, result.GetValue(connectionOption), "oracle") is not { } resolved)
+        if (await ResolveCommandConfigurationAsync(configPath, result.GetValue(connectionOption), result.GetValue(connectionEnvOption), "oracle", ct) is not { } resolved)
         {
             return;
         }
@@ -2198,13 +2224,20 @@ static bool TryParseHookType(string? value, out HookType hookType)
     return hookType != HookType.None;
 }
 
-// Null after writing the reason to stderr with exit 2: missing/invalid --config, or a provider (from --provider or the
-// config DefaultProvider) outside the whitelist. The returned provider is normalized (lower-case, postgres => postgresql).
-static (DataGuardConfiguration Configuration, string Provider)? ResolveCommandConfiguration(
+// Null after writing the reason to stderr with exit 2: missing/invalid --config, a provider (from --provider or the
+// config DefaultProvider) outside the whitelist, or an invalid credential request (--connection-env naming an unset
+// variable, an unusable audit key). The returned provider is normalized (lower-case, postgres => postgresql) and the
+// returned configuration carries the connection resolved by CliConfigurationResolver.ResolveConnectionAsync (red-team D1).
+static async Task<(DataGuardConfiguration Configuration, string Provider)?> ResolveCommandConfigurationAsync(
     string? configPath,
     string? commandLineConnection,
+    string? connectionEnvironmentVariable,
     string? commandLineProvider,
-    bool allowMissingConfig = false)
+    CancellationToken cancellationToken,
+    bool allowMissingConfig = false,
+    bool ideSafe = false,
+    bool offline = false,
+    bool warnAboutPlaintext = true)
 {
     var config = TryLoadConfig(configPath, allowMissingConfig);
     if (config is null)
@@ -2212,14 +2245,74 @@ static (DataGuardConfiguration Configuration, string Provider)? ResolveCommandCo
         return null;
     }
 
-    var resolved = CliConfigurationResolver.Resolve(
-        config,
-        commandLineConnection,
-        commandLineProvider,
-        Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING"));
     var source = !string.IsNullOrWhiteSpace(commandLineProvider) ? "--provider" : "config DefaultProvider";
-    var provider = TryNormalizeProviderOrFail(resolved.Provider, source);
-    return provider is null ? null : (resolved.Configuration, provider);
+    var provider = TryNormalizeProviderOrFail(CliConfigurationResolver.ResolveProvider(config, commandLineProvider), source);
+    if (provider is null)
+    {
+        return null;
+    }
+
+    CliConnectionResolution connection;
+    try
+    {
+        // Secret stores and the encrypted credential file are never consulted offline or under --ide-safe. The audit
+        // logger (HMAC-keyed by DATAGUARD_AUDIT_KEY or AuditKeyFile) is built inside the provider source and shared
+        // with the CredentialManager, so one chain records every credential event.
+        var secureSource = ideSafe || offline
+            ? null
+            : CliConfigurationResolver.CreateCredentialProviderSource(
+                config,
+                new ISecretStore[] { new AwsSecretsManagerSecretStore() },
+                Console.Error,
+                Environment.GetEnvironmentVariable);
+        connection = await CliConfigurationResolver.ResolveConnectionAsync(
+            config,
+            new CliConnectionRequest(commandLineConnection, connectionEnvironmentVariable, ideSafe, warnAboutPlaintext),
+            Environment.GetEnvironmentVariable,
+            secureSource,
+            cancellationToken);
+    }
+    catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)
+    {
+        Console.Error.WriteLine($"Credential resolution failed: {ex.Message}");
+        Environment.ExitCode = 2;
+        return null;
+    }
+
+    foreach (var warning in connection.Warnings)
+    {
+        Console.Error.WriteLine(warning);
+    }
+
+    if (connection.Error is not null)
+    {
+        Console.Error.WriteLine(connection.Error);
+        Environment.ExitCode = 2;
+        return null;
+    }
+
+    return (config with { ConnectionString = connection.ConnectionString }, provider);
+}
+
+// Manual mode from a repository's YAML (ManualAssemblyPath) reads a repository-chosen assembly; it needs
+// --allow-assembly-from-config. --assembly on the command line is the operator's own choice and needs no flag.
+// Writes the reason, sets exit 2 and returns true when refused.
+static bool RefuseAssemblyFromConfig(DataGuardConfiguration config, string? commandLineAssemblyPath, bool allowAssemblyFromConfig)
+{
+    if (config.GroundTruthMode != GroundTruthMode.Manual
+        || string.IsNullOrWhiteSpace(config.ManualAssemblyPath)
+        || allowAssemblyFromConfig
+        || (!string.IsNullOrWhiteSpace(commandLineAssemblyPath)
+            && string.Equals(config.ManualAssemblyPath, commandLineAssemblyPath, StringComparison.Ordinal)))
+    {
+        return false;
+    }
+
+    Console.Error.WriteLine(
+        "ManualAssemblyPath is set in the configuration file; pass --allow-assembly-from-config to read that assembly, "
+        + "or name it on the command line with --offline --assembly <path>.");
+    Environment.ExitCode = 2;
+    return true;
 }
 
 static (bool Success, string? Path, string? Error) ResolveEfSnapshotSource(

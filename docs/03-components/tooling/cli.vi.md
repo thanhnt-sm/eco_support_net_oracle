@@ -44,7 +44,9 @@ dataguard validate [options]
 
 | Tùy chọn | Mặc định | Mô tả |
 |-----------|----------|-------|
-| `--connection` | — | Chuỗi kết nối database |
+| `--connection` | — | Chuỗi kết nối database (deprecated: in `warning: a connection string on the command line is visible to process listings; prefer --connection-env`) |
+| `--connection-env` | — | **Tên** biến môi trường chứa chuỗi kết nối; biến chưa đặt/rỗng => exit 2. Dưới `--ide-safe` chỉ dùng cùng `--allow-env-connection` |
+| `--allow-assembly-from-config` | `false` | Cho Manual mode đọc `ManualAssemblyPath` từ file config (nếu thiếu: exit 2); `--offline --assembly` không cần cờ; bị từ chối với `--ide-safe` (`validate`, `baseline`) |
 | `--config` | — | Đường dẫn file `.dataguard.yml`; file không tồn tại => exit 2 |
 | `--output` | — | Đường dẫn file output (bắt buộc cho sarif/evidence) |
 | `--format` | `text` | Định dạng output: `text`, `sarif`, `evidence`, `contracts`, `yaml`, `typescript` |
@@ -60,7 +62,7 @@ dataguard validate [options]
 | `--project` | — | Đường dẫn project C# (`.csproj`), solution (`.sln`), hoặc thư mục để trích xuất query SQL inline và model C# |
 | `--progress` | `false` | Xuất luồng sự kiện tiến trình JSON an toàn từng dòng qua stderr |
 | `--ide-safe` | `false` | Chạy theo chính sách an toàn IDE: ngăn load assembly, kết nối secret manager, và ghi file tùy ý |
-| `--allow-env-connection` | `false` | Khi dùng `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` do host cung cấp nhưng vẫn bỏ qua chuỗi kết nối từ file config |
+| `--allow-env-connection` | `false` | Khi dùng `--ide-safe`: giữ lại `DATAGUARD_CONNECTION_STRING` (hoặc biến nêu bởi `--connection-env`) do host cung cấp nhưng vẫn bỏ qua chuỗi kết nối từ file config |
 | `--fail-on-unavailable` | `false` | Exit 3 khi có rule không khả dụng cho provider (config `FailOnUnavailableRules: true`) |
 | `--allow-syntactic-only` | `false` | Chạy khi không có ground truth: cảnh báo thay vì exit 3 |
 | `--allow-unevaluated` | `false` | Vẫn liệt kê contract chưa đánh giá và chẩn đoán acquisition, nhưng exit theo violation (0/1) thay vì 3; `--ide-safe` ngầm bật |
@@ -565,7 +567,8 @@ dataguard version
 
 | Tùy chọn | Viết tắt | Mô tả |
 |-----------|----------|-------|
-| `--connection` | — | Chuỗi kết nối database |
+| `--connection` | — | Chuỗi kết nối database (deprecated; nên dùng `--connection-env`) |
+| `--connection-env` | — | Tên biến môi trường chứa chuỗi kết nối |
 | `--config` | `-c` | Đường dẫn `.dataguard.yml` |
 | `--output` | `-o` | Đường dẫn file output |
 | `--format` | `-f` | Định dạng output |
@@ -645,7 +648,7 @@ MaxDegreeOfParallelism: 4
 
 **Lưu ý bảo mật:** Không bao giờ commit chuỗi kết nối vào source control. Sử dụng biến môi trường `DATAGUARD_CONNECTION_STRING` thay thế.
 
-Với mọi lệnh cần database, thứ tự resolve connection là xác định: `--connection` ưu tiên cao nhất, tiếp theo là `DATAGUARD_CONNECTION_STRING`, rồi `ConnectionString` trong config được chọn. Thứ tự provider là `--provider`, rồi `DefaultProvider` đã lưu trong config, rồi `sqlserver`. `dataguard init --provider oracle` ghi fallback này nhưng không lưu credential.
+Với mọi lệnh cần database, thứ tự resolve connection là xác định (red-team D1): `--connection` (kèm cảnh báo process listing một lần), rồi `--connection-env NAME`, rồi `DATAGUARD_CONNECTION_STRING`, rồi credential provider (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault nếu được cấu hình, `DATAGUARD_DATABASECONNECTION`, rồi file credential đã mã hoá; store lỗi in `warning: Secret store <Name> lookup ... failed` và thử nguồn kế tiếp; bỏ qua dưới `--offline` và `--ide-safe`), rồi `ConnectionString` trong config được chọn **chỉ khi** `AllowPlaintextConfigFallback: true` — mặc định key này bị bỏ qua kèm `warning: ignoring the plaintext ConnectionString key in the configuration file ...`. Truy cập qua credential provider được ghi vào audit log (chuỗi HMAC-SHA256 khi đặt `DATAGUARD_AUDIT_KEY` hoặc `AuditKeyFile`). `ManualAssemblyPath` lấy từ file config cần `--allow-assembly-from-config`; Manual mode đọc attribute qua `MetadataLoadContext` và không bao giờ thực thi assembly. Thứ tự provider là `--provider`, rồi `DefaultProvider` đã lưu trong config, rồi `sqlserver`. `dataguard init --provider oracle` ghi fallback này nhưng không lưu credential.
 
 Khi provider được chọn có rule cần analyzer context nhưng context chưa có, `validate` báo rule ID và prerequisite, thoát với code `3`, đồng thời không xuất payload success thông thường cho text/SARIF/evidence/contracts/TypeScript. Đây là run incomplete, không phải kết quả sạch.
 
@@ -653,6 +656,8 @@ Khi provider được chọn có rule cần analyzer context nhưng context chư
 
 | Biến | Mục đích |
 |------|----------|
-| `DATAGUARD_CONNECTION_STRING` | Chuỗi kết nối database (ghi đè config) |
+| `DATAGUARD_CONNECTION_STRING` | Chuỗi kết nối database (sau `--connection`/`--connection-env`; ghi đè config) |
+| `DATAGUARD_DATABASECONNECTION` | Chuỗi kết nối đọc bởi credential provider |
+| `DATAGUARD_AUDIT_KEY` | Khoá HMAC (tối thiểu 16 byte) cho audit hash chain; thắng `AuditKeyFile` |
 | `CI` | Được phát hiện cho hành vi đặc thù CI |
 | `GITHUB_ACTIONS` | Được phát hiện cho hành vi đặc thù GitHub Actions |
