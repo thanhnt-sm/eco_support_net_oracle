@@ -24,15 +24,16 @@ shared `SqlClassifier` over fixed 1, 100, and 1,000 call corpora. Corpus constru
 happens in `GlobalSetup`, so the classifier measurement excludes input generation.
 To measure only the classifier corpus, add `-- --full --classifier-only`; to
 measure only the sequential/concurrent pipeline pair, add
-`-- --full --pipeline-only`; to measure only semantic analyzer enrichment, add
+`-- --full --pipeline-only`; to measure only the syntax-only ContractValidationAnalyzer, add
 `-- --full --analyzer-only`; to measure only streaming SARIF export, add
 `-- --full --sarif-only`; to measure only the incremental generator, add
-`-- --full --generator-only`.
+`-- --full --generator-only`; to measure only the generator keystroke latency, add
+`-- --keystroke-only` (with `--short` for a BenchmarkDotNet ShortRun instead of the dry run).
 The full harness also measures the public validation pipeline at 100 and 1,000
 contracts with concurrency disabled and with a degree capped at four. Its setup
 normalizes and compares both results, including execution status and dropped-count
 metadata, before either mode is timed.
-The same full run measures the semantic CI analyzer over 100 and 1,000 recognized
+The same full run measures the syntax-only ContractValidationAnalyzer over 100 and 1,000 recognized
 SQL invocations. It builds the source compilation in setup and verifies one DG098
 diagnostic per invocation, so the measured operation is analyzer execution rather
 than corpus construction or a no-op analyzer path.
@@ -40,6 +41,10 @@ The SARIF scenario emits 100 or 1,000 non-empty DG099 findings through the produ
 streaming file sink and checks that the setup artifact has result records before timing.
 The generator scenario builds its C# corpus once, then requires one DG001 diagnostic
 per `ExecuteSqlRaw` literal before timing each new generator driver execution.
+The keystroke scenario (`GeneratorKeystrokeBenchmark`) builds a 2,000-line file with 50 SQL
+calls (EF `ExecuteSqlRaw`/`FromSqlRaw`, Dapper `Query<T>`, ADO `CommandText`), requires 50 DG001
+diagnostics, then times a warm driver re-run after a one-character edit inside a method body
+(`Keystroke`) against a fresh driver over the same file (`ColdRun`).
 BenchmarkDotNet records runtime, environment, allocation, and GC statistics in its
 raw artifacts. Results are measurements for their recorded host and corpus; they do
 not establish a universal latency, a parallel speedup, or a zero-allocation claim.

@@ -60,6 +60,7 @@ internal static class BenchmarkRunMetadata
             "SemanticAnalyzerBenchmarks:contract", SemanticAnalyzerBenchmarks.CorpusContract,
             "SarifExportBenchmarks:contract", SarifExportBenchmarks.CorpusContract,
             "IncrementalGeneratorBenchmarks:contract", IncrementalGeneratorBenchmarks.CorpusContract,
+            "GeneratorKeystrokeBenchmark:contract", GeneratorKeystrokeBenchmark.CorpusContract,
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(corpus))).ToLowerInvariant();
     }

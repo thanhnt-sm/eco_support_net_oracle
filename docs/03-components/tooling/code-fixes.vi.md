@@ -56,7 +56,7 @@ graph TB
 
 ## DataGuardCodeFixProvider
 
-Code fix provider chính xử lý DG001, DG002 và DG007. Biến đổi naming và provider-option do provider chuyên biệt xử lý.
+Code fix provider chính xử lý DG001, DG002 và DG017. Biến đổi độ dài, naming và provider-option do provider chuyên biệt xử lý (`AddMaxLengthAttributeFixProvider` cho DG007/DG009, `NamingConventionFixProvider` cho DG006, `UseOracleCodeFixProvider` cho DG012); `SkipContractCheckFixProvider` cung cấp cùng fix `[SkipContractCheck(Reason = "...")]` cho DG001.
 
 `FixableDiagnosticIds` được quảng bá chỉ gồm các diagnostic bên dưới có transformation
 an toàn đã đăng ký; diagnostic chưa có sửa đổi an toàn được chủ ý loại khỏi danh sách.
@@ -67,7 +67,7 @@ an toàn đã đăng ký; diagnostic chưa có sửa đổi an toàn được ch
 |------------|---------------|
 | DG001 | Thêm declaration `[SkipContractCheck]`, `[DataContract]` hoặc `[SqlParameter]` |
 | DG002 | Áp dụng SQL replacement do verifier phê duyệt (chỉ khi có thuộc tính manifest hợp lệ) |
-| DG007 | Thêm attribute `[MaxLength]` |
+| DG017 | Thay `SELECT *` (cả `SELECT TOP n *`, `SELECT DISTINCT *`, `SELECT t.*`) bằng `ExplicitColumns` của analyzer, hoặc placeholder TODO |
 
 ### Flow đăng ký fix
 
@@ -76,11 +76,11 @@ flowchart TD
     A[Nhận Diagnostic] --> B{Diagnostic ID?}
     B -->|DG001| C[RegisterUnvalidatedSqlCallFixes]
     B -->|DG002| D[RegisterParameterMismatchFixes]
-    B -->|DG007| G[RegisterLengthFixes]
+    B -->|DG017| G[RegisterReplaceSelectStarFix]
 
     C --> C1[Thêm contract declaration hoặc SkipContractCheck]
     D --> D1[Áp dụng SQL replacement đã xác thực]
-    G --> G1[Thêm [MaxLength]]
+    G --> G1[Thay SELECT * bằng cột tường minh]
 ```
 
 ### Triển khai fix
@@ -95,6 +95,19 @@ public IQueryable<Customer> Search(string query) { ... }
 ```
 
 **Triển khai:** Sử dụng `DocumentEditor.AddAttribute()` trên ancestor `MemberDeclarationSyntax`.
+`SkipContractCheckAttribute` chỉ có constructor không tham số, nên cả hai provider ghi lý do qua property có tên
+`Reason` (dạng positional trước đây không biên dịch được, CS1729); test round-trip biên dịch code sau khi sửa.
+
+#### Thay SELECT * (DG017)
+
+`ContractValidationAnalyzer` báo DG017 tại SQL literal và, khi type ánh xạ được khai báo trong compilation, thêm
+property `ExplicitColumns` (tên cột, tôn trọng `[Column]`). Fix viết lại literal (thường, verbatim hoặc raw) và giữ
+modifier `TOP n` / `DISTINCT`:
+
+```csharp
+// Trước: connection.Query<Customer>("SELECT TOP 10 c.* FROM Customers c")
+// Sau:   connection.Query<Customer>("SELECT TOP 10 Id, Name FROM Customers c")
+```
 
 #### Thêm khai báo manual contract
 

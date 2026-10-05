@@ -50,6 +50,7 @@ public class DescriptorArityTests
         // own descriptor, not by ContractValidationAnalyzer - checked separately.
         Analyzer.SupportedDiagnostics.Select(d => d.Id)
             .Should().Contain(DiagnosticIds.MissingFromClause)
+            .And.Contain(DiagnosticIds.StoredProcedureCommandText)
             .And.Contain(DiagnosticIds.SqlInjectionPattern)
             .And.Contain(DiagnosticIds.PhantomTable)
             .And.Contain(DiagnosticIds.PhantomColumn)

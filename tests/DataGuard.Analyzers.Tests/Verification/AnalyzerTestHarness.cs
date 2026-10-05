@@ -133,15 +133,12 @@ internal static class AnalyzerTestHarness
     }
 
     /// <summary>
-    /// Expected <see cref="ContractValidationAnalyzer"/> diagnostic. The analyzer currently reports every
-    /// violation at <see cref="Location.None"/> (it passes <c>Location.None</c>, never <c>null</c>, to
-    /// <c>violation.Location ?? invocation.Syntax.GetLocation()</c>), so expectations carry no span.
-    /// KNOWN GAP (redteam-261004 rec 18): expected the invocation location; fixed in Phase 4.3, which
-    /// should switch this helper to markup spans. See <c>ContractValidationAnalyzerTests.Diagnostics_AreReportedWithoutSourceLocation</c>.
+    /// Expected <see cref="ContractValidationAnalyzer"/> diagnostic. The analyzer reports every violation at the SQL
+    /// argument, so callers add the span with <c>.WithLocation(0)</c> and <c>{|#0:...|}</c> markup.
     /// </summary>
     /// <param name="id">Diagnostic ID.</param>
     /// <param name="severity">Expected effective severity.</param>
-    /// <returns>An expected diagnostic without location.</returns>
+    /// <returns>An expected diagnostic (location to be added by the caller).</returns>
     public static DiagnosticResult Contract(string id, DiagnosticSeverity severity = DiagnosticSeverity.Warning)
         => new(id, severity);
 }

@@ -201,15 +201,15 @@ Note: the raw-SQL parsing surface lives in `DataGuard.Core/Sources/SqlServerPars
 | **Target** | `netstandard2.0` |
 | **Dependencies** | Contracts; Roslyn 5.9.0 (PrivateAssets) |
 | **Packaging** | Assemblies bundled into both `analyzers/dotnet/cs` and `generators/dotnet/cs` |
-| **Role** | Roslyn analyzers — IDE light layer + CI heavy layer |
+| **Role** | Roslyn analyzers — syntax-only IDE layer (generator + syntax-node analyzer); database checks run in the CLI |
 
 **Key Types:**
 
 | Type | Kind | Purpose |
 |------|------|---------|
-| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | IDE light layer: bounded syntax-only analysis on keystroke; value-type call-site representation |
-| `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | CI heavy layer: full semantic analysis |
-| `DiagnosticIds` / `DiagnosticDescriptors` | Static classes | Shared DG-prefixed diagnostic identities |
+| `UnvalidatedSqlCallGenerator` | `IIncrementalGenerator` | DG001 on keystroke: syntax-only, equatable `SqlCallModel` (path, span, method, kind, SQL; no `Location`/syntax nodes) |
+| `ContractValidationAnalyzer` | `DiagnosticAnalyzer` | Syntax-node action on invocations: literal-SQL heuristics DG004/DG017/DG097/DG098/DG099, reported at the SQL argument; no symbol binding, no database |
+| `DiagnosticIds` / `DiagnosticDescriptors` | Static classes | Single source of analyzer IDs/titles; shared IDs carry the CLI `ProviderRuleCatalog.RuleTitles` text (tested) |
 
 **Packaging note:** The compiler does not resolve NuGet dependencies of analyzer/generator assemblies, so `DataGuard.Contracts.dll` is explicitly bundled next to the analyzer assembly so quick-fix attribute types resolve at load time.
 

@@ -122,7 +122,7 @@ graph TB
 | **L1 — Contracts** | `netstandard2.0` | Shared attributes (`SkipContractCheck`, `ExpectedColumn`, `ExpectedSpParameter`), naming conventions (`snake_case` ↔ `PascalCase`). Zero runtime dependencies. |
 | **L2 — Core Engine** | `net9.0` | Domain model (`Contracts.cs`), rules engine (DG001–DG016), contract sources (EF Core, SQL parsers), zero-trust security, baseline management, SARIF reporting, concurrent validation, MEF plugin system, telemetry, assessment engine, public API surface. |
 | **L3 — Adapters** | `net9.0` | Database-specific readers. Oracle reads `ALL_ARGUMENTS`/`ALL_TAB_COLUMNS`. SQL Server uses `ScriptDom` + `SqlConnection`. MySQL/PostgreSQL use information_schema. Each adapter implements `IContractSource`. |
-| **L4 — Tooling** | mixed | CLI (`System.CommandLine`), Roslyn analyzers (IDE light + CI heavy layers), code fix providers. |
+| **L4 — Tooling** | mixed | CLI (`System.CommandLine`), Roslyn analyzers (syntax-only IDE layer), code fix providers. |
 | **L5 — IDE Hosts** | mixed | VS 2022 extension (VSIX, `net472`), VS Code extension (TypeScript, npm). |
 
 ---
@@ -409,7 +409,7 @@ DataGuard is designed for extensibility at every layer:
 | Contracts target | `netstandard2.0` | Maximum IDE host compatibility (VS, VS Code, Roslyn) |
 | SQL parsing | `ScriptDom` | Official Microsoft T-SQL parser, AST-level analysis |
 | Oracle access | `ODP.NET Managed` | `ALL_ARGUMENTS`/`ALL_TAB_COLUMNS` for ground truth |
-| Analyzer model | Dual-layer | IDE: `IIncrementalGenerator` (syntax-only, ~ms). CI: `DiagnosticAnalyzer` (full semantic) |
+| Analyzer model | Syntax-only IDE layer | `IIncrementalGenerator` (DG001) + `DiagnosticAnalyzer` syntax-node action (literal-SQL heuristics); database checks only in the CLI |
 | Plugin system | MEF 2 (`System.Composition`) | Assembly-level discovery, no runtime configuration |
 | Output format | SARIF 2.1.0 | Industry standard, GitHub Code Scanning native |
 | Signing | Sigstore cosign | Keyless, OIDC-based, no secret management |

@@ -14,7 +14,8 @@ using Xunit;
 /// DG001 trigger matrix for the IDE-layer <see cref="UnvalidatedSqlCallGenerator"/>, verified with
 /// Microsoft.CodeAnalysis.Testing. Expected locations are asserted with <c>{|DG001:...|}</c> markup
 /// (the whole invocation expression), so an unexpected or missing DG001 anywhere fails the test.
-/// Tests tagged <c>KnownGap</c> pin today's wrong behavior; Phase 4.3 flips them.
+/// The generator is syntax-only: EF raw-SQL APIs match by method name on any receiver, Dapper/ADO calls need SQL
+/// text reachable syntactically (literal, local/const initializer, CommandText) or CommandType.StoredProcedure.
 /// </summary>
 public class UnvalidatedSqlCallGeneratorTests
 {
@@ -280,15 +281,10 @@ public class UnvalidatedSqlCallGeneratorTests
             """).RunAsync();
     }
 
-    // ---- Known gaps (Phase 4.3) ----
+    // ---- Redteam-261004 H9/R23 (Phase 4.3): name-based EF detection, SQL-text gate for Dapper/ADO ----
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task FromSqlRaw_OnDbSetProperty_IsNotReported_KnownGap()
+    public async Task FromSqlRaw_OnDbSetProperty_ReportsDg001()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG001 at db.Orders.FromSqlRaw(...); the generator resolves
-        // the receiver `db.Orders` and requires an IMethodSymbol on DbSet (Analyzers.cs ExtractSqlCallSite), but a
-        // DbSet receiver is an IPropertySymbol, so every real FromSqlRaw call is dropped; fixed in Phase 4.3.
-        // Phase 4.3: wrap the invocation in {|DG001:...|}.
         await AnalyzerTestHarness.Generator("""
             using Microsoft.EntityFrameworkCore;
 
@@ -301,17 +297,14 @@ public class UnvalidatedSqlCallGeneratorTests
 
             public class Repo
             {
-                public object Load(ShopContext db) => db.Orders.FromSqlRaw("SELECT Id FROM Orders");
+                public object Load(ShopContext db) => {|DG001:db.Orders.FromSqlRaw("SELECT Id FROM Orders")|};
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task FromSqlInterpolated_OnDbSetProperty_IsNotReported_KnownGap()
+    public async Task FromSqlInterpolated_OnDbSetProperty_ReportsDg001()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG001 at db.Orders.FromSqlInterpolated(...); same
-        // IPropertySymbol receiver bug as FromSqlRaw; fixed in Phase 4.3.
         await AnalyzerTestHarness.Generator("""
             using Microsoft.EntityFrameworkCore;
 
@@ -324,17 +317,14 @@ public class UnvalidatedSqlCallGeneratorTests
 
             public class Repo
             {
-                public object Load(ShopContext db, int id) => db.Orders.FromSqlInterpolated($"SELECT Id FROM Orders WHERE Id = {id}");
+                public object Load(ShopContext db, int id) => {|DG001:db.Orders.FromSqlInterpolated($"SELECT Id FROM Orders WHERE Id = {id}")|};
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task FromSqlRaw_OnDbSetParameter_IsNotReported_KnownGap()
+    public async Task FromSqlRaw_OnDbSetParameter_ReportsDg001()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG001; a DbSet<T> local/parameter receiver resolves to an
-        // IParameterSymbol, not an IMethodSymbol, so the call is dropped; fixed in Phase 4.3.
         await AnalyzerTestHarness.Generator("""
             using Microsoft.EntityFrameworkCore;
 
@@ -342,18 +332,14 @@ public class UnvalidatedSqlCallGeneratorTests
 
             public class Repo
             {
-                public object Load(DbSet<Order> orders) => orders.FromSqlRaw("SELECT Id FROM Orders");
+                public object Load(DbSet<Order> orders) => {|DG001:orders.FromSqlRaw("SELECT Id FROM Orders")|};
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task NonSqlExecute_WithoutStringArgument_IsReported_KnownGap()
+    public async Task NonSqlExecute_WithoutStringArgument_IsNotReported()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected no DG001; any method whose name starts with "Execute" is
-        // classified as Dapper and reported even with no SQL text (ICommand.Execute, job runners, ...); fixed in
-        // Phase 4.3. Phase 4.3: remove the {|DG001:...|} markup.
         await AnalyzerTestHarness.Generator("""
             public interface ICommand
             {
@@ -364,55 +350,65 @@ public class UnvalidatedSqlCallGeneratorTests
             {
                 public void Save(ICommand saveCommand)
                 {
-                    {|DG001:saveCommand.Execute(null)|};
+                    saveCommand.Execute(null);
                 }
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task NonSqlQueryPrefixedMethod_IsReported_KnownGap()
+    public async Task NonSqlQueryPrefixedMethod_IsNotReported()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected no DG001; "Query*" name prefix alone triggers the Dapper path
-        // (search-index APIs, CQRS query buses, ...); fixed in Phase 4.3.
         await AnalyzerTestHarness.Generator("""
             public class SearchIndex
             {
                 public string[] QueryTerms(int limit) => new string[0];
+
+                public string[] QueryText(string text) => new string[0];
             }
 
             public class Search
             {
-                public string[] Top(SearchIndex index) => {|DG001:index.QueryTerms(5)|};
+                public string[] Top(SearchIndex index) => index.QueryTerms(5);
+
+                public string[] Find(SearchIndex index) => index.QueryText("selected products");
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task ExecuteNonQuery_WithoutAnySqlText_IsReported_KnownGap()
+    public async Task ExecuteNonQuery_WithoutAnySqlText_IsNotReported()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected no DG001 when no SQL text is reachable from the call site
-        // (the command text is not set in scope); the generator reports every Execute*/Query* call; fixed in
-        // Phase 4.3.
         await AnalyzerTestHarness.Generator("""
             using Microsoft.Data.SqlClient;
 
             public class Repo
             {
-                public int Run(SqlCommand command) => {|DG001:command.ExecuteNonQuery()|};
+                public int Run(SqlCommand command) => command.ExecuteNonQuery();
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task ExecuteSqlRaw_WithDynamicSqlVariable_IsNotReported_KnownGap()
+    public async Task ExecuteNonQuery_WithConstructorCommandText_ReportsDg001()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG001; ExecuteSqlRaw with non-literal SQL is exactly the
-        // unvalidated (dynamic) case, but ExtractSqlCallSite drops calls whose first argument is not a literal or
-        // interpolated string; fixed in Phase 4.3.
+        await AnalyzerTestHarness.Generator("""
+            using Microsoft.Data.SqlClient;
+
+            public class Repo
+            {
+                public int Run()
+                {
+                    var command = new SqlCommand { CommandText = "DELETE FROM Staging" };
+                    return {|DG001:command.ExecuteNonQuery()|};
+                }
+            }
+            """).RunAsync();
+    }
+
+    [Fact]
+    public async Task ExecuteSqlRaw_WithDynamicSqlVariable_ReportsDg001()
+    {
         await AnalyzerTestHarness.Generator("""
             using Microsoft.EntityFrameworkCore;
 
@@ -421,19 +417,55 @@ public class UnvalidatedSqlCallGeneratorTests
                 public void Purge(DbContext db, string table)
                 {
                     var sql = "DELETE FROM " + table;
-                    db.Database.ExecuteSqlRaw(sql);
+                    {|DG001:db.Database.ExecuteSqlRaw(sql)|};
                 }
             }
             """).RunAsync();
     }
 
     [Fact]
-    [Trait("KnownGap", "true")]
-    public async Task HelperWithStoredProcedureCommandType_IsNotReported_KnownGap()
+    public async Task DapperQuery_WithSqlInLocalVariable_ReportsDg001()
     {
-        // KNOWN GAP (redteam-261004 H9/R23): expected DG001; IsPotentialSqlCall accepts any invocation passing
-        // CommandType.StoredProcedure, but ExtractSqlCallSite maps a non Query*/Execute* name to SqlCallType.Unknown
-        // and drops it, so predicate and transform disagree; fixed in Phase 4.3.
+        await AnalyzerTestHarness.Generator("""
+            using System.Data;
+            using Dapper;
+
+            public class Customer { public int Id { get; set; } }
+
+            public class Repo
+            {
+                private const string ByName = "SELECT Id FROM Customers WHERE Name = @name";
+
+                public void Load(IDbConnection connection, string name)
+                {
+                    const string all = "SELECT Id FROM Customers";
+                    var rows = {|DG001:connection.Query<Customer>(all)|};
+                    var named = {|DG001:connection.Query<Customer>(ByName, new { name })|};
+                }
+            }
+            """).RunAsync();
+    }
+
+    [Fact]
+    public async Task DapperQuery_WithUnknownSqlParameter_IsNotReported()
+    {
+        // Nothing syntactic says the string is SQL (a method parameter): no DG001.
+        await AnalyzerTestHarness.Generator("""
+            using System.Data;
+            using Dapper;
+
+            public class Customer { public int Id { get; set; } }
+
+            public class Repo
+            {
+                public object Load(IDbConnection connection, string sql) => connection.Query<Customer>(sql);
+            }
+            """).RunAsync();
+    }
+
+    [Fact]
+    public async Task HelperWithStoredProcedureCommandType_ReportsDg001()
+    {
         await AnalyzerTestHarness.Generator("""
             using System.Data;
 
@@ -444,8 +476,69 @@ public class UnvalidatedSqlCallGeneratorTests
 
             public class Repo
             {
-                public int Metrics(DatabaseService db) => db.RunHelper("GET_METRICS", CommandType.StoredProcedure);
+                public int Metrics(DatabaseService db) => {|DG001:db.RunHelper("GET_METRICS", CommandType.StoredProcedure)|};
             }
             """).RunAsync();
+    }
+
+    [Fact]
+    public async Task SkipContractCheckAttributeFullNameOnEnclosingType_SuppressesNestedTypeCalls()
+    {
+        await AnalyzerTestHarness.Generator("""
+            using DataGuard.Contracts;
+            using Microsoft.EntityFrameworkCore;
+
+            [SkipContractCheckAttribute]
+            public class Outer
+            {
+                public class Repo
+                {
+                    public void Purge(DbContext db) => db.Database.ExecuteSqlRaw("DELETE FROM Orders");
+                }
+            }
+            """).RunAsync();
+    }
+
+    [Fact]
+    public void Model_IsEquatableAndHoldsNoSyntax()
+    {
+        var first = new SqlCallModel("/a.cs", 10, 20, "ExecuteSqlRaw", SqlCallType.ExecuteSql, "DELETE FROM T", "Repo", default);
+        var second = new SqlCallModel("/a.cs", 10, 20, "ExecuteSqlRaw", SqlCallType.ExecuteSql, "DELETE FROM T", "Repo", default);
+
+        Assert.Equal(first, second);
+        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+        Assert.DoesNotContain(
+            typeof(SqlCallModel).GetProperties(),
+            property => typeof(SyntaxNode).IsAssignableFrom(property.PropertyType) || property.PropertyType == typeof(Location));
+    }
+
+    [Fact]
+    public void Generator_SecondRunWithUnrelatedEdit_ServesCallSiteModelsFromCache()
+    {
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(
+            "public class Db { public int ExecuteSqlRaw(string sql) => 0; }\n" +
+            "public class Repo { public int Run(Db db) => db.ExecuteSqlRaw(\"DELETE FROM T\"); }\n",
+            path: "/0/Repo.cs");
+        var other = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText("public class Other { }", path: "/0/Other.cs");
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
+            "Cache",
+            new[] { tree, other },
+            new[] { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) },
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        GeneratorDriver driver = Microsoft.CodeAnalysis.CSharp.CSharpGeneratorDriver.Create(
+            new[] { new UnvalidatedSqlCallGenerator().AsSourceGenerator() },
+            driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: true));
+        driver = driver.RunGenerators(compilation);
+
+        var edited = compilation.ReplaceSyntaxTree(other, other.WithChangedText(Microsoft.CodeAnalysis.Text.SourceText.From("public class Other { int x; }")));
+        driver = driver.RunGenerators(edited);
+
+        var result = driver.GetRunResult();
+        Assert.Single(result.Diagnostics, diagnostic => diagnostic.Id == DiagnosticIds.UnvalidatedSqlCall);
+        var outputs = result.Results[0].TrackedSteps[UnvalidatedSqlCallGenerator.ModelTrackingName].SelectMany(run => run.Outputs);
+        Assert.NotEmpty(outputs);
+        Assert.All(outputs, output => Assert.True(
+            output.Reason is IncrementalStepRunReason.Cached or IncrementalStepRunReason.Unchanged,
+            $"unexpected step reason {output.Reason}"));
     }
 }

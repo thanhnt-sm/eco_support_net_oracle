@@ -18,8 +18,8 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 // DG002 (verified replacement), DG006, DG007, DG009 and DG012 are produced by the CLI rules engine against
-// database ground truth and handed to the IDE with manifest-bound properties; DG017 is produced by
-// ContractValidationAnalyzer but at Location.None (KNOWN GAP, Phase 4.3). These test-only analyzers emit the
+// database ground truth and handed to the IDE with manifest-bound properties (DG017 round-trips through the real
+// ContractValidationAnalyzer, which reports at the SQL argument). These test-only analyzers emit the
 // same IDs and properties at a real source location, standing in for that verifier so each code fix provider
 // can be exercised end to end through CSharpCodeFixTest (diagnostic -> registered action -> FixedCode).
 // Each stub stops reporting once the code is fixed, which is what lets the framework verify convergence.
@@ -181,33 +181,4 @@ internal sealed class VerifiedSqlStubAnalyzer : LegacyProcStubAnalyzer
 internal sealed class UnverifiedSqlStubAnalyzer : LegacyProcStubAnalyzer
 {
     protected override bool IncludeEvidence => false;
-}
-
-/// <summary>
-/// Reports DG017 on a SELECT * string literal with the ExplicitColumns property ContractValidationAnalyzer computes
-/// for the mapped entity, but at the literal's location (the analyzer itself reports at Location.None).
-/// </summary>
-[DiagnosticAnalyzer(LanguageNames.CSharp)]
-internal sealed class SelectStarStubAnalyzer : DiagnosticAnalyzer
-{
-    private static readonly DiagnosticDescriptor Rule = StubDescriptors.Create(DiagnosticIds.SelectStarUsage);
-
-    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(Rule);
-
-    public override void Initialize(AnalysisContext context)
-    {
-        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
-        context.EnableConcurrentExecution();
-        context.RegisterSyntaxNodeAction(
-            nodeContext =>
-            {
-                var literal = (LiteralExpressionSyntax)nodeContext.Node;
-                if (literal.Token.Value is string sql && sql.Contains("SELECT *", System.StringComparison.OrdinalIgnoreCase))
-                {
-                    var properties = ImmutableDictionary<string, string?>.Empty.Add("ExplicitColumns", "Id, Name");
-                    nodeContext.ReportDiagnostic(Diagnostic.Create(Rule, literal.GetLocation(), properties, "Avoid SELECT *"));
-                }
-            },
-            SyntaxKind.StringLiteralExpression);
-    }
 }

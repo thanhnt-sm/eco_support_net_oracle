@@ -202,7 +202,8 @@ DataGuard uses a **dual-layer analyzer architecture**:
 | Layer | Technology | Speed | Scope |
 |-------|-----------|-------|-------|
 | **IDE Light** | `IIncrementalGenerator` | ~ms per keystroke | Syntax-only: unvalidated SQL calls, missing attributes |
-| **CI Heavy** | `DiagnosticAnalyzer` | Seconds | Full semantic: database-connected validation |
+| **IDE heuristics** | `DiagnosticAnalyzer` (syntax-node action) | ~ms per call site | Syntax-only literal-SQL heuristics (DG004/DG017/DG097-DG099); no symbols, no database |
+| **CLI** | `dataguard validate` | Seconds | Database ground truth (DG002-DG020, DG101); operator-launched, never from the IDE build |
 
 The IDE layer runs on every keystroke and marks unvalidated SQL calls with squiggly underlines. It uses incremental local syntax analysis. Allocation and GC behavior are measured per declared hot-path corpus; no universal zero-allocation claim applies to compiler-host setup or arbitrary documents.
 
@@ -212,12 +213,12 @@ The CI analyzer runs in the build pipeline using offline metadata only. Full dat
 flowchart TD
     subgraph "IDE (On Keystroke)"
         A["IIncrementalGenerator<br/>Syntax-only · ~ms"]
-        A --> B["DG001: Unvalidated call<br/>DG002: Missing attribute"]
+        A --> B["DG001: Unvalidated call<br/>DG004/DG017/DG097-099: literal SQL heuristics"]
     end
 
-    subgraph "CI (On Build)"
-        C["DiagnosticAnalyzer<br/>Semantic + DB ground truth"]
-        C --> D["DG001–DG016: Full validation"]
+    subgraph "CI (CLI step)"
+        C["dataguard validate (CLI)<br/>DB ground truth / snapshot"]
+        C --> D["DG002–DG020, DG101: Full validation"]
     end
 
     B -->|"Same diagnostic IDs"| D
