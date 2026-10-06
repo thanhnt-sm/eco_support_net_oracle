@@ -31,7 +31,7 @@ Six agents per wave in isolated git worktrees, each with a disjoint file scope, 
 
 ## 4. Phase 5B/5C (filled on merge)
 
-_Pending at the time of writing: `Program.cs`/`Rules/*Rule.cs` (one file per rule) splits, typed YAML binding, verify-shape MySQL, snapshot `Provider` required; Core follow-ups (type registry, v4 baselines in the API, keyed audit in the API, PG002 dedupe, own-dialect false positives, SQL Server `HasDefault`, `ArgumentsKnown`, MY003 bytes)._
+Landed in `af950b2` and `68f7efc` (merged at `fabe2d3`, see `plan.md`): `Program.cs` split into `Commands/` and `Services/` (52 lines left, 56 CLI invocations byte-identical before/after), one file per rule under `Rules/`, typed YAML binding, `verify-shape` for MySQL, snapshot `Provider` required; Core follow-ups: type registry, v4 baselines in the API, keyed audit in the API, PG002 dedupe, own-dialect false positives, SQL Server `HasDefault`, `ArgumentsKnown`, MY003 byte semantics. All covered by the final run in §5.
 
 ## 5. Final verification (HEAD `95a5120`)
 
@@ -66,3 +66,16 @@ Totals: 59 commits on top of `046f91d`, 402 files changed, golden corpus 8 → 3
 - `DescribeRefCursors: true` executes the procedure with NULL inputs to describe the cursor.
 - Analyzer heuristic DG002 is now DG097; analyzer titles DG001–DG017 changed to match the engine.
 - Docker smoke test could not run in the sandbox (proxy CA not trusted inside the build container); CI covers it.
+
+## 8. After the PR (2026-10-05)
+
+PR #40 (`docs/redteam-261004-source-vs-goals` → `main`) exposed four CI failures that the sandbox runs had not covered; each was reproduced locally failing, fixed, shown passing, and pushed:
+
+| Commit | Check | Cause → fix |
+|---|---|---|
+| `03917e5` | Security Scan (NuGet audit) | `Microsoft.CodeAnalysis.*.Testing 1.1.4` pulls `System.Private.Uri 4.3.0` (three advisories) → pin 4.3.2 in `DataGuard.Analyzers.Tests` and `DataGuard.CodeFixes.Tests`, lock files regenerated |
+| `e6af446` | Build and Test (licence allow-list) | 26 legacy-nuspec packages in the same closure (`Microsoft.VisualStudio.Composition 16.1.8`) → each listed under `[exceptions]` with its licence-URL marker and the permissive upstream licence it points to |
+| `ab4d7d8` | CodeQL (25 error alerts) | both custom queries used anchored `regexpMatch` (fired on literals exactly `Server=env` / `SELECT`, never on real credential strings or `"SELECT * FROM " + x`) → rewritten; the corrected SQL query found one real defect, the SQL Server `sp_describe_first_result_set` batch inside an `N'...'` literal with only `]` escaped, now passed as an NVARCHAR parameter; six by-design sites carry a `// codeql[...]` justification. Verified with the CodeQL CLI bundle on a database built from the tree: 0 results (default suite + custom pack) |
+| `6011c8a` | Required check "Standards audit" never reported | the `main` ruleset names the check `Standards audit` but the job was displayed as `Golden standard checklist` (also on `main`) → job renamed |
+
+Merge: squash `d0ec928` on `main` (all 18 checks green on head `6011c8a`; the ruleset's review rules cannot be satisfied by a single maintainer who is also the PR author, so the merge used the Repository-admin bypass the ruleset grants; recorded as an owner decision in `plans/ACTIVE_SESSION_REGISTER.md`). CI on `main` for `d0ec928`: CI, Standards audit, Marketplace Extensions, Build Installers (incl. nightly pre-release), Scorecard, Dependabot all green. PR #45 (`release-provenance-backfill.yml`, Scorecard guide) merged as `170e40d` the same day.
