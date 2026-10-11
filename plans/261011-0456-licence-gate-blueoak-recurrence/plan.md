@@ -1,7 +1,7 @@
 ---
 title: "Licence gate: unblock PR #49 (minimatch BlueOak-1.0.0) and stop the recurrence class"
 description: "Allow BlueOak-1.0.0, pre-review the licences already waiting in the npm dev tree, fix SPDX OR semantics in the gate, keep notices truthful, ship via PR and rebase Dependabot PR #49"
-status: in-progress
+status: completed
 priority: P1
 effort: 3 phases
 branch: fix/licence-gate-blueoak
@@ -43,7 +43,7 @@ NuGet side: the gate already evaluates every package in `DataGuard.sln`, test-on
 |---|---|---|---|
 | 1 | Allow-list policy + truthful notices (unblocks PR #49) | `phase-01-allow-list-policy.md` | completed |
 | 2 | SPDX expression semantics (OR/AND/WITH, fail closed) — TDD | `phase-02-spdx-expression-semantics.md` | completed |
-| 3 | Verification, CHANGELOG, ship, rebase PR #49 | `phase-03-verify-and-ship.md` | in-progress |
+| 3 | Verification, CHANGELOG, ship, rebase PR #49 | `phase-03-verify-and-ship.md` | completed |
 
 Order: Phase 1 is independent and is the critical path for PR #49. Phase 2 touches only `spdx_allowed` and its tests. Phase 3 needs both.
 
@@ -118,7 +118,7 @@ Toàn bộ 5 quyết định đã được xác thực và phê duyệt (`Failed
 ## Execution log
 
 ### 2026-10-11
-- **Status:** Phase 1 & Phase 2 completed; Phase 3 in-progress. Working tree contains implementation on branch `fix/licence-gate-blueoak` (uncommitted).
+- **Status:** All phases (1, 2, 3) completed. PR #50 merged into `main` (`600a32a`), unblocking PR #49 which was subsequently merged (`446c0e4`).
 - **Evidence summary:**
   - Unit test suite: `Ran 101 tests OK` (92 baseline + 9 new tests).
   - Real gate on `main` lockfile: OK (`licence gate: OK`, exit 0).
@@ -130,8 +130,6 @@ Toàn bộ 5 quyết định đã được xác thực và phê duyệt (`Failed
   - V5 VSIX check: `vsce ls` lists `node_modules/minimatch/LICENSE.md`.
   - V8 diff check: tracked changes limited to the 7 allowed files.
   - Independent review & test: reviewer reports 0 critical findings; tester reports 8/8 PASS.
-- **Plan deviation note:**
-  - The todo item "Phase 1 RED: add test" was superseded by phase-01 "Tests first (RED)" (CLI acceptance harness, no permanent test, by design to avoid pinning config data).
-- **Pending user commands (Ship steps):**
-  - Commit, push, `gh pr create`, CI green on the fix PR, `@dependabot rebase` on PR #49, and recording its CI run id all require explicit user commands.
-  - Advisor checkpoints A1–A3 (user-enabled only) and judge gate J2 via TypeSafe device (TypeSafe unavailable; replaced by fuzz review) remain pending/bypassed.
+- **Resolution:**
+  - PR #50 merged at commit `600a32a`.
+  - Dependabot PR #49 successfully rebased and merged into `main` at commit `446c0e4`.

@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Verification, CHANGELOG, ship, rebase PR #49"
-status: in-progress
+status: completed
 priority: P1
 effort: "1h + CI time"
 dependencies: [1, 2] # Confirmed: validation Q1=Yes
