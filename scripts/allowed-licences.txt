@@ -1,7 +1,8 @@
 # Licence allow-list consumed by scripts/check-nuget-licences.py (CI step "NuGet/npm licence allow-list").
 #
-# [spdx]        one SPDX identifier per line; a package passes when every id in its licence
-#               expression is listed here (npm `license` fields and NuGet <license type="expression">).
+# [spdx]        one SPDX identifier per line; a package passes when its licence expression is satisfied by
+#               the listed ids (OR = any alternative, AND/WITH = all ids; npm `license` fields and NuGet
+#               <license type="expression">).
 # [exceptions]  `<package id glob> | <marker> | <justification>` for packages whose nuspec carries
 #               only a licence file or a legacy licenseUrl. An entry matches when the id matches the
 #               glob (case-insensitive) AND the marker is a substring of the observed licence text
@@ -9,6 +10,14 @@
 #               pinned by its marker: if a vendor swaps the licence text, the gate flips RED again.
 #               Decision recorded 2026-09-30: FluentAssertions 8+ (Xceed community/commercial
 #               licence, `<license type="file">`) is deliberately NOT listed here.
+#
+# [spdx] admission rule: Permissive licences with explicit redistribution rights (attribution only); or an
+#               explicit steward/FSF statement of GPL-3.0 compatibility. MS-PL and MPL-2.0 are grandfathered.
+#               Copyleft (GPL, AGPL, LGPL), non-standard/source-available (SSPL, BSL) and Artistic-2.0 are
+#               excluded by policy.
+# Decision recorded 2026-10-11: BlueOak-1.0.0 (minimatch >=10, sax; Blue Oak Council FAQ
+#               https://blueoakcouncil.org/license-faq states GPLv3 compatibility) and Zlib (pako; FSF
+#               GPL-compatible) admitted; Artistic-2.0 and "SEE LICENSE IN" stay excluded.
 
 [spdx]
 MIT
@@ -21,6 +30,8 @@ ISC
 Unlicense
 PostgreSQL
 MPL-2.0
+BlueOak-1.0.0
+Zlib
 
 [exceptions]
 # --- Visual Studio SDK (VSIX project only; closed-source, free for extension development, nothing is redistributed by DataGuard NuGet packages)
