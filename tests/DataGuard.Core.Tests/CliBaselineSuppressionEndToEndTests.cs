@@ -43,7 +43,7 @@ public class CliBaselineSuppressionEndToEndTests
                 Violations = new[] { new { ruleId = "DG006", message = match.Groups["msg"].Value, severity = "Info", location = (object?)null, properties = (object?)null } },
             }));
             var config = Path.Combine(dir, "config.yml");
-            File.WriteAllText(config, $"BaselineFilePath: {baseline}\nEnableBaseline: true\n");
+            File.WriteAllText(config, "BaselineFilePath: baseline.json\nEnableBaseline: true\n");
 
             var (_, textStdout, textStderr) = RunCli(null, dir, "validate", "--ef-snapshot", snapshot, "--config", config, "--format", "text");
             textStdout.Should().NotContain("DG006");
