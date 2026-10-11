@@ -259,7 +259,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "vscode-languageclient": "^10.1.2"
   },
   "overrides": {
     "fast-uri": "3.1.8",

@@ -68,6 +68,41 @@ class SpdxExpressionTests(unittest.TestCase):
         self.assertFalse(gate.spdx_allowed("MIT AND GPL-3.0-only", spdx))
         self.assertFalse(gate.spdx_allowed("", spdx))
 
+    def test_or_passes_when_one_alternative_is_allowed(self):
+        self.assertTrue(gate.spdx_allowed("MIT OR GPL-3.0-or-later", {"MIT"}))
+        self.assertTrue(gate.spdx_allowed("(GPL-3.0-or-later OR MIT)", {"MIT"}))
+
+    def test_or_fails_when_no_alternative_is_allowed(self):
+        self.assertFalse(gate.spdx_allowed("GPL-3.0-only OR SSPL-1.0", {"MIT"}))
+
+    def test_and_binds_tighter_than_or(self):
+        self.assertTrue(gate.spdx_allowed("MIT OR Foo AND Bar", {"MIT"}))
+        self.assertFalse(gate.spdx_allowed("(MIT OR Foo) AND Bar", {"MIT"}))
+        self.assertFalse(gate.spdx_allowed("MIT AND Zlib", {"MIT"}))
+
+    def test_with_requires_licence_and_exception(self):
+        self.assertFalse(gate.spdx_allowed("Apache-2.0 WITH LLVM-exception", {"Apache-2.0"}))
+        self.assertTrue(gate.spdx_allowed("Apache-2.0 WITH LLVM-exception", {"Apache-2.0", "LLVM-exception"}))
+
+    def test_malformed_expressions_fail_closed(self):
+        spdx = {"MIT", "Apache-2.0"}
+        for expression in ["(MIT", "MIT)", "MIT OR", "OR MIT", "MIT OR OR Apache-2.0", "MIT Apache-2.0",
+                           "()", "WITH", "MIT OR )", "MIT AND (", "MIT WITH )"]:
+            with self.subTest(expression=expression):
+                self.assertFalse(gate.spdx_allowed(expression, spdx))
+
+    def test_deeply_nested_expression_fails_closed(self):
+        self.assertFalse(gate.spdx_allowed("(" * 50 + "MIT" + ")" * 50, {"MIT"}))
+
+    def test_nesting_boundary_is_ten_levels(self):
+        self.assertTrue(gate.spdx_allowed("(" * 10 + "MIT" + ")" * 10, {"MIT"}))
+        self.assertFalse(gate.spdx_allowed("(" * 11 + "MIT" + ")" * 11, {"MIT"}))
+
+    def test_operators_are_case_insensitive_but_ids_are_not(self):
+        self.assertTrue(gate.spdx_allowed("GPL-3.0-only or MIT", {"MIT"}))
+        self.assertFalse(gate.spdx_allowed("MIT and GPL-3.0-only", {"MIT"}))
+        self.assertFalse(gate.spdx_allowed("mit", {"MIT"}))
+
 
 class NuspecLicenceTests(unittest.TestCase):
     def test_resolves_expression_file_url_and_placeholder(self):
@@ -145,6 +180,10 @@ class EvaluateTests(unittest.TestCase):
         observed = [("nuget", "Microsoft.VisualStudio.SDK", "1.0.0", "file", "MICROSOFT SOFTWARE LICENSE TERMS")]
         self.assertEqual(gate.evaluate(observed, self.SPDX, self.EXCEPTIONS), [])
         self.assertEqual(len(gate.evaluate(observed, self.SPDX, [("microsoft.visualstudio.*", "other marker", "x")])), 1)
+
+    def test_dual_licensed_npm_package_passes_when_one_alternative_is_allowed(self):
+        observed = [("npm", "jszip", "3.10.1", "expression", "(MIT OR GPL-3.0-or-later)")]
+        self.assertEqual(gate.evaluate(observed, self.SPDX, self.EXCEPTIONS), [])
 
 
 if __name__ == "__main__":
