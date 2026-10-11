@@ -8,7 +8,8 @@ type="expression">` is SPDX, `<license type="file">` resolves to the first non-e
 file, a legacy `<licenseUrl>` counts only without a `<license>` element (never the placeholder
 `aka.ms/deprecateLicenseUrl`). npm: production entries of `package-lock.json` (v2/v3, `dev: true`
 skipped) and their `license` field — no install needed, so the gate runs in any CI job.
-A package passes when every SPDX token is in the `[spdx]` section of scripts/allowed-licences.txt,
+A package passes when its SPDX expression is satisfied by the `[spdx]` section of scripts/allowed-licences.txt
+(OR = any alternative, AND/WITH = all ids; malformed expressions fail closed),
 or an `[exceptions]` entry matches its id (glob) AND a marker substring of the observed licence
 text. Anything else (unknown licence, missing nuspec, restore errors, empty graph) fails closed.
 
@@ -56,10 +57,78 @@ def parse_allow_list(path: Path) -> tuple[set[str], list[tuple[str, str, str]]]:
     return spdx, exceptions
 
 
+class _SpdxSyntaxError(ValueError):
+    """Malformed SPDX expression; `spdx_allowed` turns it into a fail-closed False."""
+
+
+_SPDX_MAX_DEPTH = 10
+
+
 def spdx_allowed(expression: str, spdx: set[str]) -> bool:
-    """Every licence id in a (possibly compound) SPDX expression must be allowed."""
-    tokens = [t for t in expression.replace("(", " ").replace(")", " ").split() if t.upper() not in SPDX_OPERATORS]
-    return bool(tokens) and all(t in spdx for t in tokens)
+    """True when the SPDX expression is satisfied by the allowed ids (SPDX Annex D precedence).
+
+    `WITH` binds tightest, then `AND`, then `OR`; parentheses group. `A OR B` needs one allowed
+    alternative, `A AND B` needs both, `id WITH exc` needs both the id and the exception listed.
+    Operators are case-insensitive, ids are case-sensitive. Empty, unbalanced, dangling or doubled
+    operators, unknown ids and nesting deeper than `_SPDX_MAX_DEPTH` all return False.
+    """
+    tokens = expression.replace("(", " ( ").replace(")", " ) ").split()
+    position = 0
+
+    def peek() -> str | None:
+        return tokens[position] if position < len(tokens) else None
+
+    def is_operator(token: str | None, name: str) -> bool:
+        return token is not None and token.upper() == name
+
+    def take_id() -> bool:
+        nonlocal position
+        token = peek()
+        if token is None or token in "()" or token.upper() in SPDX_OPERATORS:
+            raise _SpdxSyntaxError(f"licence id expected at token {position}")
+        position += 1
+        return token in spdx
+
+    def parse_atom(depth: int) -> bool:
+        nonlocal position
+        if peek() == "(":
+            if depth >= _SPDX_MAX_DEPTH:
+                raise _SpdxSyntaxError("expression nested too deeply")
+            position += 1
+            value = parse_or(depth + 1)
+            if peek() != ")":
+                raise _SpdxSyntaxError("missing closing parenthesis")
+            position += 1
+            return value
+        value = take_id()
+        if is_operator(peek(), "WITH"):
+            position += 1
+            value = take_id() and value
+        return value
+
+    def parse_and(depth: int) -> bool:
+        nonlocal position
+        value = parse_atom(depth)
+        while is_operator(peek(), "AND"):
+            position += 1
+            value = parse_atom(depth) and value
+        return value
+
+    def parse_or(depth: int) -> bool:
+        nonlocal position
+        value = parse_and(depth)
+        while is_operator(peek(), "OR"):
+            position += 1
+            value = parse_and(depth) or value
+        return value
+
+    try:
+        result = parse_or(0)
+        if position != len(tokens):
+            raise _SpdxSyntaxError(f"unexpected token {tokens[position]!r}")
+    except _SpdxSyntaxError:
+        return False
+    return result
 
 
 def nuget_cache_root() -> Path:

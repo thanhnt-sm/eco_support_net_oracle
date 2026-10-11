@@ -146,7 +146,7 @@ IF YOU COMPLY WITH THESE LICENSE TERMS, YOU HAVE THE RIGHTS BELOW.
 
 ## 3. Other third-party components
 
-Other components are used under permissive licences (MIT, Apache-2.0, the PostgreSQL licence, ISC) that
+Other components are used under permissive licences (MIT, Apache-2.0, the PostgreSQL licence, ISC, the Blue Oak Model License 1.0.0) that
 allow redistribution alongside GPL-3.0-only code. They are checked on every CI run against the allow-list in
 `scripts/allowed-licences.txt` (`scripts/check-nuget-licences.py`), and each release ships SBOMs listing
 them. Visual Studio and Visual Studio Code are the hosts that run the extensions; they are not redistributed
