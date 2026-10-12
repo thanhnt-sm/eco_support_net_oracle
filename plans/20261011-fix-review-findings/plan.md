@@ -4,6 +4,7 @@ title: "Remediate Security & Concurrency Findings from Adversarial Review"
 createdAt: "2026-10-11"
 mode: "deep"
 tdd: true
+blockedBy: [2026-10-13-github-jobs-scans-main-integration]
 ---
 
 # Plan: Remediate Security & Concurrency Findings from Adversarial Review
@@ -31,3 +32,6 @@ This plan implements the critical and high-priority fixes identified during the 
 ## Plan Context
 Validation: mode=deep, questions=3-5
 Red Team: completed, findings integrated.
+
+## Workflow coordination
+The GitHub jobs/scans integration plan owns workflow failure diagnosis and remote acceptance. Reconcile its evidence before executing this plan's workflow timeout/concurrency edits; do not impose 30 minutes on existing 40-minute Live DB jobs without runtime evidence. Source adapter/concurrency phases are not blocked by this workflow-specific coordination.
