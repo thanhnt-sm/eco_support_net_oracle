@@ -1368,7 +1368,7 @@ public class CliExitCodeTests
         {
             var assembly = typeof(global::DataGuard.Contracts.ExpectedColumnAttribute).Assembly.Location;
             var config = Path.Combine(dir, "manual.yml");
-            File.WriteAllText(config, $"GroundTruthMode: Manual\nManualAssemblyPath: \"{assembly}\"\n");
+            File.WriteAllText(config, $"GroundTruthMode: Manual\nManualAssemblyPath: '{assembly.Replace("'", "''")}'\n");
 
             var validate = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "validate", "--config", config);
             var baseline = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "baseline", "--config", config, "--output", Path.Combine(dir, "baseline.json"));

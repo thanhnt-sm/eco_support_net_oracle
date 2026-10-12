@@ -21,6 +21,10 @@ All notable changes to DataGuard are documented here. Format based on
 ### Added
 - **CI (v0.4.0)**: `scripts/check-license-consistency.py` (+ 17 unit tests in `scripts/tests/test_check_license_consistency.py`) fails on stale MIT mentions in the documentation surface, non-central package licence declarations, a non-GPL `LICENSE`, and drift between `LICENSE` / `docs/legal/*` and their six shipped copies. Run by `scripts/verify_docs_sync.sh` and the `build-and-test` job.
 
+### Fixed (Windows local verification)
+- Git wrappers and hooks retain a compatible SDK already on `PATH` instead of shadowing it with an incompatible per-user installation; the per-user fallback is checked against `global.json` before use.
+- Roslyn code-fix test workspaces explicitly apply the repository's LF editorconfig convention on Windows. The manual-assembly CLI fixture now quotes Windows paths as YAML literals so it reaches the assembly permission gate.
+
 ### Fixed (licence allow-list gate: BlueOak-1.0.0, SPDX OR semantics)
 - **Licence allow-list gate (CI Build and Test) no longer blocks Dependabot PR #49 and honours SPDX `OR`**: `vscode-languageclient` 10 pulls `minimatch ^10.2.6` (`BlueOak-1.0.0`) into the production npm tree, which `scripts/allowed-licences.txt` did not list. `BlueOak-1.0.0` (minimatch, sax) and `Zlib` (pako) are admitted, the admission rule and the decision are recorded in the allow-list header, `Artistic-2.0` and `SEE LICENSE IN` stay excluded, and `docs/legal/THIRD-PARTY-NOTICES.md` §3 (plus its two shipped copies) names the Blue Oak Model License 1.0.0. `spdx_allowed` now evaluates SPDX expressions with Annex D precedence (`WITH` > `AND` > `OR`) instead of requiring every id, so a dual-licensed package such as `(MIT OR GPL-3.0-or-later)` passes when one alternative is allowed; malformed, empty or deeply nested expressions still fail closed (9 new unit tests).
 

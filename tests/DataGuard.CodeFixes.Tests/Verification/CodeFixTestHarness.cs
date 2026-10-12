@@ -16,4 +16,24 @@ internal static class CodeFixTestHarness
     /// <summary>Gets the DataGuard.Contracts reference the fixes emit attributes from.</summary>
     public static MetadataReference ContractsReference { get; } =
         MetadataReference.CreateFromFile(typeof(DataGuard.Contracts.SkipContractCheckAttribute).Assembly.Location);
+
+    /// <summary>Gets the editorconfig contents matching the repository .editorconfig formatting rules.</summary>
+    public const string EditorConfig = """
+        root = true
+
+        [*.cs]
+        end_of_line = lf
+        """;
+
+    /// <summary>Configures the test to enforce LF line endings per repository .editorconfig.</summary>
+    /// <typeparam name="TTest">The test type.</typeparam>
+    /// <param name="test">The test instance.</param>
+    /// <returns>The configured test instance.</returns>
+    public static TTest WithEditorConfig<TTest>(TTest test)
+        where TTest : CodeFixTest<DefaultVerifier>
+    {
+        test.TestState.AnalyzerConfigFiles.Add(("/.editorconfig", EditorConfig));
+        test.FixedState.AnalyzerConfigFiles.Add(("/.editorconfig", EditorConfig));
+        return test;
+    }
 }
