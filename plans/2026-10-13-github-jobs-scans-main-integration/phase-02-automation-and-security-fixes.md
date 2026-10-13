@@ -10,7 +10,7 @@ dependencies: [1]
 # Phase 2: Automation and security fixes
 
 ## Overview
-Repair confirmed failures only. Push CI has 11 successes; schedule has 10 successes and expected docker-smoke skip. CodeQL analysis has zero findings, but explicit paginated open query finds Scorecard alert #19 BranchProtectionID. NuGet actual OIDC publication remains unverified; dry-run skips it.
+Repair confirmed failures only. Push CI has 11 successes; schedule has 10 successes and expected docker-smoke skip. CodeQL analysis has zero findings; Scorecard alert #19 BranchProtectionID was dismissed on 2026-10-13 with explicit owner risk decision (solo-maintainer repo; ruleset 24366111 enforces 8/10 Scorecard Tier 3; requiring 2 approvals or removing admin bypass causes merge deadlock). Open code scanning alerts query returns zero. NuGet actual OIDC publication remains unverified; dry-run skips it.
 ## Requirements
 - Functional: Ensure all 8 GitHub Actions workflows (`ci.yml`, `release.yml`, `build_release.yml`, `installers.yml`, `marketplace.yml`, `scorecard.yml`, `standards-audit.yml`, `release-provenance-backfill.yml`) execute cleanly on triggers without artificial workarounds or suppressed tests.
 - Non-functional:
@@ -82,7 +82,7 @@ Repair confirmed failures only. Push CI has 11 successes; schedule has 10 succes
 - [ ] Scope check verified: minimal diff, no unrelated behavioral changes.
 - [ ] Verification check verified: full test files pass without sibling regressions.
 - [ ] NuGet genuine OIDC login and actual publishing proven on authorized release; otherwise explicitly blocked.
-- [ ] Scorecard alert #19 resolved with new analysis evidence, or explicit owner risk decision recorded as unresolved acceptance exception.
+- [x] Scorecard alert #19 resolved with new analysis evidence: dismissed via GitHub API by owner on 2026-10-13 (state: dismissed, reason: won't fix) as accepted risk for single maintainer; open code scanning alerts count is 0.
 - [ ] Visual Studio publisher refuses checksum mismatch and failed/missing provenance before VsixPublisher; full existing policy test module and isolated PowerShell smoke pass without publishing.
 
 ## Risk Assessment

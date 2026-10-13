@@ -12,7 +12,7 @@
 | Check | Score | Status | Optimization & Path to Max |
 |---|---|---|---|
 | **Binary-Artifacts** | 10/10 | Met | No compiled binaries committed in git tree. |
-| **Branch-Protection** | 8/10 | Action Needed (GitHub Settings) | `main` is protected by the ruleset **Main Branch Protection** (id 24366111), not a classic branch-protection rule. Two findings remain: the ruleset lists *Repository admin* as a bypass actor (`bypass_mode: always`, Scorecard: "settings apply to administrators is disabled") and `required_approving_review_count` is 1 (Scorecard wants 2). This finding is Code scanning alert #19 (first raised 2026-08-31 when `main` had no protection, closed while the check was skipped, reopened with the current text once the ruleset existed). See section 2. |
+| **Branch-Protection** | 8/10 | Dismissed (Accepted Risk) | `main` is protected by ruleset **Main Branch Protection** (id 24366111), enforcing Tier 3 branch protection (PR required, 1 approval, strict CI checks, force-push and branch deletion blocked). Code scanning alert #19 was dismissed on 2026-10-13 as *Won't fix* (accepted risk for single-maintainer repo to prevent merge deadlock). Lifting to 10/10 requires external co-maintainers before removing admin bypass and raising approvals to 2. See section 2. |
 | **CI-Tests** | 10/10 | Met | All PRs executed via GitHub Actions CI suite (`ci.yml`). |
 | **CII-Best-Practices** | 5/10 | In Progress (Self-Certification) | Passing tier certified (5/10). Advancing to Silver tier in `bestpractices.dev` elevates check to 10/10. Full questionnaire answers tracked in `docs/guides/openssf-best-practices-answers.md`. |
 | **Code-Review** | 0/10 | External Requirement | Probe `codeApproved` over the last 20 changesets on `main`: a changeset counts when a GitHub review in state `APPROVED` (or the merge itself) comes from a login other than the PR author; bot-authored changesets (Dependabot) are skipped entirely so they neither help nor hurt. Every human changeset was authored *and* merged by `thanhnt-sm`, hence 0/20. Needs a second account that approves PRs before merge. |
@@ -40,6 +40,8 @@
 2. **Required approvals**: raise *Required approvals* from 1 to **2** for the last tier of the check.
 
 Both are owner decisions with a cost: with a single maintainer, 2 required approvals and no admin bypass make every merge wait for two other accounts. Scorecard scores the tiers in order and stops at the first incomplete one: item 2 alone lifts the check to 9/10, item 1 alone leaves it at 8/10, both give 10/10.
+
+**Alert #19 Resolution (2026-10-13):** Code scanning alert #19 was dismissed as *Won't fix* with the explicit rationale: accepted risk for solo-maintainer repository. Ruleset 24366111 enforces 8/10 Scorecard Tier 3 checks. Enforcing Tier 5 (requiring 2 approvals and removing admin bypass) causes solo-maintainer merge deadlock until external co-maintainers join the project.
 
 ## 3. Human Collaboration & Community Strategy
 
