@@ -87,4 +87,45 @@ internal static class OutputSinks
             return path;
         }
     }
+
+    // Repository-controlled text (a file name, a YAML key) echoed on one stderr line must not be able to forge a line
+    // start for a host that parses stderr line by line: C0 controls and DEL become \n, \r, \t or \u00XX.
+    internal static string EscapeControlCharacters(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        if (!text.Any(c => c < ' ' || c == '\u007f'))
+        {
+            return text;
+        }
+
+        var builder = new System.Text.StringBuilder(text.Length + 8);
+        foreach (var c in text)
+        {
+            switch (c)
+            {
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                case < ' ':
+                case '\u007f':
+                    builder.Append("\\u").Append(((int)c).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+                    break;
+                default:
+                    builder.Append(c);
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
 }

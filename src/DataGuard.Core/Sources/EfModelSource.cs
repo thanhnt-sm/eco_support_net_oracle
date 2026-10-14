@@ -260,14 +260,17 @@ public class EfModelSource : IContractSource
     /// </summary>
     /// <param name="source">ModelSnapshot.cs source text.</param>
     /// <param name="config">Optional configuration (reserved).</param>
-    /// <param name="sourcePath">Path reported in diagnostics; defaults to <c>ModelSnapshot.cs</c>.</param>
+    /// <param name="sourcePath">
+    /// Path reported in diagnostics (defaults to <c>ModelSnapshot.cs</c>) and, when given, recorded as the
+    /// <c>EntityDescriptor.Location</c> file of every parsed entity.
+    /// </param>
     public static ModelSnapshotExtraction ParseModelSnapshotWithDiagnostics(
         string source,
         DataGuardConfiguration? config = null,
         string? sourcePath = null)
     {
         _ = config;
-        var result = ModelSnapshotCSharpParser.Parse(source);
+        var result = ModelSnapshotCSharpParser.Parse(source, sourcePath);
         if (result.Diagnostics.Count > 0 && result.Entities.Count == 0)
         {
             throw new EfModelExtractionException(result.Diagnostics[0].Message);

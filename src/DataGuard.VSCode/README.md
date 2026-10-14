@@ -19,6 +19,8 @@ Install the `dataguard` CLI from the [GitHub Releases](https://github.com/thanhn
 
 Commit a `.dataguard.yml` in the trusted workspace. Use snapshot/manual mode for offline or regulated environments; database access remains an explicit CLI configuration decision.
 
+An EF Core workspace needs no extra setup: when exactly one design-time `*ModelSnapshot.cs` exists under the workspace, `validate --ide-safe` parses it as source (no assembly is loaded) and uses its entities as ground truth; the Output channel shows `ide-safe: ef model <path> (source parse)` and DG006/DG004 findings carry a position in the snapshot file. Set `AutoDetectEFContext: false` in `.dataguard.yml` to opt out.
+
 ## Commands
 
 | Command | Description |
