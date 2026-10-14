@@ -107,6 +107,13 @@
     <ItemGroup>
       <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\bin\$(Configuration)\netstandard2.0\DataGuard.Analyzers.dll" />
       <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.CodeFixes\bin\$(Configuration)\netstandard2.0\DataGuard.CodeFixes.dll" />
+      <!-- The analyzer references DataGuard.Contracts and DataGuard.SqlClassification (both netstandard2.0,
+           copied next to it by CopyLocalLockFileAssemblies); VS resolves no NuGet graph for analyzer assets,
+           so they ship in the VSIX exactly as the NuGet package bundles them under analyzers/dotnet/cs.
+           Declared as Microsoft.VisualStudio.Analyzer assets in source.extension.vsixmanifest and required
+           by scripts/assert-vsix.ps1 and VsixAnalyzerPackagingTests. -->
+      <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\bin\$(Configuration)\netstandard2.0\DataGuard.Contracts.dll" />
+      <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\bin\$(Configuration)\netstandard2.0\DataGuard.SqlClassification.dll" />
     </ItemGroup>
   </Target>
 

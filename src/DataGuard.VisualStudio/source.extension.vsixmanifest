@@ -9,13 +9,13 @@
     <Tags>database;sql;stored-procedure;dapper;entity-framework;schema-drift;sarif;devsecops</Tags>
   </Metadata>
   <Installation>
-    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,19.0)">
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.12,19.0)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
-    <InstallationTarget Id="Microsoft.VisualStudio.Professional" Version="[17.0,19.0)">
+    <InstallationTarget Id="Microsoft.VisualStudio.Professional" Version="[17.12,19.0)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
-    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[17.0,19.0)">
+    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[17.12,19.0)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
   </Installation>
@@ -23,7 +23,8 @@
     <Dependency Id="Microsoft.Framework.NDP" DisplayName=".NET Framework 4.7.2" Version="[4.7.2,)" />
   </Dependencies>
   <Prerequisites>
-    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" DisplayName="Visual Studio core editor" Version="[17.0,)" />
+    <!-- 17.12 is the first VS 2022 release whose Roslyn (4.12) loads the bundled analyzer; 17.0-17.11 refuse it (CS9057). -->
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" DisplayName="Visual Studio core editor" Version="[17.12,)" />
   </Prerequisites>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
@@ -33,5 +34,12 @@
     <Asset Type="Microsoft.VisualStudio.Analyzer"
            d:Source="File"
            Path="DataGuard.CodeFixes.dll" />
+    <!-- Loaded by DataGuard.Analyzers.dll at runtime (same bundle as the NuGet package's analyzers/dotnet/cs). -->
+    <Asset Type="Microsoft.VisualStudio.Analyzer"
+           d:Source="File"
+           Path="DataGuard.Contracts.dll" />
+    <Asset Type="Microsoft.VisualStudio.Analyzer"
+           d:Source="File"
+           Path="DataGuard.SqlClassification.dll" />
   </Assets>
 </PackageManifest>

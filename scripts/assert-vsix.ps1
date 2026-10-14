@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  Asserts a DataGuard Visual Studio VSIX contains the bundled CLI, the Roslyn analyzers, the
-  package definition and a manifest whose version matches the expected one.
+  Asserts a DataGuard Visual Studio VSIX contains the bundled CLI, the Roslyn analyzers with the
+  two assemblies they load (Contracts, SqlClassification), the package definition and a manifest
+  whose version matches the expected one.
 
 .DESCRIPTION
   Shared by .github/workflows/ci.yml and release.yml so both paths enforce the same gate.
@@ -19,10 +20,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# The analyzer references DataGuard.Contracts and DataGuard.SqlClassification at load time (the NuGet
+# package bundles them for the same reason); without them VS cannot load DataGuard.Analyzers.dll.
 $RequiredEntries = @(
     'cli/dataguard.exe',
     'DataGuard.Analyzers.dll',
     'DataGuard.CodeFixes.dll',
+    'DataGuard.Contracts.dll',
+    'DataGuard.SqlClassification.dll',
     'extension.vsixmanifest',
     'DataGuard.VisualStudio.dll',
     'DataGuard.VisualStudio.pkgdef'

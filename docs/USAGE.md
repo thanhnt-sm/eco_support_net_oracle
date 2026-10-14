@@ -517,6 +517,8 @@ END;
 <PackageReference Include="DataGuard.Analyzers" Version="1.0.0" />
 ```
 
+**Dòng compiler / Compiler line**: analyzer được build với Roslyn 4.12 (`Microsoft.CodeAnalysis` 4.12.0) — dòng compiler mà .NET SDK 9.0.1xx và Visual Studio 2022 17.12+ dùng. Compiler cũ hơn (SDK 8.x, VS 2022 17.0–17.11) từ chối analyzer với `warning CS9057` và không hiện diagnostic nào. / The analyzer targets Roslyn 4.12, the compiler line of the .NET 9.0.1xx SDK and Visual Studio 2022 17.12+; an older compiler refuses it with `warning CS9057` and shows no diagnostics (checked in CI by `scripts/verify-analyzer-packaging.sh`).
+
 **Diagnostics Hiển Thị / Diagnostics Shown**:
 | ID | Mô Tả | Severity | Quick Fix |
 |----|-------|----------|-----------|
@@ -547,6 +549,8 @@ END;
 ### Visual Studio 2022 Extension (`DataGuard.VisualStudio`)
 
 Menu **Tools → DataGuard**: Run Validation, Cancel, Assess Workspace, View Diagnostic Logs, Validation Rules, Forget Solution Consent, **Refresh Snapshot**, **Verify SQL Shapes Against Database**. Kết quả SARIF của `validate`/`assess` được nạp vào **Error List** (double-click nhảy đúng dòng/cột), tối đa 2 000 mục mỗi lần chạy.
+
+**Yêu cầu phiên bản / Version floor**: squiggles và quick fix trong editor (DG001, DG017, …) đến từ analyzer đóng gói trong VSIX (`DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll` cùng `DataGuard.Contracts.dll`, `DataGuard.SqlClassification.dll`) và **cần VS 2022 17.12+** (manifest cài đặt `[17.12,19.0)`): VS 17.0–17.11 chạy Roslyn < 4.12 và từ chối analyzer (`CS9057`). / In-editor squiggles need VS 2022 17.12+; the VSIX installs only on 17.12 and later.
 
 **Mô hình tin cậy / Trust model**:
 - Lần chạy đầu tiên cho mỗi solution, extension hỏi xác nhận (modal) và lưu đồng ý theo bộ ba *(thư mục solution, đường dẫn `.sln`, SHA-256 của `.dataguard.yml`)* trong user settings của VS. Khi repo đổi `.dataguard.yml`, extension hỏi lại.
