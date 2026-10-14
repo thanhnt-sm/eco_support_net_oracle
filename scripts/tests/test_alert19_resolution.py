@@ -59,5 +59,26 @@ class Alert19ResolutionTests(unittest.TestCase):
         self.assertIn("solo", data.get("dismissed_comment", "").lower())
 
 
+    def test_no_vulnerable_pkcs_in_lockfiles(self) -> None:
+        """All packages.lock.json files resolving System.Security.Cryptography.Pkcs must resolve >= 9.0.21."""
+        vulnerable_versions = {"8.0.0", "8.0.1", "9.0.6", "9.0.18", "9.0.20"}
+        for lock_path in REPO_ROOT.rglob("packages.lock.json"):
+            if "obj" in lock_path.parts or "bin" in lock_path.parts:
+                continue
+            data = json.loads(lock_path.read_text(encoding="utf-8"))
+            for tfm, packages in data.get("dependencies", {}).items():
+                if "System.Security.Cryptography.Pkcs" in packages:
+                    resolved = packages["System.Security.Cryptography.Pkcs"].get("resolved")
+                    self.assertNotIn(
+                        resolved,
+                        vulnerable_versions,
+                        f"{lock_path.relative_to(REPO_ROOT)} ({tfm}) resolves vulnerable System.Security.Cryptography.Pkcs {resolved}",
+                    )
+                    self.assertEqual(
+                        resolved,
+                        "9.0.21",
+                        f"{lock_path.relative_to(REPO_ROOT)} ({tfm}) expected 9.0.21, got {resolved}",
+                    )
+
 if __name__ == "__main__":
     unittest.main()

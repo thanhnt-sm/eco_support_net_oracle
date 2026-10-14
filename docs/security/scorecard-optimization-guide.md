@@ -28,7 +28,7 @@
 | **Security-Policy** | 10/10 | Met | Comprehensive `SECURITY.md` covering disclosure, timelines, and reporting. |
 | **Signed-Releases** | 8/10 → 10/10 | Backfilled | Scorecard scores each of the last 5 releases: 8 when every asset is signed (`*.sigstore.json`), 10 when a provenance asset (`*.intoto.jsonl`) is also attached. `nightly` had both; v0.3.0–v0.3.2 only had signatures because `release.yml` attested the assets but only started uploading the bundle on 2026-10-05. The bundles were still in the repository attestation store, so `.github/workflows/release-provenance-backfill.yml` re-attached the genuine build-time bundles (see section 4). |
 | **Token-Permissions** | 10/10 | Met | Top-level `contents: read` default; job-level least privilege throughout. |
-| **Vulnerabilities** | 10/10 | Met | 0 OSV advisories; `@vscode/vsce` 4.0.0 in `src/DataGuard.VSCode` removed the transitive `braces` advisory `GHSA-vfj7-8cjw-p6xm`. |
+| **Vulnerabilities** | 10/10 | Met | 0 OSV advisories; `@vscode/vsce` 4.0.0 in `src/DataGuard.VSCode` removed the transitive `braces` advisory `GHSA-vfj7-8cjw-p6xm`, and `System.Security.Cryptography.Pkcs` 9.0.21 pinned across adapters and test projects to remediate `GHSA-2fmv-rv2c-59x7` / `GHSA-846f-f764-76mx` (Code scanning alert #45). |
 
 ---
 

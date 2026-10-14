@@ -12,5 +12,6 @@
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.117.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21" />
   </ItemGroup>
 </Project>
