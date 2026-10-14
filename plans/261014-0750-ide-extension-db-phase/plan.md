@@ -1,7 +1,7 @@
 ---
 title: "Visual Studio extension: make the in-editor analyzer load, report database ground-truth state truthfully, and add the database-phase commands"
 description: "Root-cause and fix why DataGuard for Visual Studio misbehaves for .NET developers in the database phase: the bundled Roslyn analyzer is refused by VS 2022 / .NET 9 compilers (no squiggles at all), validate runs with no ground truth are reported as [OK], EF Core ModelSnapshot ground truth is unreachable under --ide-safe, and VS has no snapshot/verify-shape commands at all."
-status: pending
+status: completed
 priority: P1
 effort: 14h
 branch: fix/ide-extension-db-phase-plan
@@ -37,7 +37,7 @@ Design principles (YAGNI / KISS / DRY):
 |-------|------|--------|
 | 1 | [Analyzer loads in VS 2022 and .NET 9 SDK (Roslyn 4.12 pin, complete VSIX)](./phase-01-analyzer-roslyn-and-vsix.md) | Completed |
 | 2 | [VS reports ground-truth and run state truthfully](./phase-02-vs-run-state.md) | Completed |
-| 3 | [EF ModelSnapshot ground truth under --ide-safe (CLI, serves VS)](./phase-03-ide-ground-truth-ef.md) | Pending |
+| 3 | [EF ModelSnapshot ground truth under --ide-safe (CLI, serves VS)](./phase-03-ide-ground-truth-ef.md) | Completed |
 | 4 | [VS database commands: Refresh Snapshot and Verify SQL Shapes; drop dead Init](./phase-04-vs-database-commands.md) | Completed |
 
 ## Dependencies
