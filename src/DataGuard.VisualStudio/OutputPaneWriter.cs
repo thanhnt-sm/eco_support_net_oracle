@@ -96,9 +96,11 @@ internal sealed class OutputPaneWriter
         var resultText = progress.HasSummary
             ? "Result: " + progress.ErrorCount + " errors, " + progress.WarningCount + " warnings\r\n"
             : "Result: No final validation summary was produced.\r\n";
+        var groundTruth = ExitCodeExplainer.DescribeGroundTruth(progress);
         await this.WriteAsync(
             Separator +
             resultText +
+            (groundTruth == null ? string.Empty : groundTruth + "\r\n") +
             "Action: Open Error List to see details and jump to source locations.\r\n" +
             "Docs:   Tools -> Options -> DataGuard -> Validation Rules\r\n" +
             Separator);

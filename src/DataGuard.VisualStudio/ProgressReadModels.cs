@@ -4,6 +4,30 @@
 
 namespace DataGuard.VisualStudio;
 
+/// <summary>
+/// The optional policy fields of the validate <c>Summary</c> event: how many rules and contracts were
+/// not evaluated, how many acquisition diagnostics were printed, and what ground truth was compared
+/// (<c>none</c>, <c>entities</c>, <c>schema</c> or <c>schema+entities</c>). Absent fields stay null.
+/// </summary>
+internal readonly struct SummaryDetails
+{
+    public SummaryDetails(int? unevaluatedContractCount, int? unavailableRuleCount, int? acquisitionDiagnosticCount, string? groundTruth)
+    {
+        this.UnevaluatedContractCount = unevaluatedContractCount;
+        this.UnavailableRuleCount = unavailableRuleCount;
+        this.AcquisitionDiagnosticCount = acquisitionDiagnosticCount;
+        this.GroundTruth = groundTruth;
+    }
+
+    public int? UnevaluatedContractCount { get; }
+
+    public int? UnavailableRuleCount { get; }
+
+    public int? AcquisitionDiagnosticCount { get; }
+
+    public string? GroundTruth { get; }
+}
+
 /// <summary>Result of parsing one CLI stderr line.</summary>
 internal readonly struct ParsedProgress
 {
@@ -13,12 +37,18 @@ internal readonly struct ParsedProgress
     }
 
     public ParsedProgress(string? formattedOutput, int? errorCount, int? warningCount, RuleInventoryItem? inventoryEntry, bool isProgressEvent)
+        : this(formattedOutput, errorCount, warningCount, inventoryEntry, isProgressEvent, default)
+    {
+    }
+
+    public ParsedProgress(string? formattedOutput, int? errorCount, int? warningCount, RuleInventoryItem? inventoryEntry, bool isProgressEvent, SummaryDetails summary)
     {
         this.FormattedOutput = formattedOutput;
         this.ErrorCount = errorCount;
         this.WarningCount = warningCount;
         this.InventoryEntry = inventoryEntry;
         this.IsProgressEvent = isProgressEvent;
+        this.Summary = summary;
     }
 
     public string? FormattedOutput { get; }
@@ -28,6 +58,9 @@ internal readonly struct ParsedProgress
     public int? WarningCount { get; }
 
     public RuleInventoryItem? InventoryEntry { get; }
+
+    /// <summary>Policy fields of the Summary event; all null unless <see cref="IsSummary"/>.</summary>
+    public SummaryDetails Summary { get; }
 
     /// <summary>True when the line was a well-formed progress event (any Kind the parser understands).</summary>
     public bool IsProgressEvent { get; }
@@ -44,6 +77,24 @@ internal sealed class ProgressReadResult
     public int WarningCount { get; set; }
 
     public bool HasSummary { get; set; }
+
+    /// <summary>Contracts no rule could evaluate after ground truth loaded (Summary <c>UnevaluatedContractCount</c>); null when absent.</summary>
+    public int? UnevaluatedContractCount { get; set; }
+
+    /// <summary>Rules unavailable for the configured provider or prerequisites (Summary <c>UnavailableRuleCount</c>); null when absent.</summary>
+    public int? UnavailableRuleCount { get; set; }
+
+    /// <summary>Acquisition diagnostics the CLI printed as <c>ACQUISITION:</c> lines (Summary <c>AcquisitionDiagnosticCount</c>); null when absent.</summary>
+    public int? AcquisitionDiagnosticCount { get; set; }
+
+    /// <summary>Ground truth the CLI compared (<c>none</c>, <c>entities</c>, <c>schema</c>, <c>schema+entities</c>); null when the Summary did not say.</summary>
+    public string? GroundTruth { get; set; }
+
+    /// <summary>
+    /// Set when a raw stderr line started with the CLI's exact "no ground truth" notice: only syntactic
+    /// rules ran and the database contract was not compared. Never set from a substring.
+    /// </summary>
+    public bool GroundTruthMissing { get; set; }
 
     /// <summary>
     /// Set when a stderr line started with the System.CommandLine rejection of <c>--ide-safe</c>.

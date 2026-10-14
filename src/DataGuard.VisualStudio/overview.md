@@ -9,6 +9,7 @@ DataGuard validates database contracts between .NET code, stored procedures, and
 - **Tools > DataGuard: Assess Workspace** runs local-first `dataguard assess` with private SARIF output and never enables remote advisories.
 - Drains CLI streams without displaying raw output; the **DataGuard** Output Window pane shows lifecycle status only.
 - Maps private SARIF results into the **Error List**, then deletes the temporary file after the run.
+- Reports what was actually compared: the Output pane shows the CLI's policy lines as `[WARN]`, the Summary names the ground truth kind (`none`, `entities`, `schema`, `schema+entities`), and a run that loaded no snapshot, EF model or connection ends with `[WARN] Ran syntactic rules only …` and the status `DataGuard: syntactic only (…)` instead of `[OK] No issues found.`.
 - Does not load database providers, retain database credentials, send telemetry, or invoke a shell inside Visual Studio.
 
 ## Requirements

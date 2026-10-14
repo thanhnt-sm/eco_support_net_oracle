@@ -118,9 +118,7 @@ public sealed partial class DataGuardPackage
         }
 
         await output.WriteResultBlockAsync(progress);
-        await output.SetStatusAsync(progress.HasSummary
-            ? "DataGuard: " + progress.ErrorCount + " errors, " + progress.WarningCount + " warnings"
-            : "DataGuard: Result summary unavailable");
+        await output.SetStatusAsync(ExitCodeExplainer.DescribeStatus(progress));
     }
 
     private void LogRun(CliRunContext context, int exitCode, long elapsedMs, int diagnosticCount)

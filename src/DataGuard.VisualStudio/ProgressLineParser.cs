@@ -7,6 +7,7 @@ namespace DataGuard.VisualStudio;
 using System;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 /// <summary>
 /// Parses the line-delimited JSON progress events the CLI writes to stderr with <c>--progress</c>
@@ -17,6 +18,20 @@ using System.Text.Json;
 internal static class ProgressLineParser
 {
     internal const int MaxProgressLineLength = 16 * 1024;
+
+    /// <summary>Exact starts of the CLI lines that say no ground truth was loaded (only syntactic rules ran).</summary>
+    internal static readonly string[] GroundTruthMissingPrefixes =
+    {
+        "Warning: no ground truth",
+        "UNEVALUATED: no ground truth",
+    };
+
+    // Policy lines the CLI prints at line start: the ground-truth warning, unevaluated contracts,
+    // acquisition diagnostics and rules skipped for a missing prerequisite. Anchored, no substring match.
+    private static readonly Regex PolicyLineRegex = new(
+        @"^(?:Warning:|UNEVALUATED:|ACQUISITION:|Rule \S+ not evaluated:)",
+        RegexOptions.Compiled,
+        TimeSpan.FromMilliseconds(100));
 
     /// <summary>Appends one character to the current line buffer; returns true at end of line.</summary>
     internal static bool AppendProgressChar(char character, StringBuilder line, ref bool discardedLine)
@@ -48,14 +63,19 @@ internal static class ProgressLineParser
             return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null);
         }
 
-        if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings, out var inventoryEntry))
+        if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings, out var inventoryEntry, out var summary))
         {
             var output = string.IsNullOrEmpty(formatted) ? null : formatted + "\r\n";
-            return new ParsedProgress(output, eventErrors, eventWarnings, inventoryEntry, isProgressEvent: true);
+            return new ParsedProgress(output, eventErrors, eventWarnings, inventoryEntry, isProgressEvent: true, summary);
         }
 
         if (!string.IsNullOrWhiteSpace(text))
         {
+            if (IsPolicyLine(text))
+            {
+                return new ParsedProgress("[DataGuard] [WARN] " + DataGuardLogger.Redact(text) + "\r\n", null, null);
+            }
+
             var diagnostic = IsJsonPayload(text)
                 ? "[structured diagnostic redacted]"
                 : DataGuardLogger.Redact(text);
@@ -63,6 +83,42 @@ internal static class ProgressLineParser
         }
 
         return new ParsedProgress(null, null, null);
+    }
+
+    /// <summary>
+    /// True for a CLI policy line (<c>Warning:</c>, <c>UNEVALUATED:</c>, <c>ACQUISITION:</c>,
+    /// <c>Rule &lt;id&gt; not evaluated:</c>) at the very start of the line; such lines are rendered
+    /// as <c>[WARN]</c> so a developer sees what was not compared.
+    /// </summary>
+    internal static bool IsPolicyLine(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        try
+        {
+            return PolicyLineRegex.IsMatch(text);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>True when the raw line starts with one of <see cref="GroundTruthMissingPrefixes"/> (ordinal, no trimming).</summary>
+    internal static bool IsGroundTruthMissingLine(string text)
+    {
+        foreach (var prefix in GroundTruthMissingPrefixes)
+        {
+            if (text.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static bool IsJsonPayload(string text)
@@ -92,10 +148,22 @@ internal static class ProgressLineParser
         out int? warningCount,
         out RuleInventoryItem? inventoryEntry)
     {
+        return TryFormatProgress(line, out formatted, out errorCount, out warningCount, out inventoryEntry, out _);
+    }
+
+    internal static bool TryFormatProgress(
+        string line,
+        out string? formatted,
+        out int? errorCount,
+        out int? warningCount,
+        out RuleInventoryItem? inventoryEntry,
+        out SummaryDetails summary)
+    {
         formatted = string.Empty;
         errorCount = null;
         warningCount = null;
         inventoryEntry = null;
+        summary = default;
 
         try
         {
@@ -164,7 +232,13 @@ internal static class ProgressLineParser
                         }
 
                         errorCount += criticalCount ?? 0;
-                        formatted = "[DataGuard] ✔ " + phase + $": {errorCount.Value} errors, {warningCount.Value} warnings";
+                        var groundTruth = GetProgressString(data, "GroundTruth");
+                        summary = new SummaryDetails(
+                            GetProgressCount(data, "UnevaluatedContractCount"),
+                            GetProgressCount(data, "UnavailableRuleCount"),
+                            GetProgressCount(data, "AcquisitionDiagnosticCount"),
+                            groundTruth == null ? null : DataGuardLogger.Redact(groundTruth));
+                        formatted = "[DataGuard] ✔ " + phase + $": {errorCount.Value} errors, {warningCount.Value} warnings" + FormatSummarySegments(summary);
                         return true;
                     default:
                         return false;
@@ -175,6 +249,28 @@ internal static class ProgressLineParser
         {
             return false;
         }
+    }
+
+    /// <summary>"; ground truth: K; unevaluated N; unavailable rules N" — each segment only when the Summary carried it (counts only when positive).</summary>
+    internal static string FormatSummarySegments(SummaryDetails summary)
+    {
+        var text = new StringBuilder();
+        if (!string.IsNullOrEmpty(summary.GroundTruth))
+        {
+            text.Append("; ground truth: ").Append(summary.GroundTruth);
+        }
+
+        if (summary.UnevaluatedContractCount > 0)
+        {
+            text.Append("; unevaluated ").Append(summary.UnevaluatedContractCount.Value);
+        }
+
+        if (summary.UnavailableRuleCount > 0)
+        {
+            text.Append("; unavailable rules ").Append(summary.UnavailableRuleCount.Value);
+        }
+
+        return text.ToString();
     }
 
     private static int? GetProgressCount(JsonElement data, string name)
