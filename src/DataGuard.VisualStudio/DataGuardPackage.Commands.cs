@@ -13,7 +13,7 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
 using Task = System.Threading.Tasks.Task;
 
-/// <summary>Command execution: run slot → CLI discovery → trust gate → ide-safe run → outcome handling.</summary>
+/// <summary>Command execution: run slot → CLI discovery → trust gate → ide-safe run → outcome handling. The live database commands reuse <see cref="ExecuteRunAsync"/> from DataGuardPackage.LiveCommands.cs.</summary>
 public sealed partial class DataGuardPackage
 {
     private const string ConfigFileName = ".dataguard.yml";
@@ -117,8 +117,16 @@ public sealed partial class DataGuardPackage
                 return;
             }
 
-            await output.WriteCommandBannerAsync(context.Command, context.SolutionDirectory, context.ConfigPath, context.EnabledRuleCount, context.DisabledRuleIds.Count);
-            if (!context.ConfigExists)
+            if (context.LiveCommand is { } liveKind)
+            {
+                await output.WriteLiveCommandBannerAsync(liveKind, context.SolutionDirectory, context.LiveOptions.VariableName);
+            }
+            else
+            {
+                await output.WriteCommandBannerAsync(context.Command, context.SolutionDirectory, context.ConfigPath, context.EnabledRuleCount, context.DisabledRuleIds.Count);
+            }
+
+            if (!context.ConfigExists && context.LiveCommand == null)
             {
                 await output.WriteAsync("[DataGuard] No " + ConfigFileName + " in the solution directory: only source-only rules run and no schema was compared. Run 'dataguard init' to create one.\r\n");
             }

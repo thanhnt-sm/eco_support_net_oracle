@@ -71,4 +71,13 @@ internal sealed class CliRunContext
     public string TemporaryDirectory { get; }
 
     public string SarifPath { get; }
+
+    /// <summary>Set for Refresh Snapshot / Verify SQL Shapes; null for validate and assess.</summary>
+    public LiveCommandKind? LiveCommand { get; set; }
+
+    /// <summary>Validated options of the live command (variable name, provider, schema); only meaningful with <see cref="LiveCommand"/>.</summary>
+    public LiveDatabaseOptions LiveOptions { get; set; }
+
+    /// <summary>UTC time the run was prepared; a snapshot file older than this is not this run's output.</summary>
+    public System.DateTime StartedUtc { get; } = System.DateTime.UtcNow;
 }

@@ -21,7 +21,8 @@ using Task = System.Threading.Tasks.Task;
 /// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials
 /// into devenv. Registration, lifetime and command wiring live here; command execution is in
 /// DataGuardPackage.Commands.cs, consent in DataGuardPackage.Consent.cs, result publishing in
-/// DataGuardPackage.Publishing.cs and run-stop paths in DataGuardPackage.Lifetime.cs.
+/// DataGuardPackage.Publishing.cs, run-stop paths in DataGuardPackage.Lifetime.cs and the live database
+/// commands (Refresh Snapshot, Verify SQL Shapes) in DataGuardPackage.LiveCommands.cs.
 /// </summary>
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
@@ -41,6 +42,8 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private const int ExportLogsCommandId = 0x0103;
     private const int ViewRulesCommandId = 0x0104;
     private const int ForgetConsentCommandId = 0x0105;
+    private const int RefreshSnapshotCommandId = 0x0106;
+    private const int VerifyShapeCommandId = 0x0107;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
     private static readonly Guid CommandSet = new(CommandSetGuidString);
 
@@ -89,6 +92,8 @@ public sealed partial class DataGuardPackage : AsyncPackage
             this.AddCommand(commandService, ExportLogsCommandId, this.ViewLogsAsync, "DataGuard/ViewLogs");
             this.AddCommand(commandService, ViewRulesCommandId, this.ViewRulesAsync, "DataGuard/ViewRules");
             this.AddCommand(commandService, ForgetConsentCommandId, this.ForgetSolutionConsentAsync, "DataGuard/ForgetConsent");
+            this.AddCommand(commandService, RefreshSnapshotCommandId, this.RefreshSnapshotAsync, "DataGuard/RefreshSnapshot");
+            this.AddCommand(commandService, VerifyShapeCommandId, this.VerifyShapesAsync, "DataGuard/VerifyShapes");
         }
 
         if (await this.GetServiceAsync(typeof(SVsSolutionBuildManager)) is IVsSolutionBuildManager buildManager)

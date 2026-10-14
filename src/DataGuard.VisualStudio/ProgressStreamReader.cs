@@ -82,6 +82,11 @@ internal sealed class ProgressStreamReader
             result.GroundTruthMissing = true;
         }
 
+        if (!discardedLine && text.StartsWith(ProgressLineParser.SnapshotWrotePrefix, StringComparison.Ordinal))
+        {
+            result.SnapshotWrittenPath = text.Substring(ProgressLineParser.SnapshotWrotePrefix.Length).Trim();
+        }
+
         var parsed = ProgressLineParser.FormatProgressLine(text, discardedLine);
         if (parsed.IsProgressEvent)
         {

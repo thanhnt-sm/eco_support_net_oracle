@@ -72,6 +72,36 @@ internal sealed class SolutionTrustGate
         return Hex(Sha256(Encoding.UTF8.GetBytes(normalizedSolution + "|" + normalizedFile + "|" + configHash)));
     }
 
+    /// <summary>Suffix of the live-command consent key; the validate key for the same solution never grants it and vice versa.</summary>
+    internal const string LiveConsentSuffix = ":live";
+
+    /// <summary>
+    /// Consent key for the live database commands: solution directory and .sln path only. The
+    /// .dataguard.yml hash is not part of it because these commands never read that file.
+    /// </summary>
+    internal static string ComputeLiveConsentKey(string solutionDirectory, string? solutionFilePath)
+    {
+        return ComputeConsentKey(solutionDirectory, solutionFilePath, (byte[]?)null) + LiveConsentSuffix;
+    }
+
+    internal static string BuildLivePromptText(string solutionDirectory, string variableName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("DataGuard will run its command-line tool against a live database for this solution:");
+        sb.AppendLine();
+        sb.AppendLine("    " + solutionDirectory);
+        sb.AppendLine();
+        sb.AppendLine("This is not IDE-safe mode:");
+        sb.AppendLine("  • the CLI connects to the database named by the environment variable " + variableName + " with your own credential (Visual Studio never stores or logs its value);");
+        sb.AppendLine("  • Refresh Snapshot writes " + Path.Combine(solutionDirectory, LiveDatabaseCommands.SnapshotFileName) + "; Verify SQL Shapes describes every read SQL query of the solution against that database;");
+        sb.AppendLine("  • the solution's .dataguard.yml is never read for these commands; provider and schema come from Tools > Options > DataGuard.");
+        sb.AppendLine();
+        sb.AppendLine("Each run still asks you to confirm the target host. Your choice is remembered for this solution file (Tools > DataGuard > Forget Solution Consent revokes it).");
+        sb.AppendLine();
+        sb.Append("Allow DataGuard database commands for this solution?");
+        return sb.ToString();
+    }
+
     internal static string BuildPromptText(string solutionDirectory, bool configExists)
     {
         var sb = new StringBuilder();

@@ -19,6 +19,9 @@ internal static class ProgressLineParser
 {
     internal const int MaxProgressLineLength = 16 * 1024;
 
+    /// <summary>Exact start of the CLI line that names the snapshot file <c>snapshot refresh</c> wrote.</summary>
+    internal const string SnapshotWrotePrefix = "snapshot: wrote ";
+
     /// <summary>Exact starts of the CLI lines that say no ground truth was loaded (only syntactic rules ran).</summary>
     internal static readonly string[] GroundTruthMissingPrefixes =
     {

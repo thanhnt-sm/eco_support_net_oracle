@@ -63,11 +63,18 @@
           <CommandName>DataGuardForgetSolutionConsent</CommandName>
         </Strings>
       </Button>
-      <Button guid="guidDataGuardCommandSet" id="InitCommand" priority="0x0106" type="Button">
+      <Button guid="guidDataGuardCommandSet" id="RefreshSnapshotCommand" priority="0x0106" type="Button">
         <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
         <Strings>
-          <ButtonText>Initialize DataGuard</ButtonText>
-          <CommandName>DataGuardInit</CommandName>
+          <ButtonText>Refresh Snapshot</ButtonText>
+          <CommandName>DataGuardRefreshSnapshot</CommandName>
+        </Strings>
+      </Button>
+      <Button guid="guidDataGuardCommandSet" id="VerifyShapeCommand" priority="0x0107" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>Verify SQL Shapes Against Database</ButtonText>
+          <CommandName>DataGuardVerifyShapes</CommandName>
         </Strings>
       </Button>
     </Buttons>
@@ -84,7 +91,8 @@
       <IDSymbol name="ExportLogsCommand" value="0x0103" />
       <IDSymbol name="ViewRulesCommand" value="0x0104" />
       <IDSymbol name="ForgetConsentCommand" value="0x0105" />
-      <IDSymbol name="InitCommand" value="0x0106" />
+      <IDSymbol name="RefreshSnapshotCommand" value="0x0106" />
+      <IDSymbol name="VerifyShapeCommand" value="0x0107" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

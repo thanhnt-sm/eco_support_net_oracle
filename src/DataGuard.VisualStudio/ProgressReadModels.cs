@@ -107,6 +107,9 @@ internal sealed class ProgressReadResult
 
     /// <summary>Set when at least one well-formed progress event was parsed.</summary>
     public bool SawAnyProgressEvent { get; set; }
+
+    /// <summary>Path from the CLI's exact <c>snapshot: wrote &lt;path&gt;</c> stderr line (relative to its working directory); null when absent.</summary>
+    public string? SnapshotWrittenPath { get; set; }
 }
 
 /// <summary>What the package may do with a finished run.</summary>

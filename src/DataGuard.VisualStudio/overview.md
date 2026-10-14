@@ -7,10 +7,11 @@ DataGuard validates database contracts between .NET code, stored procedures, and
 - **Tools > DataGuard: Run Validation** runs the local DataGuard CLI against `<solution>/.dataguard.yml`.
 - **Tools > DataGuard: Cancel Validation** terminates the owned CLI process tree.
 - **Tools > DataGuard: Assess Workspace** runs local-first `dataguard assess` with private SARIF output and never enables remote advisories.
+- **Tools > DataGuard: Refresh Snapshot** runs `dataguard snapshot refresh --connection-env NAME --provider P` in the solution directory, so `.dataguard-snapshot.json` lands where the next validation finds it; **Verify SQL Shapes Against Database** runs `dataguard verify-shape` and lists every non-verified query with `file:line`. Both read the connection string from the environment variable named in **Tools > Options > DataGuard > General > Live Database** (Visual Studio stores only the name), never pass `--config`, `--ide-safe` or `--connection`, need a separate per-solution consent, and confirm the target host in a modal before every run.
 - Drains CLI streams without displaying raw output; the **DataGuard** Output Window pane shows lifecycle status only.
 - Maps private SARIF results into the **Error List**, then deletes the temporary file after the run.
 - Reports what was actually compared: the Output pane shows the CLI's policy lines as `[WARN]`, the Summary names the ground truth kind (`none`, `entities`, `schema`, `schema+entities`), and a run that loaded no snapshot, EF model or connection ends with `[WARN] Ran syntactic rules only …` and the status `DataGuard: syntactic only (…)` instead of `[OK] No issues found.`.
-- Does not load database providers, retain database credentials, send telemetry, or invoke a shell inside Visual Studio.
+- Does not load database providers, retain or log database credentials, send telemetry, or invoke a shell inside Visual Studio.
 
 ## Requirements
 
