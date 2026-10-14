@@ -80,7 +80,7 @@ export function buildCliArguments(
                 ...(options.hasUserCredential === true ? [ALLOW_ENV_CONNECTION_FLAG] : []),
             ];
         case "assess":
-            return ["assess", "--workspace", workspacePath, "--provider", normalizedProvider, "--format", "sarif", "--output", outputPath!, IDE_SAFE_FLAG];
+            return ["assess", "--workspace", workspacePath, "--format", "sarif", "--output", outputPath!, IDE_SAFE_FLAG];
         case "snapshot":
             return ["snapshot", "refresh", ...configArguments(configPath), "--provider", normalizedProvider];
         case "baseline":

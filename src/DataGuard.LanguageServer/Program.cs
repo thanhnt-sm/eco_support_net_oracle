@@ -7,6 +7,7 @@ const int DiagnosticDebounceMilliseconds = 150;
 var pendingDiagnostics = new Dictionary<string, CancellationTokenSource>(StringComparer.Ordinal);
 using var shutdown = new CancellationTokenSource();
 var writeGate = new SemaphoreSlim(1, 1);
+var shutdownRequested = false;
 
 while (await ReadMessageAsync(Console.OpenStandardInput()) is { } message)
 {
@@ -19,6 +20,20 @@ while (await ReadMessageAsync(Console.OpenStandardInput()) is { } message)
     if (method.GetString() == "initialize")
     {
         await WriteAsync(new { jsonrpc = "2.0", id = root.GetProperty("id").Clone(), result = new { capabilities = new { textDocumentSync = 1 } } });
+    }
+    else if (method.GetString() == "shutdown")
+    {
+        shutdownRequested = true;
+        shutdown.Cancel();
+        if (root.TryGetProperty("id", out var shutdownId))
+        {
+            await WriteAsync(new { jsonrpc = "2.0", id = shutdownId.Clone(), result = (object?)null });
+        }
+    }
+    else if (method.GetString() == "exit")
+    {
+        Environment.ExitCode = shutdownRequested ? 0 : 1;
+        break;
     }
     else if (method.GetString() is "textDocument/didOpen" or "textDocument/didChange")
     {
@@ -51,7 +66,22 @@ while (await ReadMessageAsync(Console.OpenStandardInput()) is { } message)
 
         await WriteAsync(new { jsonrpc = "2.0", method = "textDocument/publishDiagnostics", @params = new { uri = uri.AbsoluteUri, diagnostics = Array.Empty<object>() } });
     }
+    else if (root.TryGetProperty("id", out var requestId) && requestId.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
+    {
+        await WriteAsync(new
+        {
+            jsonrpc = "2.0",
+            id = requestId.Clone(),
+            error = new
+            {
+                code = -32601,
+                message = $"Method not found: {method.GetString()}",
+            },
+        });
+    }
 }
+
+return Environment.ExitCode;
 
 async Task PublishDebouncedAsync(Uri uri, string text, string version, CancellationTokenSource pending)
 {

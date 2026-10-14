@@ -10,7 +10,19 @@ import { LanguageClient, LanguageClientOptions, ServerOptions } from "vscode-lan
 import { readConnectionSecret, redactAndBoundSensitiveText, redactSensitiveText, resolveWorkspaceConfigPath, resolveWorkspaceSarifPath, storeConnectionSecret } from "./security";
 import { RunCoordinator } from "./run-coordinator";
 import { buildCliArguments, CliCommand, normalizeProvider, resolveExistingConfigPath } from "./command-args";
-import { buildIdeSafeFailureMessage, formatProgressLine, hasIdeSafeAck } from "./ide-safe-contract";
+import {
+    buildChildEnvironment,
+    buildIdeSafeFailureMessage,
+    CliProgressSummary,
+    createCliProgressSummary,
+    describeCliStatus,
+    describeGroundTruth,
+    explainCliExit,
+    formatProgressLine,
+    hasIdeSafeAck,
+    isPolicyLine,
+    recordProgressLine,
+} from "./ide-safe-contract";
 import { buildLiveDatabaseConfirmation, countReadQueries, isLiveDatabaseCommand, maskConnectionHost } from "./live-database-confirmation";
 import { DataGuardDashboardPanel } from "./ui/dashboard-panel";
 import { DataGuardFindingsTreeProvider, FindingTreeItem } from "./ui/findings-tree-provider";
@@ -44,6 +56,7 @@ interface ChildExit {
     readonly output: string;
     /** First non-empty stderr line (trimmed), kept separately for the ide-safe handshake check. */
     readonly firstStderrLine?: string;
+    readonly progress: CliProgressSummary;
     /** True when the process could not be started; the error was already reported. */
     readonly startFailed: boolean;
 }
@@ -453,12 +466,15 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         return;
     }
     let child: ChildProcess;
+    const connectionEnv = configuration.get<string>("connectionEnv")?.trim();
     try {
         child = spawn(cliPath, args, {
             cwd: workspaceFolder.uri.fsPath,
-            env: connectionString === undefined
-                ? undefined
-                : { ...process.env, DATAGUARD_CONNECTION_STRING: connectionString },
+            env: buildChildEnvironment(process.env, {
+                args,
+                connectionString,
+                connectionEnv,
+            }),
             detached: process.platform !== "win32",
             shell: false,
             windowsHide: true,
@@ -492,24 +508,33 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     runCoordinator.replace(run);
     setStatus("running");
 
+    let finalStatus: "idle" | "warning" | "error" | undefined;
     try {
         const result = await waitForExit(child, channel);
         const exitCode = result.code;
         if (result.startFailed) {
+            finalStatus = "error";
             setStatus("error");
             return;
         }
         if (exitCode !== 0 && result.output.length > 0) {
             const rawErrors = result.output
                 .split("\n")
-                .map(l => l.trim())
-                .filter(l => !l.startsWith("{") && (l.includes("Error") || l.includes("fail") || l.includes("Exception")))
+                .map(l => l.replace(/\r$/, ""))
+                .filter(l => {
+                    const trimmed = l.trim();
+                    return trimmed.length > 0
+                        && !trimmed.startsWith("{")
+                        && !isPolicyLine(l)
+                        && (trimmed.includes("Error") || trimmed.includes("fail") || trimmed.includes("Exception"));
+                })
                 .join("\n");
             if (rawErrors.length > 0) {
                 channel.appendLine(`[DataGuard] ${redactAndBoundSensitiveText(rawErrors, MAX_CLI_OUTPUT)}`);
             }
         }
         if (run.timedOut) {
+            finalStatus = "error";
             const timedOut = `${command} timed out after ${timeoutSeconds} seconds.`;
             reportRunError(channel, `DataGuard ${timedOut}`, `\n[DataGuard] ${timedOut}`);
             return;
@@ -521,12 +546,15 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         // ide-safe handshake: without the ack the CLI never applied the policy (old CLI, wrapper, or a
         // crash before the policy ran), so its SARIF is not evidence. Never retried without the flag.
         if (expectsSarif && !hasIdeSafeAck(result.firstStderrLine)) {
+            finalStatus = "error";
             const message = buildIdeSafeFailureMessage(result.firstStderrLine);
             reportRunError(channel, message, `\n[DataGuard] ${message} (exit code ${exitCode ?? "unknown"})`);
             return;
         }
 
-        if (expectsSarif && outputPath) {
+        const sarifStat = expectsSarif && outputPath ? await fs.stat(outputPath).catch(() => null) : null;
+        const sarifExists = Boolean(sarifStat?.isFile());
+        if (expectsSarif && outputPath && sarifExists) {
             const diagnosticCount = await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel);
             channel.appendLine(`[DataGuard] SARIF summary: ${diagnosticCount} finding(s) loaded into Problems.`);
             // Update UI providers with fresh findings
@@ -534,6 +562,8 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             decorationManager?.applyFindings(findings);
             hoverProvider?.setFindings(findings);
             codeLensProvider?.setFindings(findings);
+        } else if (expectsSarif && !sarifExists) {
+            channel.appendLine(`[DataGuard] ${command} produced no SARIF file; previous Problems results were kept.`);
         }
             const summaryPath = path.join(outputDirectory, "summary.json");
             try {
@@ -592,14 +622,25 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             } catch {
                 // Ignore optional summary.json
             }
+        const groundTruthLine = describeGroundTruth(result.progress);
+        if (groundTruthLine !== undefined) {
+            channel.appendLine(`[DataGuard] ${groundTruthLine}`);
+        }
+        const explanation = explainCliExit(command, exitCode, result.progress, sarifExists);
         channel.appendLine(`\n[DataGuard] exited with code ${exitCode ?? "unknown"}`);
-        if (exitCode === 0) {
-            setStatus("idle");
-        } else if (exitCode === 1) {
-            setStatus("warning");
-            void vscode.window.showWarningMessage(`DataGuard ${command} found findings. See Problems or the DataGuard output channel.`);
+        if (result.progress.hasSummary || exitCode !== 0 || result.progress.groundTruthMissing) {
+            channel.appendLine(`[DataGuard] ${explanation}`);
+        }
+        if (explanation.startsWith("[OK]")) {
+            finalStatus = "idle";
+            setStatus("idle", result.progress.hasSummary ? describeCliStatus(result.progress) : undefined);
+        } else if (explanation.startsWith("[WARN]")) {
+            finalStatus = "warning";
+            setStatus("warning", result.progress.hasSummary ? describeCliStatus(result.progress) : undefined);
+            void vscode.window.showWarningMessage(`DataGuard (${command}): ${explanation}`);
         } else {
-            reportRunError(channel, `DataGuard could not complete ${command}. See the DataGuard output channel.`);
+            finalStatus = "error";
+            reportRunError(channel, `DataGuard (${command}): ${explanation}`);
         }
     } finally {
         clearTimeout(run.timeout);
@@ -609,7 +650,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         } catch {
             // Best-effort cleanup on temporary directory; avoid crashing state machine on Windows EBUSY
         }
-        if (runCoordinator.isReservationCurrent(reservationToken) && !runCoordinator.current && !run.timedOut && !run.cancelled) {
+        if (runCoordinator.isReservationCurrent(reservationToken) && !runCoordinator.current && !run.timedOut && !run.cancelled && finalStatus === undefined) {
             setStatus("idle");
         }
     }
@@ -662,6 +703,7 @@ interface ProgressTextState {
 function processProgressText(
     text: string,
     state: ProgressTextState,
+    progress: CliProgressSummary,
     channel: vscode.OutputChannel,
 ): void {
     state.buffer += text;
@@ -677,7 +719,8 @@ function processProgressText(
             continue;
         }
         state.firstLine ??= line;
-        const rendered = formatProgressLine(line);
+        recordProgressLine(rawLine, progress);
+        const rendered = formatProgressLine(rawLine);
         if (rendered !== undefined) {
             channel.appendLine(`[DataGuard] ${rendered}`);
         }
@@ -686,6 +729,7 @@ function processProgressText(
 
 async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<ChildExit> {
     let output = "";
+    const progress = createCliProgressSummary();
     const stdoutState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
     const stderrState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
 
@@ -694,7 +738,7 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
         if (output.length < MAX_CLI_OUTPUT) {
             output += decoded.slice(0, MAX_CLI_OUTPUT - output.length);
         }
-        processProgressText(decoded, state, channel);
+        processProgressText(decoded, state, progress, channel);
     };
 
     const onStdoutData = (chunk: Buffer | string): void => handleChunk(chunk, stdoutState);
@@ -715,26 +759,25 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
             if (output.length < MAX_CLI_OUTPUT) {
                 output += finalStdout.slice(0, MAX_CLI_OUTPUT - output.length);
             }
-            processProgressText(finalStdout, stdoutState, channel);
+            processProgressText(finalStdout, stdoutState, progress, channel);
         }
         if (stdoutState.buffer.trim()) {
-            processProgressText("\n", stdoutState, channel);
+            processProgressText("\n", stdoutState, progress, channel);
         }
         const finalStderr = stderrState.decoder.end();
         if (finalStderr) {
             if (output.length < MAX_CLI_OUTPUT) {
                 output += finalStderr.slice(0, MAX_CLI_OUTPUT - output.length);
             }
-            processProgressText(finalStderr, stderrState, channel);
+            processProgressText(finalStderr, stderrState, progress, channel);
         }
         if (stderrState.buffer.trim()) {
-            processProgressText("\n", stderrState, channel);
+            processProgressText("\n", stderrState, progress, channel);
         }
-        return { code: code as number | null, output, firstStderrLine: stderrState.firstLine, startFailed: false };
+        return { code: code as number | null, output, firstStderrLine: stderrState.firstLine, progress, startFailed: false };
     } catch (error) {
         showStartError(error, channel);
-        return { code: null, output, firstStderrLine: stderrState.firstLine, startFailed: true };
-    } finally {
+        return { code: null, output, firstStderrLine: stderrState.firstLine, progress, startFailed: true };
         child.stdout?.removeListener("data", onStdoutData);
         child.stderr?.removeListener("data", onStderrData);
     }
@@ -902,7 +945,7 @@ function reportRunError(channel: vscode.OutputChannel, message: string, channelL
     void vscode.window.showErrorMessage(message);
 }
 
-function setStatus(state: "idle" | "running" | "warning" | "error"): void {
+function setStatus(state: "idle" | "running" | "warning" | "error", detailTooltip?: string): void {
     if (!statusBarItem) {
         return;
     }
@@ -913,7 +956,7 @@ function setStatus(state: "idle" | "running" | "warning" | "error"): void {
         error: ["$(error) DataGuard", "DataGuard validation failed"],
     } as const;
     statusBarItem.text = values[state][0];
-    statusBarItem.tooltip = values[state][1];
+    statusBarItem.tooltip = detailTooltip ? `${values[state][1]} (${detailTooltip})` : values[state][1];
 }
 
 function quoteForDisplay(argument: string): string {
