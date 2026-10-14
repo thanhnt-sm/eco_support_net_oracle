@@ -1,62 +1,99 @@
 ---
-title: "IDE extensions (VS Code + Visual Studio): fix broken CLI contract, surface database ground-truth state, make LSP protocol-correct"
-description: "Root-cause and fix why the DataGuard IDE extensions misbehave for .NET developers in the database phase: assess is rejected by the CLI, no-ground-truth runs look clean, the language server ignores shutdown/hover, EF projects never get entity contracts under --ide-safe, and the VS VSIX cannot load its analyzers."
+title: "Visual Studio extension: make the in-editor analyzer load, report database ground-truth state truthfully, and add the database-phase commands"
+description: "Root-cause and fix why DataGuard for Visual Studio misbehaves for .NET developers in the database phase: the bundled Roslyn analyzer is refused by VS 2022 / .NET 9 compilers (no squiggles at all), validate runs with no ground truth are reported as [OK], EF Core ModelSnapshot ground truth is unreachable under --ide-safe, and VS has no snapshot/verify-shape commands at all."
 status: pending
 priority: P1
-effort: 14h
+effort: 12h
 branch: fix/ide-extension-db-phase-plan
-tags: [ide, vscode, visual-studio, lsp, cli-contract, database, tdd]
+tags: [visual-studio, vsix, roslyn-analyzer, cli-contract, database, tdd]
 blockedBy: []
 blocks: []
 created: 2026-10-14
+scope: "Owner direction 2026-10-14: focus on src/DataGuard.VisualStudio. VS Code / LanguageServer findings are recorded under 'Deferred' and not planned here."
 ---
 
-# IDE extensions: CLI contract, ground-truth visibility, LSP correctness
+# Visual Studio extension: analyzer load, truthful run state, database-phase commands
 
 ## Overview
 
-Both IDE hosts (`src/DataGuard.VSCode`, `src/DataGuard.VisualStudio`) drive the same CLI (`src/DataGuard.Cli`) and the VS Code host additionally runs `src/DataGuard.LanguageServer`. All existing suites are green (VS Code 97/97 node tests, .NET 1997 pass / 5 skip on `DataGuard.CrossPlatform.slnf`, verified in this session), yet the product misbehaves because the **integration contract between host and CLI is only pinned on the host side**. Reproduced in this session with the Release build of the CLI and the exact argv the VS Code host builds (`src/DataGuard.VSCode/src/command-args.ts`), against `samples/DataGuard.Sample`:
+`src/DataGuard.VisualStudio` (VSIX, net472) drives the bundled self-contained CLI `cli\dataguard.exe` (`DataGuard.VisualStudio.csproj:114-135`) and ships the Roslyn analyzers for in-editor squiggles. All suites are green (`tests/DataGuard.VisualStudio.Tests` on `windows-latest`; .NET cross-platform suites 1997 pass / 5 skip; the VS test project also **compiles** on Linux with `-p:VSSDKBuildToolsAutoSetup=false`, verified in this session, but cannot execute here: no mono), yet the product misbehaves. Reproduced in this session:
 
-| # | Symptom a developer sees | Root cause (evidence) | Fixed in |
+| # | Symptom a VS developer sees | Root cause (evidence) | Fixed in |
 |---|---|---|---|
-| RC1 | **"DataGuard: Assess Workspace" always fails** with `DataGuard CLI did not confirm IDE-safe mode; results were discarded`. | Host passes `--provider <x>` to `assess` (`command-args.ts:84`), but `assess` has no such option (`src/DataGuard.Cli/Commands/AssessCommand.cs:45-70`). System.CommandLine prints `Unrecognized command or argument '--provider'.`, exits 1, the action never runs so `ide-safe: active` is never printed. The unit test pins the wrong argv (`command-args.test.ts:44-47`). The old-CLI hint regex only knows `--ide-safe|--allow-env-connection` (`ide-safe-contract.ts:20`), so the user gets no actionable message. | Phase 1 |
-| RC2 | **Validation looks clean/"found findings" while no database rule ran.** In VS Code the CLI line `Warning: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` (`ValidateCommand.cs:346`) is dropped by `formatProgressLine` (`ide-safe-contract.ts:60-85`, only `[INFO]/[WARN]/[ERROR]/ide-safe:/baseline:` lines survive); `UNEVALUATED:`/`ACQUISITION:`/`Rule X not evaluated:` lines are dropped the same way. Exit 3 is reported as generic "could not complete". Visual Studio reads only `ErrorCount/WarningCount/CriticalCount` of the `Summary` event (`ProgressLineParser.cs:155-168`) and prints `[OK] No issues found.` (`ExitCodeExplainer.cs:37-40`) although the CLI emitted `UnavailableRuleCount/UnevaluatedContractCount/AcquisitionDiagnosticCount` (`ValidateCommand.cs:494-499`). | Phase 2 (VS Code), Phase 5 (VS) |
-| RC3 | **Exit code 1 is treated as "findings"** (`extension.ts:598-600`) but the CLI also exits 1 on unhandled exceptions and parse errors (`ValidateCommand.cs:507-515`, `BaselineCommand.cs:268`, `ScanCommand.cs:151`). `baseline` without any source prints `Baseline creation failed: ...` exit 1 and the host says "found findings". | Phase 2 |
-| RC4 | **Language server is not protocol-correct**: no response to `shutdown` (client `stop()` waits for its timeout), no response to any request other than `initialize` (a `textDocument/hover` request never gets an answer), `exit` is not handled (process stays alive until stdin closes). Reproduced with a raw JSON-RPC probe (`research/lsp-probe.md`). Diagnostics span only the first SQL keyword (`SqlClassifier.cs:200-207`: `token.Length`), and DG017 is reported both by the LSP and by the CLI SARIF under the same `source: "DataGuard"` (`LanguageServer/Program.cs:66-70`, `extension.ts:797-798`) so **SELECT \*** shows twice in Problems. | Phase 3 |
-| RC5 | **EF Core projects never get entity contracts in the IDE.** Under `--ide-safe` the CLI rejects `--ef-snapshot/--ef-project/--ef-context` (`IdeSafePolicy.cs:188-200`) and forces Snapshot mode; Manual mode (attributes) needs assembly loading and is also forbidden; `AutoDetectEFContext` is a no-op stub (`src/DataGuard.Core/Models/Configuration.cs:206-209`). `dataguard init` writes only `.dataguard.yml`, not the snapshot the README promises (root `README.md` Quickstart). So in the database phase, without a committed snapshot or a stored credential, DG002/003/005/101 can never run from the IDE, and RC2 hides that. | Phase 4 |
-| RC6 | **Visual Studio VSIX ships analyzers that cannot load** [UNVERIFIED on Windows]: the VSIX includes only `DataGuard.Analyzers.dll` + `DataGuard.CodeFixes.dll` (`DataGuard.VisualStudio.csproj:103-110`) while the analyzer depends on `DataGuard.Contracts` and `DataGuard.SqlClassification` (`ContractValidationAnalyzer.cs:12`, `SqlCallSyntax.cs:11`) and is compiled against `Microsoft.CodeAnalysis.CSharp 5.9.0` (`DataGuard.Analyzers.csproj:24`) though the manifest targets VS `[17.0,19.0)`. `InitCommand` (0x0106) is declared in `Menus.vsct:66-72` but never registered (`DataGuardPackage.cs:84-92`). VS has no credential path at all (`CliArgumentBuilder.cs:117-135` sets only `DOTNET_ROLL_FORWARD`). | Phase 5 |
+| RC1 | **No DataGuard squiggles ever appear in the editor** (DG001/DG017/DG097…), on VS 2022 and on any `dotnet build` with the .NET 9 SDK. | The analyzer is compiled against `Microsoft.CodeAnalysis.CSharp 5.9.0` (`src/DataGuard.Analyzers/DataGuard.Analyzers.csproj:24-25`, same in `DataGuard.CodeFixes.csproj:16`). Roslyn refuses analyzers newer than itself: compiling a consumer with SDK 9.0.100 (Roslyn 4.12) gives `warning CS9057: The analyzer assembly … references version '5.9.0.0' of the compiler, which is newer than the currently running version '4.12.0.0'` and **no DG diagnostics**; the same analyzer rebuilt against 4.12.0 emits DG001 ×2 + DG017 on the same file (`research/analyzer-roslyn-version.md`). VS 2022 17.x ships the Roslyn 4.x line; the VSIX manifest targets `[17.0,19.0)` (`source.extension.vsixmanifest:11-19`). Additionally the VSIX bundles only `DataGuard.Analyzers.dll` + `DataGuard.CodeFixes.dll` (`DataGuard.VisualStudio.csproj:103-110`) while the analyzer needs `DataGuard.Contracts.dll` and `DataGuard.SqlClassification.dll` at load time — the NuGet package bundles them for exactly that reason (`DataGuard.Analyzers.csproj:38-43`), the VSIX does not; `scripts/assert-vsix.ps1:22-29` does not check them. | Phase 1 |
+| RC2 | **A validate run that compared nothing prints `[OK] No issues found.`** The developer believes the database contract was checked. | The CLI says so on stderr: `Warning: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran` (`src/DataGuard.Cli/Commands/ValidateCommand.cs:346`), `UNEVALUATED:` / `ACQUISITION:` / `Rule X not evaluated:` lines, and the `Summary` event carries `UnavailableRuleCount`, `UnevaluatedContractCount`, `AcquisitionDiagnosticCount` (`ValidateCommand.cs:494-499`). VS reads only `ErrorCount/WarningCount/CriticalCount` (`ProgressLineParser.cs:155-168`), echoes the warning as an unremarkable `[DataGuard CLI]` line (`:62-66`) and `ExitCodeExplainer.Explain` returns `[OK] No issues found.` for exit 0 (`ExitCodeExplainer.cs:37-40`); the status bar shows `0 errors, 0 warnings` (`DataGuardPackage.Publishing.cs:118-120`). The only hint exists when `.dataguard.yml` is absent (`DataGuardPackage.Commands.cs:119-122`); with a yml but no snapshot there is none. Validate exit 4 (unsafe output path, `OutputSinks.cs:307`) is "Unexpected exit code 4." | Phase 2 |
+| RC3 | **EF Core projects never get entity contracts from the IDE.** Without a committed `.dataguard-snapshot.json`, DG002/003/004/005/101 cannot run; VS has no way to supply a connection. | Under `--ide-safe` the CLI rejects `--ef-snapshot/--ef-project/--ef-context` (`src/DataGuard.Cli/IdeSafePolicy.cs:188-200`) and forces Snapshot mode (`:84-88`); Manual (attribute) mode needs assembly loading and is also forbidden; `AutoDetectEFContext` is an empty stub (`src/DataGuard.Core/Models/Configuration.cs:206-209`). VS passes neither `--provider` nor any EF option (`CliArgumentBuilder.cs:88-96`) and sets no env var but `DOTNET_ROLL_FORWARD` (`:117-135`). `dataguard init` writes only the yml, not the snapshot the root README Quickstart promises. | Phase 3 |
+| RC4 | **VS cannot refresh a snapshot or verify SQL shapes against the database at all**; the developer must leave the IDE and run the CLI by hand, and the menu carries a dead **Initialize DataGuard** item. | Menu has Validate/Cancel/Assess/Logs/Rules/Forget only (`Commands/Menus.vsct:24-72`); `InitCommand` 0x0106 is declared (`:66-72, 87`) but never registered (`DataGuardPackage.cs:84-92`); `UI/InfoBarManager.cs` that would invoke it is never instantiated. The CLI already supports credential-by-name: `--connection-env NAME` (`CommonOptions.cs:112`, resolution order `CliConfigurationResolver.cs:95-166`), `snapshot refresh` (`SnapshotCommands.cs:29-32`) and `verify-shape` (`VerifyShapeCommand.cs:33-36`), and VS Code already gates these commands with a modal naming the masked host (`src/DataGuard.VSCode/src/live-database-confirmation.ts`). | Phase 4 |
 
-Design principles for the fix (YAGNI/KISS/DRY):
-- **One contract, pinned on both sides.** A JSON fixture lists every argv the hosts build; the C# test suite parses each through the real `System.CommandLine` root (no process spawn), the TypeScript suite asserts the hosts build exactly those vectors. The fixture is the single source of truth for the CLI surface the IDE uses.
-- **Do not widen the CLI surface for the host.** `assess` does not need a provider; the host stops sending it. Host-visible state (ground truth missing, unevaluated contracts) already exists in the CLI's `Summary` event and policy lines; the hosts must read what is already emitted.
-- **The language server stays a thin classifier.** Add only the JSON-RPC lifecycle it is missing; no new features.
-- **Ground truth under `--ide-safe` may come from source files, never from loading code.** Parsing `*ModelSnapshot.cs` is a Roslyn source parse (`EfModelSource`), which is exactly as safe as the inline-SQL extraction the IDE already does.
+Design principles (YAGNI / KISS / DRY):
+- **Pin the analyzer to the compiler line the IDE actually runs.** `Microsoft.CodeAnalysis.*` 4.12.0 in the four projects that reference it, a Dependabot `ignore` for its major, and a Linux CI gate that compiles a consumer with the built analyzer and fails on `CS9057`. No code change in the analyzer (it compiles unchanged against 4.12.0, verified).
+- **Read what the CLI already emits.** The `Summary` counts and policy lines exist; VS only has to render them and stop saying `[OK]`.
+- **Ground truth under `--ide-safe` may come from source files, never from loading code.** `EfModelSource` parses `ModelSnapshot.cs` with Roslyn (`src/DataGuard.Core/Sources/EfModelSource.cs:241-253`); that is the trust level `--project` inline-SQL extraction already has.
+- **No secret ever stored by VS.** The database commands take only the *name* of an environment variable (`--connection-env`), confirmed by a modal that names the masked host, mirroring the VS Code gate.
 
 ## Phases
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Host–CLI argv contract pinned on both sides (fixes Assess)](./phase-01-cli-contract.md) | Pending |
-| 2 | [VS Code surfaces ground-truth and run state truthfully](./phase-02-vscode-run-state.md) | Pending |
-| 3 | [Language server lifecycle, ranges and DG017 de-duplication](./phase-03-language-server.md) | Pending |
-| 4 | [EF ModelSnapshot ground truth under --ide-safe (database phase in the IDE)](./phase-04-ide-ground-truth.md) | Pending |
-| 5 | [Visual Studio parity: summary counts, dead Init command, analyzer packaging](./phase-05-visual-studio-parity.md) | Pending |
+| 1 | [Analyzer loads in VS 2022 and .NET 9 SDK (Roslyn 4.12 pin, complete VSIX)](./phase-01-analyzer-roslyn-and-vsix.md) | Pending |
+| 2 | [VS reports ground-truth and run state truthfully](./phase-02-vs-run-state.md) | Pending |
+| 3 | [EF ModelSnapshot ground truth under --ide-safe (CLI, serves VS)](./phase-03-ide-ground-truth-ef.md) | Pending |
+| 4 | [VS database commands: Refresh Snapshot and Verify SQL Shapes; drop dead Init](./phase-04-vs-database-commands.md) | Pending |
 
 ## Dependencies
 
-- Phase 2 depends on Phase 1 (both touch `extension.ts`/`ide-safe-contract.ts`; Phase 1 lands the fixture that Phase 2's tests extend). Not parallel-safe with Phase 1.
-- Phase 3 is independent (C# `DataGuard.LanguageServer` + one new test file + a small `extension.ts` change in `loadDiagnostics`); if run with `--parallel`, it must run after Phase 2 because both edit `extension.ts`.
-- Phase 4 is CLI/Core only (`IdeSafePolicy.cs`, `ValidateCommand.cs`, `EfModelSource`, docs); parallel-safe with Phases 1–3.
-- Phase 5 is Windows-only to verify (`tests/DataGuard.VisualStudio.Tests` run on `windows-latest` in CI); the C# changes compile on Linux through `DataGuard.sln` evaluation parity, but the VSIX gate is CI-only.
-- External: `dotnet` SDK 9.0.100 (`global.json`), Node 22 (`.nvmrc`). This container had no `dotnet` by default; it was installed with `dotnet-install.sh --version 9.0.100` into `/root/.dotnet` for this planning session.
+- Phase 1 and Phase 3 are independent of everything (Phase 1: analyzer/CodeFixes/tests/VSIX packaging; Phase 3: `DataGuard.Cli` + `DataGuard.Core.Tests` + docs). Parallel-safe with each other and with Phase 2.
+- Phase 2 and Phase 4 both edit `src/DataGuard.VisualStudio` (`ProgressLineParser.cs`, `ExitCodeExplainer.cs`, `DataGuardPackage.*.cs`, `Menus.vsct`): **Phase 4 depends on Phase 2** (Phase 4 reuses the per-command outcome rendering Phase 2 introduces). Not parallel-safe with each other.
+- Windows: `tests/DataGuard.VisualStudio.Tests` and the VSIX packaging gate run only on `windows-latest` (`.github/workflows/ci.yml:253-312`). On Linux the gate is compile-only: `dotnet build tests/DataGuard.VisualStudio.Tests -c Release -p:VSSDKBuildToolsAutoSetup=false` (0 warnings today).
+- Toolchain: `dotnet` SDK 9.0.100 (`global.json`); this container had none and used `dotnet-install.sh --version 9.0.100` into `/root/.dotnet`.
+
+## Deferred (out of scope by owner direction; evidence kept so nothing is lost)
+
+| Item | Evidence | One-line fix when picked up |
+|---|---|---|
+| VS Code **Assess Workspace** always fails: host sends `--provider` to `assess`, CLI has no such option → exit 1, no `ide-safe: active`. | `src/DataGuard.VSCode/src/command-args.ts:84`; `src/DataGuard.Cli/Commands/AssessCommand.cs:45-70`; pinned wrong by `command-args.test.ts:44-47` | Drop `--provider` from the `assess` case (VS argv `CliArgumentBuilder.cs:98-102` is correct). |
+| VS Code treats exit 1 as "findings" even for exceptions/parse errors; drops `Warning:`/`UNEVALUATED:` lines. | `extension.ts:596-603`; `ide-safe-contract.ts:60-85` | Same rendering as Phase 2, host side. |
+| Language server never answers `shutdown`/other requests, ignores `exit`; ranges cover the keyword only; DG017 duplicated with CLI SARIF. | `src/DataGuard.LanguageServer/Program.cs:12-57`; `SqlClassifier.cs:200-207`; probe in `research/lsp-probe.md` | Lifecycle branch + MethodNotFound; range from literal span. |
+| VS Code spawns with `env: undefined` when no credential: inherits a shell `DATAGUARD_CONNECTION_STRING` for live commands. | `extension.ts:459-461` | Explicit env with the variable removed. |
 
 ## Verification commands used in this session (reproduce before Phase 1)
 
 ```bash
 export PATH=/root/.dotnet:$PATH
 dotnet restore DataGuard.CrossPlatform.slnf && dotnet build DataGuard.CrossPlatform.slnf -c Release --no-restore
+# RC1: consumer compiled with the built analyzer under Roslyn 4.12 → CS9057, no DG diagnostics (research/analyzer-roslyn-version.md)
+# RC2: validate with the VS argv on samples/DataGuard.Sample → stderr "Warning: no ground truth …", exit 1
 CLI=src/DataGuard.Cli/bin/Release/net9.0/DataGuard.Cli.dll; WS=$PWD/samples/DataGuard.Sample
-dotnet $CLI assess --workspace $WS --provider sqlserver --format sarif --output /tmp/a.sarif --ide-safe   # exit 1, "Unrecognized command or argument '--provider'."
-dotnet $CLI validate --provider sqlserver --format sarif --output /tmp/v.sarif --project $WS --progress --ide-safe  # exit 1, stderr has "Warning: no ground truth"
-cd src/DataGuard.VSCode && npm ci && npm test   # 97/97 green today: the suites do not see RC1–RC6
+dotnet $CLI validate --config $WS/.dataguard.yml --format sarif --output /tmp/v.sarif --project $WS --progress --ide-safe
+# VS test project compiles on Linux (execution needs Windows):
+dotnet build tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj -c Release -p:VSSDKBuildToolsAutoSetup=false
 ```
+
+## Red Team Review
+
+### Session 1 — 2026-10-14 (draft 1: 5 phases covering VS Code + LSP + CLI + VS, before the owner re-scoped the plan to Visual Studio)
+**Reviewers:** Security Adversary + Fact Checker · Failure Mode Analyst + Flow Tracer · Assumption Destroyer + Scope Auditor · Scope & Complexity Critic + Contract Verifier (Tier Full). Reports: `reports/redteam-261014-0830-draft1-*.md`.
+**Findings:** 23 raw → 15 after de-duplication (12 accepted, 3 rejected/superseded by the re-scope)
+**Severity breakdown:** 2 Critical, 8 High, 5 Medium
+
+| # | Finding | Severity | Disposition | Applied To |
+|---|---------|----------|-------------|------------|
+| 1 | VS Code status bar reset to `idle` in `finally` overwrites every outcome; late outcome of a replaced run (`extension.ts:612-614`, `:517`) | Critical | Superseded (VS Code out of scope) → recorded under *Deferred* | plan.md |
+| 2 | EF auto-detect: unparseable/oversized `*ModelSnapshot.cs` → `Validation failed` exit 1 with no SARIF; size check only after `ReadAllTextAsync` (`EfModelSource.cs:252,270-273`) | Critical | Accept: size check before read, try/catch → `ACQUISITION:` line, run continues | Phase 3 Req 1, 3 |
+| 3 | Relaxing `--ide-safe` for `--ef-*` has no caller, flips `IdeSafePolicyTests.cs:88-90`, and `--ef-snapshot` is not confined to the workspace | High | Accept: policy untouched; auto-detect only, rooted and contained under `--project` | Phase 3 (Key Insights, Req 1) |
+| 4 | Reusing `ResolveEfSnapshotSource` "unchanged" contradicts the caps: it follows reparse points, has no depth/file cap, no `node_modules` (`ValidateCommand.cs:568-572`) | High | Accept: new bounded walker modelled on `AutoDetectionEngine.cs:487-545`; `ResolveEfSnapshotSource` left as is | Phase 3 Architecture |
+| 5 | "EF only when no EntityDescriptor" is false; merge is unconditional (`ValidateCommand.cs:230-235`); DG004/DG005 are not valid oracles (`ColumnShapeMatchRule.cs:93`, `NullableMismatchRule.cs:34-37`) | High | Accept: merge stays unconditional (schema + entities is the goal); oracles = DG006 + absence of the warning | Phase 3 Key Insights, 3.V |
+| 6 | Repo-controlled file names with control characters echoed into the stderr line protocol can forge `Summary`/`UNEVALUATED:` lines (`ValidateCommand.cs:469`) | Medium | Accept: escape control chars in every printed path; VS flag only from exact line prefix; JSON only | Phase 3 Req 2, Phase 2 Key Insights |
+| 7 | `ExitCodeExplainer` signature is `(string, CliRunOutcome, bool)` with 14 callers; proposed `RunSummary` overload duplicates `ProgressReadResult` (`ExitCodeExplainer.cs:18`, `ProgressReadModels.cs:40-62`) | High | Accept: extend `ProgressReadResult`/`ParsedProgress`, no signature change | Phase 2 Architecture |
+| 8 | Exit 4 means tool errors for `assess` (SARIF still written) and output refusal for validate; draft overwrote the correct VS text (`AssessCommand.cs:167-168,190`, `ExitCodeExplainer.cs:76-77`) | High | Accept: `ExplainAssess(4)` unchanged; add `ExplainValidate(4)` only | Phase 2 Req 3, 3.T/3.V |
+| 9 | `Warning: no ground truth` is a raw (non-JSON) line, so `ProgressLineParser` never sees it as a signal (`ProgressStreamReader.cs:79`) | Medium | Accept: raw-prefix flag in `ProgressStreamReader.ProcessLine` | Phase 2 Architecture |
+| 10 | xunit 2.9.3 has no dynamic skip; "explicit skip" for `VsixAnalyzerPackagingTests` is impossible without a new package | Medium | Accept: env-gated failure (`DATAGUARD_VSIX_EXPECTED=1`) | Phase 1 Req 3 |
+| 11 | Adding dependency DLLs to the VSIX does not make the analyzer load: Roslyn 5.9 vs VS 17.x compiler gate (`DataGuard.Analyzers.csproj:24`, `vsixmanifest:12`) | High | Accept and **verified empirically** (CS9057 reproduced; 4.12 rebuild emits DG001/DG017) → version pin + CI load gate | Phase 1 (whole phase), `research/analyzer-roslyn-version.md` |
+| 12 | `.cs` fixtures under `tests/DataGuard.Core.Tests/Fixtures` would be compiled into the test assembly (no `Compile Remove`; convention is `.cs.txt`) | Medium | Accept | Phase 3 Related Code Files |
+| 13 | `System.Composition.Hosting 10.0.12` is a non-private analyzer reference, not addressed for the VSIX (`DataGuard.Analyzers.csproj:26`) | Medium | Accept as open check → validate Q2 | Phase 1 Key Insights |
+| 14 | VS Code env isolation (`buildChildEnvironment`) rests on a false premise about the modal text and breaks documented shell-credential use; Vault token exfiltration via repo `VaultAddress` on live commands (`ZeroTrustCredentialProvider.cs:71`, `ISecretStore.cs:133-144`) | High | Partially superseded (VS Code change dropped); the Vault risk **applies to the new VS live commands** → mitigated by `--connection-env` precedence + e2e check, open question Q5 | Phase 4 Risk |
+| 15 | DG017 host-side de-dup for VS Code cannot work (publish-time only; CLI location ≠ literal); LSP `shutdown` CTS never cancelled, `pendingDiagnostics` race | High | Superseded (VS Code/LSP out of scope) → recorded under *Deferred* | plan.md |
+
+Fact-check corrections applied: `AssessCommand.cs` ack line is `:61-62` (not `:85`); `OutputSinks.cs` exit-4 is `:11-20`; `BaselineCommand.cs` exception path is `:103-111`; CI Linux parity step is `ci.yml:66` (`-t:ResolveProjectReferences`), while a full `dotnet build` of the VS test project also works on Linux (verified).
+
+### Session 2 — 2026-10-14 (VS-focused plan, 4 phases) — see below (appended after the second review)
