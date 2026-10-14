@@ -81,6 +81,25 @@ jobs:
       - name: Build solution
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
+      # Analyzer load gate: the bundled Roslyn analyzer must load under the compiler line VS 2022 17.12+ and
+      # the .NET 9.0.1xx SDK run (Microsoft.CodeAnalysis 4.12). Roslyn refuses an analyzer built against a
+      # newer compiler (warning CS9057) and reports nothing, and the floating 9.0.x SDK above (Roslyn >= 4.14)
+      # would accept such an analyzer. A second SDK, 9.0.100 (Roslyn 4.12.0), is installed side by side; the
+      # script pins it through the temp consumer's global.json (rollForward disable), fails on CS9057 or a
+      # missing DG017/DG001, and also asserts the committed lock files resolve Roslyn to exactly 4.12.0
+      # (scripts/assert-roslyn-lock.sh, unit-tested above). RoslynReferenceVersionTests cover the same
+      # invariant from inside the test suites.
+      - name: Setup .NET 9.0.100 (Roslyn 4.12 analyzer load gate)
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "9.0.100"
+
+      - name: Analyzer packaging and Roslyn 4.12 load gate
+        run: |
+          dotnet pack src/DataGuard.Analyzers/DataGuard.Analyzers.csproj --configuration Release --no-build -o "$RUNNER_TEMP/nupkg"
+          dotnet pack src/DataGuard.Contracts/DataGuard.Contracts.csproj --configuration Release --no-build -o "$RUNNER_TEMP/nupkg"
+          bash scripts/verify-analyzer-packaging.sh "$RUNNER_TEMP/nupkg"
+
       - name: Run analyzers
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore /p:RunAnalyzers=true
 
@@ -313,6 +332,21 @@ jobs:
           $sourceVersion = (Select-String -Path src/DataGuard.VisualStudio/ExtensionVersion.cs -Pattern 'Fallback = "([^"]+)"').Matches[0].Groups[1].Value
           & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $sourceVersion
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # VsixAnalyzerPackagingTests return silently when no VSIX exists (local runs, the test job's
+      # CreateVsixContainer=false build). Here one was just packaged, so DATAGUARD_VSIX_EXPECTED=1 turns a
+      # missing container into a failure and the tests assert the four analyzer assemblies
+      # (Analyzers, CodeFixes, Contracts, SqlClassification) and their manifest assets (decision Q2a).
+      # BuildProjectReferences=false: the test project compiles against the DataGuard.VisualStudio.dll the
+      # packaging build above produced (BuildingForTesting only toggles pkgdef/VSIX generation) instead of
+      # rebuilding the extension in the same obj/, whose incremental clean could remove the fresh .vsix.
+      - name: Restore Visual Studio tests
+        run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
+
+      - name: Run Visual Studio tests against the packaged VSIX
+        env:
+          DATAGUARD_VSIX_EXPECTED: "1"
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore -p:BuildProjectReferences=false
 
       # Fork PRs build the VSIX (the gate above still runs) but never publish it: an unsigned
       # installable built from untrusted code must not be hosted under this repository.

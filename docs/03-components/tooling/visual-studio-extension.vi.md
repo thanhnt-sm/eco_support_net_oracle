@@ -240,13 +240,16 @@ outputWindow.GetPane(ref guidDataGuardOutputPane, out var pane);
 Tiện ích đóng gói trực tiếp các bộ phân tích mã và sửa nhanh Roslyn vào gói VSIX:
 - `DataGuard.Analyzers.dll`
 - `DataGuard.CodeFixes.dll`
+- `DataGuard.Contracts.dll` và `DataGuard.SqlClassification.dll` (analyzer tham chiếu lúc nạp; VS không giải quyết NuGet graph cho analyzer asset, nên chúng được đóng gói đúng như gói NuGet đã bundle)
 
 Các assembly này được biên dịch trong target đóng gói VSIX (`BuildAnalyzers`) và đăng ký dưới dạng asset Analyzer trong `source.extension.vsixmanifest`:
 ```xml
 <Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.Analyzers.dll" />
 <Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.CodeFixes.dll" />
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.Contracts.dll" />
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.SqlClassification.dll" />
 ```
-Nhờ đó, người dùng mở solution trên Visual Studio 2022 sẽ nhận được chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (quick-fixes) trực tiếp mà không bắt buộc phải cài đặt thêm gói NuGet riêng lẻ vào từng project.
+Nhờ đó, người dùng mở solution trên Visual Studio 2022 sẽ nhận được chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (quick-fixes) trực tiếp mà không bắt buộc phải cài đặt thêm gói NuGet riêng lẻ vào từng project. Analyzer được build với Roslyn 4.12 — dòng compiler của VS 2022 17.12+ — nên manifest chỉ cài trên `[17.12,19.0)` (các bản 17.x cũ hơn từ chối analyzer với CS9057 và không hiện squiggle). `scripts/assert-vsix.ps1` và `VsixAnalyzerPackagingTests` (chạy trong job đóng gói với `DATAGUARD_VSIX_EXPECTED=1`) yêu cầu đủ bốn assembly.
 
 ## Process Gate cho hủy bỏ
 
@@ -357,6 +360,6 @@ Các quy tắc như `DG017` ("Avoid SELECT *") chỉ phân tích các câu lện
 ## Giới hạn
 
 - Yêu cầu cài đặt CLI `dataguard` và nằm trong PATH để chạy kiểm tra toàn bộ solution dạng batch
-- Chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (code fixes) trong trình soạn thảo C# được cung cấp sẵn bởi các bộ Roslyn analyzer đi kèm (`DataGuard.Analyzers.dll` và `DataGuard.CodeFixes.dll`)
+- Chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (code fixes) trong trình soạn thảo C# được cung cấp sẵn bởi các bộ Roslyn analyzer đi kèm (`DataGuard.Analyzers.dll` và `DataGuard.CodeFixes.dll`, cùng `DataGuard.Contracts.dll` và `DataGuard.SqlClassification.dll`); cần VS 2022 17.12 trở lên (Roslyn 4.12)
 - Đường dẫn file SARIF phải nằm trong thư mục solution để điều hướng Error List
 - Một xác thực tại một thời điểm; yêu cầu đồng thời xếp hàng

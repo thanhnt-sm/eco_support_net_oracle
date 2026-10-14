@@ -31,6 +31,21 @@ updates:
       # MessagePack is a CVE pin for the VS SDK's transitive 2.5.x; VS 17.x ships 2.5.x, so stay in the 2.x line.
       - dependency-name: "MessagePack"
         update-types: ["version-update:semver-major"]
+      # Roslyn line of the bundled analyzer: DataGuard.Analyzers / DataGuard.CodeFixes (and their test projects)
+      # must stay on Microsoft.CodeAnalysis 4.12, the compiler VS 2022 17.12+ and the .NET 9.0.1xx SDK run; a newer
+      # analyzer is refused with CS9057 (no squiggles). Guarded by RoslynReferenceVersionTests (<= 4.12.0.0) and
+      # scripts/verify-analyzer-packaging.sh (lock-file assert + consumer built with SDK 9.0.100), so a manual bump
+      # fails CI whatever SDK the runner has. Microsoft.CodeAnalysis.Analyzers 3.11.0 is the matching line.
+      # Exact names on purpose (no wildcard: Microsoft.CodeAnalysis.NetAnalyzers keeps updating). Decision Q3a
+      # (2026-10-14): the same rule also freezes the 5.9 copies in src/DataGuard.Core (in-process Roslyn for CLI
+      # extraction, not the IDE) — Core Roslyn bumps are manual; tests/DataGuard.BinaryCompatibilityFixture references
+      # Microsoft.CodeAnalysis.Common 5.9 and is not frozen.
+      - dependency-name: "Microsoft.CodeAnalysis.CSharp"
+        versions: [">= 4.13.0"]
+      - dependency-name: "Microsoft.CodeAnalysis.CSharp.Workspaces"
+        versions: [">= 4.13.0"]
+      - dependency-name: "Microsoft.CodeAnalysis.Analyzers"
+        versions: [">= 4.13.0"]
     commit-message:
       prefix: "chore(deps)"
       include: "scope"

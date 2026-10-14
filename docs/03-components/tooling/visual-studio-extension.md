@@ -240,13 +240,16 @@ outputWindow.GetPane(ref guidDataGuardOutputPane, out var pane);
 The extension packages Roslyn code analyzers and fixes directly inside the VSIX container:
 - `DataGuard.Analyzers.dll`
 - `DataGuard.CodeFixes.dll`
+- `DataGuard.Contracts.dll` and `DataGuard.SqlClassification.dll` (referenced by the analyzer at load time; VS resolves no NuGet graph for analyzer assets, so they ship exactly as the NuGet package bundles them)
 
 These assemblies are built during the VSIX packaging target (`BuildAnalyzers`) and registered as Analyzer assets in `source.extension.vsixmanifest`:
 ```xml
 <Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.Analyzers.dll" />
 <Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.CodeFixes.dll" />
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.Contracts.dll" />
+<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.SqlClassification.dll" />
 ```
-This enables in-editor live diagnostics and quick-fixes for solutions opened in Visual Studio 2022 without requiring separate per-project NuGet package installations.
+This enables in-editor live diagnostics and quick-fixes for solutions opened in Visual Studio 2022 without requiring separate per-project NuGet package installations. The analyzer is built against Roslyn 4.12, the compiler line of VS 2022 17.12+; the manifest therefore installs on `[17.12,19.0)` only (earlier 17.x releases refuse the analyzer with CS9057 and show no squiggles). `scripts/assert-vsix.ps1` and `VsixAnalyzerPackagingTests` (run in the packaging job with `DATAGUARD_VSIX_EXPECTED=1`) require all four assemblies.
 ## Process Gate for Cancellation
 
 The extension maintains a `CancellationTokenSource` that gates the running process:
@@ -356,6 +359,6 @@ Rules like `DG017` ("Avoid SELECT *") inspect genuine database queries, ignoring
 ## Limitations
 
 - Requires the `dataguard` CLI installed and on PATH for full project-wide batch validation
-- In-editor squiggles and code fixes for opened C# documents are provided by the bundled Roslyn analyzers (`DataGuard.Analyzers.dll` and `DataGuard.CodeFixes.dll`)
+- In-editor squiggles and code fixes for opened C# documents are provided by the bundled Roslyn analyzers (`DataGuard.Analyzers.dll` and `DataGuard.CodeFixes.dll`, with `DataGuard.Contracts.dll` and `DataGuard.SqlClassification.dll`); they need VS 2022 17.12 or later (Roslyn 4.12)
 - SARIF file paths must be within the solution directory for Error List navigation
 - One validation at a time; concurrent requests queue
