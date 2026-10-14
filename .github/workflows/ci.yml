@@ -22,6 +22,9 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -168,6 +171,29 @@ jobs:
           name: coverage
           path: "**/coverage.cobertura.xml"
 
+      - name: Convert TRX to JUnit XML for Test Analytics
+        if: ${{ !cancelled() }}
+        run: python3 scripts/trx_to_junit.py --input-glob "**/TestResults/*.trx" --output "TestResults/junit-dotnet-unit.xml"
+
+      - name: Upload .NET unit coverage to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: "**/TestResults/**/coverage.cobertura.xml"
+          flags: dotnet-unit
+          use_oidc: true
+          fail_ci_if_error: false
+
+      - name: Upload .NET unit test results to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: TestResults/junit-dotnet-unit.xml
+          report_type: test_results
+          flags: dotnet-unit
+          use_oidc: true
+          fail_ci_if_error: false
+
   # Real-database integration tests (Testcontainers: Oracle, SQL Server, PostgreSQL, MySQL). The two env
   # vars make a fixture whose container cannot start fail instead of skip, so this job cannot go green
   # without the databases actually running. Required job: no continue-on-error.
@@ -175,6 +201,9 @@ jobs:
     name: Live DB Integration
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
     env:
       DATAGUARD_REQUIRE_LIVE_RELATIONAL: "1"
       DATAGUARD_REQUIRE_LIVE_SQLSERVER: "1"
@@ -204,7 +233,7 @@ jobs:
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
       - name: Run live database tests
-        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category=LiveDb" --logger "trx;LogFileName=live_db_results.trx"
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category=LiveDb" --collect:"XPlat Code Coverage" --logger "trx;LogFileName=live_db_results.trx"
 
       - name: Upload live DB test results
         if: ${{ always() && env.ACT != 'true' }}
@@ -214,12 +243,38 @@ jobs:
           path: "**/TestResults/live_db_results.trx"
           if-no-files-found: ignore
 
+      - name: Convert live DB TRX to JUnit XML for Test Analytics
+        if: ${{ !cancelled() }}
+        run: python3 scripts/trx_to_junit.py --input-glob "**/TestResults/live_db_results.trx" --output "TestResults/junit-live-db.xml"
+
+      - name: Upload live DB coverage to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: "**/TestResults/**/coverage.cobertura.xml"
+          flags: live-db
+          use_oidc: true
+          fail_ci_if_error: false
+
+      - name: Upload live DB test results to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: TestResults/junit-live-db.xml
+          report_type: test_results
+          flags: live-db
+          use_oidc: true
+          fail_ci_if_error: false
+
   # TypeScript unit tests of the VS Code extension plus a production-dependency audit. No .NET here:
   # `npm test` compiles and runs node --test; prepare-lsp (dotnet publish) is a packaging step only.
   vscode-extension:
     name: VS Code Extension Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: src/DataGuard.VSCode
@@ -238,7 +293,26 @@ jobs:
         run: npm ci
 
       - name: Unit tests
-        run: npm test
+        run: npm run test:coverage
+
+      - name: Upload VS Code extension coverage to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: src/DataGuard.VSCode/coverage/lcov.info
+          flags: vscode-ext
+          use_oidc: true
+          fail_ci_if_error: false
+
+      - name: Upload VS Code extension test results to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: src/DataGuard.VSCode/coverage/junit.xml
+          report_type: test_results
+          flags: vscode-ext
+          use_oidc: true
+          fail_ci_if_error: false
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high

@@ -7,6 +7,7 @@
 # DataGuard — Kiểm tra hợp đồng (Contract) giữa Entity ↔ Stored Procedure / Raw SQL
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
+[![codecov](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
 
@@ -128,6 +129,35 @@ Rule adapter nào chạy tùy `--provider` (`src/DataGuard.Cli/ProviderRuleCatal
 ## Tài liệu
 
 - [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/PRODUCT.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/architecture/architecture.md) · [Bảo mật](SECURITY.md)
+
+## Độ phủ Kiểm thử & Chỉ số Chất lượng
+
+Dữ liệu độ phủ dòng lệnh (line), nhánh (branch) và phân tích kiểm thử (Test Analytics) được công bố liên tục lên [Codecov](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) qua OIDC (`codecov/codecov-action@v7.1.1`) theo cấu hình tại [`.github/codecov.yml`](.github/codecov.yml).
+
+### Cờ Bộ Kiểm thử (Test Suite Flags)
+
+| Flag | Phạm vi bộ kiểm thử | Độ phủ |
+|---|---|---|
+| `dotnet-unit` | Kiểm thử đơn vị & hợp đồng .NET 9 đa nền tảng (`DataGuard.CrossPlatform.slnf`) | [![dotnet-unit](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=dotnet-unit)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `live-db` | Kiểm thử tích hợp CSDL thực qua Testcontainers (Oracle, SQL Server, PostgreSQL, MySQL) | [![live-db](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=live-db)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `vscode-ext` | Kiểm thử đơn vị TypeScript & bảo mật giao diện của VS Code Extension (Node 22) | [![vscode-ext](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=vscode-ext)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+
+### Thành phần Kiến trúc (Components)
+
+| Component ID | Phân hệ | Đường dẫn theo dõi | Độ phủ |
+|---|---|---|---|
+| `core_engine` | Core Engine & Contracts | `src/DataGuard.Core/**`, `src/DataGuard.Contracts/**`, `src/DataGuard.SqlClassification/**` | [![core_engine](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=core_engine)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `db_adapters` | Database Adapters | `src/DataGuard.{Oracle,SqlServer,PostgreSql,MySql}.Adapter/**` | [![db_adapters](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=db_adapters)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `roslyn_analyzers` | Roslyn Analyzers & CodeFixes | `src/DataGuard.Analyzers/**`, `src/DataGuard.CodeFixes/**` | [![roslyn_analyzers](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=roslyn_analyzers)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `cli_and_host` | CLI, Host, Build & LSP | `src/DataGuard.{Cli,Host,Build,LanguageServer}/**` | [![cli_and_host](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=cli_and_host)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `observability` | Enterprise Observability | `src/DataGuard.Observability*/**` | [![observability](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=observability)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `ide_extensions` | VS Code & Visual Studio Extensions | `src/DataGuard.VSCode/**`, `src/DataGuard.VisualStudio/**` | [![ide_extensions](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=ide_extensions)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+
+### Biểu đồ Kiến trúc Độ phủ
+
+| Biểu đồ Phân cấp Sunburst | Lưới Độ phủ Tệp (Grid) |
+|---|---|
+| [![Codecov Sunburst](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/sunburst.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) | [![Codecov Grid](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/grid.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) |
 
 ## Giấy phép kép & FAQ
 
