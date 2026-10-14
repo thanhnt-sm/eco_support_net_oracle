@@ -228,6 +228,38 @@ public class RulesEngineTests
     }
 
     [Fact]
+    public async Task NamingConventionRule_EntityDrift_HasNoLocation_Today()
+    {
+        // Pin (Phase 3, 3.T): DG006 is created without a location today, so IDE hosts drop it; flipped in 3.V.
+        var entity = Entity("Order", Prop("CustomerId", "CUST_REF")) with { Location = At("Migrations/ShopContextModelSnapshot.cs", 40) };
+        var violations = await RunAsync(new NamingConventionRule(), entity);
+        violations.Should().ContainSingle().Which.Location.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ColumnShapeMatchRule_EntityBranch_DuplicatesRawSqlFinding_Today()
+    {
+        // Pin (Phase 3, 3.T): a typed query whose target class is visible (ExpectedProperties) is reported by the RawSql
+        // branch with its call-site location and again, without location, by the entity branch; flipped in 3.V.
+        var callSite = At("OrderRepository.cs", 31);
+        var entity = Entity("Order", Prop("OrderId", "ORDER_ID"), Prop("CustomerId", "CUST_REF"), Prop("TotalAmount", "TOTAL_AMOUNT"));
+        var sql = new RawSqlDescriptor("raw:1", "SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS", Array.Empty<ParameterDescriptor>(), new List<ColumnDescriptor>(), callSite,
+            ExpectedProperties: new[] { Prop("OrderId", "ORDER_ID"), Prop("CustomerId", "CUST_REF"), Prop("TotalAmount", "TOTAL_AMOUNT") },
+            TargetTypeName: "Order");
+
+        var fromRawSql = await RunAsync(new ColumnShapeMatchRule(), sql, entity, sql);
+        var fromEntity = await RunAsync(new ColumnShapeMatchRule(), entity, entity, sql);
+
+        fromRawSql.Should().ContainSingle(v => v.RuleId == "DG004" && v.Message.Contains("CustomerId")).Which.Location.Should().Be(callSite);
+        fromEntity.Should().ContainSingle(v => v.RuleId == "DG004" && v.Message.Contains("CustomerId")).Which.Location.Should().BeNull();
+    }
+
+    private static Location At(string path, int line) => Location.Create(
+        path,
+        new Microsoft.CodeAnalysis.Text.TextSpan(line * 10, 16),
+        new Microsoft.CodeAnalysis.Text.LinePositionSpan(new Microsoft.CodeAnalysis.Text.LinePosition(line, 4), new Microsoft.CodeAnalysis.Text.LinePosition(line, 20)));
+
+    [Fact]
     public async Task PhantomTableRule_UnknownTable_Flags()
     {
         var schema = Schema(("Orders", "Id", false));

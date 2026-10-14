@@ -126,4 +126,20 @@ public class ModelSnapshotCSharpParserTests
         result.Entities.Should().BeEmpty();
         result.Diagnostics.Should().ContainSingle(diagnostic => diagnostic.Code == "DG1303");
     }
+
+    [Fact]
+    public void Parse_StringOnlyOverload_LeavesEntityLocationNull()
+    {
+        // Pin (Phase 3): a Location is additive; the source-only overload has no file to point at.
+        var result = ModelSnapshotCSharpParser.Parse("""
+            class Snapshot { void Build(ModelBuilder modelBuilder) {
+              modelBuilder.Entity<Order>(b => { b.Property<int>("OrderId").HasColumnName("ORDER_ID"); });
+            }}
+            """);
+
+        var entity = result.Entities.Should().ContainSingle().Subject;
+        entity.Name.Should().Be("Order");
+        entity.Properties.Should().ContainSingle().Which.ColumnName.Should().Be("ORDER_ID");
+        entity.Location.Should().BeNull();
+    }
 }
