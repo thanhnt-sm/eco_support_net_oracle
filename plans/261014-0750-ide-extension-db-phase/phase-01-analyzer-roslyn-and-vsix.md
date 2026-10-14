@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Analyzer loads in VS 2022 and .NET 9 SDK (Roslyn 4.12 pin, complete VSIX)"
-status: pending
+status: completed
 priority: P1
 effort: "3.5h (+ Windows CI run)"
 dependencies: []

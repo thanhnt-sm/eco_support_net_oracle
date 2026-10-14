@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "VS reports ground-truth and run state truthfully"
-status: pending
+status: completed
 priority: P1
 effort: "2.5h (+ Windows CI run)"
 dependencies: []

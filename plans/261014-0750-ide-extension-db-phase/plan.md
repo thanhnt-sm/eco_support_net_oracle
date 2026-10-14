@@ -35,10 +35,10 @@ Design principles (YAGNI / KISS / DRY):
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Analyzer loads in VS 2022 and .NET 9 SDK (Roslyn 4.12 pin, complete VSIX)](./phase-01-analyzer-roslyn-and-vsix.md) | Pending |
-| 2 | [VS reports ground-truth and run state truthfully](./phase-02-vs-run-state.md) | Pending |
+| 1 | [Analyzer loads in VS 2022 and .NET 9 SDK (Roslyn 4.12 pin, complete VSIX)](./phase-01-analyzer-roslyn-and-vsix.md) | Completed |
+| 2 | [VS reports ground-truth and run state truthfully](./phase-02-vs-run-state.md) | Completed |
 | 3 | [EF ModelSnapshot ground truth under --ide-safe (CLI, serves VS)](./phase-03-ide-ground-truth-ef.md) | Pending |
-| 4 | [VS database commands: Refresh Snapshot and Verify SQL Shapes; drop dead Init](./phase-04-vs-database-commands.md) | Pending |
+| 4 | [VS database commands: Refresh Snapshot and Verify SQL Shapes; drop dead Init](./phase-04-vs-database-commands.md) | Completed |
 
 ## Dependencies
 

@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "VS database commands: Refresh Snapshot and Verify SQL Shapes; drop dead Init"
-status: pending
+status: completed
 priority: P2
 effort: "4h (+ Windows CI run)"
 dependencies: [2]

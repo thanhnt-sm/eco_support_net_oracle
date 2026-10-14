@@ -6,7 +6,7 @@
 |---------|-----------|---------|
 | .NET SDK | 9.0+ | Cần cho CLI tool |
 | Database | Oracle 12c+, SQL Server 2016+, MySQL 8.0+, PostgreSQL 12+ | Chỉ cho chế độ Full |
-| IDE | VS Code 1.80+ hoặc Visual Studio 2022 17.8+ | Cho tích hợp IDE |
+| IDE | VS Code 1.80+ hoặc Visual Studio 2022 17.12+ | Cho tích hợp IDE |
 
 ## Phương Pháp Cài Đặt
 
@@ -110,4 +110,4 @@ dataguard validate --help  # Hiển thị tất cả tùy chọn
 | `dotnet tool` không tìm thấy | Đảm bảo .NET SDK 9.0+ đã cài và `~/.dotnet/tools` trong PATH |
 | Connection refused | Kiểm tra biến môi trường `CONNECTION_STRING` hoặc cờ `--connection` |
 | Permission denied (Docker) | Chạy với `--user $(id -u):$(id -g)` cho quyền file |
-| VSIX không tải | Đảm bảo VS 2022 17.8+ và khởi động lại VS sau khi cài |
+| VSIX không tải | Đảm bảo VS 2022 17.12+ và khởi động lại VS sau khi cài |
