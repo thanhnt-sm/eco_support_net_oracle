@@ -3,6 +3,7 @@
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions)
+[![codecov](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
 
@@ -165,6 +166,35 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 ## Documentation
 
 - [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/system_architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
+
+## Test Coverage & Quality Telemetry
+
+Continuous line, branch, and test-analytics telemetry is published to [Codecov](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) via OIDC (`codecov/codecov-action@v7.1.1`) and configured in [`.github/codecov.yml`](.github/codecov.yml).
+
+### Test Suite Flags
+
+| Flag | Test Suite Scope | Coverage |
+|---|---|---|
+| `dotnet-unit` | Cross-platform .NET 9 unit & contract tests (`DataGuard.CrossPlatform.slnf`) | [![dotnet-unit](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=dotnet-unit)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `live-db` | Testcontainers live database integration suites (Oracle, SQL Server, PostgreSQL, MySQL) | [![live-db](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=live-db)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `vscode-ext` | VS Code extension TypeScript & UI security unit tests (Node 22) | [![vscode-ext](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=vscode-ext)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+
+### Architectural Components
+
+| Component ID | Subsystem | Tracked Paths | Coverage |
+|---|---|---|---|
+| `core_engine` | Core Engine & Contracts | `src/DataGuard.Core/**`, `src/DataGuard.Contracts/**`, `src/DataGuard.SqlClassification/**` | [![core_engine](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=core_engine)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `db_adapters` | Database Adapters | `src/DataGuard.{Oracle,SqlServer,PostgreSql,MySql}.Adapter/**` | [![db_adapters](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=db_adapters)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `roslyn_analyzers` | Roslyn Analyzers & CodeFixes | `src/DataGuard.Analyzers/**`, `src/DataGuard.CodeFixes/**` | [![roslyn_analyzers](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=roslyn_analyzers)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `cli_and_host` | CLI, Host, Build & LSP | `src/DataGuard.{Cli,Host,Build,LanguageServer}/**` | [![cli_and_host](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=cli_and_host)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `observability` | Enterprise Observability | `src/DataGuard.Observability*/**` | [![observability](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=observability)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `ide_extensions` | VS Code & Visual Studio Extensions | `src/DataGuard.VSCode/**`, `src/DataGuard.VisualStudio/**` | [![ide_extensions](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=ide_extensions)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+
+### Coverage Architecture Graphs
+
+| Sunburst Hierarchy | File Coverage Grid |
+|---|---|
+| [![Codecov Sunburst](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/sunburst.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) | [![Codecov Grid](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/grid.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) |
 
 ## Dual licence & FAQ
 

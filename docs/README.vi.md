@@ -50,3 +50,4 @@ Quyết định cho từng thành phần, đối chiếu với mục tiêu gốc
 - [Tham Chiếu CLI](03-components/tooling/cli.md)
 - [Hướng Dẫn Cấu Hình](05-operations/configuration-guide.md)
 - [Bảng Tra Cứu OpenSSF Best Practices (CII)](guides/openssf-best-practices-answers.md)
+- [Tài Liệu Nghiên Cứu Codecov Free-Tier & TypeSafe Judge](guides/codecov-and-typesafe-research.vi.md) · [EN](guides/codecov-and-typesafe-research.md)
