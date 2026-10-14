@@ -6,7 +6,7 @@
 |-------------|---------|-------|
 | .NET SDK | 9.0+ | Required for CLI tool |
 | Database | Oracle 12c+, SQL Server 2016+, MySQL 8.0+, PostgreSQL 12+ | For Full mode only |
-| IDE | VS Code 1.80+ or Visual Studio 2022 17.8+ | For IDE integration |
+| IDE | VS Code 1.80+ or Visual Studio 2022 17.12+ | For IDE integration |
 
 ## Installation Methods
 
@@ -110,4 +110,4 @@ dataguard validate --help  # Shows all options
 | `dotnet tool` not found | Ensure .NET SDK 9.0+ is installed and `~/.dotnet/tools` is in PATH |
 | Connection refused | Check `CONNECTION_STRING` env var or `--connection` flag |
 | Permission denied (Docker) | Run with `--user $(id -u):$(id -g)` for file permissions |
-| VSIX not loading | Ensure VS 2022 17.8+ and restart VS after install |
+| VSIX not loading | Ensure VS 2022 17.12+ and restart VS after install |

@@ -203,11 +203,9 @@ public static class DataGuardConfigurationExtensions
             builder = builder with { DefaultSchema = "dbo" };
         }
 
-        // Auto-detect EF Core context
-        if (config.AutoDetectEFContext)
-        {
-            // Would scan for DbContext in assembly
-        }
+        // AutoDetectEFContext is not applied here: the CLI's validate command reads it and, under --ide-safe with
+        // --project, locates the design-time *ModelSnapshot.cs under the project root and parses it as source
+        // (EfModelSnapshotLocator). No assembly is scanned.
 
         // Auto-detect Dapper usage
         if (config.AutoDetectDapper)

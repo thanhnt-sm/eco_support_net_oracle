@@ -144,7 +144,7 @@ artifacts/visualstudio/dataguard-visualstudio-<version>.vsix.sha256
 | Hiện tượng | Cách xử lý |
 | --- | --- |
 | `VSIXInstaller.NoApplicableSKUsException` khi cài extension VS Code | Do nhấp đúp mở file bằng Visual Studio VSIX Installer. Hãy cài qua CLI: `code --install-extension artifacts/vscode/...` hoặc qua menu VS Code **Install from VSIX...**. |
-| `VSIXInstaller.NoApplicableSKUsException` khi cài extension Visual Studio | Kiểm tra manifest `source.extension.vsixmanifest` có đủ SKU (`Community`, `Professional`, `Enterprise`) và dải phiên bản mục tiêu (hỗ trợ `[17.0,19.0)` cho cả VS 2022 và VS 2026). |
+| `VSIXInstaller.NoApplicableSKUsException` khi cài extension Visual Studio | Kiểm tra manifest `source.extension.vsixmanifest` có đủ SKU (`Community`, `Professional`, `Enterprise`) và dải phiên bản mục tiêu (`[17.12,19.0)`: VS 2022 17.12+ và VS 2026; 17.0–17.11 bị loại vì Roslyn của chúng từ chối analyzer đi kèm). |
 | Lệnh PowerShell trong bash bị nuốt dấu gạch chéo (`scriptsbuild-extensions.ps1`) | Dùng dấu gạch chéo xuôi (`scripts/build-extensions.ps1`) hoặc bọc trong ngoặc kép `"-File 'scripts\build-extensions.ps1'"`. |
 | Không tìm thấy `vswhere.exe` | Cài Visual Studio hoặc Build Tools có workload MSBuild và Visual Studio SDK. |
 | `MSBuild.exe was not found by vswhere` | Thêm MSBuild component qua Visual Studio Installer rồi chạy lại. |

@@ -86,7 +86,7 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor UnvalidatedSqlCall = new(
         id: DiagnosticIds.UnvalidatedSqlCall,
         title: "Track Unvalidated SQL Calls",
-        messageFormat: "SQL call '{0}' not validated - run 'dataguard check' for full validation",
+        messageFormat: "SQL call '{0}' not validated - run 'dataguard validate' for full validation",
         category: "DataGuard.IDE",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,

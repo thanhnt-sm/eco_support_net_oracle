@@ -76,6 +76,17 @@ internal sealed class ProgressStreamReader
             result.IdeSafeUnsupported = true;
         }
 
+        // Raw line, exact prefix: the CLI prints it before the rules run, so it is never a JSON event.
+        if (!discardedLine && ProgressLineParser.IsGroundTruthMissingLine(text))
+        {
+            result.GroundTruthMissing = true;
+        }
+
+        if (!discardedLine && text.StartsWith(ProgressLineParser.SnapshotWrotePrefix, StringComparison.Ordinal))
+        {
+            result.SnapshotWrittenPath = text.Substring(ProgressLineParser.SnapshotWrotePrefix.Length).Trim();
+        }
+
         var parsed = ProgressLineParser.FormatProgressLine(text, discardedLine);
         if (parsed.IsProgressEvent)
         {
@@ -92,6 +103,10 @@ internal sealed class ProgressStreamReader
             result.ErrorCount = parsed.ErrorCount!.Value;
             result.WarningCount = parsed.WarningCount!.Value;
             result.HasSummary = true;
+            result.UnevaluatedContractCount = parsed.Summary.UnevaluatedContractCount;
+            result.UnavailableRuleCount = parsed.Summary.UnavailableRuleCount;
+            result.AcquisitionDiagnosticCount = parsed.Summary.AcquisitionDiagnosticCount;
+            result.GroundTruth = parsed.Summary.GroundTruth;
         }
 
         if (parsed.FormattedOutput != null)

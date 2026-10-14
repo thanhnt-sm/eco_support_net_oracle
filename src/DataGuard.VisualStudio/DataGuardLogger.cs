@@ -22,10 +22,16 @@ public static class DataGuardLogger
     private static readonly object FileGate = new();
     private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
 
-    // Covers key=value / key: value forms (incl. "User Id=x;Password=y" connection strings),
-    // bearer headers, and JWT-shaped tokens. Bounded quantifiers keep it linear on hostile input.
+    // Covers key=value / key: value forms (incl. "User Id=x;Password=y" connection strings, and values
+    // quoted with "…", '…' or braced {…} as ADO.NET allows), bearer headers, JWT-shaped tokens,
+    // URI credentials (scheme://user:pw@host) and Oracle EZConnect (user/pw@host). "User Id" is kept on
+    // purpose. Bounded quantifiers keep it linear on hostile input.
     private static readonly Regex SensitiveRegex = new(
-        @"(?i)(password|pwd|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|sas)\s*[:=]\s*(?:bearer\s+)?[^\s;,]{1,512}|(?i)(bearer)\s+[^\s;,]{1,512}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
+        @"(?i)(?<key>password|pwd|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|sas)\s*[:=]\s*(?:""[^""]{0,512}""|'[^']{0,512}'|\{[^}]{0,512}\}|(?:bearer\s+)?[^\s;,]{1,512})" +
+        @"|(?i)(?<bearer>bearer)\s+[^\s;,]{1,512}" +
+        @"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}" +
+        @"|(?<scheme>[A-Za-z][A-Za-z0-9+.-]{0,31}://)[^\s/@:;,]{1,256}:[^\s/@;,]{1,512}@" +
+        @"|(?<![\w./-])[A-Za-z_][\w.$-]{0,127}/[^\s/@;,]{1,512}@",
         RegexOptions.Compiled,
         TimeSpan.FromMilliseconds(250));
 
@@ -229,8 +235,10 @@ public static class DataGuardLogger
         try
         {
             return SensitiveRegex.Replace(input, match =>
-                match.Groups[1].Success ? match.Groups[1].Value + "=[REDACTED]"
-                : match.Groups[2].Success ? match.Groups[2].Value + " [REDACTED]"
+                match.Groups["key"].Success ? match.Groups["key"].Value + "=[REDACTED]"
+                : match.Groups["bearer"].Success ? match.Groups["bearer"].Value + " [REDACTED]"
+                : match.Groups["scheme"].Success ? match.Groups["scheme"].Value + "[REDACTED]@"
+                : match.Value.EndsWith("@", StringComparison.Ordinal) ? "[REDACTED]@"
                 : "[REDACTED]");
         }
         catch (RegexMatchTimeoutException)

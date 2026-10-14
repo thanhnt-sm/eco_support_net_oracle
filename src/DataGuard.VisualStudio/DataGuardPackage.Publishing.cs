@@ -35,6 +35,14 @@ public sealed partial class DataGuardPackage
             return;
         }
 
+        // Live commands never print the ide-safe handshake and never touch the Error List: their outcome is
+        // rendered from the exit code, the "snapshot: wrote" line and verify-shape's summary.json.
+        if (context.LiveCommand is { } liveKind)
+        {
+            await this.ReportLiveOutcomeAsync(context, liveKind, outcome);
+            return;
+        }
+
         var verdict = PublishGate.Decide(outcome.Progress, outcome.ExitCode);
         if (verdict != PublishVerdict.Publish)
         {
@@ -118,9 +126,7 @@ public sealed partial class DataGuardPackage
         }
 
         await output.WriteResultBlockAsync(progress);
-        await output.SetStatusAsync(progress.HasSummary
-            ? "DataGuard: " + progress.ErrorCount + " errors, " + progress.WarningCount + " warnings"
-            : "DataGuard: Result summary unavailable");
+        await output.SetStatusAsync(ExitCodeExplainer.DescribeStatus(progress));
     }
 
     private void LogRun(CliRunContext context, int exitCode, long elapsedMs, int diagnosticCount)

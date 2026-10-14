@@ -13,7 +13,7 @@ using Microsoft.CodeAnalysis.Text;
 
 /// <summary>
 /// IDE layer: an incremental generator that reports DG001 at every SQL call site so the developer knows it still
-/// needs <c>dataguard check</c>. It is syntax-only: the predicate filters invocations by method name, the transform
+/// needs <c>dataguard validate</c>. It is syntax-only: the predicate filters invocations by method name, the transform
 /// classifies the call with <see cref="SqlCallSyntax"/> (no symbol binding, no IO) and produces an equatable
 /// <see cref="SqlCallModel"/> that holds no syntax node or <see cref="Location"/>, so unchanged call sites are
 /// served from the generator cache on the next keystroke.

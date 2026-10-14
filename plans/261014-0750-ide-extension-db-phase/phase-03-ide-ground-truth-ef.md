@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "EF ModelSnapshot ground truth under --ide-safe (CLI, serves VS)"
-status: pending
+status: completed
 priority: P1
 effort: "4h"
 dependencies: []

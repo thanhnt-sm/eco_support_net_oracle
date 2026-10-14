@@ -21,8 +21,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="5.9.0" PrivateAssets="all" />
+    <!-- Roslyn 4.12 is the compiler line VS 2022 17.12+ and the .NET 9.0.1xx SDK run. Roslyn refuses an
+         analyzer compiled against a newer Microsoft.CodeAnalysis (CS9057, no diagnostics at all), so this
+         version is pinned: RoslynReferenceVersionTests, scripts/verify-analyzer-packaging.sh and the
+         Dependabot ignore (.github/dependabot.yml) guard it. Microsoft.CodeAnalysis.Analyzers 3.11.0 is the
+         matching line (no 4.12.0 of that package exists). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" PrivateAssets="all" />
     <PackageReference Include="System.Composition.Hosting" Version="10.0.12" />
   </ItemGroup>
 

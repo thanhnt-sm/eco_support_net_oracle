@@ -49,10 +49,13 @@ public class NamingConventionRule : ContractRuleBase
 
                 if (!matchesSnake && !matchesPascal)
                 {
+                    // The entity's own location (the Entity<T> call of a parsed ModelSnapshot): IDE hosts drop a result
+                    // without one. The fingerprint includes the file path, so baselines of entity-derived DG006 change.
                     violations.Add(CreateViolation(
                         RuleId,
                         $"Property '{prop.Name}' (PascalCase: '{pascalCaseName}', snake_case: '{snakeCaseName}') doesn't match database column '{columnName}'",
-                        Severity));
+                        Severity,
+                        entityDesc.Location));
                 }
             }
         }

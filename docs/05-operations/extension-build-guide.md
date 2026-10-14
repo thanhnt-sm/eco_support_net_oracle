@@ -133,7 +133,7 @@ artifacts/visualstudio/dataguard-visualstudio-<version>.vsix.sha256
 | Symptom | Resolution |
 | --- | --- |
 | `VSIXInstaller.NoApplicableSKUsException` when installing VS Code extension | Caused by double-clicking the file in Windows, opening Visual Studio VSIX Installer. Install via CLI (`code --install-extension artifacts/vscode/...`) or via VS Code menu **Install from VSIX...**. |
-| `VSIXInstaller.NoApplicableSKUsException` when installing Visual Studio extension | Verify the manifest `source.extension.vsixmanifest` targets your edition (`Community`, `Professional`, `Enterprise`) and version range (e.g. `[17.0,19.0)` for VS 2022 and VS 2026). |
+| `VSIXInstaller.NoApplicableSKUsException` when installing Visual Studio extension | Verify the manifest `source.extension.vsixmanifest` targets your edition (`Community`, `Professional`, `Enterprise`) and version range (`[17.12,19.0)`: VS 2022 17.12+ and VS 2026; 17.0–17.11 are excluded because their Roslyn refuses the bundled analyzer). |
 | Script invocation path loses backslash (`scriptsbuild-extensions.ps1`) | Shell/bash eats backslashes. Use forward slashes (`scripts/build-extensions.ps1`) or quote the path (`"-File 'scripts\build-extensions.ps1'"`). |
 | `vswhere.exe was not found` | Install Visual Studio or Build Tools with the MSBuild and Visual Studio SDK workloads. |
 | `MSBuild.exe was not found by vswhere` | Add the MSBuild component through Visual Studio Installer, then retry. |

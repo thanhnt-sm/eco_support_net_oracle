@@ -71,11 +71,40 @@ internal sealed class OutputPaneWriter
 
     public async Task WriteCommandBannerAsync(string command, string solutionDirectory, string configPath, int enabledRuleCount, int disabledRuleCount)
     {
-        await this.ActivateAsync();
         var title = command == "validate" ? "Run Validation" : "Assess Workspace";
         var description = command == "validate"
             ? "Validates C# and database contracts (parameters, result shapes, types, naming, and SQL dialect)."
             : "Assesses workspace configuration, dependencies, and environment readiness.";
+        await this.WriteCommandBannerAsync(
+            title,
+            description,
+            solutionDirectory,
+            configPath,
+            "ide-safe (no assembly loading, no database or network access)",
+            "previous results are kept until new ones load",
+            command == "validate" ? "Rules:  " + enabledRuleCount + " enabled, " + disabledRuleCount + " disabled\r\n" : string.Empty);
+    }
+
+    /// <summary>Banner for Refresh Snapshot / Verify SQL Shapes: not ide-safe, no .dataguard.yml, Error List untouched.</summary>
+    public Task WriteLiveCommandBannerAsync(LiveCommandKind kind, string solutionDirectory, string variableName)
+    {
+        var title = kind == LiveCommandKind.RefreshSnapshot ? "Refresh Snapshot" : "Verify SQL Shapes Against Database";
+        var description = kind == LiveCommandKind.RefreshSnapshot
+            ? "Reads the live database schema and stored procedures and writes " + LiveDatabaseCommands.SnapshotFileName + " into the solution directory."
+            : "Describes every read SQL query of the solution against the live database and reports shape mismatches.";
+        return this.WriteCommandBannerAsync(
+            title,
+            description,
+            solutionDirectory,
+            "(not read)",
+            LiveDatabaseCommands.DescribeMode(variableName),
+            "the Error List is not changed by this command",
+            string.Empty);
+    }
+
+    private async Task WriteCommandBannerAsync(string title, string description, string solutionDirectory, string configPath, string mode, string errorsLine, string extraLines)
+    {
+        await this.ActivateAsync();
         await this.WriteAsync(
             Separator +
             "DataGuard — " + title + "\r\n" +
@@ -83,11 +112,9 @@ internal sealed class OutputPaneWriter
             "What:   " + description + "\r\n" +
             "Scope:  " + solutionDirectory + "\r\n" +
             "Config: " + configPath + "\r\n" +
-            "Mode:   ide-safe (no assembly loading, no database or network access)\r\n" +
-            "Errors: previous results are kept until new ones load\r\n" +
-            (command == "validate"
-                ? "Rules:  " + enabledRuleCount + " enabled, " + disabledRuleCount + " disabled\r\n"
-                : string.Empty) +
+            "Mode:   " + mode + "\r\n" +
+            "Errors: " + errorsLine + "\r\n" +
+            extraLines +
             Separator);
     }
 
@@ -96,9 +123,11 @@ internal sealed class OutputPaneWriter
         var resultText = progress.HasSummary
             ? "Result: " + progress.ErrorCount + " errors, " + progress.WarningCount + " warnings\r\n"
             : "Result: No final validation summary was produced.\r\n";
+        var groundTruth = ExitCodeExplainer.DescribeGroundTruth(progress);
         await this.WriteAsync(
             Separator +
             resultText +
+            (groundTruth == null ? string.Empty : groundTruth + "\r\n") +
             "Action: Open Error List to see details and jump to source locations.\r\n" +
             "Docs:   Tools -> Options -> DataGuard -> Validation Rules\r\n" +
             Separator);
