@@ -136,7 +136,7 @@ public class LiveDatabaseCommandsTests
 
         liveKey.Should().NotBe(validateKey);
         liveKey.Should().EndWith(SolutionTrustGate.LiveConsentSuffix);
-        SolutionTrustGate.ComputeLiveConsentKey(@"d:\REPO\", @"d:\REPO\app.SLN").Should().Be(liveKey, "path casing must not change the key");
+        SolutionTrustGate.ComputeLiveConsentKey(@"d:\REPO\", @"d:\REPO\solution\app.SLN").Should().Be(liveKey, "path casing and a trailing separator must not change the key");
     }
 
     [Fact]
