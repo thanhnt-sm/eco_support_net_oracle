@@ -142,4 +142,33 @@ public class ModelSnapshotCSharpParserTests
         entity.Properties.Should().ContainSingle().Which.ColumnName.Should().Be("ORDER_ID");
         entity.Location.Should().BeNull();
     }
+
+    [Fact]
+    public void Parse_WithSourcePath_RecordsTheEntityCallLocationInThatFile()
+    {
+        // Phase 3: the Entity<T> member access (one line) in the snapshot file, so DG004/DG006 can point at it.
+        var path = Path.Combine("Migrations", "ShopContextModelSnapshot.cs");
+        const string source = """
+            class Snapshot { void Build(ModelBuilder modelBuilder) {
+              modelBuilder.Entity<Customer>(b => { b.Property<int>("Id"); });
+              modelBuilder.Entity<Order>(b =>
+                {
+                  b.Property<int>("OrderId").HasColumnName("ORDER_ID");
+                });
+            }}
+            """;
+        var result = ModelSnapshotCSharpParser.Parse(source, path);
+
+        result.Diagnostics.Should().BeEmpty();
+        result.Entities.Should().HaveCount(2);
+        var order = result.Entities.Single(entity => entity.Name == "Order");
+        var span = order.Location.Should().NotBeNull().And.Subject.As<Microsoft.CodeAnalysis.Location>().GetLineSpan();
+        span.Path.Should().Be(path);
+        span.StartLinePosition.Line.Should().Be(2, "zero-based line of the Entity<Order> call");
+        span.StartLinePosition.Character.Should().Be(2);
+        span.EndLinePosition.Line.Should().Be(2, "the location is the call, not the block lambda");
+        result.Entities.Single(entity => entity.Name == "Customer").Location!.GetLineSpan().StartLinePosition.Line.Should().Be(1);
+        EfModelSource.ParseModelSnapshotWithDiagnostics("class S { void B(ModelBuilder m) { m.Entity<A>(b => { b.Property<int>(\"Id\"); }); } }", null, path)
+            .Entities.Single().Location!.GetLineSpan().Path.Should().Be(path, "the diagnostics entry point passes the path through");
+    }
 }

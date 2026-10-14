@@ -50,6 +50,13 @@ public class ColumnShapeMatchRule : ContractRuleBase
 
                 foreach (var sqlDesc in matchingSqlDescs)
                 {
+                    // A query whose target class is visible carries ExpectedProperties and is reported by the RawSql branch
+                    // below, with its call-site location; reporting it again here would double the finding without one.
+                    if (sqlDesc.ExpectedProperties.Count > 0)
+                    {
+                        continue;
+                    }
+
                     var columnNames = ExtractColumnNamesFromSql(sqlDesc.SqlText);
 
                     // If no columns could be extracted (SELECT *, expressions only), skip shape comparison.
@@ -67,13 +74,16 @@ public class ColumnShapeMatchRule : ContractRuleBase
                         .ToList();
 
                     // Take(5) is display text only; Properties carry the full list so baseline fingerprints never collide.
+                    // The query's call site is the position a host can show; the entity's own location is the fallback.
+                    var location = sqlDesc.Location ?? entityDesc.Location;
                     if (missingColumns.Count > 0)
                     {
                         violations.Add(CreateViolation(
                             RuleId,
                             $"Result set is missing required columns: {string.Join(", ", missingColumns.Take(5))}",
                             Severity,
-                            properties: ShapeProperties("missing", entityDesc.Name, missingColumns, sqlDesc.SqlText)));
+                            location,
+                            ShapeProperties("missing", entityDesc.Name, missingColumns, sqlDesc.SqlText)));
                     }
 
                     // Check for extra columns not mapped to entity
@@ -85,7 +95,8 @@ public class ColumnShapeMatchRule : ContractRuleBase
                             RuleId,
                             $"Result set has {extraColumns.Count} extra columns not mapped to entity properties",
                             Severity,
-                            properties: ShapeProperties("extra", entityDesc.Name, extraColumns, sqlDesc.SqlText)));
+                            location,
+                            ShapeProperties("extra", entityDesc.Name, extraColumns, sqlDesc.SqlText)));
                     }
                 }
             }

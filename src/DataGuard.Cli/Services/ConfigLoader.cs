@@ -48,14 +48,16 @@ internal static class ConfigLoader
 
         if (unknownKeys.Count > 0)
         {
+            // Keys come from the repository's YAML; a quoted key holding a line break must stay on this one line.
+            var echoedKeys = OutputSinks.EscapeControlCharacters(string.Join(", ", unknownKeys));
             if (config.StrictConfig)
             {
-                Console.Error.WriteLine($"Error: unknown configuration keys: {string.Join(", ", unknownKeys)} (StrictConfig: true)");
+                Console.Error.WriteLine($"Error: unknown configuration keys: {echoedKeys} (StrictConfig: true)");
                 Environment.ExitCode = 2;
                 return null;
             }
 
-            Console.Error.WriteLine($"Warning: unknown configuration keys: {string.Join(", ", unknownKeys)}");
+            Console.Error.WriteLine($"Warning: unknown configuration keys: {echoedKeys}");
         }
 
         return config;

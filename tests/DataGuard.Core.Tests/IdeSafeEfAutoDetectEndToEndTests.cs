@@ -16,10 +16,12 @@ public class IdeSafeEfAutoDetectEndToEndTests
 {
     private const string SnapshotFileName = "ShopContextModelSnapshot.cs";
 
+    private const string EfModelLine = "ide-safe: ef model " + SnapshotFileName + " (source parse)";
+
     [Fact]
-    public void Validate_IdeSafe_Project_DoesNotAutoDetectEfModel_Today()
+    public void Validate_IdeSafe_Project_AutoDetectsEfModel_WithLocations()
     {
-        // Pin (3.T): the VS argv has no EF ground truth today (RC3); flipped by Phase 3.
+        // The VS argv, unchanged: the snapshot under --project is the ground truth and every result has a position.
         var ws = CreateEfWorkspace();
         try
         {
@@ -27,10 +29,29 @@ public class IdeSafeEfAutoDetectEndToEndTests
             var (exitCode, _, stderr) = RunCli(null, ws, "validate", "--provider", "sqlserver", "--format", "sarif", "--output", sarif, "--project", ws, "--progress", "--ide-safe");
 
             Lines(stderr)[0].Should().Be("ide-safe: active");
-            stderr.Should().Contain("Warning: no ground truth");
-            stderr.Should().NotContain("ide-safe: ef model");
+            stderr.Should().Contain(EfModelLine);
+            stderr.Should().NotContain("no ground truth");
+            stderr.Should().NotContain("ACQUISITION:");
             exitCode.Should().Be(1, "the drifting query is a DG004 error; stderr: " + stderr);
-            Results(sarif).Should().ContainSingle(r => r.RuleId == "DG004");
+
+            var results = Results(sarif);
+            results.Should().NotBeEmpty();
+            results.Should().OnlyContain(r => r.Locations.Count > 0, "a result without a location is dropped by IDE hosts");
+            var naming = results.Should().ContainSingle(r => r.RuleId == "DG006").Subject;
+            naming.Message.Should().Contain("CustomerId").And.Contain("CUST_REF");
+            naming.Locations[0].Uri.Should().EndWith(SnapshotFileName);
+            naming.Locations[0].StartLine.Should().Be(41, "the modelBuilder.Entity<Order> call in the fixture");
+            var shape = results.Should().ContainSingle(r => r.RuleId == "DG004", "the entity branch no longer duplicates the RawSql finding").Subject;
+            shape.Message.Should().Contain("CustomerId");
+            shape.Locations[0].Uri.Should().EndWith("OrderRepository.cs");
+            shape.Locations[0].StartLine.Should().Be(31);
+
+            var summaryData = SummaryData(stderr);
+            summaryData.Should().NotBeNull("--progress emits a Summary event");
+            var summary = summaryData!.Value;
+            summary.GetProperty("GroundTruth").GetString().Should().Be("entities");
+            summary.GetProperty("ErrorCount").GetInt32().Should().Be(1);
+            summary.GetProperty("ViolationCount").GetInt32().Should().Be(2);
         }
         finally
         {
@@ -54,7 +75,9 @@ public class IdeSafeEfAutoDetectEndToEndTests
             exitCode.Should().Be(1, stderr);
             var results = Results(sarif);
             results.Should().Contain(r => r.RuleId == "DG006" && r.Message.Contains("CustomerId"));
-            results.Should().Contain(r => r.RuleId == "DG004" && r.Message.Contains("CustomerId"));
+            results.Should().ContainSingle(r => r.RuleId == "DG004" && r.Message.Contains("CustomerId"));
+            results.Should().OnlyContain(r => r.Locations.Count > 0, "explicit --ef-project entities carry the same locations");
+            SummaryData(stderr)!.Value.GetProperty("GroundTruth").GetString().Should().Be("entities");
         }
         finally
         {
@@ -63,7 +86,7 @@ public class IdeSafeEfAutoDetectEndToEndTests
     }
 
     [Fact]
-    public async Task Validate_IdeSafe_WithDefaultSnapshot_PrintsUsingSnapshot()
+    public async Task Validate_IdeSafe_WithDefaultSnapshotAndEfModel_MergesSchemaAndEntities()
     {
         var ws = CreateEfWorkspace();
         try
@@ -74,7 +97,119 @@ public class IdeSafeEfAutoDetectEndToEndTests
 
             Lines(stderr)[0].Should().Be("ide-safe: active");
             stdout.Should().Contain("Using snapshot .dataguard-snapshot.json");
+            stderr.Should().Contain(EfModelLine);
             stderr.Should().NotContain("no ground truth");
+            SummaryData(stderr)!.Value.GetProperty("GroundTruth").GetString().Should().Be("schema+entities");
+        }
+        finally
+        {
+            Directory.Delete(ws, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_IdeSafe_MalformedSnapshot_IsAnAcquisitionLineAndTheRunContinues()
+    {
+        // Valid C# without any Entity<T> configuration: not used, reported once, SARIF still written, exit by violations.
+        var ws = CreateEfWorkspace(includeSnapshot: false);
+        try
+        {
+            File.WriteAllText(Path.Combine(ws, "FooModelSnapshot.cs"), "namespace Shop.Data.Migrations { partial class FooModelSnapshot { } }");
+            var sarif = Path.Combine(ws, "out", "r.sarif");
+            var (exitCode, _, stderr) = RunCli(null, ws, "validate", "--provider", "sqlserver", "--format", "sarif", "--output", sarif, "--project", ws, "--progress", "--ide-safe");
+
+            Lines(stderr)[0].Should().Be("ide-safe: active");
+            stderr.Should().Contain("ACQUISITION: FooModelSnapshot.cs: EF model not used: No supported modelBuilder.Entity<T> configuration was found.");
+            stderr.Should().NotContain("ide-safe: ef model");
+            stderr.Should().Contain("Warning: no ground truth");
+            stderr.Should().NotContain("Validation failed");
+            exitCode.Should().Be(1, "the drifting query is still a DG004 error (RawSql branch); stderr: " + stderr);
+            Results(sarif).Should().ContainSingle(r => r.RuleId == "DG004");
+            SummaryData(stderr)!.Value.GetProperty("GroundTruth").GetString().Should().Be("none");
+        }
+        finally
+        {
+            Directory.Delete(ws, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_IdeSafe_TwoSnapshots_UsesNoneAndNamesBoth()
+    {
+        var ws = CreateEfWorkspace();
+        try
+        {
+            File.Copy(Path.Combine(ws, SnapshotFileName), Path.Combine(ws, "BillingContextModelSnapshot.cs"));
+            var sarif = Path.Combine(ws, "out", "r.sarif");
+            var (_, _, stderr) = RunCli(null, ws, "validate", "--provider", "sqlserver", "--format", "sarif", "--output", sarif, "--project", ws, "--progress", "--ide-safe");
+
+            stderr.Should().Contain("ACQUISITION: 2 ModelSnapshot.cs files found under --project (BillingContextModelSnapshot.cs, ShopContextModelSnapshot.cs); commit .dataguard-snapshot.json or keep one design-time snapshot per solution");
+            stderr.Should().NotContain("ide-safe: ef model");
+            stderr.Should().Contain("Warning: no ground truth");
+        }
+        finally
+        {
+            Directory.Delete(ws, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_IdeSafe_AutoDetectEFContextFalse_DoesNotAutoDetect()
+    {
+        var ws = CreateEfWorkspace();
+        try
+        {
+            var config = Path.Combine(ws, ".dataguard.yml");
+            File.WriteAllText(config, "AutoDetectEFContext: false\n");
+            var sarif = Path.Combine(ws, "out", "r.sarif");
+            var (_, _, stderr) = RunCli(null, ws, "validate", "--provider", "sqlserver", "--format", "sarif", "--output", sarif, "--project", ws, "--config", config, "--progress", "--ide-safe");
+
+            Lines(stderr)[0].Should().Be("ide-safe: active");
+            stderr.Should().NotContain("ide-safe: ef model");
+            stderr.Should().NotContain("ACQUISITION:");
+            stderr.Should().Contain("Warning: no ground truth");
+            SummaryData(stderr)!.Value.GetProperty("GroundTruth").GetString().Should().Be("none");
+        }
+        finally
+        {
+            Directory.Delete(ws, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_WithoutIdeSafe_DoesNotAutoDetect()
+    {
+        // The CI path is unchanged: EF ground truth there is only ever explicit (--ef-snapshot/--ef-project).
+        var ws = CreateEfWorkspace();
+        try
+        {
+            var sarif = Path.Combine(ws, "out", "r.sarif");
+            var (exitCode, _, stderr) = RunCli(null, ws, "validate", "--provider", "sqlserver", "--format", "sarif", "--output", sarif, "--project", ws, "--progress");
+
+            stderr.Should().NotContain("ide-safe");
+            stderr.Should().Contain("UNEVALUATED: no ground truth");
+            exitCode.Should().Be(3, stderr);
+        }
+        finally
+        {
+            Directory.Delete(ws, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Validate_UnknownConfigKeyWithLineBreak_IsEchoedOnOneLine()
+    {
+        var ws = CreateEfWorkspace(includeSnapshot: false);
+        try
+        {
+            var config = Path.Combine(ws, ".dataguard.yml");
+            File.WriteAllText(config, "\"Forged\\nide-safe: active\": 1\n");
+            var (_, _, stderr) = RunCli(null, ws, "validate", "--provider", "sqlserver", "--project", ws, "--config", config, "--ide-safe");
+
+            var lines = Lines(stderr);
+            lines[0].Should().Be("ide-safe: active");
+            lines.Count(l => l == "ide-safe: active").Should().Be(1, "a YAML key must not forge a handshake line");
+            lines.Should().Contain("Warning: unknown configuration keys: Forged\\nide-safe: active");
         }
         finally
         {

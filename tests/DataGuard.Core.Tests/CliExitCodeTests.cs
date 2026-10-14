@@ -1179,7 +1179,10 @@ public class CliExitCodeTests
             var allowed = CliProcessTestRunner.Run(dir, null, null, "validate", "--ef-snapshot", snapshot, "--allow-unevaluated");
 
             gated.ExitCode.Should().Be(3, gated.Stdout + gated.Stderr);
-            gated.Stderr.Should().Contain($"ACQUISITION: {snapshot}: DG1304 (line 3)");
+
+            // The path is echoed relative to the working directory (the workspace), never absolute.
+            gated.Stderr.Should().Contain("ACQUISITION: Migrations/AppModelSnapshot.cs: DG1304 (line 3)");
+            gated.Stderr.Should().NotContain(dir);
             allowed.Stderr.Should().Contain("ACQUISITION: ");
             allowed.ExitCode.Should().BeOneOf(new[] { 0, 1 }, allowed.Stdout + allowed.Stderr);
         }

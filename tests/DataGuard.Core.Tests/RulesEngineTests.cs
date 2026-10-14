@@ -228,19 +228,23 @@ public class RulesEngineTests
     }
 
     [Fact]
-    public async Task NamingConventionRule_EntityDrift_HasNoLocation_Today()
+    public async Task NamingConventionRule_EntityDrift_CarriesTheEntityLocation()
     {
-        // Pin (Phase 3, 3.T): DG006 is created without a location today, so IDE hosts drop it; flipped in 3.V.
-        var entity = Entity("Order", Prop("CustomerId", "CUST_REF")) with { Location = At("Migrations/ShopContextModelSnapshot.cs", 40) };
-        var violations = await RunAsync(new NamingConventionRule(), entity);
-        violations.Should().ContainSingle().Which.Location.Should().BeNull();
+        // Phase 3: an entity parsed from a ModelSnapshot carries the Entity<T> call location; DG006 passes it on so IDE
+        // hosts (which drop location-less SARIF results) can show it. Without a location the finding is unchanged.
+        var entityLocation = At("Migrations/ShopContextModelSnapshot.cs", 40);
+        var located = Entity("Order", Prop("CustomerId", "CUST_REF")) with { Location = entityLocation };
+        var unlocated = Entity("Order", Prop("CustomerId", "CUST_REF"));
+
+        (await RunAsync(new NamingConventionRule(), located)).Should().ContainSingle().Which.Location.Should().Be(entityLocation);
+        (await RunAsync(new NamingConventionRule(), unlocated)).Should().ContainSingle().Which.Location.Should().BeNull();
     }
 
     [Fact]
-    public async Task ColumnShapeMatchRule_EntityBranch_DuplicatesRawSqlFinding_Today()
+    public async Task ColumnShapeMatchRule_EntityBranch_SkipsQueriesTheRawSqlBranchReports()
     {
-        // Pin (Phase 3, 3.T): a typed query whose target class is visible (ExpectedProperties) is reported by the RawSql
-        // branch with its call-site location and again, without location, by the entity branch; flipped in 3.V.
+        // Phase 3: a typed query whose target class is visible (ExpectedProperties) is reported once, by the RawSql
+        // branch with its call-site location; the entity branch no longer adds a location-less duplicate.
         var callSite = At("OrderRepository.cs", 31);
         var entity = Entity("Order", Prop("OrderId", "ORDER_ID"), Prop("CustomerId", "CUST_REF"), Prop("TotalAmount", "TOTAL_AMOUNT"));
         var sql = new RawSqlDescriptor("raw:1", "SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS", Array.Empty<ParameterDescriptor>(), new List<ColumnDescriptor>(), callSite,
@@ -251,7 +255,22 @@ public class RulesEngineTests
         var fromEntity = await RunAsync(new ColumnShapeMatchRule(), entity, entity, sql);
 
         fromRawSql.Should().ContainSingle(v => v.RuleId == "DG004" && v.Message.Contains("CustomerId")).Which.Location.Should().Be(callSite);
-        fromEntity.Should().ContainSingle(v => v.RuleId == "DG004" && v.Message.Contains("CustomerId")).Which.Location.Should().BeNull();
+        fromEntity.Should().BeEmpty("the RawSql branch already reported this query");
+    }
+
+    [Fact]
+    public async Task ColumnShapeMatchRule_EntityBranch_LocatesAtTheQueryThenTheEntity()
+    {
+        // A query whose target class is not visible has no ExpectedProperties: the entity branch still reports it, at
+        // the query call site when it has one, else at the entity (the ModelSnapshot Entity<T> call).
+        var callSite = At("OrderRepository.cs", 31);
+        var entityLocation = At("Migrations/ShopContextModelSnapshot.cs", 40);
+        var entity = Entity("Order", Prop("OrderId", "ORDER_ID"), Prop("CustomerId", "CUST_REF")) with { Location = entityLocation };
+        var locatedSql = new RawSqlDescriptor("raw:1", "SELECT ORDER_ID FROM ORDERS", Array.Empty<ParameterDescriptor>(), new List<ColumnDescriptor>(), callSite, TargetTypeName: "Order");
+        var unlocatedSql = new RawSqlDescriptor("raw:2", "SELECT ORDER_ID FROM ORDERS", Array.Empty<ParameterDescriptor>(), new List<ColumnDescriptor>(), TargetTypeName: "Order");
+
+        (await RunAsync(new ColumnShapeMatchRule(), entity, entity, locatedSql)).Should().ContainSingle().Which.Location.Should().Be(callSite);
+        (await RunAsync(new ColumnShapeMatchRule(), entity, entity, unlocatedSql)).Should().ContainSingle().Which.Location.Should().Be(entityLocation);
     }
 
     private static Location At(string path, int line) => Location.Create(

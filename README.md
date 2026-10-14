@@ -17,7 +17,7 @@
 # .sha256 file next to it (needs the .NET 9 runtime; DataGuard.Cli is not yet published on nuget.org):
 # https://github.com/thanhnt-sm/eco_support_net_oracle/releases
 cd YourProject
-dataguard init            # writes .dataguard.yml + .dataguard-snapshot.json
+dataguard init            # writes .dataguard.yml (snapshot refresh writes .dataguard-snapshot.json)
 dataguard validate        # runs contract rules against ground truth
 dataguard snapshot diff   # detects schema drift vs the committed snapshot
 ```

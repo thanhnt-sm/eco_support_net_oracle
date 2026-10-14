@@ -1,4 +1,5 @@
 using System.CommandLine;
+using DataGuard.Cli.Services;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using DataGuard.Core.Plugins;
@@ -227,6 +228,38 @@ internal static class ValidateCommand
                 var acquisitionDiagnostics = new List<AcquisitionDiagnostic>(
                     acquisition.Diagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.SkippedByAttribute));
                 var skippedByAttribute = acquisition.Diagnostics.Count(d => d.Kind == AcquisitionDiagnosticKind.SkippedByAttribute);
+
+                // IDE-safe EF ground truth: the design-time *ModelSnapshot.cs already under --project is parsed as source
+                // (Roslyn syntax only; no assembly, no option; --ef-* stay rejected by the policy). The repository opts out
+                // with AutoDetectEFContext: false. A locator or parse problem is an ACQUISITION line, never a failed run.
+                if (ideSafe && config.AutoDetectEFContext && string.IsNullOrWhiteSpace(efSnapshotPath) && !string.IsNullOrWhiteSpace(projectPath))
+                {
+                    var located = EfModelSnapshotLocator.TryLocate(
+                        ResolveProjectRoot(projectPath),
+                        ProjectCSharpSqlSource.DiscoverSourceFiles(projectPath),
+                        new ModelSnapshotParseOptions().MaximumSourceBytes);
+                    foreach (var diagnostic in located.Diagnostics)
+                    {
+                        Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(diagnostic)}");
+                    }
+
+                    if (located.Found)
+                    {
+                        try
+                        {
+                            // The absolute path gives every entity a Location in the snapshot file (DG004/DG006 positions).
+                            var modelExtraction = EfModelSource.ParseModelSnapshotWithDiagnostics(located.Source!, config, located.FullPath);
+                            contracts.AddRange(modelExtraction.Entities);
+                            acquisitionDiagnostics.AddRange(modelExtraction.Diagnostics);
+                            Console.Error.WriteLine($"ide-safe: ef model {EscapeControlCharacters(located.RelativePath)} (source parse)");
+                        }
+                        catch (EfModelExtractionException ex)
+                        {
+                            Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(located.RelativePath)}: EF model not used: {EscapeControlCharacters(ex.Message)}");
+                        }
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(efSnapshotPath))
                 {
                     var snapshotExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(efSnapshotPath, config, ct);
@@ -334,7 +367,17 @@ internal static class ValidateCommand
 
                 // Ground-truth gate (red-team C4): inline SQL alone is not a validation; without a schema, procedure or entity
                 // model the database-backed rules have nothing to compare against and a clean result would be an empty PASS.
-                if (!contracts.Any(contract => contract is DatabaseSchemaDescriptor or StoredProcedureDescriptor or EntityDescriptor))
+                // The kind (none | entities | schema | schema+entities) is reported in the Summary event for IDE hosts.
+                var hasSchemaGroundTruth = contracts.Any(contract => contract is DatabaseSchemaDescriptor or StoredProcedureDescriptor);
+                var hasEntityGroundTruth = contracts.Any(contract => contract is EntityDescriptor);
+                var groundTruthKind = (hasSchemaGroundTruth, hasEntityGroundTruth) switch
+                {
+                    (true, true) => "schema+entities",
+                    (true, false) => "schema",
+                    (false, true) => "entities",
+                    _ => "none",
+                };
+                if (groundTruthKind == "none")
                 {
                     if (!allowSyntacticOnly)
                     {
@@ -464,9 +507,12 @@ internal static class ValidateCommand
 
                 // An oversized literal was already reported once by the extractor ("[WARN] DG1291 ..."); it still makes
                 // the result incomplete below, but is not printed a second time.
+                // Paths are repository-controlled file names: relative to the workspace and control-character escaped so a
+                // file name cannot forge a line start for a host that parses stderr line by line.
+                var workspaceRoot = Directory.GetCurrentDirectory();
                 foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
                 {
-                    Console.Error.WriteLine($"ACQUISITION: {diagnostic.Path}: {diagnostic.Message}");
+                    Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(RelativizeToWorkspace(workspaceRoot, diagnostic.Path))}: {EscapeControlCharacters(diagnostic.Message)}");
                 }
 
                 if (verbose)
@@ -497,6 +543,7 @@ internal static class ValidateCommand
                         ["UnavailableRuleCount"] = unavailableOutcomes.Count,
                         ["UnevaluatedContractCount"] = unevaluated.Count,
                         ["AcquisitionDiagnosticCount"] = acquisitionDiagnostics.Count,
+                        ["GroundTruth"] = groundTruthKind,
                     }));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -522,6 +569,13 @@ internal static class ValidateCommand
         });
 
         return validateCommand;
+    }
+
+    // The directory the auto-detected ModelSnapshot must live under: --project itself, or the directory of a .sln/.csproj/.cs.
+    private static string ResolveProjectRoot(string projectPath)
+    {
+        var fullPath = Path.GetFullPath(projectPath);
+        return File.Exists(fullPath) ? Path.GetDirectoryName(fullPath) ?? fullPath : fullPath;
     }
 
     private static (bool Success, string? Path, string? Error) ResolveEfSnapshotSource(
