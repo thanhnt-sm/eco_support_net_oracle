@@ -12,29 +12,29 @@ using Microsoft.VisualStudio.Shell;
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.12",
-    NewVersion = "10.0.0.12")]
+    OldVersionUpperBound = "10.0.0.13",
+    NewVersion = "10.0.0.13")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "System.Text.Encodings.Web",
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.12",
-    NewVersion = "10.0.0.12")]
+    OldVersionUpperBound = "10.0.0.13",
+    NewVersion = "10.0.0.13")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "Microsoft.Bcl.AsyncInterfaces",
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.12",
-    NewVersion = "10.0.0.12")]
+    OldVersionUpperBound = "10.0.0.13",
+    NewVersion = "10.0.0.13")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "System.IO.Pipelines",
     PublicKeyToken = "cc7b13ffcd2ddd51",
     Culture = "neutral",
     OldVersionLowerBound = "0.0.0.0",
-    OldVersionUpperBound = "10.0.0.12",
-    NewVersion = "10.0.0.12")]
+    OldVersionUpperBound = "10.0.0.13",
+    NewVersion = "10.0.0.13")]
 [assembly: ProvideBindingRedirection(
     AssemblyName = "System.Memory",
     PublicKeyToken = "cc7b13ffcd2ddd51",
