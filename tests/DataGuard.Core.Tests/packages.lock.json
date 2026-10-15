@@ -963,6 +963,12 @@
           "DataGuard.Core": "[1.0.0, )"
         }
       },
+      "dataguard.languageserver": {
+        "type": "Project",
+        "dependencies": {
+          "DataGuard.SqlClassification": "[1.0.0, )"
+        }
+      },
       "dataguard.mysql.adapter": {
         "type": "Project",
         "dependencies": {

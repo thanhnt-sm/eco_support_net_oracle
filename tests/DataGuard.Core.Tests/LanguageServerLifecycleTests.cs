@@ -8,14 +8,7 @@ namespace DataGuard.Core.Tests;
 
 public sealed class LanguageServerLifecycleTests
 {
-    private static string LanguageServerDllPath { get; } = Path.Combine(
-        CliProcessTestRunner.RepoRoot,
-        "src",
-        "DataGuard.LanguageServer",
-        "bin",
-        new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug",
-        "net9.0",
-        "DataGuard.LanguageServer.dll");
+    private static string LanguageServerDllPath { get; } = Path.Combine(AppContext.BaseDirectory, "DataGuard.LanguageServer.dll");
 
     [Fact]
     public async Task Lifecycle_ShutdownReturnsNull_UnsupportedRequestReturnsMethodNotFound_ExitAfterShutdownExitsZero()
@@ -96,6 +89,51 @@ public sealed class LanguageServerLifecycleTests
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             await process.WaitForExitAsync(cts.Token);
             process.ExitCode.Should().Be(1);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("file:///query.sql", "SELECT * FROM Customers", "DG017")]
+    [InlineData("file:///query.cs", "var sql = \"SELECT * FROM Customers\";", "DG017")]
+    public async Task DocumentOpen_PublishesSelectStarDiagnostic_AndCloseClearsIt(string uri, string text, string code)
+    {
+        using var process = StartServer();
+        try
+        {
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                @params = new { textDocument = new { uri, text, version = 1 } },
+            });
+            using var reply = await ReadJsonRpcAsync(process.StandardOutput.BaseStream);
+            reply.RootElement.GetProperty("method").GetString().Should().Be("textDocument/publishDiagnostics");
+            var parameters = reply.RootElement.GetProperty("params");
+            parameters.GetProperty("uri").GetString().Should().Be(uri);
+            var diagnostic = parameters.GetProperty("diagnostics").EnumerateArray().Single();
+            diagnostic.GetProperty("code").GetString().Should().Be(code);
+            diagnostic.GetProperty("severity").GetInt32().Should().Be(2);
+            diagnostic.GetProperty("range").GetProperty("start").GetProperty("line").GetInt32().Should().Be(0);
+
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didClose",
+                @params = new { textDocument = new { uri } },
+            });
+            using var cleared = await ReadJsonRpcAsync(process.StandardOutput.BaseStream);
+            cleared.RootElement.GetProperty("params").GetProperty("diagnostics").GetArrayLength().Should().Be(0);
+            process.StandardInput.Close();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync(timeout.Token);
+            process.ExitCode.Should().Be(0);
         }
         finally
         {

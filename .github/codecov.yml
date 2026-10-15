@@ -45,6 +45,10 @@ flags:
     paths:
       - "src/"
     carryforward: true
+  visual-studio:
+    paths:
+      - "src/DataGuard.VisualStudio/"
+    carryforward: false
   vscode-ext:
     paths:
       - "src/DataGuard.VSCode/"

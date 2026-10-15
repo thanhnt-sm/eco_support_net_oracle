@@ -156,9 +156,10 @@ class TrxToJunitTests(unittest.TestCase):
 
         # Flags & Carryforward
         flags = doc.get("flags", {})
-        self.assertEqual(set(flags.keys()), {"dotnet-unit", "live-db", "vscode-ext"})
+        self.assertEqual(set(flags.keys()), {"dotnet-unit", "live-db", "vscode-ext", "visual-studio"})
         for flag_name, flag_cfg in flags.items():
-            self.assertTrue(flag_cfg.get("carryforward"), f"Flag {flag_name} must enable carryforward")
+            self.assertEqual(flag_cfg.get("carryforward"), flag_name != "visual-studio",
+                             f"Flag {flag_name} must retain its explicit freshness policy")
 
         # 6 Architectural Components
         components = doc.get("component_management", {}).get("individual_components", [])
