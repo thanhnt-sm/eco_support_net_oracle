@@ -97,9 +97,10 @@ public sealed partial class DataGuardPackage
 
         await TaskScheduler.Default;
         var consentKey = SolutionTrustGate.ComputeConsentKey(solution.Directory, solution.FilePath, Path.Combine(solution.Directory, ConfigFileName));
+        var liveConsentKey = SolutionTrustGate.ComputeLiveConsentKey(solution.Directory, solution.FilePath);
 
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-        var removed = this.trustGate!.ForgetConsent(consentKey);
+        var removed = this.trustGate!.ForgetSolutionConsent(consentKey, liveConsentKey);
         await output.WriteAsync(removed
             ? "[DataGuard] Consent for this solution file was forgotten; the next run will ask again.\r\n"
             : "[DataGuard] No stored consent was found for this solution file with its current " + ConfigFileName + ".\r\n");

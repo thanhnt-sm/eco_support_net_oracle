@@ -45,6 +45,14 @@ internal sealed class SolutionTrustGate
     /// <summary>Forgets a recorded consent; false when none was stored for the key.</summary>
     public bool ForgetConsent(string consentKey) => this.store.Remove(consentKey);
 
+    /// <summary>Revokes validation and live consent, even when the first key existed.</summary>
+    public bool ForgetSolutionConsent(string validationConsentKey, string liveConsentKey)
+    {
+        var validationRemoved = this.store.Remove(validationConsentKey);
+        var liveRemoved = this.store.Remove(liveConsentKey);
+        return validationRemoved || liveRemoved;
+    }
+
     /// <summary>Consent key for a solution and the current content of its .dataguard.yml (if any). Reads the file; call off the UI thread.</summary>
     internal static string ComputeConsentKey(string solutionDirectory, string? solutionFilePath, string? configPath)
     {

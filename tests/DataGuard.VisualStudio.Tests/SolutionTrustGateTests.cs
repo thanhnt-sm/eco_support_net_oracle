@@ -120,6 +120,39 @@ public class SolutionTrustGateTests
         gate.ForgetConsent(key).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void ForgetSolutionConsent_RemovesBothKeysAndPreservesOtherSolutions(bool validation, bool live)
+    {
+        var store = new MemoryConsentStore();
+        var gate = new SolutionTrustGate(store);
+        var config = Encoding.UTF8.GetBytes("GroundTruthMode: Snapshot\n");
+        var validationKey = SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, config);
+        var liveKey = SolutionTrustGate.ComputeLiveConsentKey(@"D:\repo", Sln);
+        var otherValidation = SolutionTrustGate.ComputeConsentKey(@"D:\repo", @"D:\repo\Other.sln", config);
+        var otherLive = SolutionTrustGate.ComputeLiveConsentKey(@"D:\repo", @"D:\repo\Other.sln");
+        gate.RecordConsent(otherValidation);
+        gate.RecordConsent(otherLive);
+        if (validation)
+        {
+            gate.RecordConsent(validationKey);
+        }
+
+        if (live)
+        {
+            gate.RecordConsent(liveKey);
+        }
+
+        gate.ForgetSolutionConsent(validationKey, liveKey).Should().Be(validation || live);
+        gate.IsConsented(validationKey).Should().BeFalse();
+        gate.IsConsented(liveKey).Should().BeFalse();
+        gate.ForgetSolutionConsent(validationKey, liveKey).Should().BeFalse();
+        store.Keys.Should().BeEquivalentTo(new[] { otherValidation, otherLive });
+    }
+
     [Fact]
     public void BuildPromptText_SaysConsentIsPerSolutionFile()
     {
