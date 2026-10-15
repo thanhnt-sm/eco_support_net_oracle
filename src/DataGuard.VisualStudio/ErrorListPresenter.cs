@@ -116,10 +116,10 @@ internal sealed class ErrorListPresenter
         var task = new ErrorTask
         {
             Category = TaskCategory.BuildCompile,
-            Column = diagnostic.Column,
+            Column = Math.Max(1, diagnostic.Column) - 1,
             Document = diagnostic.Document,
             ErrorCategory = MapLevel(diagnostic.Level),
-            Line = diagnostic.Line,
+            Line = Math.Max(1, diagnostic.Line) - 1,
             Text = diagnostic.Message,
             HierarchyItem = this.ResolveHierarchy(diagnostic.Document, hierarchyCache),
         };
@@ -157,11 +157,9 @@ internal sealed class ErrorListPresenter
                     frame?.Show();
                     if (view != null)
                     {
-                        // Convert 1-based ErrorTask to 0-based buffer position
-                        var zeroBasedLine = Math.Max(0, task.Line - 1);
-                        var zeroBasedCol = Math.Max(0, task.Column - 1);
-                        view.SetCaretPos(zeroBasedLine, zeroBasedCol);
-                        view.CenterLines(zeroBasedLine, 1);
+                        // CreateTask already converted SARIF to zero-based VS coordinates.
+                        view.SetCaretPos(task.Line, task.Column);
+                        view.CenterLines(task.Line, 1);
                     }
                 }
                 else if (this.provider != null)
@@ -170,7 +168,7 @@ internal sealed class ErrorListPresenter
                     {
                         if (this.writeOutput != null)
                         {
-                            await this.writeOutput($"[DataGuard] Cannot navigate to '{task.Document}' line {task.Line}.\r\n");
+                            await this.writeOutput($"[DataGuard] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
                         }
                     }
                 }
