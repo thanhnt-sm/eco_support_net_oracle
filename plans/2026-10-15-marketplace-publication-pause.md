@@ -67,3 +67,15 @@ old workflows; this change is not credential revocation.
   change was made; hosted Docker smoke remains necessary.
 - The one Python skip is the existing live GitHub alert-resolution test: local `gh` token
   authentication is unavailable. Connector read access succeeded except legacy protection.
+- Unchanged pre-commit and pre-push hooks passed for implementation commit
+  `8bd558ee3ce499473cf46d02f309fd0ed46c75c1`. The sandboxed run had four documented
+  extractor fixture path failures caused by synthetic `/tmp/.git`; the authorized run
+  outside that sandbox passed unchanged: 2,204 .NET tests / 5 Windows-only skips,
+  coverage 71.18% (14,851/20,863), Release build zero warnings/errors, formatting,
+  analyzers, locked restore, NuGet audit, topology, preflight and documentation gates passed.
+  The hook's default `SKIP_ACT=1` leaves hosted secret scanning and matrix jobs required.
+- A structural comparison against baseline confirmed all three retained job definitions
+  are identical except removal of publish-only tag prerequisites; retained permissions match.
+- Draft [PR62](https://github.com/thanhnt-sm/eco_support_net_oracle/pull/62) opened without
+  modifying PR60/61. Hosted final-head run URLs/results are maintained in its description
+  after completion, rather than claiming pending runs passed or recursively committing CI IDs.
