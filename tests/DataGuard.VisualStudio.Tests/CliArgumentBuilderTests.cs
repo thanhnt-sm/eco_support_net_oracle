@@ -18,6 +18,7 @@ public class CliArgumentBuilderTests
         args.Should().StartWith("validate --config \"D:\\s\\.dataguard.yml\" --format sarif --output \"C:\\t\\v.sarif\" --project \"D:\\s\" --progress --ide-safe");
         args.Should().EndWith(" --skip-rules \"DG002,DG017\"");
         args.Should().NotContain("bad id");
+        args.Should().NotContain("--provider").And.NotContain("--connection-env", "snapshot validation uses YAML provider selection, not live options");
     }
 
     [Fact]

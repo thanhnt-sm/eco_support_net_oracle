@@ -766,29 +766,6 @@ public static class InteractiveConfigBuilder
 
     private static async Task SaveConfigAsync(DataGuardConfiguration config, string path, CancellationToken ct)
     {
-        var lines = new List<string>
-        {
-            "# DataGuard Configuration",
-            $"GroundTruthMode: {config.GroundTruthMode}",
-            $"EnableSmartDefaults: {config.EnableSmartDefaults}",
-            $"EnableBaseline: {config.EnableBaseline}",
-            $"NamingConvention: {config.NamingConvention}",
-        };
-        if (!string.IsNullOrEmpty(config.DefaultProvider))
-        {
-            lines.Add($"DefaultProvider: {config.DefaultProvider}");
-        }
-
-        if (!string.IsNullOrEmpty(config.SnapshotFilePath))
-        {
-            lines.Add($"SnapshotFilePath: {config.SnapshotFilePath}");
-        }
-
-        if (!string.IsNullOrEmpty(config.BaselineFilePath))
-        {
-            lines.Add($"BaselineFilePath: {config.BaselineFilePath}");
-        }
-
-        await File.WriteAllTextAsync(path, string.Join('\n', lines) + "\n", ct).ConfigureAwait(false);
+        await File.WriteAllTextAsync(path, ConfigurationYamlWriter.Serialize(config), ct).ConfigureAwait(false);
     }
 }

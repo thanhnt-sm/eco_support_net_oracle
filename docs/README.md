@@ -53,3 +53,4 @@ Component decisions measured against the original goals ([index](adr/README.md))
 - [Codecov Free-Tier & TypeSafe Research Guide](guides/codecov-and-typesafe-research.md) · [VI](guides/codecov-and-typesafe-research.vi.md)
 
 - [DG019 dialect selection and source locations](guides/dg019-dialect-and-locations.md)
+- [Configuration and commented Oracle snapshot examples](guides/configuration.md)

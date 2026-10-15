@@ -101,13 +101,18 @@ public class RawSqlParseStatusRuleTests
     [InlineData("?")]
     [InlineData("{0}")]
     [InlineData(":id")]
+    [InlineData("\"?\"")]
+    [InlineData("[?]")]
+    [InlineData("1 /* ? {0} :id */")]
+    [InlineData("1 -- ? {0} :id\n")]
     public void Parser_ErrorOffset_RefersToOriginalSqlBeforeNormalization(string placeholder)
     {
         var sql = "\r\nSELECT " + placeholder + " FROM SAMPLE_RECORD WHERE )";
         var result = TSqlStatementParser.Instance.Parse(sql);
         result.IsValid.Should().BeFalse();
         result.ErrorOffset.Should().Be(sql.IndexOf(')'));
-        result.Error.Should().Contain($"Line 2, column {sql.IndexOf(')') - 1}:");
+        var position = Microsoft.CodeAnalysis.Text.SourceText.From(sql).Lines.GetLinePosition(sql.IndexOf(')'));
+        result.Error.Should().Contain($"Line {position.Line + 1}, column {position.Character + 1}:");
     }
 
     [Theory]

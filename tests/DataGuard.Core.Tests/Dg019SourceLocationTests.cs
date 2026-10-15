@@ -9,6 +9,20 @@ namespace DataGuard.Core.Tests;
 
 public sealed class Dg019SourceLocationTests
 {
+    [Fact]
+    public void SegmentBoundaries_UseContainingExpressionOrNoLocation()
+    {
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText("class Example {}");
+        var location = tree.GetRoot().GetLocation();
+        var segment = new SqlSourceSegment(10, 4, location, false);
+        segment.Resolve(9).Should().BeNull();
+        segment.Resolve(14).Should().BeNull();
+        segment.Resolve(10).Should().BeSameAs(location);
+        segment.Resolve(13).Should().BeSameAs(location);
+        new SqlSourceSegment(10, 4, Microsoft.CodeAnalysis.Location.None, true)
+            .Resolve(11).Should().BeSameAs(Microsoft.CodeAnalysis.Location.None);
+    }
+
     [Theory]
     [InlineData(false, "\n")]
     [InlineData(true, "\n")]
@@ -68,6 +82,8 @@ public sealed class Dg019SourceLocationTests
     }
     [Theory]
     [InlineData("$@\"SELECT {id} FROM SAMPLE_RECORD WHERE )\"", true)]
+    [InlineData("$@\"SELECT {\"ID\"} FROM SAMPLE_RECORD WHERE )\"", true)]
+    [InlineData("(@\"SELECT ID FROM SAMPLE_RECORD WHERE )\")", true)]
     [InlineData("@\"SELECT \" + id + @\" FROM SAMPLE_RECORD WHERE )\"", true)]
     [InlineData("\"SELECT \" + id + \" FROM SAMPLE_RECORD WHERE )\"", true)]
     [InlineData("\"\\nSELECT ID FROM SAMPLE_RECORD WHERE )\"", false)]

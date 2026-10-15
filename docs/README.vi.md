@@ -53,3 +53,4 @@ Quyết định cho từng thành phần, đối chiếu với mục tiêu gốc
 - [Tài Liệu Nghiên Cứu Codecov Free-Tier & TypeSafe Judge](guides/codecov-and-typesafe-research.vi.md) · [EN](guides/codecov-and-typesafe-research.md)
 
 - [DG019: chọn phương ngữ và vị trí mã nguồn](guides/dg019-dialect-and-locations.vi.md)
+- [Cấu hình và mẫu Oracle snapshot có chú thích](guides/configuration.vi.md)

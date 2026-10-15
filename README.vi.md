@@ -27,6 +27,9 @@ dataguard validate        # chạy rule contract với ground truth
 dataguard snapshot diff   # phát hiện schema drift so với snapshot đã commit
 ```
 
+[Hướng dẫn cấu hình và mẫu Oracle có chú thích](docs/guides/configuration.vi.md)
+
+
 ## Ba chế độ ground truth
 
 | Chế độ | Nguồn | Dùng khi |

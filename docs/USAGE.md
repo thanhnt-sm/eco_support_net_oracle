@@ -88,10 +88,13 @@ dataguard init
 
 ### File .dataguard.yml
 
+Hướng dẫn đã kiểm thử: [EN](guides/configuration.md) · [VI](guides/configuration.vi.md), [Oracle tối thiểu](guides/oracle-snapshot.minimal.yml) và [đầy đủ có chú thích](guides/oracle-snapshot.full.yml). Oracle/SqlServer là mapping, không phải boolean; provider chọn bởi --provider → DefaultProvider → sqlserver. AutoDetectProvider không ghi đè provider CLI. config validate kiểm tra kiểu/provider, không xác thực nội dung database. init và wizard không ghi đè file đã có để giữ comment thủ công.
+
+
 ```yaml
 # DataGuard Configuration
 GroundTruthMode: Snapshot          # Snapshot | Full | Manual
-EnableSmartDefaults: true          # Tự động phát hiện provider/EF/Dapper
+EnableSmartDefaults: true          # Library defaults; không ghi đè DefaultProvider của CLI
 EnableBaseline: true               # Bật baseline cho legacy
 NamingConvention: SnakeCaseToPascalCase  # SnakeCaseToPascalCase | PascalCaseToSnakeCase | ExactMatch
 DefaultProvider: sqlserver         # sqlserver | oracle | mysql | postgresql (postgres); giá trị khác => exit 2

@@ -23,6 +23,9 @@ dataguard validate        # runs contract rules against ground truth
 dataguard snapshot diff   # detects schema drift vs the committed snapshot
 ```
 
+[Configuration guide and commented Oracle examples](docs/guides/configuration.md)
+
+
 ## How it works — three ground-truth modes
 
 | Mode | Source | Use case |
