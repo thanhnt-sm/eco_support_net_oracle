@@ -37,7 +37,7 @@ IDE process, it does **not** break the "light IDE, heavy CI" principle (report Â
 | Tests | `tests/DataGuard.VisualStudio.Tests`: 2,305 LOC, 17 files (the InfoBar manager and its tests were removed with the dead Initialize DataGuard menu item; the live database commands and run-state reporting added their own tests) (`CliArgumentBuilderTests`, `CliProcessRegistryTests`, `CliRunSessionLiveTests`, `DataGuardPackageTests`, `LiveDatabaseCommandsTests`, `NavigationTests`, `ProcessTerminatorClassificationTests`, `ProgressPumpTests`, `ProgressStreamReaderTests`, `RuleInventoryTests`, `RunStateReportingTests`, `SarifErrorListPublisherTests`, `SolutionLifetimeWatcherTests`, `SolutionTrustGateTests`, `VsixAnalyzerPackagingTests`) |
 | Solution membership | `DataGuard.sln` only. Not in `DataGuard.CrossPlatform.slnf` (Windows only). |
 | CI | `ci.yml`: `visual-studio-build-and-test` and `visual-studio-vsix-package` (both `windows-latest`). |
-| Release / publish | `release.yml` `visual-studio-package` (feeds `sign-packages` and `create-github-release`); `build_release.yml` `package-visualstudio`; `installers.yml` `visualstudio`; `marketplace.yml` `visual-studio-package` and `publish-visualstudio` (uses `VS_MARKETPLACE_PAT`). |
+| Release / publish | `release.yml` `visual-studio-package` (feeds `sign-packages` and `create-github-release`); `build_release.yml` `package-visualstudio`; `installers.yml` `visualstudio`; `marketplace.yml` `visual-studio-package` (publication paused; see `docs/marketplace-publishing.md`). |
 | Docs | `docs/03-components/tooling/visual-studio-extension.md` (+ `.vi.md`) |
 
 ## Risks it adds

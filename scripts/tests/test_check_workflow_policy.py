@@ -435,16 +435,27 @@ class MarketplacePermissionTests(unittest.TestCase):
                     self.assertNotEqual(perms.get("id-token"), "write")
                     self.assertNotEqual(perms.get("attestations"), "write")
 
-    def test_publish_vscode_verifies_before_publishing_with_pinned_vsce(self) -> None:
-        steps = self.doc["jobs"]["publish-vscode"]["steps"]
-        texts = [policy.step_text(s) for s in steps]
-        verify = next(i for i, t in enumerate(texts) if "sha256sum -c" in t)
-        self.assertIn("gh attestation verify", texts[verify])
-        publish = next(i for i, t in enumerate(texts) if "vsce publish" in t)
-        self.assertLess(verify, publish)
-        self.assertIn("npx --no-install @vscode/vsce publish", texts[publish])
-        self.assertTrue(any("npm ci" in t for t in texts[:publish]))
-        self.assertNotIn("--pat", texts[publish])
+    def test_publication_is_paused_without_skipped_jobs(self) -> None:
+        self.assertEqual(set(self.doc["jobs"]), {"test", "vscode-package", "visual-studio-package"})
+        triggers = self.doc.get("on", self.doc.get(True))
+        self.assertEqual(set(triggers), {"push", "pull_request", "workflow_dispatch"})
+        self.assertEqual(set(triggers["workflow_dispatch"]["inputs"]), {"tag"})
+        text = str(self.doc)
+        for forbidden in ("inputs.publish", "VSCE_PAT", "VS_MARKETPLACE_PAT", "vsce publish", "VsixPublisher.exe"):
+            self.assertNotIn(forbidden, text)
+
+    def test_packaging_quality_and_artifacts_remain_enabled(self) -> None:
+        for name in ("test", "vscode-package", "visual-studio-package"):
+            self.assertNotIn("if", self.doc["jobs"][name])
+        for name in ("vscode-package", "visual-studio-package"):
+            job = self.doc["jobs"][name]
+            self.assertEqual(job["needs"], "test")
+            text = str(job["steps"])
+            for expected in ("SBOM", ".sha256", "attest-build-provenance", "upload-artifact"):
+                self.assertIn(expected, text)
+        self.assertIn("dotnet test", str(self.doc["jobs"]["test"]))
+        self.assertIn("npm test", str(self.doc["jobs"]["vscode-package"]))
+        self.assertIn("dotnet test", str(self.doc["jobs"]["visual-studio-package"]))
 
 
 if __name__ == "__main__":

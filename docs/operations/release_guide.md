@@ -1,8 +1,13 @@
 [Tiếng Việt](release_guide.vi.md) | [English](release_guide.md)
 
+> Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;
+> `--publish-marketplaces` / `PUBLISH_MARKETPLACES=true` fail before release side effects.
+> See [pause and re-enablement](../marketplace-publishing.md). Marketplace environment/secret
+> setup below is future preparation only; existing settings are preserved.
+
 # Secure Release Guide
 
-`tools/git-tools/dg-release` is the single explicit release entry point. It creates one immutable annotated Git tag, waits for the GitHub **Release** workflow to finish, then optionally dispatches the protected Marketplace publication workflow.
+`tools/git-tools/dg-release` is the single explicit release entry point. It creates one immutable annotated Git tag, waits for the GitHub **Release** workflow to finish, with marketplace publication paused.
 
 It never accepts a secret on the command line, never reads a secret file, and never prints credentials.
 
@@ -16,7 +21,7 @@ In **Settings → Environments**, create `marketplace-production`.
 - Restrict deployment to protected tags matching `v*` if the repository plan supports it.
 - Do not add a bypass user unless there is a documented incident process.
 
-The Marketplace workflow already targets this environment for both publishing jobs. Packaging runs may complete, but publication pauses for approval.
+The publication jobs are currently removed. Preserve the environment for reviewed re-enablement.
 
 ### Add Actions repository secrets
 
@@ -116,7 +121,7 @@ After the dry run passes and the protected environment reviewers are available:
 ```bash
 bash tools/git-tools/dg-release \
   --tag v1.2.3 \
-  --publish-marketplaces \
+  --no-marketplaces \
   --yes
 ```
 
@@ -124,8 +129,7 @@ The command performs this ordered sequence:
 
 1. Creates and pushes immutable annotated tag `v1.2.3`.
 2. Waits for `release.yml` to build, test, scan, package, sign, generate SBOMs, publish NuGet packages, create the GitHub Release, attest packages, and push GHCR images.
-3. Only when that workflow succeeds, dispatches `marketplace.yml` with `publish=true` for the same immutable tag.
-4. Waits until Marketplace packaging/publishing completes. The `marketplace-production` environment requires its configured approval.
+3. Marketplace publication is paused; no Marketplace dispatch occurs.
 
 Use `--timeout-seconds 10800` for an intentionally longer three-hour wait. The default is two hours.
 
@@ -158,7 +162,7 @@ Dry-run never creates a tag, dispatches a workflow, publishes a package, creates
 ## 6. Failure handling
 - **Preflight failure:** fix the reported local state. No remote state changed.
 - **Release workflow failure after tag push:** do not reuse, delete, or force-move the tag. Fix the issue, increment the SemVer version, and release a new immutable tag.
-- **Marketplace failure:** the core release is already published. Fix the Marketplace-specific issue, then manually re-run the same `Marketplace Extensions` workflow for the same tag and `publish=true`; do not create a new package version solely for a VSIX retry.
+- **Marketplace paused:** do not retry `publish=true`; follow the re-enablement runbook first.
 - **Credential exposure:** immediately revoke the exposed credential at its issuer, rotate the matching GitHub Actions secret, inspect GitHub audit logs, and scan the repository history before retrying.
 
 ## 6. What the tool cannot and must not automate locally

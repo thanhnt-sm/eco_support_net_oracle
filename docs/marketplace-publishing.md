@@ -1,12 +1,38 @@
 # DataGuard — Marketplace Publishing Runbook
 
-Hướng dẫn từng bước cấu hình và phát hành hai extension lên Microsoft Marketplace. Các giá trị dưới đây khớp đúng workflow hiện tại (`.github/workflows/marketplace.yml`): environment `marketplace-production`, secrets `VSCE_PAT` và `VS_MARKETPLACE_PAT`, publisher ID `thanhnt-sm`.
+## Publication paused — 2026-10-15
 
-## Trạng thái hiện tại
+The product is not ready for marketplace distribution. `marketplace.yml` now runs only
+`test`, `vscode-package`, and `visual-studio-package` on push, pull request, and manual dispatch.
+Both publication jobs and the `publish` input are removed, so PRs have no skipped publish checks.
+Build/test/package gates, VSIX/checksum/SBOM artifacts, fork upload guards, and non-PR
+attestations remain enabled. `tag` still selects the version to package.
 
-- Package jobs đã xanh trên CI: tạo `.vsix`, SHA-256, SBOM và provenance attestation cho cả hai artifact.
-- Publish jobs chỉ chạy khi `workflow_dispatch` với `publish=true`, dùng environment `marketplace-production`.
-- Chưa publish public vì thiếu publisher đã verify và thiếu secrets.
+`dg-release` defaults to no marketplace publication and rejects `--publish-marketplaces`
+or configuration `PUBLISH_MARKETPLACES=true` before tag creation/push/API calls, even in dry-run.
+Use `--no-marketplaces` to override an older configuration. Other release channels are unchanged.
+No repository secrets, environment approvals, permissions, or branch rules were changed.
+Existing tags/branches retain their historical workflow definitions; do not dispatch an old
+publishing workflow during this pause. This is a source change, not credential revocation.
+
+## Re-enable only after product readiness approval
+
+1. In a reviewed PR, recover the two publication job definitions from
+   `0fb5f3f91078ba0df508f41cc822d6192e1be748:.github/workflows/marketplace.yml`.
+   Prefer a separate manual-only publication workflow to keep publication checks off PRs;
+   retain immutable-tag validation, both packaging/test dependencies, artifact verification,
+   pinned tooling, and `marketplace-production` approvals. Do not blindly restore old tooling.
+2. Verify publisher ownership, credential validity, Windows publishing tooling and IDE smoke
+   results. Resolve the Visual Studio checksum/provenance verification gap before enabling it.
+3. Restore the dispatch contract and release-helper preflight together; update topology and
+   release-helper tests and these runbooks. Keep publishing opt-in, never default-on.
+4. Run actionlint, workflow policy/unit tests, release-helper tests, unchanged local hooks,
+   independent review, and CI on the final head. Actual publication needs separate owner approval.
+
+The instructions below are preparation for that future re-enablement, **not executable
+publication instructions during the pause**. Secrets `VSCE_PAT` / `VS_MARKETPLACE_PAT`,
+environment `marketplace-production`, and publisher ID `thanhnt-sm` are historical configuration;
+their current availability was not inspected.
 
 ## Prerequisite 1 — Tạo/verify publisher (bắt buộc, do owner làm)
 
@@ -72,7 +98,7 @@ git push origin v0.2.0
 
 Tag phải khớp commit được package trong cùng run publish.
 
-## Bước 6 — Dispatch publish
+## Bước 6 — Dispatch publish (only after re-enablement)
 
 Repository → **Actions → Marketplace Extensions → Run workflow**:
 
@@ -81,7 +107,7 @@ Repository → **Actions → Marketplace Extensions → Run workflow**:
 
 Workflow sẽ:
 1. Package + attest + SBOM cho cả hai artifact tại chính tag đó.
-2. Publish VS Code qua `vsce publish --pat "$VSCE_PAT"`.
+2. Publish VS Code qua `npx --no-install @vscode/vsce publish --packagePath "$VSIX_PATH" (PAT via environment)`.
 3. Publish Visual Studio qua `VsixPublisher.exe publish`.
 
 ## Bước 7 — Xác minh kết quả

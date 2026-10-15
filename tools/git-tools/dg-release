@@ -34,7 +34,7 @@ CÁCH DÙNG TIỆN LỢI NHẤT (KHÔNG CẦN NHỚ OPTION):
      (hoặc trên Windows: tools\git-tools\dg-release.cmd)
 
 CÁCH DÙNG QUA CỜ DÒNG LỆNH (NẾU MUỐN OVERRIDE):
-  dg-release --tag v1.0.0 [--publish-marketplaces] [--dry-run] [--yes]
+  dg-release --tag v1.0.0 [--no-marketplaces] [--dry-run] [--yes]
   dg-release --config path/to/.custom.env
   dg-release --help
 
@@ -43,8 +43,10 @@ CÁC NỀN TẢNG ĐƯỢC TỰ ĐỘNG PHÁT HÀNH:
   2. GitHub Release              : Release assets, Release Notes, SBOMs (SPDX JSON), Sigstore bundle
   3. GitHub Container Registry   : Multi-arch Docker images (linux/amd64, linux/arm64)
   4. Build Provenance            : GitHub Artifact Attestations
-  5. VS Code Marketplace         : DataGuard VS Code Extension (nếu bật publish-marketplaces)
-  6. Visual Studio Marketplace   : DataGuard Visual Studio Extension (nếu bật publish-marketplaces)
+  5. VS Code Marketplace         : Temporarily paused pending product readiness
+  6. Visual Studio Marketplace   : Temporarily paused pending product readiness
+
+Marketplace publication is temporarily paused; --publish-marketplaces is rejected.
 
 BẢO MẬT:
   - Token được đọc từ file `.release.env` (đã nằm trong .gitignore) hoặc biến môi trường `DG_RELEASE_GITHUB_TOKEN`.
@@ -293,9 +295,12 @@ fi
 
 # Áp dụng giá trị mặc định cho những biến chưa có
 [[ -z "$DRY_RUN" ]] && DRY_RUN=false
-[[ -z "$PUBLISH_MARKETPLACES" ]] && PUBLISH_MARKETPLACES=true
+[[ -z "$PUBLISH_MARKETPLACES" ]] && PUBLISH_MARKETPLACES=false
 [[ -z "$CONFIRMED" ]] && CONFIRMED=false
 [[ -z "$TIMEOUT_SECONDS" ]] && TIMEOUT_SECONDS="$DEFAULT_TIMEOUT_SECONDS"
+
+# Fail before interactive prompts, credentials, tag creation, push, or dispatch.
+[[ "$PUBLISH_MARKETPLACES" != true ]] || fail "Marketplace publication is temporarily paused; use --no-marketplaces. See docs/marketplace-publishing.md."
 
 # ------------------------------------------------------------------------------
 # NẾU THIẾU TAG, HỖ TRỢ HỎI TƯƠNG TÁC THÂN THIỆN
@@ -309,12 +314,6 @@ if [[ -z "$TAG" ]]; then
         echo ""
         read -rp "👉 Nhập phiên bản phát hành (SemVer, ví dụ: v1.0.0): " input_tag
         TAG="$input_tag"
-        read -rp "👉 Tự động xuất bản lên VS Code & Visual Studio Marketplace? [Y/n]: " input_mkt
-        if [[ "$input_mkt" =~ ^[Nn] ]]; then
-            PUBLISH_MARKETPLACES=false
-        else
-            PUBLISH_MARKETPLACES=true
-        fi
         if [[ -z "${DG_RELEASE_GITHUB_TOKEN:-}" ]]; then
             echo -e "${YELLOW}Chưa có DG_RELEASE_GITHUB_TOKEN.${NC}"
             read -rsp "👉 Dán GitHub Dispatcher Token (hoặc Enter nếu chỉ muốn dry-run): " input_tok
