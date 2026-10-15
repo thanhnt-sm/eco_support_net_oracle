@@ -2,12 +2,28 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+# Reviewed stable release lines for both Microsoft advisories:
+# https://github.com/dotnet/runtime/security/advisories/GHSA-846f-f764-76mx
+# https://github.com/dotnet/runtime/security/advisories/GHSA-2fmv-rv2c-59x7
+# Unknown lines and prereleases require review; a larger major is not proof of safety.
+PKCS_PATCH_FLOORS = {(8, 0): 2, (9, 0): 21, (10, 0): 13}
+
+
+def is_reviewed_pkcs_version(version: object) -> bool:
+    if not isinstance(version, str) or not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
+        return False
+    major, minor, patch = map(int, version.split("."))
+    floor = PKCS_PATCH_FLOORS.get((major, minor))
+    return floor is not None and patch >= floor
 
 
 class Alert19ResolutionTests(unittest.TestCase):
@@ -59,26 +75,34 @@ class Alert19ResolutionTests(unittest.TestCase):
         self.assertIn("solo", data.get("dismissed_comment", "").lower())
 
 
+    def test_reviewed_pkcs_release_line_boundaries(self) -> None:
+        for version in ("8.0.2", "8.0.3", "9.0.21", "9.0.22", "10.0.13", "10.0.14"):
+            with self.subTest(version=version):
+                self.assertTrue(is_reviewed_pkcs_version(version))
+        for version in ("8.0.0", "8.0.1", "9.0.0", "9.0.20", "10.0.0", "10.0.12",
+                        "7.0.99", "8.1.99", "9.1.99", "10.1.99", "11.0.0", "11.0.0-rc.2",
+                        "10.0.13-preview.1", "10.0.13+build", "10.0", "10.0.13.0", "010.0.13",
+                        " 10.0.13", "10.0.13\n", "", None, 10):
+            with self.subTest(version=version):
+                self.assertFalse(is_reviewed_pkcs_version(version))
+
     def test_no_vulnerable_pkcs_in_lockfiles(self) -> None:
-        """All packages.lock.json files resolving System.Security.Cryptography.Pkcs must resolve >= 9.0.21."""
-        vulnerable_versions = {"8.0.0", "8.0.1", "9.0.6", "9.0.18", "9.0.20"}
+        """Accept only reviewed stable release lines at their patched floors or later patches."""
+        resolved_count = 0
         for lock_path in REPO_ROOT.rglob("packages.lock.json"):
             if "obj" in lock_path.parts or "bin" in lock_path.parts:
                 continue
             data = json.loads(lock_path.read_text(encoding="utf-8"))
             for tfm, packages in data.get("dependencies", {}).items():
                 if "System.Security.Cryptography.Pkcs" in packages:
+                    resolved_count += 1
                     resolved = packages["System.Security.Cryptography.Pkcs"].get("resolved")
-                    self.assertNotIn(
-                        resolved,
-                        vulnerable_versions,
-                        f"{lock_path.relative_to(REPO_ROOT)} ({tfm}) resolves vulnerable System.Security.Cryptography.Pkcs {resolved}",
+                    self.assertTrue(
+                        is_reviewed_pkcs_version(resolved),
+                        f"{lock_path.relative_to(REPO_ROOT)} ({tfm}) resolves unreviewed or vulnerable "
+                        f"System.Security.Cryptography.Pkcs {resolved}; reviewed floors: {PKCS_PATCH_FLOORS}",
                     )
-                    self.assertEqual(
-                        resolved,
-                        "9.0.21",
-                        f"{lock_path.relative_to(REPO_ROOT)} ({tfm}) expected 9.0.21, got {resolved}",
-                    )
+        self.assertGreater(resolved_count, 0, "No Pkcs resolutions were checked")
 
 if __name__ == "__main__":
     unittest.main()
