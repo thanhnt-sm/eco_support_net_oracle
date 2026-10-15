@@ -180,3 +180,11 @@ manualAssemblyPath: "./bin/Release/net9.0/MyApp.dll"
 ```
 
 Yêu cầu attributes `[ExpectedColumn]` và `[ExpectedSpParameter]` trong code.
+
+## Thực thi Oracle REF CURSOR và kiểm tra IDE-safe
+
+`Oracle.DescribeRefCursors: true` cho phép quá trình lấy catalog đáng tin cậy thực thi procedure/function trả REF CURSOR để xác định cột kết quả. `UseRefCursorDescribe` là cờ cũ, không bật việc thực thi này.
+
+Với `validate --ide-safe`, cả hai cờ luôn bị đặt thành `false`, kể cả khi dùng `--allow-env-connection`. Credential từ biến môi trường do host cung cấp vẫn có thể đọc metadata catalog trong chế độ Full hoặc Snapshot, nhưng cấu hình repository không thể bật thực thi procedure REF CURSOR. Owner, `UseAllArguments` và `UseAllTabColumns` được giữ nguyên. Policy sao chép các record cần thay đổi, không sửa cấu hình gốc. Khi một trong hai cờ được bật, thông báo cố định không chứa credential là `Oracle REF CURSOR describe disabled (procedure execution)`.
+
+Hình dạng kết quả REF CURSOR vẫn chưa xác định nếu không có nguồn khác cung cấp. Validation và lấy snapshot đáng tin cậy ngoài IDE-safe vẫn giữ hành vi bật rõ ràng qua `DescribeRefCursors`; cơ chế này không bảo đảm việc thực thi procedure tùy ý trong chế độ đáng tin cậy là an toàn.

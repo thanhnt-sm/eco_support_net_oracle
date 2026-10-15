@@ -180,3 +180,11 @@ manualAssemblyPath: "./bin/Release/net9.0/MyApp.dll"
 ```
 
 Requires `[ExpectedColumn]` and `[ExpectedSpParameter]` attributes in code.
+
+## Oracle REF CURSOR execution and IDE-safe validation
+
+`Oracle.DescribeRefCursors: true` opts trusted catalog acquisition into executing REF CURSOR procedures/functions to discover their result columns. `UseRefCursorDescribe` is a legacy flag and does not enable that execution.
+
+Under `validate --ide-safe`, both flags are forced to `false`, including with `--allow-env-connection`. The host-supplied environment credential can still read catalog metadata in Full or Snapshot mode, but cannot opt repository configuration into REF CURSOR procedure execution. Owner, `UseAllArguments`, and `UseAllTabColumns` are preserved. The policy clones changed configuration records; it does not mutate the original configuration. A fixed, credential-free suppression entry reports `Oracle REF CURSOR describe disabled (procedure execution)` when either flag was enabled.
+
+REF CURSOR result shapes remain unknown unless supplied by another source. Ordinary trusted validation and snapshot acquisition outside IDE-safe mode retain their explicit `DescribeRefCursors` behavior; this protection does not make arbitrary trusted procedure execution safe.
