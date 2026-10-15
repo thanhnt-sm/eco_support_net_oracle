@@ -104,3 +104,19 @@ closed. Inspect uploader processing and provider results separately from CI succ
 - All five push workflows at exact PR62 merge SHA reached success: CI `38731273646`,
   Marketplace Extensions `38731273588`, Build Installers `38731273611`, Standards audit
   `38731273655`, Scorecard `38731273590`. No failure observed at that SHA.
+
+### First hosted head `3fb2fa0`
+
+Draft PR63 opened. Hosted Windows ran 278 passing tests / one skip but emitted an empty
+Cobertura report; the new validator failed the job rather than uploading false coverage.
+The follow-up uses portable symbols specifically for this Windows test build and retains
+collector diagnostics/raw reports even on failure. This is a runtime experiment until a
+nonempty hosted report is verified; no collector success is inferred from passing tests.
+Coverlet's [known issues](https://github.com/coverlet-coverage/coverlet/blob/master/Documentation/KnownIssues.md)
+describe portable PDB requirements and diagnostic steps for .NET Framework instrumentation.
+Packaging builds retain their existing symbol settings.
+
+VS Code hosted uploader found exactly one explicit coverage file with `--disable-search`,
+queued it for processing, and retained the three-file coverage artifact. Artifact download
+through the connector succeeds, but fetching its signed transfer URL locally returns 403;
+actual archive-content inspection remains pending. Public Codecov API also returns 403.

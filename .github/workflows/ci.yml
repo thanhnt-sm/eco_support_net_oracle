@@ -358,7 +358,23 @@ jobs:
         run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
 
       - name: Run Visual Studio tests
-        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore --collect:"XPlat Code Coverage" --results-directory TestResults/visual-studio
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore -p:DebugType=portable --collect:"XPlat Code Coverage" --results-directory TestResults/visual-studio --diag TestResults/visual-studio/vstest.log
+
+      - name: Preserve Windows collector diagnostics
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults/visual-studio -Filter '*.log' -Recurse | ForEach-Object {
+            Select-String -Path $_.FullName -Pattern '\[coverlet\].*(Unable|instrument|exclude|source|pdb|module)' | Select-Object -Last 40
+          }
+
+      - name: Preserve raw Windows collector results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-visual-studio-raw
+          path: TestResults/visual-studio/
+          if-no-files-found: error
 
       - name: Validate Windows coverage
         id: windows-coverage
