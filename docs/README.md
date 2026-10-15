@@ -51,3 +51,5 @@ Component decisions measured against the original goals ([index](adr/README.md))
 - [Configuration Guide](05-operations/configuration-guide.md)
 - [OpenSSF Best Practices Cheat Sheet](guides/openssf-best-practices-answers.md)
 - [Codecov Free-Tier & TypeSafe Research Guide](guides/codecov-and-typesafe-research.md) · [VI](guides/codecov-and-typesafe-research.vi.md)
+
+- [DG019 dialect selection and source locations](guides/dg019-dialect-and-locations.md)

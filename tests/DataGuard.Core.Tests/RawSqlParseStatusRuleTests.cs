@@ -25,7 +25,7 @@ public class RawSqlParseStatusRuleTests
         var finding = violations.Should().ContainSingle().Subject;
         finding.RuleId.Should().Be("DG019");
         finding.Severity.Should().Be(Microsoft.CodeAnalysis.DiagnosticSeverity.Error);
-        finding.Message.Should().StartWith("Raw SQL could not be parsed: Line 1");
+        finding.Message.Should().StartWith("Raw SQL could not be parsed (sqlserver dialect; SQL-relative coordinates): Line 1");
     }
 
     [Fact]
@@ -61,7 +61,9 @@ public class RawSqlParseStatusRuleTests
         var oracleHinted = Raw("SELECT * FROM orders WHERE ROWNUM <= 10 CONNECT BY PRIOR id = parent_id") with { ConnectionProviderHint = "oracle" };
 
         (await rule.ValidateAsync(procedureCall, Array.Empty<ContractDescriptor>())).Should().BeEmpty();
+        rule.DrainUnevaluatedContracts().Should().BeEmpty();
         (await rule.ValidateAsync(oracleHinted, Array.Empty<ContractDescriptor>())).Should().BeEmpty();
+        rule.DrainUnevaluatedContracts().Should().ContainSingle().Which.Reason.Should().Contain("provider hint differs");
         (await rule.ValidateAsync(Raw(InvalidTSql) with { ConnectionProviderHint = "sqlserver" }, Array.Empty<ContractDescriptor>()))
             .Should().ContainSingle().Which.RuleId.Should().Be("DG019");
     }
@@ -93,6 +95,62 @@ public class RawSqlParseStatusRuleTests
         invalid.IsValid.Should().BeFalse();
         invalid.Error.Should().NotBeNullOrWhiteSpace();
         NoOpSqlStatementParser.Instance.Parse(InvalidTSql).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("?")]
+    [InlineData("{0}")]
+    [InlineData(":id")]
+    public void Parser_ErrorOffset_RefersToOriginalSqlBeforeNormalization(string placeholder)
+    {
+        var sql = "\r\nSELECT " + placeholder + " FROM SAMPLE_RECORD WHERE )";
+        var result = TSqlStatementParser.Instance.Parse(sql);
+        result.IsValid.Should().BeFalse();
+        result.ErrorOffset.Should().Be(sql.IndexOf(')'));
+        result.Error.Should().Contain($"Line 2, column {sql.IndexOf(')') - 1}:");
+    }
+
+    [Theory]
+    [InlineData("UPDATE rec SET AMOUNT = @amount FROM SAMPLE_RECORD rec WHERE rec.ID = @id")]
+    [InlineData("DELETE contact FROM SAMPLE_CONTACT contact WHERE contact.ORGANIZATION_ID = @id")]
+    public void Parser_AcceptsTSqlAliasForms(string sql)
+    {
+        TSqlStatementParser.Instance.Parse(sql).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("UPDATE SAMPLE_RECORD SET WHERE ID = @id")]
+    [InlineData("DELETE FROM SAMPLE_CONTACT WHERE )")]
+    public async Task GenuineInvalidSql_RemainsAnError(string sql)
+    {
+        (await RunCatalogRuleAsync("sqlserver", Raw(sql))).Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData("oracle")]
+    [InlineData("postgresql")]
+    [InlineData("mysql")]
+    public async Task MissingGrammar_IsExplicitlyUnevaluatedEvenForInvalidSql(string provider)
+    {
+        var rule = (RawSqlParseStatusRule)ProviderRuleCatalog.Get(provider).Single(r => r.Rule.RuleId == "DG019").Rule;
+        (await rule.ValidateAsync(Raw(InvalidTSql), Array.Empty<ContractDescriptor>())).Should().BeEmpty();
+        rule.DrainUnevaluatedContracts().Should().ContainSingle().Which.Reason.Should().Contain("syntax was not validated");
+    }
+
+    [Fact]
+    public async Task EndOfInputWithoutMappedCharacter_RetainsAcquisitionLocation()
+    {
+        const string sql = "SELECT ID FROM SAMPLE_RECORD WHERE";
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText("class Repository {}");
+        var location = tree.GetRoot().GetLocation();
+        var raw = Raw(sql) with
+        {
+            Location = location,
+            SourceMap = new[] { new SqlSourceSegment(0, sql.Length, location, false) },
+        };
+        TSqlStatementParser.Instance.Parse(sql).ErrorOffset.Should().Be(sql.Length);
+        var violation = (await RunCatalogRuleAsync("sqlserver", raw)).Should().ContainSingle().Subject;
+        violation.Location.Should().BeSameAs(location);
     }
 
     private static RawSqlDescriptor Raw(string sql) =>

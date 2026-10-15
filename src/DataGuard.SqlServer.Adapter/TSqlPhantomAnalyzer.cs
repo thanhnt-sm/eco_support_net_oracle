@@ -51,11 +51,13 @@ public sealed class TSqlPhantomAnalyzer : IPhantomReferenceAnalyzer
     /// literals, quoted identifiers and comments is left untouched.
     /// </summary>
     /// <param name="sql">SQL text.</param>
+    /// <param name="sourceOffsets">Optional output-to-input offsets, including the end-of-input position.</param>
     /// <returns>The SQL with placeholders rewritten.</returns>
-    internal static string NormalizePlaceholders(string sql)
+    internal static string NormalizePlaceholders(string sql, List<int>? sourceOffsets = null)
     {
         if (sql.IndexOfAny([':', '{', '?']) < 0)
         {
+            sourceOffsets?.AddRange(Enumerable.Range(0, sql.Length + 1));
             return sql;
         }
 
@@ -63,53 +65,69 @@ public sealed class TSqlPhantomAnalyzer : IPhantomReferenceAnalyzer
         var i = 0;
         while (i < sql.Length)
         {
-            var ch = sql[i];
-            var next = i + 1 < sql.Length ? sql[i + 1] : '\0';
-            switch (ch)
+            var sourceStart = i;
+            var outputStart = sb.Length;
+            try
             {
-                case '\'':
-                    i = CopyQuoted(sql, i, '\'', sb);
-                    continue;
-                case '"':
-                    i = CopyQuoted(sql, i, '"', sb);
-                    continue;
-                case '[':
-                    i = CopyQuoted(sql, i, ']', sb);
-                    continue;
-                case '-' when next == '-':
-                    i = CopyUntil(sql, i, "\n", sb);
-                    continue;
-                case '/' when next == '*':
-                    i = CopyUntil(sql, i, "*/", sb);
-                    continue;
-                case ':' when next == ':':
-                    sb.Append("::");
-                    i += 2;
-                    continue;
-                case ':' when IsIdentifierStart(next) && (i == 0 || !IsIdentifierPart(sql[i - 1])):
-                    sb.Append('@');
-                    i++;
-                    continue;
-                case '?':
-                    sb.Append("@p__");
-                    i++;
-                    continue;
-                case '{' when char.IsAsciiDigit(next):
-                    var close = sql.IndexOf('}', i + 1);
-                    if (close > 0 && sql.AsSpan(i + 1, close - i - 1).IndexOfAnyExceptInRange('0', '9') < 0)
-                    {
-                        sb.Append("@p__").Append(sql, i + 1, close - i - 1);
-                        i = close + 1;
+                var ch = sql[i];
+                var next = i + 1 < sql.Length ? sql[i + 1] : '\0';
+                switch (ch)
+                {
+                    case '\'':
+                        i = CopyQuoted(sql, i, '\'', sb);
                         continue;
-                    }
+                    case '"':
+                        i = CopyQuoted(sql, i, '"', sb);
+                        continue;
+                    case '[':
+                        i = CopyQuoted(sql, i, ']', sb);
+                        continue;
+                    case '-' when next == '-':
+                        i = CopyUntil(sql, i, "\n", sb);
+                        continue;
+                    case '/' when next == '*':
+                        i = CopyUntil(sql, i, "*/", sb);
+                        continue;
+                    case ':' when next == ':':
+                        sb.Append("::");
+                        i += 2;
+                        continue;
+                    case ':' when IsIdentifierStart(next) && (i == 0 || !IsIdentifierPart(sql[i - 1])):
+                        sb.Append('@');
+                        i++;
+                        continue;
+                    case '?':
+                        sb.Append("@p__");
+                        i++;
+                        continue;
+                    case '{' when char.IsAsciiDigit(next):
+                        var close = sql.IndexOf('}', i + 1);
+                        if (close > 0 && sql.AsSpan(i + 1, close - i - 1).IndexOfAnyExceptInRange('0', '9') < 0)
+                        {
+                            sb.Append("@p__").Append(sql, i + 1, close - i - 1);
+                            i = close + 1;
+                            continue;
+                        }
 
-                    break;
+                        break;
+                }
+
+                sb.Append(ch);
+                i++;
             }
-
-            sb.Append(ch);
-            i++;
+            finally
+            {
+                if (sourceOffsets is not null)
+                {
+                    for (var offset = 0; offset < sb.Length - outputStart; offset++)
+                    {
+                        sourceOffsets.Add(sourceStart + Math.Min(offset, i - sourceStart - 1));
+                    }
+                }
+            }
         }
 
+        sourceOffsets?.Add(sql.Length);
         return sb.ToString();
     }
 
