@@ -6,8 +6,9 @@ namespace DataGuard.Cli;
 /// <summary>
 /// IDE-safe execution policy. IDE hosts (Visual Studio, VS Code) run the CLI against repositories the
 /// user may not trust. When <c>--ide-safe</c> is set, the CLI must never load assemblies, never open
-/// database or secret-manager connections, and never write to repo-chosen file paths — regardless of
-/// what <c>.dataguard.yml</c> or the environment requests. The policy is pure so it can be unit tested.
+/// secret-manager connections, and never write to repo-chosen file paths. Database access requires an explicit
+/// host-supplied environment credential opt-in; Oracle REF CURSOR procedure execution remains disabled.
+/// The policy is pure so it can be unit tested.
 /// </summary>
 public static class IdeSafePolicy
 {
@@ -79,6 +80,13 @@ public static class IdeSafePolicy
         var suppressed = new List<string>();
         var config = configuration;
         var keepEnvConnection = allowEnvConnection && environmentConnectionPresent;
+
+        // A retained environment credential permits catalog reads, not repository-controlled procedure execution.
+        if (config.Oracle is { } oracle && (oracle.DescribeRefCursors || oracle.UseRefCursorDescribe))
+        {
+            suppressed.Add("Oracle REF CURSOR describe disabled (procedure execution)");
+            config = config with { Oracle = oracle with { DescribeRefCursors = false, UseRefCursorDescribe = false } };
+        }
 
         // Manual mode is meaningless without assembly loading; Full only survives when a connection is kept.
         if (config.GroundTruthMode == GroundTruthMode.Manual || (!keepEnvConnection && config.GroundTruthMode != GroundTruthMode.Snapshot))
