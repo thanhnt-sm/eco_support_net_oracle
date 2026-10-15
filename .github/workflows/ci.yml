@@ -358,14 +358,14 @@ jobs:
         run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
 
       - name: Run Visual Studio tests
-        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore -p:DebugType=portable --collect:"XPlat Code Coverage" --results-directory TestResults/visual-studio --diag TestResults/visual-studio/vstest.log
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore --collect:"XPlat Code Coverage" --results-directory TestResults/visual-studio --diag TestResults/visual-studio/vstest.log
 
       - name: Preserve Windows collector diagnostics
         if: ${{ always() }}
         shell: pwsh
         run: |
           Get-ChildItem TestResults/visual-studio -Filter '*.log' -Recurse | ForEach-Object {
-            Select-String -Path $_.FullName -Pattern '\[coverlet\].*(Unable|instrument|exclude|source|pdb|module)' | Select-Object -Last 40
+            Select-String -Path $_.FullName -Pattern '\[coverlet\].*(Unable|instrument|exclude|source|pdb|module)' | Select-Object -Last 40 | ForEach-Object { $_.Line }
           }
 
       - name: Preserve raw Windows collector results

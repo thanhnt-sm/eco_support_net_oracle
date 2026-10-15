@@ -120,3 +120,13 @@ VS Code hosted uploader found exactly one explicit coverage file with `--disable
 queued it for processing, and retained the three-file coverage artifact. Artifact download
 through the connector succeeds, but fetching its signed transfer URL locally returns 403;
 actual archive-content inspection remains pending. Public Codecov API also returns 403.
+
+### Windows diagnostic head `63704a3`
+
+Portable symbols did not fix the empty report. Hosted collector diagnostics identify the
+cause: `FileLoadException` for `System.Reflection.Metadata, Version=10.0.0.0` (manifest
+mismatch) while probing modules; 116 selected, zero instrumented. Tests still pass 278/1 skip.
+Pin only the Framework test project's collector to 6.0.4, whose bundled metadata dependency
+is compatible with the older Framework collector host; .NET 9 projects retain 10.1.0.
+Revert the unsuccessful portable-symbol override. Keep diagnostics and strict empty-report
+validation. A real hosted nonempty report remains the acceptance condition for this pin.
