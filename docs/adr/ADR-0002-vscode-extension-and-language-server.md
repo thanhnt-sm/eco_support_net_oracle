@@ -43,7 +43,7 @@ original goals described for the IDE tier.
 | Runtime dependencies | `vscode-languageclient` ^9.0.1 (production); dev: `typescript`, `@vscode/vsce`, `@vscode/test-electron`, `@types/*` |
 | Solution membership | Language Server is in `DataGuard.CrossPlatform.slnf`, so `ci.yml` `build-and-test` builds it. |
 | CI | `ci.yml` `vscode-extension`: `npm ci`, `npm test` (compile and `node --test`), `npm audit --omit=dev --audit-level=high`. `npm run test:extension-host` is not run by any workflow. |
-| Release / publish | `release.yml` `vscode-package`; `build_release.yml` `package-vscode`; `installers.yml` `vscode`; `marketplace.yml` `vscode-package` and `publish-vscode` (uses `VSCE_PAT`). Each runs `prepare-lsp` to bundle the server. |
+| Release / publish | `release.yml` `vscode-package`; `build_release.yml` `package-vscode`; `installers.yml` `vscode`; `marketplace.yml` `vscode-package` (publication paused; see `docs/marketplace-publishing.md`). Each runs `prepare-lsp` to bundle the server. |
 | Docs | `docs/03-components/tooling/vscode-extension.md` (+ `.vi.md`) |
 
 ## Risks it adds

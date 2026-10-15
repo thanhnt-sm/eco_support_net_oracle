@@ -79,6 +79,26 @@ if ! grep -q "DRY-RUN THÀNH CÔNG" <<<"$output"; then
     exit 1
 fi
 
+# Publication requests fail before tag creation, push, or API calls (including dry-run).
+for mode in --dry-run --yes; do
+    printf '\nDRY_RUN=false\n' >> .release.env
+    if output=$(bash "$DG_RELEASE_SCRIPT" --tag v3.0.0 --publish-marketplaces "$mode" 2>&1); then
+        echo "Assertion failed: paused marketplace request succeeded" >&2
+        exit 1
+    fi
+    [[ "$output" == *"Marketplace publication is temporarily paused"* ]]
+    [[ -z "$(git tag -l v3.0.0)" ]]
+done
+printf '\nPUBLISH_MARKETPLACES=true\n' >> .release.env
+if output=$(bash "$DG_RELEASE_SCRIPT" 2>&1); then
+    echo "Assertion failed: config enabled paused publication" >&2
+    exit 1
+fi
+[[ "$output" == *"Marketplace publication is temporarily paused"* ]]
+output=$(bash "$DG_RELEASE_SCRIPT" --no-marketplaces --dry-run)
+[[ "$output" == *"DRY-RUN THÀNH CÔNG"* ]]
+printf '\nPUBLISH_MARKETPLACES=false\nDRY_RUN=true\n' >> .release.env
+
 # 7. Test existing local tag guard
 git tag -a "v2.3.4" -m "Existing tag"
 if bash "$DG_RELEASE_SCRIPT" >/dev/null 2>&1; then

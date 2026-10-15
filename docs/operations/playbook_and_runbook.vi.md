@@ -1,5 +1,10 @@
 [English](playbook_and_runbook.md) | [Tiếng Việt](playbook_and_runbook.vi.md)
 
+> Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;
+> `--publish-marketplaces` / `PUBLISH_MARKETPLACES=true` fail before release side effects.
+> See [pause and re-enablement](../marketplace-publishing.md). Marketplace environment/secret
+> setup below is future preparation only; existing settings are preserved.
+
 # Cẩm Nang Vận Hành SRE & Quy Trình Xử Lý Sự Cố (Runbook)
 
 **Mã tài liệu**: `OPS-RUNBOOK-2026.1`  
@@ -35,7 +40,7 @@ LOG_LEVEL=info
 Thực hiện theo [Hướng dẫn phát hành an toàn](release_guide.vi.md). Điểm vào release duy nhất là:
 
 ```bash
-bash tools/git-tools/dg-release --tag v1.2.3 --publish-marketplaces --dry-run
+bash tools/git-tools/dg-release --tag v1.2.3 --no-marketplaces --dry-run
 ```
 
 Lệnh production trong hướng dẫn đòi hỏi xác nhận tường minh và không lưu credential Marketplace, NuGet hoặc GitHub trong repository.

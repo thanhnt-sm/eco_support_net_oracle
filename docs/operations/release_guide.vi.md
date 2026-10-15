@@ -1,8 +1,13 @@
 [Tiếng Việt](release_guide.vi.md) | [English](release_guide.md)
 
+> Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;
+> `--publish-marketplaces` / `PUBLISH_MARKETPLACES=true` fail before release side effects.
+> See [pause and re-enablement](../marketplace-publishing.md). Marketplace environment/secret
+> setup below is future preparation only; existing settings are preserved.
+
 # Hướng dẫn phát hành an toàn
 
-`tools/git-tools/dg-release` là một điểm vào rõ ràng để phát hành. Tool tạo một Git tag annotated bất biến, chờ workflow GitHub **Release** hoàn tất, sau đó tùy chọn gọi workflow phát hành Marketplace đã được bảo vệ.
+`tools/git-tools/dg-release` là một điểm vào rõ ràng để phát hành. Tool tạo một Git tag annotated bất biến, chờ workflow GitHub **Release** hoàn tất, không dispatch Marketplace trong thời gian tạm dừng.
 
 Tool không nhận secret qua command line, không đọc file chứa secret và không in credential ra log.
 
@@ -16,7 +21,7 @@ Vào **Settings → Environments**, tạo `marketplace-production`.
 - Nếu gói GitHub hỗ trợ, chỉ cho phép protected tag khớp `v*` deploy vào environment này.
 - Không thêm tài khoản bypass trừ khi có quy trình incident được ghi nhận.
 
-Hai job publish Marketplace đã nhắm tới environment này. Package có thể build xong, nhưng publish sẽ dừng để chờ duyệt.
+The publication jobs are currently removed. Preserve the environment for reviewed re-enablement.
 
 ### Tạo Actions repository secrets
 
@@ -118,7 +123,7 @@ Sau khi dry-run pass và maintainer bảo vệ environment đã sẵn sàng:
 ```bash
 bash tools/git-tools/dg-release \
   --tag v1.2.3 \
-  --publish-marketplaces \
+  --no-marketplaces \
   --yes
 ```
 
@@ -126,8 +131,7 @@ Tool chạy tuần tự:
 
 1. Tạo/push immutable annotated tag `v1.2.3`.
 2. Chờ `release.yml`: build, test, scan, package, sign, SBOM, publish NuGet, tạo GitHub Release, attest package và push image GHCR.
-3. Chỉ khi Release pass mới dispatch `marketplace.yml` với `publish=true` cho đúng immutable tag.
-4. Chờ Marketplace package/publish hoàn tất. Environment `marketplace-production` vẫn yêu cầu approval đã cấu hình.
+3. Marketplace publication is paused; no Marketplace dispatch occurs.
 
 Nếu cần thời gian dài chủ động, dùng `--timeout-seconds 10800` cho ba giờ. Mặc định là hai giờ.
 
@@ -160,7 +164,7 @@ Dry-run không tạo tag, không dispatch workflow, không publish package, khô
 ## 6. Xử lý lỗi
 - **Preflight fail:** sửa local state được báo. Chưa có remote state nào thay đổi.
 - **Release workflow fail sau khi push tag:** không dùng lại, xóa hoặc force-move tag. Sửa lỗi, tăng version SemVer và tạo tag immutable mới.
-- **Marketplace fail:** core release đã được publish. Sửa lỗi riêng Marketplace, sau đó chạy lại workflow `Marketplace Extensions` với cùng tag và `publish=true`; không tạo package version mới chỉ để retry VSIX.
+- **Marketplace paused:** do not retry `publish=true`; follow the re-enablement runbook first.
 - **Lộ credential:** revoke ngay tại issuer, rotate GitHub Actions secret liên quan, xem GitHub audit log và scan lịch sử repository trước khi retry.
 
 ## 6. Điều tool không được tự động hóa ở máy local

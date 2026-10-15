@@ -1,5 +1,10 @@
 [English](playbook_and_runbook.md) | [Tiếng Việt](playbook_and_runbook.vi.md)
 
+> Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;
+> `--publish-marketplaces` / `PUBLISH_MARKETPLACES=true` fail before release side effects.
+> See [pause and re-enablement](../marketplace-publishing.md). Marketplace environment/secret
+> setup below is future preparation only; existing settings are preserved.
+
 # SRE Playbook & Operational Runbook
 
 **Document ID**: `OPS-RUNBOOK-2026.1`  
@@ -36,7 +41,7 @@ LOG_LEVEL=info
 Follow the [Secure Release Guide](release_guide.md). The only release entry point is:
 
 ```bash
-bash tools/git-tools/dg-release --tag v1.2.3 --publish-marketplaces --dry-run
+bash tools/git-tools/dg-release --tag v1.2.3 --no-marketplaces --dry-run
 ```
 
 The documented production command requires an explicit confirmation and never stores marketplace, NuGet, or GitHub credentials in the repository.
