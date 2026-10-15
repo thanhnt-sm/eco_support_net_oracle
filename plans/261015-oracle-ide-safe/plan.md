@@ -1,6 +1,6 @@
 # Oracle IDE-safe REF CURSOR maintenance — 2026-10-15
 
-Status: local verification passed; draft PR and hosted CI pending. Branch: `fix/oracle-ide-safe-ref-cursor`.
+Status: local verification complete; published as draft PR #60. Hosted outcomes are maintained on the PR for its exact head SHA. Branch: `fix/oracle-ide-safe-ref-cursor`.
 Baseline: `63243ec9a09fe2ec1d657ca7eb24a080bed3aefb` (PR 59 merge, verified by fetch and GitHub connector).
 
 ## Requirement → code → test → evidence
@@ -59,9 +59,9 @@ Initial policy test compile failed SA1519 (nested unbraced loops); replaced with
 
 ## Limits and scope
 
-No production database, real secrets, merge, release, protection changes, Vault, SQLServer or quick-fix implementation. Review, hooks, regression suites and hosted CI outcomes will be recorded after execution. Do not treat planned checks or skipped checks as passes; no completeness or 100% correctness claim.
+No production database, real secrets, merge, release, protection changes, Vault, SQLServer or quick-fix implementation. Executed review, hooks and regression outcomes appear below; hosted CI outcomes are recorded on PR #60. Do not treat planned checks or skipped checks as passes; no completeness or 100% correctness claim.
 
-**Tiếng Việt:** Phạm vi chỉ chặn hai cờ REF CURSOR trong policy IDE-safe; giữ metadata và credential môi trường được cho phép, không sửa cấu hình gốc. Ma trận policy đã chạy đỏ trước sửa (96 lỗi assertion, 35 đạt); không xem unit test policy là bằng chứng không thực thi DB. Test biên thực thi dùng Oracle container tạm và bảng ghi số lần gọi; không dùng DB sản xuất hoặc secret thật. Các bước hook, review và CI đang chờ kết quả, chưa được coi là đạt.
+**Tiếng Việt:** Phạm vi chỉ chặn hai cờ REF CURSOR trong policy IDE-safe; giữ metadata và credential môi trường được cho phép, không sửa cấu hình gốc. Ma trận policy đã chạy đỏ trước sửa (96 lỗi assertion, 35 đạt); không xem unit test policy là bằng chứng không thực thi DB. Test biên thực thi dùng Oracle container tạm và bảng ghi số lần gọi; không dùng DB sản xuất hoặc secret thật. Kết quả hook và review đã chạy được ghi bên dưới; kết quả CI theo SHA chính xác nằm trong mô tả PR #60.
 
 ## Executed TDD boundary evidence
 
@@ -85,7 +85,7 @@ Independent read-only review found no blocking issues in code, source path, matr
 - `python3 -m unittest discover -s scripts/tests`: 118 total, 117 passed, 1 skipped (live GitHub API).
 - `for test in tests/git-tools/*.sh; do bash "$test" || exit; done`: all three suites passed using temporary local repositories.
 - `git diff --check`: PASS.
-- `SKIP_ACT=1 ./scripts/verify_local_gates.sh`: running with unchanged script. This is the pre-push hook's default; local act and full-history secret scan are not claimed as executed.
+- `SKIP_ACT=1 ./scripts/verify_local_gates.sh`: initial run and subsequent outcomes recorded below, with unchanged script. This is the pre-push hook's default; local act and full-history secret scan are not claimed as executed.
 
 Logs are local `/tmp/oracle-{restore,red,live-red,green,full-build,docs,python,gates}.log`; hosted links and exact pushed SHA will be recorded on the draft PR. No generated logs or credentials are committed.
 
@@ -114,4 +114,21 @@ Final gates run under the same environment and approved execution context (no ho
 
 Final unchanged local gates: **PASS**, 2,161 C# tests passed, 5 platform-specific junction tests skipped, 0 failed. Coverage union **70.80% (14,718/20,789)** for this run; not an Oracle-specific coverage figure. Locked restore, Release build, analyzers, formatting, workflow lint, topology/preflight, docs and dependency audit passed. Formatting emitted workspace-load warnings without failure. Local act/full-history TruffleHog were skipped by the hook default; the script wording “verified separately” is not evidence that they ran here.
 
-**Tiếng Việt:** Kiểm tra cục bộ cuối đã đạt: 2.161 test C# đạt, 5 test junction phụ thuộc nền tảng bị skip, không lỗi; coverage hợp nhất 70,80% chỉ thuộc lượt chạy này. Cả ba test Oracle container tạm đã đạt riêng (kèm 131 ca policy). Review độc lập không thấy lỗi chặn. Các lỗi môi trường và lần chạy lại được ghi đầy đủ ở trên; không đổi hook hoặc test ngoài phạm vi để né kiểm tra. Đang chờ draft PR và CI theo SHA chính xác; chưa merge.
+**Tiếng Việt:** Kiểm tra cục bộ cuối đã đạt: 2.161 test C# đạt, 5 test junction phụ thuộc nền tảng bị skip, không lỗi; coverage hợp nhất 70,80% chỉ thuộc lượt chạy này. Cả ba test Oracle container tạm đã đạt riêng (kèm 131 ca policy). Review độc lập không thấy lỗi chặn. Các lỗi môi trường và lần chạy lại được ghi đầy đủ ở trên; không đổi hook hoặc test ngoài phạm vi để né kiểm tra. Đã mở draft PR #60; kết quả CI theo SHA chính xác được cập nhật trong mô tả PR; chưa merge.
+
+
+## Publication evidence
+
+[Draft PR #60](https://github.com/thanhnt-sm/eco_support_net_oracle/pull/60) publishes code commit `b2da9829c9a47f265f9aa8034acd0d4df31a7bff` on base `63243ec9a09fe2ec1d657ca7eb24a080bed3aefb`.
+
+```sh
+git add src/DataGuard.Cli/IdeSafePolicy.cs tests/DataGuard.Core.Tests/IdeSafeOraclePolicyTests.cs tests/DataGuard.Core.Tests/OracleIntegrationTests.cs docs/05-operations/configuration-guide.md docs/05-operations/configuration-guide.vi.md plans/261015-oracle-ide-safe/plan.md
+git commit -m 'fix(cli): suppress Oracle REF CURSOR execution in IDE-safe mode'
+git push -u origin fix/oracle-ide-safe-ref-cursor
+```
+
+Unchanged pre-commit, commit-msg and pre-push hooks all passed. Exact code-head pre-push: **2,161 passed, 5 skipped, 0 failed; 70.79% (14,716/20,789)** coverage union. This differs from the earlier local gate measurement (70.80%) and is reported separately. Logs: `/tmp/oracle-commit.log`, `/tmp/oracle-push.log`. Working tree was clean after publication. Draft creation used the authorized GitHub connector because shell API requests were blocked.
+
+This documentation-only follow-up records the known publication state. The PR description is the canonical post-push evidence ledger for exact head SHA, workflow/run/job links, terminal conclusions, failures/skips and remaining limitations; this avoids a self-referential sequence of evidence commits. CI is not claimed successful by this plan. User retains merge decision.
+
+**Tiếng Việt:** Commit mã nêu trên đã qua đủ hook nguyên trạng và được push lên PR #60 dạng draft. Lượt pre-push riêng đạt 2.161 test, 5 skip, coverage 70,79%. Mô tả PR lưu kết quả CI cuối cùng theo đúng SHA và các giới hạn; kế hoạch này không tự khẳng định CI thành công. Quyết định merge vẫn thuộc người dùng.
