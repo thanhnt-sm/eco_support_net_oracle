@@ -230,9 +230,15 @@ The SARIF file can be uploaded to GitHub Code Scanning, Azure DevOps, or any SAR
 
 ### Visual Studio 2022
 
-1. Install the DataGuard extension from the VS Marketplace
-2. Open your .NET project
-3. Access via `Tools → DataGuard → Validate Contracts`
+1. Install the VSIX on Visual Studio 2022 17.12 or later. It bundles a self-contained CLI; a separate PATH installation is not required.
+2. Open the solution and save source/configuration files.
+3. Choose `Tools → DataGuard → Run Validation`. Read Output > DataGuard and the Error List together; syntactic-only results do not establish database compatibility.
+4. Double-click a finding to navigate. Locations refer to saved files; save and rerun after edits. SARIF 42:12 displays and navigates to 42:12.
+5. `Refresh Snapshot` and `Verify SQL Shapes Against Database` are live commands with separate consent and host confirmation every run. `Forget Solution Consent` removes current validation and live consent. `Cancel Validation` cancels the active command (extension code 130); concurrent commands are rejected, not queued.
+
+See the [VS guide](../03-components/tooling/visual-studio-extension.md) for IDE-safe limitations and the complete exit-code table.
+
+**Tiếng Việt:** Cài VSIX trên VS 2022 17.12 trở lên; CLI đã đi kèm, không cần cài riêng trên PATH. Mở solution, lưu file rồi chọn `Tools → DataGuard → Run Validation`. Đọc Output > DataGuard cùng Error List; syntactic-only chưa chứng minh tương thích database. Nhấp đúp finding để điều hướng; lưu và chạy lại sau khi sửa làm dịch dòng (SARIF 42:12 hiển thị và mở tại 42:12). Hai lệnh `Refresh Snapshot` / `Verify SQL Shapes Against Database` dùng consent live riêng và xác nhận host mỗi lượt. `Forget Solution Consent` xóa cả consent validation hiện tại và live; `Cancel Validation` hủy lệnh đang chạy (mã extension 130). Lệnh chạy đồng thời bị từ chối, không xếp hàng. Xem [hướng dẫn VS](../03-components/tooling/visual-studio-extension.vi.md) về giới hạn IDE-safe và bảng exit code.
 
 ### Roslyn Analyzer (Any IDE)
 
