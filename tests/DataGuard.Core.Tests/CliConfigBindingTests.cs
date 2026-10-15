@@ -10,7 +10,7 @@ namespace DataGuard.Core.Tests;
 /// Typed <c>.dataguard.yml</c> binding (red-team rec 20 follow-up): <see cref="DataGuardConfiguration"/> is a positional
 /// record without a parameterless constructor, so YamlDotNet used to fail on it and every file fell back to the
 /// top-level scalar mapping, which dropped nested blocks, lists and newer keys. <see cref="ConfigDocument"/> now binds
-/// every key; the scalar mapping is only the last resort.
+/// every key; malformed shapes must fail without a lossy fallback.
 /// </summary>
 public class CliConfigBindingTests
 {
@@ -129,18 +129,10 @@ public class CliConfigBindingTests
     }
 
     [Fact]
-    public void DeserializeConfig_FallsBackToScalarsOnlyWhenTypedBindingFails()
+    public void DeserializeConfig_InvalidNestedShapeFailsWithoutDroppingOtherSettings()
     {
-        // A scalar where a block is expected fails the typed binding; the scalar mapping still reads the rest.
-        var config = ConfigLoader.DeserializeConfig("""
-            Oracle: HR
-            DefaultSchema: SALES
-            RequireEncryptedCredentialStore: true
-            """);
-
-        config.DefaultSchema.Should().Be("SALES");
-        config.RequireEncryptedCredentialStore.Should().BeTrue();
-        config.Oracle.Should().BeNull();
+        var load = () => ConfigLoader.DeserializeConfig("Oracle: HR\nExcludedEntities: [AuditRow]\n");
+        load.Should().Throw<FormatException>().WithMessage("*Oracle*mapping*");
     }
 
     [Fact]

@@ -1133,7 +1133,8 @@ public class CliExitCodeTests
                 "--project", Path.Combine(dir, "Repo.cs"), "--ef-snapshot", snapshot);
 
             run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
-            run.Stderr.Should().Contain("UNEVALUATED: 1 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("UNEVALUATED: 2 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("DG019").And.Contain("raw SQL syntax was not validated");
             run.Stderr.Should().MatchRegex(@"DG020 project-sql:[^\s]*Repo\.cs:\d+(?::[0-9a-f]{8})?: Cannot determine result set shape for query \(describe failed\)");
             (run.Stdout + run.Stderr).Should().NotContain("[WARNING] DG020", "an undescribed shape is no longer a DG020 warning");
             (run.Stdout + run.Stderr).Should().NotContain("oracle-secret");
@@ -1156,7 +1157,8 @@ public class CliExitCodeTests
                 "validate", "--provider", "oracle", "--connection", UnreachableOracleConnection,
                 "--project", Path.Combine(dir, "Repo.cs"), "--ef-snapshot", snapshot, "--allow-unevaluated");
 
-            run.Stderr.Should().Contain("UNEVALUATED: 1 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("UNEVALUATED: 2 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("DG019").And.Contain("raw SQL syntax was not validated");
             run.Stderr.Should().NotContain("pass --allow-unevaluated");
             var hasErrors = (run.Stdout + run.Stderr).Contains("[ERROR]", StringComparison.Ordinal);
             run.ExitCode.Should().Be(hasErrors ? 1 : 0, run.Stdout + run.Stderr);

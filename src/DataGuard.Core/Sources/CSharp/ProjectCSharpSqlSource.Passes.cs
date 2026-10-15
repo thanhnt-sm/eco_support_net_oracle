@@ -178,6 +178,7 @@ public sealed partial class ProjectCSharpSqlSource
                     {
                         SqlText = sqlText,
                         Location = variable.GetLocation(),
+                        SqlExpression = variable.Initializer.Value,
                         AnchorNode = variable,
                         Model = _model,
                     });
@@ -321,6 +322,7 @@ public sealed partial class ProjectCSharpSqlSource
                 {
                     SqlText = sqlText,
                     Location = invocation.GetLocation(),
+                    SqlExpression = !isStoredProcedure && sqlArgIndex >= 0 ? args[sqlArgIndex].Expression : null,
                     AnchorNode = invocation,
                     Model = _model,
                     SourceKey = invocation.Span,
@@ -388,6 +390,7 @@ public sealed partial class ProjectCSharpSqlSource
                 {
                     SqlText = sqlText,
                     Location = assignment.GetLocation(),
+                    SqlExpression = assignment.Right,
                     AnchorNode = assignment,
                     Model = _model,
                     SourceKey = assignment.Span,

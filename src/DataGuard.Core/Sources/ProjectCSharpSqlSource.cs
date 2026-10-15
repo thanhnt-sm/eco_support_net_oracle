@@ -3,6 +3,7 @@ using System.Text;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Reporting;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 
@@ -199,6 +200,8 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
 
         public Location Location { get; init; } = Location.None;
 
+        public ExpressionSyntax? SqlExpression { get; init; }
+
         /// <summary>Gets the node whose enclosing members/types are checked for <c>[SkipContractCheck]</c>.</summary>
         public SyntaxNode AnchorNode { get; init; } = null!;
 
@@ -378,6 +381,7 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
                 ProcedureSchema = procedureSchema,
                 ProcedurePackage = procedurePackage,
                 ArgumentsKnown = candidate.ArgumentsKnown,
+                SourceMap = BuildSourceMap(candidate.SqlExpression, candidate.Model, sqlText, CancellationToken),
             };
 
             SeenSqlTexts.Add(sqlText.Trim());

@@ -38,4 +38,7 @@
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../docs/guides/oracle-snapshot.*.yml" Link="ConfigurationExamples/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

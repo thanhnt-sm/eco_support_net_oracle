@@ -1,0 +1,11 @@
+# Minimal Oracle snapshot analysis. No credentials are required in this file.
+GroundTruthMode: Snapshot # Read schema from the snapshot; select the dialect separately below.
+DefaultProvider: oracle # --provider overrides this. AutoDetectProvider cannot override it.
+SnapshotFilePath: .dataguard-snapshot.json # Must already exist and contain matching Oracle metadata.
+EnableBaseline: false # Review findings first; enable a deliberately created baseline later.
+AllowPlaintextConfigFallback: false # Never put live credentials in this file.
+EnableTelemetry: false # Local observability is opt-in.
+StrictConfig: true # Reject unknown top-level keys; malformed known shapes always fail.
+# Run validate with --offline for no live connection use; Snapshot alone is not an offline switch.
+# Oracle grammar is not implemented: DG019 syntax checks are unevaluated, not successful.
+# Oracle: and SqlServer: are optional mapping blocks, not true/false switches. Omit unused blocks.

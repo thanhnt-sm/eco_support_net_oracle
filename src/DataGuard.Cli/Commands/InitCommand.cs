@@ -32,6 +32,13 @@ internal static class InitCommand
                 {
                     return;
                 }
+                if (File.Exists(output))
+                {
+                    Console.Error.WriteLine("Configuration already exists; edit it in place to preserve comments, or choose a new --output path.");
+                    Environment.ExitCode = 2;
+                    return;
+                }
+
                 if (result.GetValue(initWizardOption))
                 {
                     var configPath = Path.GetFullPath(output!);

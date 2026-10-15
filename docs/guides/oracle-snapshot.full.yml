@@ -1,0 +1,45 @@
+# DataGuard configuration. See docs/guides/configuration.md (and configuration.vi.md).
+# Oracle/PostgreSQL/MySQL raw SQL grammar is unavailable: unevaluated is not a syntax-validation pass.
+ConnectionString:  # Leave empty. Supply optional live credentials via a named environment variable; never commit secrets.
+GroundTruthMode: Snapshot # Schema source: Snapshot, Full or Manual. Snapshot alone does not prohibit live access; use --offline.
+SnapshotFilePath: .dataguard-snapshot.json # Committed schema snapshot; init does not create it. Provider metadata must match DefaultProvider.
+BaselineFilePath: .dataguard-baseline.json # Reviewed suppression baseline, not a schema snapshot. Do not baseline false positives as a fix.
+NamingConvention: SnakeCaseToPascalCase # Database/C# name matching; SnakeCaseToPascalCase, PascalCaseToSnakeCase or ExactMatch.
+EnableBaseline: true # Apply the baseline only when its file exists; this does not create one.
+ExcludedProcedures:  # Reserved setting; currently not applied by CLI acquisition. Not a DG019 suppression list.
+ExcludedEntities:  # Exact CLR type names for EF entity extraction; not global SQL suppression or glob patterns.
+Oracle:  # Optional mapping (e.g. Owner and DescribeRefCursors), never true/false. Does not select the provider.
+SqlServer:  # Optional mapping (e.g. Schema and UseFirstResultSet), never true/false. Does not select the provider.
+MaxDegreeOfParallelism: 0 # 0 = automatic processor-count concurrency, not disabled or unlimited.
+EnableConcurrentValidation: true # Run independent rule work concurrently; false uses sequential execution.
+ValidationTimeoutSeconds: 300 # Stored setting; CLI does not enforce this as a deadline. VS has its own timeout option.
+MaxViolationQueueSize: 100000 # Bound on retained violations; overflow is incomplete validation, not a successful truncated run.
+EnableCredentialRotationDetection: true # Credential-store rotation checks; no live credential is required for snapshot analysis.
+CredentialRotationWarningDays: 30 # Rotation warning threshold in days when credential management is used.
+EncryptConnectionStringAtRest: true # Protect locally stored credentials with the OS backend; does not encrypt this YAML.
+KeyVaultUri:  # Optional secret-store configuration; leave empty for offline snapshots. Backend support varies.
+AwsRegion:  # Optional AWS Secrets Manager region; leave empty for offline snapshots.
+VaultAddress:  # Optional secret-store configuration; leave empty for offline snapshots. Backend support varies.
+EnableAuditLogging: true # Audit credential operations when the credential provider is used; separate from telemetry.
+AuditLogPath:  # Empty uses the audit logger's application-data default. IDE-safe suppresses repository-chosen writes.
+AllowPlaintextConfigFallback: false # Keep false: do not use plaintext ConnectionString from this file as fallback.
+ManualAssemblyPath:  # Manual mode only; explicit trust is required to load an assembly. Leave empty for Snapshot.
+AutoDetectProvider: true # Library smart-default hint; does not change the CLI's explicit DefaultProvider or infer dialect from a snapshot.
+AutoDetectEFContext: true # IDE-safe project scans may read ModelSnapshot.cs as source; no runtime DbContext execution.
+AutoDetectDapper: true # Reserved smart-default hint; SQL extraction already detects supported call names.
+EnableSmartDefaults: true # Library defaults; not permission for connections, assembly loading, or overriding the CLI dialect.
+DefaultSchema:  # Optional owner/schema for unqualified procedure resolution; set only to your actual schema.
+DefaultPackage:  # Optional Oracle package for unqualified procedure resolution.
+EnableTelemetry: false # Opt-in local observability; keep false unless intentionally enabled. Separate from audit logging.
+DefaultProvider: oracle # SQL dialect: --provider overrides this; otherwise sqlserver is the fallback. AutoDetectProvider does not override it.
+TelemetryFileDirectory:  # Optional local observability output directory; empty uses product defaults.
+TelemetryServiceName: dataguard # Service label for observability records.
+TelemetryServiceVersion: unknown # Version label for observability records.
+IncludeTelemetryEventDetails: false # Opt-in redacted bounded event details; keep false to minimize collected details.
+FailOnUnavailableRules: false # Unavailable rule inventory can fail the run; distinct from unevaluated contracts (normally exit 3).
+StrictConfig: false # Unknown top-level keys become errors; invalid known value shapes always fail.
+SnapshotMaxAgeDays: 90 # Warn for an old snapshot; 0 or less disables the age warning.
+StrictProcedureContracts: false # Promote procedure-contract mismatches from warnings to errors.
+AuditKeyFile:  # Optional integrity key path outside the repository; DATAGUARD_AUDIT_KEY takes precedence. Never put the key here.
+RequireEncryptedCredentialStore: false # If true, fail when OS protection is unavailable instead of falling back to owner-only plaintext.
+Plugins:  # Optional mapping; plugins still require explicit trusted CLI admission and are not loaded by IDE-safe mode.
