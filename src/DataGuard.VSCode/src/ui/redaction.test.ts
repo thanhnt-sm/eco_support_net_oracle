@@ -131,7 +131,7 @@ test("parseSarifToFindings parses standardized SARIF without database connection
     assert.equal(item.severity, "error");
     assert.equal(item.startLine, 42);
     assert.equal(item.quickFixAvailable, true);
-    assert.match(item.quickFixTitle!, /Synchronize parameter count/);
+    assert.match(item.quickFixTitle!, /Review parameter count/);
 
     // Verify message and snippet redaction
     assert.doesNotMatch(item.message, /unredactedPass/);

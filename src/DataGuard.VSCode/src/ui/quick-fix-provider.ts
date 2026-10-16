@@ -22,15 +22,16 @@ export class DataGuardQuickFixProvider implements vscode.CodeActionProvider {
         _token: vscode.CancellationToken
     ): vscode.CodeAction[] {
         const actions: vscode.CodeAction[] = [];
+        if (_token.isCancellationRequested) return actions;
 
         // Filter diagnostics originating from DataGuard
         const dataguardDiagnostics = context.diagnostics.filter((d) => {
-            const code = String(d.code ?? "");
+            const code = String(typeof d.code === "object" ? d.code.value : d.code ?? "");
             return code.startsWith("DG") || d.source === "DataGuard" || d.message.includes("DataGuard");
         });
 
         for (const diagnostic of dataguardDiagnostics) {
-            const code = String(diagnostic.code ?? "");
+            const code = String(typeof diagnostic.code === "object" ? diagnostic.code.value : diagnostic.code ?? "");
             const fix = this.createCodeAction(document, diagnostic, code);
             if (fix) {
                 actions.push(fix);
@@ -49,20 +50,20 @@ export class DataGuardQuickFixProvider implements vscode.CodeActionProvider {
 
         switch (ruleCode) {
             case "DG001":
-                title = "⚡ [DataGuard] Synchronize parameter count with SQL procedure definition";
+                title = "⚡ [DataGuard] Review parameter count against SQL procedure definition";
                 break;
             case "DG002":
-                title = "⚡ [DataGuard] Align C# parameter types with database column types";
+                title = "⚡ [DataGuard] Review C# parameter types against database column types";
                 break;
             case "DG017":
-                title = "⚡ [DataGuard] Replace SELECT * with explicit column list projection";
+                title = "⚡ [DataGuard] Review SELECT * and choose schema-verified columns";
                 break;
             case "DG018":
-                title = "⚡ [DataGuard] Synchronize entity contract properties with schema snapshot";
+                title = "⚡ [DataGuard] Review entity contract properties against schema snapshot";
                 break;
             default:
                 if (ruleCode.startsWith("DG")) {
-                    title = `⚡ [DataGuard] Resolve contract drift (${ruleCode})`;
+                    title = `⚡ [DataGuard] Review contract drift (${ruleCode})`;
                 } else {
                     return undefined;
                 }
@@ -71,7 +72,7 @@ export class DataGuardQuickFixProvider implements vscode.CodeActionProvider {
 
         const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
         action.diagnostics = [diagnostic];
-        action.isPreferred = true;
+        action.isPreferred = false;
 
         // CodeAction command to invoke the remediation command
         action.command = {
@@ -84,43 +85,19 @@ export class DataGuardQuickFixProvider implements vscode.CodeActionProvider {
     }
 
     /**
-     * Applies a quick-fix remediation for a finding by ID or location.
+     * Explains manual remediation; returns false because no automatic edit was applied.
      */
     public static async applyRemediation(
         uri: vscode.Uri,
         range: vscode.Range,
         ruleCode: string
     ): Promise<boolean> {
-        const editor = await vscode.window.showTextDocument(uri, { preview: false });
-        const document = editor.document;
-        const lineText = document.lineAt(range.start.line).text;
-
-        const edit = new vscode.WorkspaceEdit();
-
-        if (ruleCode === "DG017") {
-            // Replace SELECT * with explicit projection comment/placeholder
-            const selectStarRegex = /\bSELECT\s+\*\b/i;
-            const match = selectStarRegex.exec(lineText);
-            if (match) {
-                const startChar = match.index;
-                const endChar = startChar + match[0].length;
-                const starRange = new vscode.Range(range.start.line, startChar, range.start.line, endChar);
-                edit.replace(uri, starRange, "SELECT /* DataGuard: specify explicit columns */ Id, Name, CreatedAt");
-                return vscode.workspace.applyEdit(edit);
-            }
-        }
-
-        // For DG001 / DG002: Add comment hint above the line guiding exact contract alignment
-        const indent = lineText.match(/^\s*/)?.[0] ?? "";
-        const fixHint = `${indent}// [DataGuard Auto-Fix]: Verify parameter definitions match database schema.\n`;
-        edit.insert(uri, new vscode.Position(range.start.line, 0), fixHint);
-
-        const success = await vscode.workspace.applyEdit(edit);
-        if (success) {
-            vscode.window.showInformationMessage(
-                `DataGuard: Quick-Fix applied for [${ruleCode}]. Parameter contract aligned.`
-            );
-        }
-        return success;
+        // No verified schema-derived edit is available. Never insert guessed columns or
+        // claim a comment has repaired a contract. Keep this command informational.
+        if (!ruleCode.startsWith("DG")) return false;
+        await vscode.window.showInformationMessage(
+            `DataGuard: Review [${ruleCode}] against the schema or snapshot and edit manually. No automatic edit is available.`
+        );
+        return false;
     }
 }

@@ -1,75 +1,92 @@
-/**
- * Unit tests for DataGuardDecorationManager pure logic.
- * Tests range conversion and severity grouping without VS Code API.
- */
+/** Tests the production manager with a recording API boundary, not an editor host. */
 import assert from "node:assert/strict";
 import test from "node:test";
+import Module from "node:module";
 import type { FindingItem } from "./redaction";
-
-// Pure helper: convert 1-based SARIF coordinates to 0-based VS Code range values.
-function toVSCodeRange(f: FindingItem): { startLine: number; startCol: number; endLine: number; endCol: number } {
+class Range {
+    constructor(public startLine: number, public startColumn: number,
+        public endLine: number, public endColumn: number) {}
+}
+class Token { constructor(public id: string) {} }
+const types: { disposed: number; dispose(): void }[] = [];
+function editor(filePath: string) {
     return {
-        startLine: Math.max(0, f.startLine - 1),
-        startCol: Math.max(0, f.startColumn - 1),
-        endLine: Math.max(0, f.endLine - 1),
-        endCol: Math.max(0, f.endColumn - 1),
+        document: { uri: { fsPath: filePath } },
+        calls: [] as { type: unknown; ranges: Range[] }[],
+        setDecorations(type: unknown, ranges: Range[]) { this.calls.push({ type, ranges }); },
     };
 }
-
-// Pure helper: group findings by severity for a given file.
-function groupBySeverity(findings: FindingItem[], filePath: string) {
-    return findings
-        .filter((f) => f.filePath === filePath)
-        .reduce<{ errors: FindingItem[]; warnings: FindingItem[] }>(
-            (acc, f) => {
-                if (f.severity === "error") acc.errors.push(f);
-                else acc.warnings.push(f);
-                return acc;
-            },
-            { errors: [], warnings: [] }
-        );
+const editors = [editor("/src/A.cs"), editor("/src/B.cs")];
+const vscode = {
+    Range, ThemeIcon: Token, ThemeColor: Token, OverviewRulerLane: { Right: 4 },
+    window: {
+        visibleTextEditors: editors,
+        createTextEditorDecorationType() {
+            const type = { disposed: 0, dispose() { this.disposed++; } };
+            types.push(type);
+            return type;
+        },
+    },
+};
+const loader = Module as unknown as { _load: (id: string, ...args: unknown[]) => unknown };
+const originalLoad = loader._load;
+let Manager: typeof import("./decoration-manager").DataGuardDecorationManager;
+try {
+    loader._load = function (id, ...args) {
+        return id === "vscode" ? vscode : originalLoad.call(this, id, ...args);
+    };
+    Manager = (require("./decoration-manager") as typeof import("./decoration-manager")).DataGuardDecorationManager;
+} finally { loader._load = originalLoad; }
+const finding = (overrides: Partial<FindingItem> = {}): FindingItem => ({
+    id: "d-1", ruleId: "DG010", message: "Test", severity: "warning",
+    filePath: "/src/A.cs", fullUri: "file:///src/A.cs",
+    startLine: 1, startColumn: 1, endLine: 1, endColumn: 5,
+    quickFixAvailable: false, ...overrides,
+});
+function setup() {
+    editors.forEach(e => { e.calls = []; });
+    types.length = 0;
+    return new Manager();
 }
 
-const makeF = (filePath: string, line: number, severity: "error" | "warning" = "warning"): FindingItem => ({
-    id: `d-${line}`,
-    ruleId: "DG010",
-    message: "Test",
-    severity,
-    filePath,
-    fullUri: `file:///${filePath}`,
-    startLine: line,
-    startColumn: 5,
-    endLine: line,
-    endColumn: 20,
-    quickFixAvailable: false,
+test("production decorations preserve a smaller end column on a later line", () => {
+    const manager = setup();
+    try {
+        manager.applyFindings([finding({ startLine: 10, startColumn: 20, endLine: 12, endColumn: 3 })]);
+        assert.deepEqual(editors[0].calls[1].ranges, [new Range(9, 19, 11, 2)]);
+    } finally { manager.dispose(); }
 });
 
-test("DecorationManager: 1-based SARIF line converted to 0-based VS Code line", () => {
-    const range = toVSCodeRange(makeF("/f.cs", 10));
-    assert.strictEqual(range.startLine, 9);
-    assert.strictEqual(range.startCol, 4);
+test("production decorations convert first-line coordinates and clamp reversed same-line spans", () => {
+    const manager = setup();
+    try {
+        manager.applyFindings([finding({ severity: "error" }), finding({ startColumn: 9, endColumn: 2 })]);
+        assert.deepEqual(editors[0].calls[0], { type: types[0], ranges: [new Range(0, 0, 0, 4)] });
+        assert.deepEqual(editors[0].calls[1], { type: types[1], ranges: [new Range(0, 8, 0, 8)] });
+        assert.deepEqual(editors[1].calls.map(c => c.ranges), [[], []]);
+    } finally { manager.dispose(); }
 });
 
-test("DecorationManager: line 1 maps to 0-based line 0 (no underflow)", () => {
-    const range = toVSCodeRange(makeF("/f.cs", 1));
-    assert.strictEqual(range.startLine, 0);
+test("production decorations replace stale results in every visible editor and clear both severities", () => {
+    const manager = setup();
+    try {
+        manager.applyFindings([finding(), finding({ filePath: "/src/B.cs", severity: "error" })]);
+        assert.equal(editors[1].calls[0].ranges.length, 1);
+        manager.applyFindings([]);
+        manager.clear();
+        for (const e of editors) {
+            assert.equal(e.calls.length, 6);
+            assert.deepEqual(e.calls.slice(2).map(c => c.ranges), [[], [], [], []]);
+        }
+    } finally { manager.dispose(); }
 });
 
-test("DecorationManager: errors and warnings correctly grouped", () => {
-    const path = "/src/Repo.cs";
-    const findings = [
-        makeF(path, 1, "error"),
-        makeF(path, 2, "warning"),
-        makeF(path, 3, "error"),
-    ];
-    const { errors, warnings } = groupBySeverity(findings, path);
-    assert.strictEqual(errors.length, 2);
-    assert.strictEqual(warnings.length, 1);
-});
-
-test("DecorationManager: only current file findings applied (other files excluded)", () => {
-    const path = "/src/Repo.cs";
-    const findings = [makeF(path, 1), makeF("/src/Other.cs", 2)];
-    const { errors, warnings } = groupBySeverity(findings, path);
-    assert.strictEqual(errors.length + warnings.length, 1);
+test("production decorations dispose each type once and ignore later updates and clears", () => {
+    const manager = setup();
+    manager.dispose();
+    manager.dispose();
+    manager.applyFindings([finding()]);
+    manager.clear();
+    assert.deepEqual(types.map(t => t.disposed), [1, 1]);
+    assert.ok(editors.every(e => e.calls.length === 0));
 });

@@ -78,6 +78,43 @@ public class SolutionTrustGateTests
     }
 
     [Fact]
+    public void ConfigChangeAndDeletion_RequireCurrentValidationConsentWithoutGrantingLiveAccess()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dg_trust_lifecycle_" + System.Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var config = Path.Combine(directory, ".dataguard.yml");
+        var solution = Path.Combine(directory, "App.sln");
+        var gate = new SolutionTrustGate(new MemoryConsentStore());
+        try
+        {
+            File.WriteAllText(config, "GroundTruthMode: Snapshot\n");
+            var original = SolutionTrustGate.ComputeConsentKey(directory, solution, config);
+            var live = SolutionTrustGate.ComputeLiveConsentKey(directory, solution);
+            gate.RecordConsent(original);
+            gate.IsConsented(original).Should().BeTrue();
+            gate.IsConsented(live).Should().BeFalse();
+
+            File.WriteAllText(config, "GroundTruthMode: Manual\n");
+            var changed = SolutionTrustGate.ComputeConsentKey(directory, solution, config);
+            gate.IsConsented(changed).Should().BeFalse();
+            gate.RecordConsent(changed);
+            File.Delete(config);
+            var absent = SolutionTrustGate.ComputeConsentKey(directory, solution, config);
+            gate.IsConsented(absent).Should().BeFalse();
+            SolutionTrustGate.ComputeLiveConsentKey(directory, solution).Should().Be(live);
+
+            gate.RecordConsent(live);
+            gate.ForgetSolutionConsent(changed, live).Should().BeTrue();
+            gate.IsConsented(changed).Should().BeFalse();
+            gate.IsConsented(live).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Gate_RecordsAndRecallsConsentThroughStore()
     {
         var store = new MemoryConsentStore();
