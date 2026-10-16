@@ -2,7 +2,7 @@
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions)
+[![Build](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions)
 [![codecov](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
@@ -171,6 +171,16 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 - [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/system_architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
 
 ## Test Coverage & Quality Telemetry
+
+Coverage uploads use validated, explicit report lists; automatic discovery is disabled.
+The local 60% floor is the union of measured .NET unit-suite lines, not all product code.
+`dotnet-unit` and `live-db` overlap and must not be added together. CLI/LSP subprocesses
+use collector-instrumented test output; `visual-studio` measures the real Windows suite.
+VS Code includes all production TypeScript modules, including unexecuted modules.
+Existing flags may carry historical results forward; a green build does not prove Codecov
+accepted this commit's upload. Branch totals are retained per report, not falsely summed
+across overlapping suites. See [scope, baseline and limitations](plans/2026-10-15-coverage-integrity.md).
+
 
 Continuous line, branch, and test-analytics telemetry is published to [Codecov](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) via OIDC (`codecov/codecov-action@v7.1.1`) and configured in [`.github/codecov.yml`](.github/codecov.yml).
 

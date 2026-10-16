@@ -7,6 +7,7 @@
 # DataGuard — Kiểm tra hợp đồng (Contract) giữa Entity ↔ Stored Procedure / Raw SQL
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
+[![Build](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
@@ -134,6 +135,16 @@ Rule adapter nào chạy tùy `--provider` (`src/DataGuard.Cli/ProviderRuleCatal
 - [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/PRODUCT.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/architecture/architecture.md) · [Bảo mật](SECURITY.md)
 
 ## Độ phủ Kiểm thử & Chỉ số Chất lượng
+
+Các báo cáo độ phủ được kiểm tra và tải lên bằng danh sách tệp tường minh; tắt tự động dò tìm.
+Ngưỡng 60% cục bộ là hợp các dòng đã đo của bộ kiểm thử .NET, không phải toàn bộ sản phẩm.
+`dotnet-unit` và `live-db` chồng lấp nên không cộng các tỷ lệ. Tiến trình con CLI/LSP chạy
+bản sao đã được collector đo trong thư mục kiểm thử; `visual-studio` đo bộ kiểm thử Windows thật.
+VS Code tính mọi mô-đun TypeScript sản xuất, kể cả mô-đun chưa chạy. Các cờ hiện có có thể
+carryforward dữ liệu cũ; build xanh không chứng minh Codecov đã nhận báo cáo của commit này.
+Số nhánh được lưu theo báo cáo, không cộng sai giữa các bộ chồng lấp. Xem
+[phạm vi, số liệu nền và giới hạn](plans/2026-10-15-coverage-integrity.md).
+
 
 Dữ liệu độ phủ dòng lệnh (line), nhánh (branch) và phân tích kiểm thử (Test Analytics) được công bố liên tục lên [Codecov](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) qua OIDC (`codecov/codecov-action@v7.1.1`) theo cấu hình tại [`.github/codecov.yml`](.github/codecov.yml).
 

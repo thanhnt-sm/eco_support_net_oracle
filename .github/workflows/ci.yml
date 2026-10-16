@@ -121,65 +121,36 @@ jobs:
 
       # Category=LiveDb tests (Testcontainers, real databases) run in the live-db-integration job below.
       - name: Run tests (fail-fast)
-        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --results-directory TestResults/dotnet-unit --logger trx
 
-      - name: Code Coverage Gate (Fail under 60%)
-        run: |
-          python3 - <<'EOF'
-          import xml.etree.ElementTree as ET
-          import glob, sys
-          from collections import defaultdict
-          hits = defaultdict(bool)
-          files = glob.glob('**/TestResults/**/coverage.cobertura.xml', recursive=True)
-          if not files:
-              print("::error::No coverage files found!")
-              sys.exit(1)
-          for f in files:
-              r = ET.parse(f).getroot()
-              for cls in r.iter('class'):
-                  fn = cls.attrib['filename'].replace("\\", "/")
-                  if "/obj/" in fn:
-                      continue
-                  # Coverlet can emit the same source both relative to `src/`
-                  # and as an absolute checkout path.  Collapse them before
-                  # aggregating so one file is not counted twice.
-                  marker = "/src/"
-                  if marker in fn:
-                      fn = fn.split(marker, 1)[1]
-                  for line in cls.iter('line'):
-                      key = (fn, int(line.attrib['number']))
-                      hits[key] = hits[key] or int(line.attrib['hits']) > 0
-          total = len(hits)
-          cov = sum(1 for v in hits.values() if v)
-          rate = (cov / total * 100) if total > 0 else 0
-          print(f"Overall Solution Line Coverage: {rate:.2f}% ({cov}/{total} lines)")
-          if rate < 60.0:
-              print(f"::error::Coverage {rate:.2f}% is below required threshold of 60.0%!")
-              sys.exit(1)
-          EOF
+      - name: Validate .NET unit coverage (60% measured suite floor)
+        id: unit-coverage
+        run: python3 scripts/coverage_manifest.py --input TestResults/dotnet-unit --output TestResults/validated-unit --expect 5 --minimum 60 --github-output "$GITHUB_OUTPUT"
+
       - name: Upload test results
         if: ${{ always() && env.ACT != 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results
-          path: "**/TestResults/*.trx"
+          path: TestResults/dotnet-unit/*.trx
 
       - name: Upload coverage
         if: ${{ always() && env.ACT != 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
-          path: "**/coverage.cobertura.xml"
+          path: TestResults/validated-unit/
 
       - name: Convert TRX to JUnit XML for Test Analytics
         if: ${{ !cancelled() }}
-        run: python3 scripts/trx_to_junit.py --input-glob "**/TestResults/*.trx" --output "TestResults/junit-dotnet-unit.xml"
+        run: python3 scripts/trx_to_junit.py --input-glob "TestResults/dotnet-unit/*.trx" --output "TestResults/junit-dotnet-unit.xml"
 
       - name: Upload .NET unit coverage to Codecov
-        if: ${{ !cancelled() && env.ACT != 'true' }}
+        if: ${{ success() && env.ACT != 'true' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          files: "**/TestResults/**/coverage.cobertura.xml"
+          files: ${{ steps.unit-coverage.outputs.files }}
+          disable_search: true
           flags: dotnet-unit
           use_oidc: true
           fail_ci_if_error: false
@@ -233,25 +204,37 @@ jobs:
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
       - name: Run live database tests
-        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category=LiveDb" --collect:"XPlat Code Coverage" --logger "trx;LogFileName=live_db_results.trx"
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category=LiveDb" --collect:"XPlat Code Coverage" --results-directory TestResults/live-db --logger trx
+
+      - name: Validate live DB coverage
+        id: live-coverage
+        run: python3 scripts/coverage_manifest.py --input TestResults/live-db --output TestResults/validated-live --expect 5 --github-output "$GITHUB_OUTPUT"
+
+      - name: Preserve live DB coverage evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-live-db
+          path: TestResults/validated-live/
+          if-no-files-found: error
 
       - name: Upload live DB test results
         if: ${{ always() && env.ACT != 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: live-db-test-results
-          path: "**/TestResults/live_db_results.trx"
+          path: "TestResults/live-db/*.trx"
           if-no-files-found: ignore
 
       - name: Convert live DB TRX to JUnit XML for Test Analytics
         if: ${{ !cancelled() }}
-        run: python3 scripts/trx_to_junit.py --input-glob "**/TestResults/live_db_results.trx" --output "TestResults/junit-live-db.xml"
+        run: python3 scripts/trx_to_junit.py --input-glob "TestResults/live-db/*.trx" --output "TestResults/junit-live-db.xml"
 
       - name: Upload live DB coverage to Codecov
-        if: ${{ !cancelled() && env.ACT != 'true' }}
+        if: ${{ success() && env.ACT != 'true' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          files: "**/TestResults/**/coverage.cobertura.xml"
+          files: ${{ steps.live-coverage.outputs.files }}
+          disable_search: true
           flags: live-db
           use_oidc: true
           fail_ci_if_error: false
@@ -295,11 +278,22 @@ jobs:
       - name: Unit tests
         run: npm run test:coverage
 
+      - name: Preserve VS Code coverage evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-vscode
+          path: |
+            src/DataGuard.VSCode/coverage/lcov.info
+            src/DataGuard.VSCode/coverage/manifest.json
+            src/DataGuard.VSCode/coverage/coverage-summary.json
+          if-no-files-found: error
+
       - name: Upload VS Code extension coverage to Codecov
-        if: ${{ !cancelled() && env.ACT != 'true' }}
+        if: ${{ success() && env.ACT != 'true' }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: src/DataGuard.VSCode/coverage/lcov.info
+          disable_search: true
           flags: vscode-ext
           use_oidc: true
           fail_ci_if_error: false
@@ -346,6 +340,9 @@ jobs:
   visual-studio-build-and-test:
     name: Visual Studio Build and Test
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -361,7 +358,44 @@ jobs:
         run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
 
       - name: Run Visual Studio tests
-        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore --collect:"XPlat Code Coverage" --results-directory TestResults/visual-studio --diag TestResults/visual-studio/vstest.log
+
+      - name: Preserve Windows collector diagnostics
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults/visual-studio -Filter '*.log' -Recurse | ForEach-Object {
+            Select-String -Path $_.FullName -Pattern '\[coverlet\].*(Unable|instrument|exclude|source|pdb|module)' | Select-Object -Last 40 | ForEach-Object { $_.Line }
+          }
+
+      - name: Preserve raw Windows collector results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-visual-studio-raw
+          path: TestResults/visual-studio/
+          if-no-files-found: error
+
+      - name: Validate Windows coverage
+        id: windows-coverage
+        shell: bash
+        run: python scripts/coverage_manifest.py --input TestResults/visual-studio --output TestResults/validated-windows --expect 1 --github-output "$GITHUB_OUTPUT"
+
+      - name: Preserve Windows coverage evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-visual-studio
+          path: TestResults/validated-windows/
+          if-no-files-found: error
+
+      - name: Upload Windows coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: ${{ steps.windows-coverage.outputs.files }}
+          disable_search: true
+          flags: visual-studio
+          use_oidc: true
+          fail_ci_if_error: false
 
   # The test job above compiles the package with CreateVsixContainer=false, so CreatePkgDef
   # reflection failures (TypeLoadException on exotic BCL/Interop types) never surface there.
