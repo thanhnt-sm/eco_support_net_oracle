@@ -464,3 +464,30 @@ This produces a `.vsix` file installable via `code --install-extension dataguard
 - Requires the `dataguard` CLI on PATH (or configured via settings)
 - One validation at a time; concurrent saves queue or cancel
 - SARIF file paths are resolved relative to the workspace root; files outside the workspace are skipped in the Problems panel
+
+### Diagnostic highlight ranges
+
+Gutter/background highlights convert SARIF's one-based coordinates once. A multi-line
+finding retains its ending column even when it is smaller than its starting column;
+reversed same-line spans clamp to the starting column. Replacing findings with an empty
+set or clearing results clears both severities in every visible editor. Disposing the
+manager releases both decoration types once and ignores later updates.
+
+Local production-module tests use a recording VS Code API mock; they do not establish
+real editor rendering or activation behavior. See the [2026-10-15 local behavior plan](../../../plans/261015-ide-behavior/plan.md).
+
+### Provider behavior and manual remediation
+
+CodeLens and hover match the resolved file path exactly; a finding in another root
+with the same path suffix does not belong to the open document. Multi-line SARIF
+ending columns are preserved through parsing, hover and navigation. Dynamic rule IDs
+and remediation titles are appended as text in hover Markdown. File grouping uses
+full resolved paths so identical basenames in different folders remain separate.
+
+Quick-fix menu entries are **manual review guidance**. They never insert guessed
+column names or a comment claiming that a contract was repaired. Structured diagnostic
+codes are supported, cancelled action requests return no actions, and guidance is not
+marked as a preferred automatic fix. Consult the schema/snapshot before editing.
+
+[2026-10-16 behavior tests and coverage limits](../../../plans/261016-provider-behavior/plan.md)
+distinguish production-module tests with API mocks from actual editor runtime tests.

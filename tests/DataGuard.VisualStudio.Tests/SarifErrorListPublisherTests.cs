@@ -93,6 +93,46 @@ public class SarifErrorListPublisherTests
     }
 
     [Fact]
+    public void Load_MalformedLocationsBetweenValidResults_PreservesOrderAndCountsSkipped()
+    {
+        var loaded = SarifErrorListPublisher.Load(
+            Wrap(Result("A.cs"), "null", "{\"locations\":[null]}", Result("B.cs")),
+            SolutionDir);
+
+        loaded.Error.Should().BeNull();
+        loaded.SkippedCount.Should().Be(2);
+        loaded.Diagnostics.Select(d => Path.GetFileName(d.Document)).Should().Equal("A.cs", "B.cs");
+    }
+
+    [Fact]
+    public void Load_EmptyRunBetweenLoads_DoesNotRetainPreviousDiagnostics()
+    {
+        var first = SarifErrorListPublisher.Load(Wrap(Result("A.cs")), SolutionDir);
+        var empty = SarifErrorListPublisher.Load(Wrap(), SolutionDir);
+        var next = SarifErrorListPublisher.Load(Wrap(Result("B.cs")), SolutionDir);
+
+        first.Diagnostics.Should().ContainSingle();
+        empty.Diagnostics.Should().BeEmpty();
+        empty.Error.Should().BeNull();
+        empty.SkippedCount.Should().Be(0);
+        empty.TruncatedCount.Should().Be(0);
+        next.Diagnostics.Should().ContainSingle().Which.Document.Should().Be(Path.Combine(SolutionDir, "B.cs"));
+        first.Diagnostics[0].Document.Should().Be(Path.Combine(SolutionDir, "A.cs"));
+    }
+
+    [Fact]
+    public void Load_MultipleRuns_IgnoresMalformedRunsAndRetainsValidResults()
+    {
+        var json = "{\"runs\":[null,{\"results\":false},{\"results\":[" + Result("A.cs") +
+            "]},{\"results\":[" + Result("B.cs") + "]}]}";
+        var loaded = SarifErrorListPublisher.Load(json, SolutionDir);
+
+        loaded.Error.Should().BeNull();
+        loaded.Diagnostics.Select(d => Path.GetFileName(d.Document)).Should().Equal("A.cs", "B.cs");
+        loaded.SkippedCount.Should().Be(0, "malformed runs are not individual skipped results");
+    }
+
+    [Fact]
     public void Load_InvalidJson_ReportsErrorWithoutThrowing()
     {
         var loaded = SarifErrorListPublisher.Load("{not json", SolutionDir);

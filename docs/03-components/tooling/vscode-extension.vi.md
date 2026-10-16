@@ -464,3 +464,29 @@ Tạo ra file `.vsix` có thể cài đặt qua `code --install-extension datagu
 - Yêu cầu cài đặt CLI `dataguard` trong PATH hoặc cấu hình đường dẫn trong settings
 - Một tiến trình xác thực tại một thời điểm; xác thực đồng thời sẽ xếp hàng hoặc hủy
 - Vị trí file SARIF được giải quyết tương đối với workspace root; vi phạm ngoài workspace không hiển thị trong bảng Problems
+
+### Phạm vi tô sáng chẩn đoán
+
+Gutter/nền chuyển tọa độ SARIF từ một-based sang zero-based đúng một lần. Finding nhiều
+dòng giữ cột kết thúc dù nhỏ hơn cột bắt đầu; phạm vi ngược trên cùng dòng được chặn tại
+cột bắt đầu. Thay findings bằng tập rỗng hoặc xóa kết quả sẽ xóa cả hai mức độ ở mọi
+editor đang hiển thị. Dispose manager giải phóng mỗi loại decoration đúng một lần và
+bỏ qua cập nhật về sau.
+
+Test module production cục bộ dùng mock ghi nhận API VS Code; không chứng minh render
+hay activation trên editor thật. Xem [kế hoạch hành vi cục bộ 2026-10-15](../../../plans/261015-ide-behavior/plan.md).
+
+### Hành vi provider và hướng dẫn sửa thủ công
+
+CodeLens và hover khớp chính xác đường dẫn file đã resolve; finding ở root khác nhưng
+cùng hậu tố không thuộc tài liệu đang mở. Cột cuối SARIF nhiều dòng được giữ qua parser,
+hover và điều hướng. Rule ID và tiêu đề hướng dẫn động được thêm dưới dạng text trong
+Markdown hover. Nhóm file dùng đường dẫn đầy đủ để không gộp các basename trùng nhau.
+
+Menu quick-fix chỉ cung cấp **hướng dẫn review thủ công**. Không chèn tên cột đoán mò
+hoặc comment khẳng định đã sửa contract. Hỗ trợ diagnostic code dạng object; yêu cầu
+đã hủy trả về danh sách rỗng; hướng dẫn không được đánh dấu preferred automatic fix.
+Đối chiếu schema/snapshot trước khi sửa mã.
+
+[Kế hoạch test và giới hạn coverage 2026-10-16](../../../plans/261016-provider-behavior/plan.md)
+phân biệt test module production dùng API mock với test runtime editor thật.

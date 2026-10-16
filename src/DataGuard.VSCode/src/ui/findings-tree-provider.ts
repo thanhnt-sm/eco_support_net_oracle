@@ -1,4 +1,3 @@
-import * as path from "path";
 import * as vscode from "vscode";
 import { FindingItem, FindingSeverity } from "./redaction";
 
@@ -159,7 +158,7 @@ export class DataGuardFindingsTreeProvider implements vscode.TreeDataProvider<Fi
                     key = finding.ruleId;
                     break;
                 case "file":
-                    key = path.basename(finding.filePath);
+                    key = finding.filePath;
                     break;
                 case "severity":
                 default:
@@ -189,7 +188,7 @@ export class DataGuardFindingsTreeProvider implements vscode.TreeDataProvider<Fi
                 case "rule":
                     return finding.ruleId === groupKey;
                 case "file":
-                    return path.basename(finding.filePath) === groupKey;
+                    return finding.filePath === groupKey;
                 case "severity":
                 default:
                     return finding.severity.toUpperCase() === groupKey;
