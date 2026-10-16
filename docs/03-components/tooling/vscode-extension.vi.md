@@ -490,3 +490,57 @@ hoặc comment khẳng định đã sửa contract. Hỗ trợ diagnostic code d
 
 [Kế hoạch test và giới hạn coverage 2026-10-16](../../../plans/261016-provider-behavior/plan.md)
 phân biệt test module production dùng API mock với test runtime editor thật.
+
+### Vòng đời lệnh và quyền cập nhật kết quả
+
+Khi bắt đầu chạy CLI, extension xóa đồng thời kết quả Problems, findings, tra cứu
+quick-fix, SQL scan, hover, CodeLens, decoration và dashboard. SARIF thiếu hoặc không
+hợp lệ để các bề mặt này trống. Problems giữ cột cuối của phạm vi nhiều dòng; phạm vi
+ngược trên cùng dòng vẫn rộng ít nhất một ký tự.
+
+Sau khi lệnh đã giữ lượt chạy, thao tác hủy cũng vô hiệu hóa bước chuẩn bị thư mục
+output đang chờ. Run bị thay thế hoặc hủy không được ghi lỗi process, progress, SARIF
+hay scan summary đến muộn lên kết quả hiện tại. Khi process kết thúc hoặc lỗi khởi
+động, listener dữ liệu được tháo; dispose decoration giữ đúng instance dù globals
+của extension đã bị xóa.
+
+[Kế hoạch lifecycle cục bộ](../../../plans/261016-extension-lifecycle/plan.md) ghi lại
+test regression-first qua entrypoint extension thật, dùng API editor/provider/process
+giả lập và file tổng hợp cục bộ. Không chứng minh render editor, kết thúc process OS
+hay hoàn tất dừng process LSP thật. Hủy lệnh trước khi giữ lượt chạy và chờ dừng LSP
+có giới hạn được kiểm chứng bằng mock trong đợt tiếp theo bên dưới.
+
+### Lệnh đang chờ và dừng language server
+
+Cancel và deactivate vô hiệu hóa lệnh đang chờ chọn workspace, đọc SecretStorage hoặc
+đồng ý lệnh live. Lệnh mới cũng vô hiệu hóa phản hồi cũ đang chờ; chỉ tiếp quản lượt CLI
+đang chạy sau khi đủ điều kiện và nhận đồng ý. Lỗi SecretStorage đến muộn không hiển
+thị thông báo lỗi đã lỗi thời.
+
+Shutdown giữ đúng instance LSP và một tác vụ cleanup được theo dõi sau khi startup
+kết thúc, cùng một lần thử dispose riêng tại deadline. Shutdown
+trong lúc kiểm tra artifact ngăn tạo client; lỗi constructor/start được xử lý và thông
+tin nhạy cảm trong lỗi được che. Deactivate chờ tối đa 1.000 ms cho verify/start/stop LSP,
+sau đó giải phóng tài nguyên editor nhưng giữ cleanup cho client startup hoàn tất muộn.
+Cleanup CLI có thể thêm thời gian chờ riêng. Thư viện language-client hiện cài không
+cho stop client đang initialize. Khi hết deadline, extension gọi API được hỗ trợ
+`dispose(0)` và yêu cầu `SIGKILL` chỉ với child do client sở hữu qua `serverProcess`,
+được giữ lại trước dispose. Child đã kết thúc được bỏ qua; lỗi dispose/kill không chặn
+cleanup editor. Extension không thêm thao tác kill PID/nhóm trực tiếp (thư viện có
+cleanup process nội bộ riêng). Child chưa được client cung cấp hoặc yêu cầu kill bị
+từ chối có thể vẫn chưa xử lý xong; cleanup khi startup hoàn tất muộn vẫn được giữ.
+Deadline không chứng minh LSP thật đã kết thúc: test quan sát exit của child Node tổng
+hợp do test sở hữu, dùng client giả lập.
+
+Test hiện chạy controller dashboard và SQL tree thật: guard điều hướng workspace,
+finding ID hiện tại, dispatch lệnh, cập nhật kết quả, nhóm file, che SQL và dispose.
+Dùng file tổng hợp cục bộ và API editor ghi nhận giả lập. [Kế hoạch shutdown 2026-10-16](../../../plans/261016-extension-shutdown/plan.md)
+ghi coverage đủ 16 file, bằng chứng regression-first và giới hạn runtime còn lại.
+
+[Kế hoạch nhánh hành vi](../../../plans/261016-extension-branches/plan.md) ghi đánh giá
+API được hỗ trợ, regression, coverage line/branch đủ 16 file với mẫu số chính xác, test
+config/lỗi/hủy và giới hạn runtime editor/Windows còn lại.
+
+[Kế hoạch tích hợp main mới merge](../../../plans/261016-main-update/plan.md) ghi việc
+kiểm chứng lại sau PR64 và thay đổi chuẩn hóa coverage. Diff bảo trì extension giữ
+nguyên thay đổi đã merge và phạm vi đủ 16 file TypeScript.
