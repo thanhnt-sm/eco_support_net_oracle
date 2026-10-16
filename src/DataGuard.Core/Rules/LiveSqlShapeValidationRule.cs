@@ -261,15 +261,22 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
                 if (!string.IsNullOrEmpty(matchedCol.DataType) && !string.IsNullOrEmpty(prop.ClrTypeName))
                 {
                     var normalizedClr = NormalizeClrType(prop.ClrTypeName);
-                    if (!string.IsNullOrEmpty(normalizedClr) &&
-                        TypeCompatibility.TypeCompatibilityRegistry.Resolve(_provider)
-                            .Check(normalizedClr, matchedCol.DataType, matchedCol.Precision, matchedCol.Scale, matchedCol.MaxLength) == TypeCompatibility.TypeCompatibilityResult.Incompatible)
+                    if (!string.IsNullOrEmpty(normalizedClr))
                     {
-                        violations.Add(CreateViolation(
-                            MismatchRuleId,
-                            $"Column '{matchedCol.Name}' has database type '{matchedCol.DataType}' which is not compatible with C# property '{prop.Name}' of type '{prop.ClrTypeName}'.",
-                            Severity,
-                            rawSql.Location));
+                        var compatibility = TypeCompatibility.TypeCompatibilityRegistry.Resolve(_provider)
+                            .Check(normalizedClr, matchedCol.DataType, matchedCol.Precision, matchedCol.Scale, matchedCol.MaxLength);
+                        if (compatibility == TypeCompatibility.TypeCompatibilityResult.Unknown)
+                        {
+                            MarkUnevaluated(rawSql, $"Cannot determine type compatibility for column '{matchedCol.Name}' and property '{prop.Name}': CLR type '{prop.ClrTypeName}', database type '{matchedCol.DataType}'.");
+                        }
+                        else if (compatibility == TypeCompatibility.TypeCompatibilityResult.Incompatible)
+                        {
+                            violations.Add(CreateViolation(
+                                MismatchRuleId,
+                                $"Column '{matchedCol.Name}' has database type '{matchedCol.DataType}' which is not compatible with C# property '{prop.Name}' of type '{prop.ClrTypeName}'.",
+                                Severity,
+                                rawSql.Location));
+                        }
                     }
                 }
             }
