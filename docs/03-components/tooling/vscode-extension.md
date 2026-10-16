@@ -491,3 +491,58 @@ marked as a preferred automatic fix. Consult the schema/snapshot before editing.
 
 [2026-10-16 behavior tests and coverage limits](../../../plans/261016-provider-behavior/plan.md)
 distinguish production-module tests with API mocks from actual editor runtime tests.
+
+### Command lifecycle and result ownership
+
+Starting a CLI run clears previous Problems, findings, quick-fix lookup, SQL scan,
+hover, CodeLens, decoration and dashboard results together. Missing or invalid SARIF
+leaves those surfaces empty. Problems preserves multiline ending columns; a reversed
+same-line range remains at least one character wide.
+
+Once a command has reserved a run, cancellation also invalidates pending temporary
+output setup. Replaced or cancelled runs cannot publish late process errors, progress,
+SARIF reads or scan summaries over the current run. Process completion and start
+errors detach data listeners, and decoration disposal retains the owned instance
+when extension globals are cleared.
+
+The [local lifecycle plan](../../../plans/261016-extension-lifecycle/plan.md) records
+regression-first tests through real extension entrypoints with editor/provider/process
+doubles and synthetic local files. These do not establish editor rendering, OS process
+termination. Pending-command cancellation and bounded LSP shutdown are covered by the
+follow-up below; neither batch establishes real language-server process termination.
+
+### Pending commands and language-server shutdown
+
+Cancel and deactivate invalidate commands still waiting for workspace selection,
+SecretStorage or live-command consent. A newer command also invalidates an older
+pending response; it takes over the active CLI reservation only after its prerequisites
+and consent complete. A late secret failure cannot report an obsolete error.
+
+LSP shutdown owns its client instance and retains one tracked cleanup operation after
+startup settles, with a separate deadline disposal attempt. Shutdown
+during artifact verification prevents client creation; constructor/start failures are
+handled and sensitive error text is redacted. Deactivation waits at most 1,000 ms for
+LSP verification/start/stop, then releases editor resources while retaining cleanup for
+a client that finishes starting later. CLI cleanup can add its own wait. The installed
+language-client library cannot stop a client while it is initializing. At the deadline,
+the extension calls the supported `dispose(0)` API and requests `SIGKILL` only on the
+owned child exposed by `serverProcess`, captured before disposal. Already-exited children
+are skipped; disposal/kill failures do not block editor cleanup. No direct PID/group
+kill is added by the extension (the library has its own internal process cleanup).
+A child not yet exposed by the client, or a rejected termination request, can remain
+unresolved. Late-start cleanup is retained. The deadline is not proof of real LSP
+termination: tests observe exit of an owned synthetic Node child using a client double.
+
+Tests now execute the real dashboard and SQL-tree controllers: workspace navigation
+guards, current finding IDs, command dispatch, result updates, grouping, SQL redaction
+and disposal. These tests use synthetic local files and a recorded editor API. The
+[2026-10-16 shutdown plan](../../../plans/261016-extension-shutdown/plan.md) records
+all-16-file coverage, regression-first evidence and remaining runtime limits.
+
+The [branch-behavior plan](../../../plans/261016-extension-branches/plan.md) records
+supported-API assessment, regression evidence, exact all-16-file line/branch coverage,
+configuration/error/cancellation tests and remaining editor/Windows runtime limits.
+
+The [merged-main integration plan](../../../plans/261016-main-update/plan.md) records
+revalidation after PR64 and the coverage-normalization changes merged. The extension
+maintenance diff preserves those merged changes and the complete 16-file TS scope.

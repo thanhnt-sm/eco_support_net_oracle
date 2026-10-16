@@ -57,17 +57,27 @@ interface ChildExit {
     /** First non-empty stderr line (trimmed), kept separately for the ide-safe handshake check. */
     readonly firstStderrLine?: string;
     readonly progress: CliProgressSummary;
-    /** True when the process could not be started; the error was already reported. */
+    /** True when the process could not be started. Only the current run reports it. */
     readonly startFailed: boolean;
+    readonly startError?: unknown;
 }
 
 const MAX_CLI_OUTPUT = 1024 * 1024;
+const LANGUAGE_SERVER_SHUTDOWN_TIMEOUT_MS = 1000;
 
 let statusBarItem: vscode.StatusBarItem | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let diagnostics: vscode.DiagnosticCollection | undefined;
 const runCoordinator = new RunCoordinator<ValidationRun>();
-let languageClient: LanguageClient | undefined;
+interface LanguageServerSession {
+    active: boolean;
+    client?: LanguageClient;
+    startup?: Promise<void>;
+    shutdown?: Promise<void>;
+}
+let languageServerSession: LanguageServerSession | undefined;
+// Commands can await UI/SecretStorage before they own a CLI reservation.
+let commandRequest = 0;
 let findingsTreeProvider: DataGuardFindingsTreeProvider | undefined;
 let sqlQueriesTreeProvider: DataGuardSqlQueriesTreeProvider | undefined;
 let quickFixProvider: DataGuardQuickFixProvider | undefined;
@@ -117,7 +127,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         statusBarItem, diagnostics, treeView, sqlQueriesView, codeActionDisposable,
         codeLensDisposable, hoverDisposable, configChangeDisposable,
-        { dispose: () => decorationManager?.dispose() }
+        decorationManager
     );
     context.subscriptions.push(
         vscode.commands.registerCommand(RUN_VALIDATION_COMMAND, () => runValidation(context)),
@@ -144,13 +154,18 @@ export function activate(context: vscode.ExtensionContext): void {
             await DataGuardQuickFixProvider.applyRemediation(uri, range, ruleCode);
         }),
     );
-    void startLanguageServer(context);
+    const session: LanguageServerSession = { active: true };
+    languageServerSession = session;
+    session.startup = startLanguageServer(context, session);
+    context.subscriptions.push({ dispose: () => { void stopLanguageServer(session); } });
     void cleanStaleTempDirectories();
 }
 
 export async function deactivate(): Promise<void> {
-    void languageClient?.stop();
-    languageClient = undefined;
+    commandRequest++;
+    const session = languageServerSession;
+    languageServerSession = undefined;
+    if (session) { session.active = false; }
     const run = runCoordinator.cancel();
     if (run) {
         clearTimeout(run.timeout);
@@ -162,6 +177,24 @@ export async function deactivate(): Promise<void> {
             await fs.rm(run.outputDirectory, { recursive: true, force: true });
         } catch {
             // Suppress cleanup error on deactivation
+        }
+    }
+    if (session) {
+        // A stuck initialization must not keep editor-owned resources alive indefinitely.
+        // The shutdown promise remains attached so a client starting late is still stopped.
+        let timer: NodeJS.Timeout | undefined;
+        try {
+            await Promise.race([
+                stopLanguageServer(session),
+                new Promise<void>(resolve => {
+                    timer = setTimeout(() => {
+                        forceLanguageServerShutdown(session);
+                        resolve();
+                    }, LANGUAGE_SERVER_SHUTDOWN_TIMEOUT_MS);
+                }),
+            ]);
+        } finally {
+            if (timer) { clearTimeout(timer); }
         }
     }
     DataGuardDashboardPanel.currentPanel?.dispose();
@@ -284,6 +317,7 @@ async function handleApplyQuickFix(target?: FindingTreeItem | string): Promise<v
 function clearFindingsAndDiagnostics(): void {
     diagnostics?.clear();
     findingsTreeProvider?.clear();
+    quickFixProvider?.registerFindings([]);
     sqlQueriesTreeProvider?.clear();
     latestScanReport = null;
     // F9/F12: clear decorations and CodeLens
@@ -296,25 +330,59 @@ function clearFindingsAndDiagnostics(): void {
     }
 }
 
-async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
+async function startLanguageServer(context: vscode.ExtensionContext, session: LanguageServerSession): Promise<void> {
     const serverPath = context.asAbsolutePath(path.join("server", "DataGuard.LanguageServer.dll"));
     try {
         await verifyLanguageServerArtifact(serverPath);
     } catch {
+        if (!session.active) { return; }
         getOutputChannel().appendLine("[DataGuard] Local language server artifact is missing or failed integrity verification; LSP is disabled.");
         return;
     }
 
+    if (!session.active) { return; }
     const serverOptions: ServerOptions = { run: { command: "dotnet", args: [serverPath] }, debug: { command: "dotnet", args: [serverPath] } };
     const clientOptions: LanguageClientOptions = { documentSelector: [{ scheme: "file", language: "csharp" }] };
-    languageClient = new LanguageClient("dataguardLanguageServer", "DataGuard Language Server", serverOptions, clientOptions);
     try {
-        await languageClient.start();
-        context.subscriptions.push({ dispose: () => { void languageClient?.stop(); } });
+        const client = new LanguageClient("dataguardLanguageServer", "DataGuard Language Server", serverOptions, clientOptions);
+        session.client = client;
+        await client.start();
     } catch (err) {
-        getOutputChannel().appendLine(`[DataGuard] Failed to start language server (${String(err)}). LSP features will be disabled.`);
+        if (session.active) {
+            getOutputChannel().appendLine(`[DataGuard] Failed to start language server (${redactSensitiveText(String(err))}). LSP features will be disabled.`);
+        }
     }
 }
+/** Supported client APIs only: dispose prevents reuse; kill targets its owned child, not a PID/group. */
+function forceLanguageServerShutdown(session: LanguageServerSession): void {
+    const client = session.client;
+    if (!client) { return; }
+    const child = client.serverProcess;
+    // Capture before dispose: the node client can clear its serverProcess reference during shutdown.
+    try { void client.dispose(0).catch(() => {}); } catch { /* Best-effort disposal while starting. */ }
+    if (child && child.exitCode === null && child.signalCode === null) {
+        try { child.kill("SIGKILL"); } catch { /* The owned child may have exited concurrently. */ }
+    }
+}
+
+function stopLanguageServer(session: LanguageServerSession): Promise<void> {
+    session.active = false;
+    const channel = outputChannel;
+    session.shutdown ??= (async () => {
+        try {
+            // LanguageClient.stop must run after start settles, not while it is starting.
+            await session.startup;
+            await session.client?.stop();
+        } catch (error) {
+            // Deactivation still releases editor resources; never recreate a disposed channel.
+            if (outputChannel === channel) {
+                channel?.appendLine(`[DataGuard] Language server shutdown failed: ${redactSensitiveText(String(error))}`);
+            }
+        }
+    })();
+    return session.shutdown;
+}
+
 async function verifyLanguageServerArtifact(serverPath: string): Promise<void> {
     const manifestPath = path.join(path.dirname(serverPath), "manifest.json");
     const [artifact, manifestText] = await Promise.all([fs.readFile(serverPath), fs.readFile(manifestPath, "utf8")]);
@@ -384,7 +452,10 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         return;
     }
 
+    const request = ++commandRequest;
+    const requestIsCurrent = () => request === commandRequest;
     const workspaceFolder = await selectWorkspaceFolder();
+    if (!requestIsCurrent()) { return; }
     if (!workspaceFolder) {
         void vscode.window.showWarningMessage("DataGuard: open a workspace folder first.");
         return;
@@ -394,9 +465,11 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     try {
         connectionString = await readConnectionSecret(context.secrets, workspaceFolder.uri.toString());
     } catch {
+        if (!requestIsCurrent()) { return; }
         void vscode.window.showErrorMessage("DataGuard could not access VS Code SecretStorage.");
         return;
     }
+    if (!requestIsCurrent()) { return; }
     if (connectionString !== undefined && connectionString.trim().length === 0) {
         connectionString = undefined;
     }
@@ -405,6 +478,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         return;
     }
 
+    if (!requestIsCurrent()) { return; }
     const hadActiveRun = runCoordinator.current !== undefined;
     const reservationToken = runCoordinator.nextReservation();
     if (hadActiveRun) {
@@ -427,11 +501,13 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
                 configFileExists,
             );
         } catch (error) {
+            if (!runCoordinator.isReservationCurrent(reservationToken)) { return; }
             void vscode.window.showErrorMessage(`DataGuard: ${error instanceof Error ? error.message : String(error)}`);
             return;
         }
     }
 
+    if (!runCoordinator.isReservationCurrent(reservationToken)) { return; }
     const cliPath = vscode.workspace.getConfiguration("dataguard").get<string>("cliPath", "dataguard");
     const timeoutSeconds = Math.min(900, Math.max(5, configuration.get<number>(timeoutSetting, 60)));
     let provider: string;
@@ -441,14 +517,11 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         void vscode.window.showErrorMessage(`DataGuard: ${error instanceof Error ? error.message : String(error)}`);
         return;
     }
+    if (!runCoordinator.isReservationCurrent(reservationToken)) { return; }
     const channel = getOutputChannel();
     channel.clear();
     channel.show(true);
-    diagnostics?.clear();
-    // F9: clear stale decorations before CLI run
-    decorationManager?.clear();
-    codeLensProvider?.clear();
-    hoverProvider?.clear();
+    clearFindingsAndDiagnostics();
     const outputDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "dataguard-"));
     if (!runCoordinator.isReservationCurrent(reservationToken)) {
         await fs.rm(outputDirectory, { recursive: true, force: true });
@@ -484,7 +557,10 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         child.stderr?.on("error", () => { /* prevent unhandled stream error before waitForExit */ });
     } catch (error) {
         await fs.rm(outputDirectory, { recursive: true, force: true });
-        showStartError(error, channel);
+        if (runCoordinator.isReservationCurrent(reservationToken)) {
+            showStartError(error, channel);
+            setStatus("error");
+        }
         return;
     }
     if (!runCoordinator.isReservationCurrent(reservationToken)) {
@@ -508,11 +584,14 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     runCoordinator.replace(run);
     setStatus("running");
 
+    const isCurrent = () => runCoordinator.isReservationCurrent(reservationToken) && !run.cancelled;
     let finalStatus: "idle" | "warning" | "error" | undefined;
     try {
-        const result = await waitForExit(child, channel);
+        const result = await waitForExit(child, channel, isCurrent);
+        if (!isCurrent()) { return; }
         const exitCode = result.code;
         if (result.startFailed) {
+            showStartError(result.startError, channel);
             finalStatus = "error";
             setStatus("error");
             return;
@@ -553,9 +632,11 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         }
 
         const sarifStat = expectsSarif && outputPath ? await fs.stat(outputPath).catch(() => null) : null;
+        if (!isCurrent()) { return; }
         const sarifExists = Boolean(sarifStat?.isFile());
         if (expectsSarif && outputPath && sarifExists) {
-            const diagnosticCount = await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel);
+            const diagnosticCount = await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel, isCurrent);
+            if (!isCurrent()) { return; }
             channel.appendLine(`[DataGuard] SARIF summary: ${diagnosticCount} finding(s) loaded into Problems.`);
             // Update UI providers with fresh findings
             const findings = findingsTreeProvider?.getFindings() ?? [];
@@ -563,13 +644,15 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             hoverProvider?.setFindings(findings);
             codeLensProvider?.setFindings(findings);
         } else if (expectsSarif && !sarifExists) {
-            channel.appendLine(`[DataGuard] ${command} produced no SARIF file; previous Problems results were kept.`);
+            channel.appendLine(`[DataGuard] ${command} produced no SARIF file; previous results were cleared.`);
         }
             const summaryPath = path.join(outputDirectory, "summary.json");
             try {
                 const stat = await fs.stat(summaryPath).catch(() => null);
+                if (!isCurrent()) { return; }
                 if (stat?.isFile() && stat.size <= 20 * 1024 * 1024) {
                     const summaryRaw = await fs.readFile(summaryPath, "utf8");
+                    if (!isCurrent()) { return; }
                     const parsed: unknown = JSON.parse(summaryRaw);
                     if (parsed && typeof parsed === "object") {
                         const parsedRecord = parsed as Record<string, unknown>;
@@ -622,6 +705,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             } catch {
                 // Ignore optional summary.json
             }
+        if (!isCurrent()) { return; }
         const groundTruthLine = describeGroundTruth(result.progress);
         if (groundTruthLine !== undefined) {
             channel.appendLine(`[DataGuard] ${groundTruthLine}`);
@@ -657,15 +741,15 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
 }
 
 async function cancelValidation(): Promise<void> {
-    if (!runCoordinator.current) {
+    commandRequest++;
+    // Cancel also invalidates a reservation waiting for asynchronous preparation.
+    const run = runCoordinator.cancel();
+    if (!run) {
         void vscode.window.showInformationMessage("No DataGuard command is running.");
         return;
     }
 
-    const run = runCoordinator.cancel();
-    if (run) {
-        clearTimeout(run.timeout);
-    }
+    clearTimeout(run.timeout);
     setStatus("warning");
 }
 
@@ -727,13 +811,14 @@ function processProgressText(
     }
 }
 
-async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): Promise<ChildExit> {
+async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel, isCurrent: () => boolean): Promise<ChildExit> {
     let output = "";
     const progress = createCliProgressSummary();
     const stdoutState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
     const stderrState: ProgressTextState & { decoder: StringDecoder } = { buffer: "", decoder: new StringDecoder("utf8") };
 
     const handleChunk = (chunk: Buffer | string, state: ProgressTextState & { decoder: StringDecoder }): void => {
+        if (!isCurrent()) { return; }
         const decoded = typeof chunk === "string" ? chunk : state.decoder.write(chunk);
         if (output.length < MAX_CLI_OUTPUT) {
             output += decoded.slice(0, MAX_CLI_OUTPUT - output.length);
@@ -748,12 +833,17 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
     child.stdout?.on("error", () => { /* prevent unhandled stream error */ });
     child.stderr?.on("error", () => { /* prevent unhandled stream error */ });
     child.on("error", () => { /* prevent unhandled process error post-close */ });
+    let onClose!: (code: number | null) => void;
+    let onError!: (error: Error) => void;
     try {
         const exitPromise = new Promise<number | null>((resolve, reject) => {
-            child.once("close", (code) => resolve(code));
-            child.once("error", (err) => reject(err));
+            onClose = resolve;
+            onError = reject;
+            child.once("close", onClose);
+            child.once("error", onError);
         });
         const code = await exitPromise;
+        if (!isCurrent()) { return { code, output, progress, startFailed: false }; }
         const finalStdout = stdoutState.decoder.end();
         if (finalStdout) {
             if (output.length < MAX_CLI_OUTPUT) {
@@ -776,8 +866,10 @@ async function waitForExit(child: ChildProcess, channel: vscode.OutputChannel): 
         }
         return { code: code as number | null, output, firstStderrLine: stderrState.firstLine, progress, startFailed: false };
     } catch (error) {
-        showStartError(error, channel);
-        return { code: null, output, firstStderrLine: stderrState.firstLine, progress, startFailed: true };
+        return { code: null, output, firstStderrLine: stderrState.firstLine, progress, startFailed: true, startError: error };
+    } finally {
+        child.removeListener("close", onClose);
+        child.removeListener("error", onError);
         child.stdout?.removeListener("data", onStdoutData);
         child.stderr?.removeListener("data", onStderrData);
     }
@@ -788,6 +880,7 @@ async function loadDiagnostics(
     workspaceFolder: vscode.WorkspaceFolder,
     collection: vscode.DiagnosticCollection | undefined,
     channel: vscode.OutputChannel,
+    isCurrent: () => boolean,
 ): Promise<number> {
     if (!collection) {
         return 0;
@@ -795,16 +888,19 @@ async function loadDiagnostics(
     let sarif: SarifLog;
     try {
         const stat = await fs.stat(outputPath).catch(() => null);
+        if (!isCurrent()) { return 0; }
         if (!stat?.isFile() || stat.size > 50 * 1024 * 1024) {
             channel.appendLine(`\n[DataGuard] SARIF output was unavailable or exceeded size limit (50MB).`);
             return 0;
         }
         sarif = JSON.parse(await fs.readFile(outputPath, "utf8")) as SarifLog;
     } catch (error) {
+        if (!isCurrent()) { return 0; }
         channel.appendLine(`\n[DataGuard] SARIF output was unavailable or invalid: ${redactSensitiveText(String(error))}`);
         return 0;
     }
 
+    if (!isCurrent()) { return 0; }
     collection.clear();
     const findings = parseSarifToFindings(sarif, workspaceFolder.uri.fsPath, resolveWorkspaceSarifPath);
     findingsTreeProvider?.setFindings(findings);
@@ -855,7 +951,9 @@ function toRange(region: SarifRegion | undefined): vscode.Range {
     const startLine = Math.max(0, (region?.startLine ?? 1) - 1);
     const startColumn = Math.max(0, (region?.startColumn ?? 1) - 1);
     const endLine = Math.max(startLine, (region?.endLine ?? startLine + 1) - 1);
-    const endColumn = Math.max(startColumn + 1, (region?.endColumn ?? startColumn + 1) - 1);
+    const endColumn = endLine === startLine
+        ? Math.max(startColumn + 1, (region?.endColumn ?? startColumn + 2) - 1)
+        : Math.max(0, (region?.endColumn ?? 1) - 1);
     return new vscode.Range(startLine, startColumn, endLine, endColumn);
 }
 
