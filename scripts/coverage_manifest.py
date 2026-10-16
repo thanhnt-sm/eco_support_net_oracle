@@ -7,6 +7,7 @@ line gate. Branch totals remain per report because Cobertura branch IDs are not
 stable across assemblies, so summing them would misrepresent aggregate coverage.
 """
 import argparse
+from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
@@ -29,13 +30,43 @@ def source_path(filename, sources, root):
     return matches.pop()
 
 
+def branch_counts(line):
+    """Validate collector booleans and preserve represented branch denominators."""
+    flag = line.get('branch')
+    condition = line.get('condition-coverage')
+    if flag is None:
+        is_branch = False
+    elif flag.lower() in ('true', '1'):
+        is_branch = True
+    elif flag.lower() in ('false', '0'):
+        is_branch = False
+    else:
+        raise ValueError(f'Invalid branch flag: {flag!r}')
+    if flag is not None:
+        line.set('branch', str(is_branch).lower())
+    if not is_branch:
+        if condition is not None:
+            raise ValueError('Condition coverage on a non-branch line')
+        return 0, 0
+    match = re.fullmatch(r'(\d+(?:\.\d+)?)% \((\d+)/(\d+)\)', condition or '')
+    if not match:
+        raise ValueError(f'Invalid branch counts: {condition!r}')
+    percentage, covered, total = Decimal(match[1]), int(match[2]), int(match[3])
+    if total <= 0 or covered > total or percentage > 100:
+        raise ValueError(f'Invalid branch counts: {condition!r}')
+    # Coverlet truncates the displayed percentage to two decimal places.
+    if abs(percentage - Decimal(100) * covered / total) > Decimal('0.01'):
+        raise ValueError(f'Inconsistent branch percentage: {condition!r}')
+    return covered, total
+
+
 def refresh_totals(element):
-    """Keep Cobertura summary attributes consistent with retained class line records."""
-    lines = element.findall('.//class/lines/line')
+    """Count class records once; method copies describe only their own summaries."""
+    lines = element.findall('./lines/line' if element.tag in ('class', 'method') else './/class/lines/line')
     covered = sum(int(line.get('hits', '0')) > 0 for line in lines)
-    branches = [re.fullmatch(r'[\d.]+% \((\d+)/(\d+)\)', line.get('condition-coverage', '')) for line in lines if line.get('branch') == 'true']
-    branch_hit = sum(int(match[1]) for match in branches if match)
-    branch_total = sum(int(match[2]) for match in branches if match)
+    branches = [branch_counts(line) for line in lines]
+    branch_hit = sum(count[0] for count in branches)
+    branch_total = sum(count[1] for count in branches)
     element.set('line-rate', str(covered / len(lines) if lines else 0))
     element.set('branch-rate', str(branch_hit / branch_total if branch_total else 0))
     if element.tag == 'coverage':
@@ -60,6 +91,12 @@ def validate(paths, root):
             tree = ET.fromstring(data)
             if tree.tag != 'coverage':
                 raise ValueError(f'Not Cobertura: {path}')
+            input_branches = None
+            if tree.get('branches-covered') is not None or tree.get('branches-valid') is not None:
+                covered, total = int(tree.attrib['branches-covered']), int(tree.attrib['branches-valid'])
+                if not 0 <= covered <= total:
+                    raise ValueError('Invalid input branch totals')
+                input_branches = {'covered': covered, 'total': total}
             source_roots = [s.text for s in tree.findall('./sources/source') if s.text]
             generated = []
             report_hits, branches = {}, [0, 0]
@@ -81,12 +118,12 @@ def validate(paths, root):
                     key = (filename, number)
                     report_hits[key] = report_hits.get(key, False) or count > 0
                     hits[key] = hits.get(key, False) or count > 0
-                    if line.get('branch') == 'true':
-                        match = re.fullmatch(r'[\d.]+% \((\d+)/(\d+)\)', line.get('condition-coverage', ''))
-                        if not match or int(match[1]) > int(match[2]):
-                            raise ValueError(f'Invalid branch counts: {path}')
-                        branches[0] += int(match[1])
-                        branches[1] += int(match[2])
+                    branch_hit, branch_total = branch_counts(line)
+                    branches[0] += branch_hit
+                    branches[1] += branch_total
+                for method in cls.findall('./methods/method'):
+                    refresh_totals(method)
+                refresh_totals(cls)
             if not report_hits:
                 raise ValueError(f'Empty coverage report: {path}')
             for package in tree.findall('./packages/package'):
@@ -96,7 +133,7 @@ def validate(paths, root):
             if source_element is not None:
                 tree.remove(source_element)
             ET.SubElement(ET.SubElement(tree, 'sources'), 'source').text = '.'
-            reports.append({'path': str(path), 'sha256': digest, 'generated_sources_omitted': sorted(set(generated)), 'lines': {'covered': sum(report_hits.values()), 'total': len(report_hits)}, 'branches': {'covered': branches[0], 'total': branches[1]}, 'xml': ET.tostring(tree, encoding='unicode')})
+            reports.append({'path': str(path), 'sha256': digest, 'generated_sources_omitted': sorted(set(generated)), 'lines': {'covered': sum(report_hits.values()), 'total': len(report_hits)}, 'input_branches': input_branches, 'branch_scope': 'represented retained class source-line records; per report only', 'branches': {'covered': branches[0], 'total': branches[1]}, 'xml': ET.tostring(tree, encoding='unicode')})
         except (OSError, ET.ParseError, KeyError, TypeError) as error:
             raise ValueError(f'Invalid coverage report {path}: {error}') from error
     return {'lines': {'covered': sum(hits.values()), 'total': len(hits)}, 'sources': sorted(sources_found), 'reports': reports}

@@ -126,3 +126,115 @@ class CoverageManifestTests(unittest.TestCase):
         path.write_text(path.read_text().replace('hits="1"', 'hits="1" branch="true" condition-coverage="200% (2/1)"'))
         with self.assertRaises(ValueError):
             coverage.validate([path], self.root)
+
+    def branch_report(self):
+        fixture = Path(__file__).parent / 'fixtures/coverlet-10.1.0-branches.xml'
+        (self.root / 'src/Example/A.cs').write_text('// synthetic source\n' * 4)
+        path = self.root / 'branches.xml'
+        path.write_text(fixture.read_text().replace('SOURCE_ROOT', str(self.root / 'src')))
+        return path
+
+    def test_real_coverlet_casing_counts_class_lines_once_and_preserves_input(self):
+        import hashlib
+        import xml.etree.ElementTree as ET
+        path = self.branch_report()
+        original = path.read_bytes()
+        result = coverage.validate([path], self.root)
+        report = result['reports'][0]
+        self.assertEqual(report['branches'], {'covered': 5, 'total': 10})
+        self.assertEqual(report['input_branches'], {'covered': 7, 'total': 14})
+        self.assertEqual(report['sha256'], hashlib.sha256(original).hexdigest())
+        self.assertEqual(path.read_bytes(), original)
+        self.assertNotIn('branches', result, 'overlapping suites have no global branch union')
+        root = ET.fromstring(report['xml'])
+        self.assertEqual(root.get('branches-covered'), '5')
+        self.assertEqual(root.get('branches-valid'), '10')
+        for element in [root, *root.findall('.//package'), *root.findall('.//class'), *root.findall('.//method')]:
+            self.assertEqual(float(element.get('branch-rate')), 0.5)
+        self.assertEqual({line.get('branch') for line in root.findall('.//line')}, {'true', 'false'})
+        self.assertIn('condition-coverage="50% (3/6)"', report['xml'])
+        self.assertEqual(len(root.findall('.//class/lines/line/conditions/condition')), 5)
+
+    def test_branch_normalization_roundtrip_preserves_denominators_and_line_hits(self):
+        first = coverage.validate([self.branch_report()], self.root)
+        normalized = self.root / 'normalized.xml'
+        normalized.write_text(first['reports'][0]['xml'])
+        second = coverage.validate([normalized], self.root)
+        self.assertEqual(first['lines'], second['lines'])
+        self.assertEqual(first['sources'], second['sources'])
+        self.assertEqual(first['reports'][0]['branches'], {'covered': 5, 'total': 10})
+        self.assertEqual(first['reports'][0]['branches'], second['reports'][0]['branches'])
+        self.assertEqual(first['reports'][0]['xml'], second['reports'][0]['xml'])
+
+    def test_true_branch_lexical_forms_and_rounded_percentages(self):
+        for flag in ('true', 'True', 'TRUE', 'tRuE', '1'):
+            with self.subTest(flag=flag):
+                path = self.report()
+                path.write_text(path.read_text().replace('hits="1"', f'hits="1" branch="{flag}" condition-coverage="66.67% (2/3)"'))
+                report = coverage.validate([path], self.root)['reports'][0]
+                self.assertEqual(report['branches'], {'covered': 2, 'total': 3})
+                self.assertIn('branch="true"', report['xml'])
+
+    def test_false_or_absent_branch_has_no_denominator(self):
+        for flag in (None, 'false', 'False', 'FALSE', '0'):
+            with self.subTest(flag=flag):
+                path = self.report()
+                if flag is not None:
+                    path.write_text(path.read_text().replace('hits="1"', f'hits="1" branch="{flag}"'))
+                report = coverage.validate([path], self.root)['reports'][0]
+                self.assertEqual(report['branches'], {'covered': 0, 'total': 0})
+                self.assertEqual(report['lines'], {'covered': 1, 'total': 1})
+
+    def test_invalid_branch_flags_and_inconsistent_conditions_fail_closed(self):
+        cases = [('yes', None), ('', None), ('false', '50% (1/2)'), (None, '50% (1/2)')]
+        cases += [('True', value) for value in (None, 'broken', '200% (2/1)', '100% (0/2)', '0% (0/0)', '-1% (-1/2)', 'nan% (1/2)', '..% (1/2)')]
+        for flag, condition in cases:
+            with self.subTest(flag=flag, condition=condition):
+                import xml.etree.ElementTree as ET
+                path = self.report()
+                root = ET.parse(path).getroot()
+                line = root.find('.//line')
+                if flag is not None:
+                    line.set('branch', flag)
+                if condition is not None:
+                    line.set('condition-coverage', condition)
+                path.write_text(ET.tostring(root, encoding='unicode'))
+                with self.assertRaises(ValueError):
+                    coverage.validate([path], self.root)
+
+    def test_generated_branches_are_excluded_without_counting_method_copies(self):
+        import xml.etree.ElementTree as ET
+        path = self.branch_report()
+        root = ET.parse(path).getroot()
+        generated = ET.SubElement(root.find('.//classes'), 'class', filename='Example/obj/Generated.cs')
+        ET.SubElement(ET.SubElement(generated, 'lines'), 'line', number='1', hits='1', branch='True', attrib={'condition-coverage': '100% (6/6)'})
+        root.set('branches-covered', '13')
+        root.set('branches-valid', '20')
+        path.write_text(ET.tostring(root, encoding='unicode'))
+        report = coverage.validate([path], self.root)['reports'][0]
+        self.assertEqual(report['branches'], {'covered': 5, 'total': 10})
+        self.assertEqual(report['input_branches'], {'covered': 13, 'total': 20})
+        self.assertEqual(report['generated_sources_omitted'], ['Example/obj/Generated.cs'])
+        self.assertEqual(len(ET.fromstring(report['xml']).findall('.//class')), 1)
+
+    def test_malformed_method_branch_copy_is_not_silently_retained(self):
+        import xml.etree.ElementTree as ET
+        path = self.branch_report()
+        root = ET.parse(path).getroot()
+        root.find('.//method/lines/line').set('condition-coverage', 'invalid')
+        path.write_text(ET.tostring(root, encoding='unicode'))
+        with self.assertRaises(ValueError):
+            coverage.validate([path], self.root)
+
+    def test_coverlet_truncated_percentage_retains_exact_counts(self):
+        path = self.report()
+        path.write_text(path.read_text().replace('hits="1"', 'hits="1" branch="True" condition-coverage="40.9% (9/22)"'))
+        report = coverage.validate([path], self.root)['reports'][0]
+        self.assertEqual(report['branches'], {'covered': 9, 'total': 22})
+
+    def test_invalid_input_summary_counts_fail_closed(self):
+        for attrs in ('branches-covered="2"', 'branches-valid="2"', 'branches-covered="3" branches-valid="2"', 'branches-covered="-1" branches-valid="2"'):
+            with self.subTest(attrs=attrs), self.assertRaises(ValueError):
+                path = self.report()
+                path.write_text(path.read_text().replace('<coverage>', f'<coverage {attrs}>'))
+                coverage.validate([path], self.root)

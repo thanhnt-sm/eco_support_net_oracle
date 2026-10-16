@@ -1,5 +1,17 @@
 # Coverage integrity and executable module tests — 2026-10-15
 
+## Local correction: branch normalization (2026-10-15)
+
+The historical evidence below predates discovery of a P1 normalizer defect at
+PR63 `0439c1ca66727cbe087e05f5fabc3d64f248dfa6`. Coverlet emits `branch="True"`;
+the normalizer recognized only lowercase `true`. Previous normalized .NET branch
+summaries of 0/0 are invalid. Measured line unions and raw collector reports are
+unaffected. The original correction was local only; the 2026-10-16 follow-up now authorizes
+a focused draft PR. Historical uploaded reports and CI results remain unchanged. Marketplace publication remains paused.
+
+See [the correction plan](2026-10-15-branch-normalization.md) and
+[metric contract](../docs/guides/coverage-branch-normalization.md).
+
 ## Authorization and baseline
 
 User approved a focused implementation draft PR, TDD, independent review, unchanged
