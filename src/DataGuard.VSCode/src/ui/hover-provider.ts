@@ -31,13 +31,13 @@ export class DataGuardHoverProvider implements vscode.HoverProvider {
 
         // Find all findings that overlap the hovered position
         const overlapping = this._findings.filter((f) => {
-            if (f.filePath !== docPath && !f.fullUri.endsWith(docPath.replace(/\\/g, "/"))) {
+            if (f.filePath !== docPath) {
                 return false;
             }
             const startLine = Math.max(0, f.startLine - 1);
             const endLine = Math.max(startLine, f.endLine - 1);
             const startCol = Math.max(0, f.startColumn - 1);
-            const endCol = Math.max(startCol, f.endColumn - 1);
+            const endCol = Math.max(endLine === startLine ? startCol : 0, f.endColumn - 1);
             const range = new vscode.Range(startLine, startCol, endLine, endCol);
             return range.contains(position);
         });
@@ -65,7 +65,9 @@ export class DataGuardHoverProvider implements vscode.HoverProvider {
         const severityIcon = finding.severity === "error" ? "$(error)" : "$(warning)";
 
         // Title: severity icon + rule ID (static structure — safe for appendMarkdown)
-        md.appendMarkdown(`**${severityIcon} DataGuard ${finding.ruleId}**\n\n`);
+        md.appendMarkdown(`**${severityIcon} DataGuard `);
+        md.appendText(finding.ruleId);
+        md.appendMarkdown("**\n\n");
 
         // Message — use appendText for dynamic content (XSS-safe)
         md.appendText(finding.message);
@@ -95,7 +97,9 @@ export class DataGuardHoverProvider implements vscode.HoverProvider {
 
         // Quick-fix availability (not available for DG010 — explicit check)
         if (finding.quickFixAvailable && finding.quickFixTitle && finding.ruleId !== "DG010") {
-            md.appendMarkdown(`\n\n*Quick Fix available: ${finding.quickFixTitle}*`);
+            md.appendMarkdown("\n\n*Quick Fix available: ");
+            md.appendText(finding.quickFixTitle);
+            md.appendMarkdown("*");
         }
     }
 }

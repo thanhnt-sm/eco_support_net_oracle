@@ -51,7 +51,7 @@ export class DataGuardCodeLensProvider implements vscode.CodeLensProvider {
 
         const docPath = document.uri.fsPath;
         const docFindings = this._findings.filter(
-            (f) => f.filePath === docPath || f.fullUri.endsWith(docPath.replace(/\\/g, "/"))
+            (f) => f.filePath === docPath
         );
 
         if (docFindings.length === 0) {
