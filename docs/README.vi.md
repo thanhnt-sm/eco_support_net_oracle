@@ -27,7 +27,7 @@
 
 ## Bản Ghi Quyết Định Kiến Trúc (ADR)
 
-Quyết định cho từng thành phần, đối chiếu với mục tiêu gốc ([mục lục](adr/README.md)):
+Khuyến nghị Proposed cho từng thành phần, đang chờ chủ sở hữu quyết định, đối chiếu với mục tiêu gốc ([mục lục](adr/README.md)):
 
 - [ADR-0000](adr/ADR-0000-adr-process.md): quy trình và mẫu ADR
 - [ADR-0001](adr/ADR-0001-visual-studio-extension.md): extension Visual Studio (`freeze`)
@@ -54,3 +54,9 @@ Quyết định cho từng thành phần, đối chiếu với mục tiêu gốc
 
 - [DG019: chọn phương ngữ và vị trí mã nguồn](guides/dg019-dialect-and-locations.vi.md)
 - [Cấu hình và mẫu Oracle snapshot có chú thích](guides/configuration.vi.md)
+
+## Đối chiếu chiến lược sản phẩm (nháp)
+
+[Mục lục StackAccord](product/README.vi.md) tách nguồn hiện tại, tính năng đề xuất và claim lịch sử. Không đổi tên kỹ thuật hoặc cho phép phát hành.
+
+[Kiểm kê toàn bộ tài liệu và trạng thái review](product/documentation-inventory.md).

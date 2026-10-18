@@ -1,3 +1,5 @@
+> Tổng quan thư mục có thể thiếu/cũ; xem [kiểm kê review](../product/documentation-inventory.md) cho phạm vi hiện hành.
+
 # Cấu Trúc Thư Mục Workspace DataGuard
 
 > Cây thư mục đầy đủ của dự án DataGuard với mô tả từng file và thư mục.
@@ -266,7 +268,7 @@ Giao diện dòng lệnh với 9 lệnh.
 | `docs/SOLUTION.md` | Tài liệu kiến trúc giải pháp | Tài liệu | Markdown |
 | `docs/assess.md` | Tài liệu lệnh assess | Tài liệu | Markdown |
 | `docs/cli.md` | Tài liệu tham chiếu CLI | Tài liệu | Markdown |
-| `docs/mcp.md` | Tài liệu tích hợp MCP server | Tài liệu | Markdown |
+| `docs/mcp.md` | Tài liệu EcoSupport MCP lịch sử; không phải MCP DataGuard hiện hành | Tài liệu | Markdown |
 | `docs/contributing.md` | Hướng dẫn đóng góp | Tài liệu | Markdown |
 | `docs/enterprise-banking-profile.md` | Profile use case ngân hàng doanh nghiệp | Tài liệu | Markdown |
 

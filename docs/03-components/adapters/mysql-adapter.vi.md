@@ -20,7 +20,7 @@ graph TB
     subgraph "Rules Engine"
         MY001[MySqlSyntaxRule]
         MY002[NonMySqlSyntaxRule]
-        MY003[MySqlLengthExceedsColumnRule]
+        MY004[MySqlLengthExceedsColumnRule]
     end
 
     MSP -->|SQL queries| R
@@ -28,45 +28,49 @@ graph TB
 
     MY001 --> MDC
     MY002 --> MDC
-    MY003 --> MLMD
+    MY004 --> MLMD
 ```
 
 ## File nguồn
 
-| File | Dòng | Mục đích |
-|------|------|----------|
-| `MySqlStoredProcedureParser.cs` | ~110 | Triển khai IContractSource cho MySQL SP |
-| `MySqlDialectChecker.cs` | ~100 | Phát hiện phương ngữ + rules MY001/MY002 |
-| `MySqlLengthMismatchDetector.cs` | ~60 | Phát hiện sai lệch độ dài + rule MY003 |
+| File | Mục đích |
+|------|----------|
+| `MySqlStoredProcedureParser.cs` | Triển khai IContractSource cho MySQL SP |
+| `MySqlDialectChecker.cs` | Phát hiện phương ngữ + rules MY001/MY002 |
+| `MySqlLengthMismatchDetector.cs` | Phát hiện sai lệch độ dài + rules MY004–MY007 |
 
 ## Phụ thuộc
 
 ```xml
-<PackageReference Include="MySqlConnector" Version="2.4.3" />
+<PackageReference Include="MySqlConnector" Version="2.6.2" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
 ```
 
 ## MySqlStoredProcedureParser
 
-Triển khai `IContractSource` để trích xuất contract stored procedure từ `INFORMATION_SCHEMA` của MySQL.
+Triển khai `IContractSource` để trích xuất contract procedure và function từ `INFORMATION_SCHEMA` của MySQL.
 
 ### Mẫu truy vấn
 
 ```sql
 SELECT r.ROUTINE_NAME, p.PARAMETER_NAME, p.DATA_TYPE, p.PARAMETER_MODE,
        p.ORDINAL_POSITION, p.CHARACTER_MAXIMUM_LENGTH, p.NUMERIC_PRECISION,
-       p.NUMERIC_SCALE, r.ROUTINE_SCHEMA
+       p.NUMERIC_SCALE, r.ROUTINE_SCHEMA, r.ROUTINE_TYPE, r.DATA_TYPE
 FROM information_schema.ROUTINES r
 LEFT JOIN information_schema.PARAMETERS p
-  ON r.SPECIFIC_SCHEMA = p.SPECIFIC_SCHEMA AND r.SPECIFIC_NAME = p.SPECIFIC_NAME
-WHERE r.ROUTINE_TYPE = 'PROCEDURE' AND (@schema = '' OR r.ROUTINE_SCHEMA = @schema)
-ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION
+  ON r.ROUTINE_SCHEMA = p.SPECIFIC_SCHEMA AND r.SPECIFIC_NAME = p.SPECIFIC_NAME
+ AND p.ROUTINE_TYPE = r.ROUTINE_TYPE
+WHERE r.ROUTINE_TYPE IN ('PROCEDURE', 'FUNCTION')
+  AND ((@schema <> '' AND r.ROUTINE_SCHEMA = @schema)
+    OR (@schema = '' AND r.ROUTINE_SCHEMA NOT IN
+        ('mysql', 'sys', 'information_schema', 'performance_schema')))
+ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_TYPE, r.ROUTINE_NAME, p.ORDINAL_POSITION
 ```
 
 ### Quyết định thiết kế chính
 
 - **LEFT JOIN**: Procedure không có tham số xuất hiện dưới dạng một dòng với các trường tham số NULL. Parser vẫn tạo `StoredProcedureDescriptor` rỗng; chỉ bỏ qua việc tạo parameter cho dòng đó.
-- **Lọc schema**: Chuỗi schema rỗng có nghĩa là "tất cả schema"; nếu không lọc chính xác.
+- **Lọc schema**: Khi không chỉ định schema, adapter dùng `SELECT DATABASE()`; nếu không chọn database thì đọc các schema ngoài hệ thống. Schema chỉ định được lọc chính xác.
 - **Xử lý overload**: MySQL không hỗ trợ overload procedure, vì vậy mỗi tên procedure ánh xạ đúng một contract.
 - **Chuẩn hóa độ dài**: `CHARACTER_MAXIMUM_LENGTH` trả về `BIGINT` — chuẩn hóa thành `int?` với bảo vệ tràn.
 
@@ -82,6 +86,7 @@ ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION
 
 ```
 mysql:{schema}.{procedure_name}
+mysql:{schema}.{function_name}#function
 ```
 
 ## MySqlDialectChecker
@@ -110,7 +115,7 @@ Phát hiện cú pháp đặc thù MySQL trong ngữ cảnh không phải MySQL 
 
 ## MySqlLengthMismatchDetector
 
-So sánh `MaxLength` của entity với `CHARACTER_MAXIMUM_LENGTH` của cột MySQL. So sánh trực tiếp đơn giản — MySQL không có độ phức tạp ngữ nghĩa CHAR/BYTE như Oracle.
+So sánh `MaxLength` của entity với `CHARACTER_MAXIMUM_LENGTH` của cột MySQL. MY004 kiểm tra độ dài ký tự; các rule riêng kiểm tra giới hạn byte, ước tính kích thước hàng và rủi ro suy luận kích thước. Đoạn mã dưới đây chỉ minh họa so sánh độ dài ký tự.
 
 ### Logic phát hiện
 
@@ -123,7 +128,7 @@ foreach (var property in entity.Properties)
         continue;
 
     if (property.MaxLength.Value > column.MaxLength.Value)
-        yield return new ContractViolation("MY003", ...);
+        yield return new ContractViolation("MY004", ...);
 }
 ```
 
@@ -146,7 +151,7 @@ foreach (var property in entity.Properties)
 | **Kích hoạt** | Từ khóa Oracle/SQL Server (`NVL`, `TOP`, `GETDATE`, etc.) trong SQL MySQL |
 | **Thông báo** | Non-MySQL syntax '{syntax}' used in MySQL context |
 
-### MY003 — Độ dài entity vượt độ dài cột MySQL
+### MY004 — Độ dài entity vượt độ dài cột MySQL
 
 | Thuộc tính | Giá trị |
 |------------|---------|
@@ -154,7 +159,7 @@ foreach (var property in entity.Properties)
 | **Kích hoạt** | `property.MaxLength > column.MaxLength` |
 | **Thông báo** | Entity property '{name}' MaxLength={n} exceeds column '{col}' length={m} |
 
-Dạng MY003 của `MySqlVarcharByteLimitRule` cũng kiểm tra các cột họ TEXT. Giới hạn của chúng tính bằng byte, nên độ dài entity được quy đổi giống MY006: `MaxLength × số byte mỗi đơn vị UTF-16` (utf8mb4/utf8mb3/utf8 là 3, ucs2/utf16 là 2, bộ ký tự một byte là 1, `byte[]` là 1). Một `string` có `MaxLength = 30000` trên cột `TEXT` utf8mb4 (90.000 byte) sẽ bị báo: `may need 90000 bytes (3 per character in utf8mb4) but MySQL TEXT holds at most 65535 bytes`.
+Rule MY003 riêng (`MySqlVarcharByteLimitRule`) cũng kiểm tra các cột họ TEXT. Giới hạn của chúng tính bằng byte, nên độ dài entity được quy đổi giống MY006: `MaxLength × số byte mỗi đơn vị UTF-16` (utf8mb4/utf8mb3/utf8 là 3, ucs2/utf16 là 2, bộ ký tự một byte là 1, `byte[]` là 1). Một `string` có `MaxLength = 30000` trên cột `TEXT` utf8mb4 (90.000 byte) sẽ bị báo: `may need 90000 bytes (3 per character in utf8mb4) but MySQL TEXT holds at most 65535 bytes`.
 
 ## Sử dụng trong CLI
 
@@ -174,7 +179,7 @@ Không giống Oracle, MySQL không có package. Trường `PackageName` luôn r
 
 ### Giới hạn INFORMATION_SCHEMA
 
-`INFORMATION_SCHEMA.PARAMETERS` của MySQL có thể không có sẵn cho tất cả phiên bản hoặc cấu hình MySQL. Adapter xử lý gracefully dữ liệu thiếu bằng cách bỏ qua các dòng tham số NULL.
+Trường tham số NULL từ LEFT JOIN biểu diễn routine không có tham số; parser chỉ bỏ qua việc tạo parameter. Thiếu view catalog hoặc lỗi quyền truy cập không tương đương với contract rỗng hợp lệ.
 
 ### Nhận biết bộ ký tự
 
@@ -190,3 +195,7 @@ Không giống Oracle, MySQL không có package. Trường `PackageName` luôn r
 - MY007 chỉ báo khi property không có `MaxLength` mà cột là `varchar(n)`/`char(n)`, vì Pomelo map `string` không giới hạn thành `longtext`.
 - `utf8mb3` = 3 byte.
 
+
+Catalog đọc cả procedure và function; hàng trả về có ordinal 0 của function trở thành `ReturnType`. Parser không đọc thân routine để suy ra result set: `ResultColumns` rỗng. `MySqlLiveQuerySchemaProvider` là path riêng để mô tả raw SQL được hỗ trợ; không chứng minh result shape của mọi routine.
+
+Nguồn triển khai được đối chiếu: [MySqlStoredProcedureParser.cs](../../../src/DataGuard.MySql.Adapter/MySqlStoredProcedureParser.cs). Các giới hạn mô tả ở đây là hành vi hiện tại, không phải cam kết parity giữa provider hay bằng chứng kiểm thử cơ sở dữ liệu live.

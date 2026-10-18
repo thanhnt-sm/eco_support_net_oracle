@@ -97,10 +97,10 @@ public sealed record TelemetryConfig(
 
 | Trường | Mặc định | Mô tả |
 |--------|----------|-------|
-| `Enabled` | `false` | Công tắc chính — không hoạt động khi false |
-| `ExportEndpoint` | `null` | URL HTTPS legacy; chỉ dùng khi bật remote và tắt file sink |
+| `Enabled` | `false` | Công tắc ghi/flush; tắt ghi không có nghĩa object không cấp phát tài nguyên |
+| `ExportEndpoint` | `null` | URL compatibility: HTTPS hoặc HTTP loopback; remote built-in cần bật remote và không có file sink đang hoạt động |
 | `FlushIntervalSeconds` | `30` | Khoảng thời gian timer cho flush events |
-| `IncludeStackTraces` | `false` | Bao gồm stack traces trong events |
+| `IncludeStackTraces` | `false` | Option constructor legacy; collector hiện không dùng để thu thập hoặc loại stack trace |
 | `MaxQueuedEvents` | `10.000` | Số event tối đa trong queue cộng batch đang chạy; event mới hơn bị bỏ khi đầy |
 | `MaxBatchEvents` | `1.000` | Số event tối đa trong một export request |
 | `MaxPayloadBytes` | `1.048.576` | Giới hạn byte UTF-8 mỗi request; event đơn lẻ quá lớn sẽ bị bỏ |
@@ -210,7 +210,7 @@ export legacy; đường file dùng envelope `ObservabilityRecord` an toàn hơn
 
 ### Định Dạng NDJSON
 
-Events được export dưới dạng JSON phân tách dòng:
+Ví dụ dưới đây là `TelemetryEvent` legacy dùng cho injected/compatibility exporter, không phải schema file local. File local dùng envelope `ObservabilityRecord` (signal, event_name, resource, attributes) theo [hướng dẫn file sink](../../observability/local-file-observability.md):
 
 ```json
 {"Timestamp":"2026-08-25T10:30:00Z","EventType":"BaselineCreated","Details":"New baseline","Properties":{"violationCount":42}}
@@ -259,13 +259,19 @@ var result = await pipeline.ValidateAsync(contracts);
 // Telemetry tự động ghi nhận
 ```
 
-## Đảm Bảo Bảo Mật
+## Kiểm soát riêng tư và giới hạn
 
-| Đảm bảo | Triển khai |
+| Kiểm soát | Triển khai |
 |----------|------------|
 | **Opt-in** | `Enabled = false` theo mặc định |
-| **Không secrets** | Attributes allowlist; body mặc định bỏ hoặc redact |
+| **Giảm dữ liệu envelope local** | Allowlist attributes; body tùy chọn redact theo pattern và giới hạn độ dài, không bảo đảm không có secret |
 | **Local-first** | Metrics/event archive local qua async write bounded |
 | **Không endpoint ngầm** | Remote cần `RemoteExportEnabled=true`; host routes là opt-in riêng |
 | **Circuit breaker** | 3 lần thất bại → dừng export |
 | **Shared HttpClient** | Chỉ áp dụng legacy exporter compatibility (SEC-005) |
+
+File sink local và exporter legacy/custom có ranh giới tin cậy khác nhau. Inject `exportSink` bỏ qua lựa chọn file sink và cờ `RemoteExportEnabled` built-in. Delegate là code ứng dụng được tin cậy; details/properties của `TelemetryEvent` legacy không đi qua allowlist envelope local. Endpoint built-in từ chối user information/query/fragment, nhưng cho phép mọi host HTTPS và HTTP loopback; đây không phải allowlist đích do operator sở hữu hay bảo đảm chặn redirect. Lỗi export có thể ghi exception message ra stderr. Không đưa secret vào details, tên/tag metric, resource label hoặc exception message.
+
+`IncludeStackTraces` giữ tương thích API, không phải cờ redact đang hoạt động. Gọi `WithTelemetry()` không tham số là bật thu thập tường minh; config tạo trực tiếp vẫn mặc định `Enabled=false`. Pipeline ghi summary validation; caller khác phải gọi phương thức ghi tương ứng. Sơ đồ không chứng minh mọi CLI/rule path đã được instrument. Tương thích Metrics API không có nghĩa exporter OpenTelemetry/OTLP đã cài hoặc cấu hình. Circuit breaker giới hạn retry, không biến telemetry thành kênh audit bảo đảm giao nhận.
+
+Nguồn đối chiếu: constructor, `RecordEvent`, `FlushAsync`, `IsAllowedExportEndpoint` trong `TelemetryCollector.cs`; `ObservabilityFileSink.cs`/`ObservabilityRecordFactory`; `PublicApi/PublicApiSurface.cs` (`WithTelemetry`, summary). Đợt audit tài liệu không chạy export mạng hoặc process editor/host.

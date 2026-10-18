@@ -13,13 +13,22 @@ DataGuard.sln
 │   ├── DataGuard.PostgreSql.Adapter/       # Metadata PostgreSQL
 │   ├── DataGuard.Analyzers/                # Roslyn analyzer + generator (IDE)
 │   ├── DataGuard.CodeFixes/                # Roslyn code fixes (quick actions)
+│   ├── DataGuard.LanguageServer/           # stdio language-server entrypoint
+│   ├── DataGuard.Host/                     # Optional loopback health host
+│   ├── DataGuard.Build/                    # MSBuild integration
+│   ├── DataGuard.SqlClassification/        # Shared SQL-call classification
+│   ├── DataGuard.Observability*/           # Runtime observability projects
 │   ├── DataGuard.Cli/                      # dotnet tool CLI
 │   ├── DataGuard.VSCode/                   # VS Code extension (TypeScript)
 │   └── DataGuard.VisualStudio/             # Visual Studio 2022 VSIX (net472)
 ├── tests/
 │   ├── DataGuard.Core.Tests/
 │   ├── DataGuard.GoldenCorpus.Tests/
-│   └── DataGuard.Analyzers.Tests/
+│   ├── DataGuard.Analyzers.Tests/
+│   ├── DataGuard.CodeFixes.Tests/
+│   ├── DataGuard.Observability.Tests/
+│   ├── DataGuard.VisualStudio.Tests/       # Windows
+│   └── DataGuard.BinaryCompatibilityFixture/ # Compile-only consumer fixture
 ├── docs/                                   # Tài liệu
 ├── .github/workflows/                      # CI/release/Marketplace
 ├── Directory.Build.props
@@ -32,25 +41,25 @@ DataGuard.sln
 ## Chi Tiết Dự Án / Project Details
 
 ### DataGuard.Core
-**Mục Đích / Purpose**: Động cơ xác thực cốt lõi, không phụ thuộc vendor / Core validation engine, zero vendor dependencies
+**Mục Đích / Purpose**: Động cơ xác thực cốt lõi, không phụ thuộc driver DB / Core validation engine, no database-driver dependency; EF Core/Roslyn dependencies remain
 
 **Thành Phần Chính / Key Components**:
 - `Abstractions/` - Contracts, Rules, Models
-- `Sources/` - EfModelSource, SqlServerParsers, RawSqlParser
-- `Rules/` - 14 quy tắc built-in (DG002–DG016, DG098–DG099; DG101 = parameter-count engine)
+- `Sources/` - EfModelSource, project/manual contract sources; SQL Server parsers live in its adapter
+- `Rules/` - provider-neutral rules and dependency graph; provider composition lives in CLI `ProviderRuleCatalog`
 - `Reporting/` - DiagnosticEmitter, SARIF sinks
-- `Baseline/` - BaselineManager v2 (SchemaHash + DB Version)
-- `Security/` - CredentialManager, ZeroTrust, SLSA, Audit
+- `Baseline/` - violation baselines, v4 schema snapshots, integrity and structural comparison
+- `Security/` - CredentialManager, ZeroTrust, hash verification, Audit
 - `Plugins/` - RulePluginManager (MEF)
 - `Telemetry/` - TelemetryCollector (opt-in)
 - `AutoDetection/` - AutoDetectionEngine + Interactive Wizard
 - `PublicApi/` - DataGuardApi, ValidationPipeline
 
 **Phụ Thuộc / Dependencies**: 
-- Microsoft.CodeAnalysis.CSharp 4.11.0
-- Microsoft.EntityFrameworkCore 8.0.0
-- System.Composition.Hosting 8.0.0
-- System.Text.Json 8.0.5
+- Microsoft.CodeAnalysis.CSharp 5.9.0 (Core; analyzers pin 4.12.0)
+- Microsoft.EntityFrameworkCore 9.0.21
+- System.Composition.Hosting 10.0.13
+- System.Text.Json 10.0.13
 
 ---
 
@@ -62,8 +71,8 @@ DataGuard.sln
 - `RawSqlParser` - ScriptDOM TSql160Parser
 
 **Phụ Thuộc / Dependencies**:
-- Microsoft.Data.SqlClient 5.2.0
-- Microsoft.SqlServer.TransactSql.ScriptDom 170.3.0
+- Microsoft.Data.SqlClient 7.1.1
+- Microsoft.SqlServer.TransactSql.ScriptDom 180.117.0
 
 ---
 
@@ -74,12 +83,12 @@ DataGuard.sln
 - `AllArgumentsReader` - `ALL_ARGUMENTS` với SEQUENCE/OVERLOAD cho overloads
 - `AllTabColumnsReader` - `ALL_TAB_COLUMNS` với CHAR_USED (B/C)
 - `NlsSessionReader` - `NLS_LENGTH_SEMANTICS` + Phiên Bản DB
-- `RefCursorDescriber` - `DBMS_SQL.DESCRIBE_COLUMNS`
+- `RefCursorDescriber` - `DBMS_SQL.DESCRIBE_COLUMNS3` (explicit execution opt-in; see Oracle adapter guide)
 - `LengthMismatchDetector` - 3 loại mismatch + EfCoreInferenceSimulator
 - `OracleDialectChecker` - 5 quy tắc dialect
 
 **Phụ Thuộc / Dependencies**:
-- Oracle.ManagedDataAccess.Core 23.6.0 (Oracle Distribution License)
+- Oracle.ManagedDataAccess.Core 23.26.301 (Oracle Distribution License)
 
 ---
 
@@ -107,18 +116,20 @@ DataGuard.sln
 ### DataGuard.Cli
 **Mục Đích / Purpose**: dotnet tool cho CI/CD và xác thực local / dotnet tool for CI/CD and local validation
 
-**Lệnh / Commands** (9 lệnh / 9 commands):
+**Lệnh / Commands**: the authoritative registration is [Program.cs](../src/DataGuard.Cli/Program.cs); this table highlights the primary commands.
 | Command / Lệnh | Mô Tả / Description |
 |---------|-------------|
-| `validate` | Xác thực hợp đồng đầy đủ với output SARIF/JSON/text |
+| `validate` | Validation with text/SARIF/evidence; contracts/yaml/typescript are acquisition exports, not validation results |
 | `baseline` | Tạo baseline từ vi phạm hiện tại |
-| `snapshot refresh` | Làm mới snapshot schema (giống Jest) |
+| `snapshot refresh` | Explicitly acquire and persist a schema snapshot |
 | `snapshot show` | Hiển thị metadata snapshot |
 | `snapshot diff` | So sánh schema hiện tại vs snapshot |
 | `init` | Tạo `.dataguard.yml` config |
 | `config show/validate` | Xem/xác thực cấu hình |
 | `oracle-check` | Kiểm tra dialect + length Oracle |
-| `version` | Hiển thị phiên bản + assemblies đã load |
+| `version` | Hiển thị thông tin phiên bản |
+| `preflight`, `scan`, `verify-shape` | Additional acquisition/validation entrypoints; use command `--help` |
+| `migrate`, `assess`, `hook` | Migration, assessment and hook commands; use command `--help` |
 
 **Cài Đặt Hook / Hook Installer**:
 - `PreCommitHookInstaller` - Husky, lefthook, native git hooks
@@ -126,6 +137,8 @@ DataGuard.sln
 ---
 
 ## Cấu Hình Build / Build Configuration
+
+Project-specific target frameworks override shared defaults. `DataGuard.sln` is the complete solution; `DataGuard.CrossPlatform.slnf` is the non-Windows build surface. VS Code has its own Node toolchain and is not built by `dotnet build`. See the checked-in project files, [global.json](../global.json) and [Directory.Build.props](../Directory.Build.props); the snippets below show selected settings.
 
 ### Directory.Build.props
 ```xml
@@ -145,8 +158,9 @@ DataGuard.sln
 ```json
 {
   "sdk": {
-    "version": "9.0.310",
-    "rollForward": "latestFeature"
+    "version": "9.0.100",
+    "rollForward": "latestFeature",
+    "allowPrerelease": false
   }
 }
 ```
@@ -154,6 +168,8 @@ DataGuard.sln
 ---
 
 ## Các Gói NuGet / NuGet Packages
+
+Selected package identities below are not a complete publication inventory. Contracts, CodeFixes, MySQL/PostgreSQL adapters, Build and observability projects have their own packaging metadata. A project/package ID does not establish current feed availability.
 
 | Package / Gói | ID | Mô Tả / Description |
 |---------|----|-------------|
@@ -171,53 +187,11 @@ DataGuard.sln
 
 ## Pipeline CI/CD
 
-> Pipeline được rewrite toàn diện (2026-08): SDK `9.0.x`, permissions tối thiểu,
-> pin SHA toàn bộ actions, supply-chain (cosign v3.1.3 keyless + SBOM + attestations),
-> Trusted Publishing cho NuGet. Chi tiết: `plans/2026-08-20-ci-cd-upgrade.md`.
+The executable definitions are [ci.yml](../.github/workflows/ci.yml) and [release.yml](../.github/workflows/release.yml). CI has separate Linux, live-database, VS Code, script, Windows/VSIX, security, CodeQL, SBOM, benchmark and Docker jobs; it is not one linear restore→security→publish sequence.
 
-### Build & Test (`.github/workflows/ci.yml`)
-```yaml
-jobs:
-  build-and-test:   # Ubuntu: SDK 9.0.x, NuGet cache, fail-fast
-    - dotnet restore DataGuard.CrossPlatform.slnf --locked-mode
-    - dotnet build DataGuard.CrossPlatform.slnf --configuration Release --no-restore
-    - dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-build
+CI chạy các job riêng; `Category!=LiveDb` của bộ test thông thường không thay thế job integration. Release có kiểm tra version/CI, build/test và các điều kiện `needs`/`if` riêng cho ký, đóng gói, draft release, NuGet, attestation, Docker và publish release. Workflow dispatch có chế độ dry-run. Không suy ra đã publish hoặc tất cả job đã chạy từ việc có file workflow.
 
-  visual-studio-build-and-test:   # Windows: VSIX project reference + net472 tests
-    - dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release
-
-  security-scan:
-    - dotnet restore DataGuard.sln --locked-mode -p:NuGetAuditMode=all -p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905
-    - TruffleHog (pin SHA, only_verified) — push + PR
-    - CodeQL Analysis (cross-platform build + custom queries .github/codeql)
-
-  generate-sbom:
-    - Microsoft.Sbom.Tool 4.1.5 (pin global tool) — sbom-tool generate
-      (-bc directory, -m output dir) → upload sboms artifact
-
-  docker-smoke:     # chỉ push → main
-    - build image qua Dockerfile → chạy `DataGuard.Cli.dll --help`
-```
-
-### Release (`.github/workflows/release.yml`)
-```yaml
-jobs:
-  build-and-test: (same as CI) + pack NuGet (version từ git tag, strip prefix v)
-  sign-packages:
-    - cosign v3.1.3 keyless signing + `--bundle` (nupkgs) → signed-nupkgs artifact
-    - SBOM per-package (download nupkgs thật → sbom-tool generate) → sboms artifact
-  publish-nuget:
-    - Trusted Publishing (NuGet/login OIDC, secret NUGET_USER) fallback NUGET_API_KEY
-    - dotnet nuget push từ artifacts (không skip-duplicate)
-  publish-attestations:
-    - actions/attest@v4 (build provenance, id-token) — thay `gh attestation upload`
-  create-github-release:
-    - gh CLI: draft → attach nupkg + .sigstore.json + SBOM → publish
-      (guard: xóa draft cũ khi re-run, fail nếu đã published)
-  docker:
-    - buildx + QEMU: linux/amd64 + linux/arm64 → push GHCR
-    - tags: semver (từ git tag) + raw version + latest (workflow_dispatch)
-```
+Marketplace publication remains paused; see [publishing policy](marketplace-publishing.md). This source-only reconciliation did not run workflows or publish artifacts.
 
 ---
 
@@ -242,7 +216,7 @@ jobs:
 
 ## Các File Cấu Hình / Configuration Files
 
-### .dataguard.yml (Được sinh bởi `dataguard init`)
+### .dataguard.yml (Illustrative subset / Tập cấu hình minh họa)
 ```yaml
 # DataGuard Configuration
 GroundTruthMode: Snapshot
@@ -273,64 +247,38 @@ EnableTelemetry: false
 
 ```bash
 # Clone
-git clone https://github.com/DataGuard/DataGuard
-cd DataGuard
+git clone https://github.com/thanhnt-sm/eco_support_net_oracle
+cd eco_support_net_oracle
 
 # Restore & Build / Khôi Phục & Build
-dotnet restore DataGuard.sln
-dotnet build DataGuard.sln
+dotnet restore DataGuard.CrossPlatform.slnf --locked-mode
+dotnet build DataGuard.CrossPlatform.slnf --configuration Release --no-restore
 
 # Run Tests / Chạy Test
-dotnet test DataGuard.sln
+dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-build --filter "Category!=LiveDb"
 
-# Cài đặt CLI local
-dotnet tool install --local --add-source ./artifacts DataGuard.Cli
-
-# Chạy CLI
-dataguard validate --offline --format text
-
-# Cài đặt pre-commit hook
-dataguard hook install
+# Chạy CLI từ source / Run CLI from source
+dotnet run --project src/DataGuard.Cli --no-launch-profile -- validate --offline --format text
 ```
 
 ---
 
 ## Hỗ Trợ Docker / Docker Support
 
-### Dockerfile
-```dockerfile
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-WORKDIR /src
-COPY . .
-RUN dotnet publish DataGuard.Cli -c Release -o /app
+The checked-in [Dockerfile](../Dockerfile) restores `src/DataGuard.Cli/DataGuard.Cli.csproj` in locked mode, publishes for the target architecture, and runs `dotnet DataGuard.Cli.dll` as a non-root user on the .NET runtime image. Its entrypoint already selects the executable, so container arguments start with `validate`, not another `dataguard` executable name.
 
-FROM mcr.microsoft.com/dotnet/runtime:9.0
-WORKDIR /app
-COPY --from=build /app .
-ENTRYPOINT ["dotnet", "DataGuard.Cli.dll"]
-```
-
-### docker-compose.yml
-```yaml
-services:
-  dataguard:
-    build: .
-    volumes:
-      - .:/workspace
-    working_dir: /workspace
-    command: dataguard validate --offline
-```
+Dockerfile thực tế là nguồn chuẩn cho digest image, project closure và publish flags. Không dùng bản Dockerfile rút gọn cũ làm bản triển khai tương đương. Container smoke/build was not run for this documentation audit.
 
 ---
 
 ## Checklist Release / Release Checklist
 
 - [ ] Tất cả test pass (CI green)
-- [ ] Version bump trong `Directory.Build.props`
+- [ ] Release version agrees with tag/workflow inputs and MinVer metadata
 - [ ] CHANGELOG.md cập nhật
-- [ ] Git tag pushed (`v1.0.0`)
+- [ ] Owner-authorized release tag matches intended version
 - [ ] GitHub Release tạo
-- [ ] 5 gói NuGet publish
+- [ ] Intended packages published according to the actual release workflow
 - [ ] Docker image push lên GHCR
 - [ ] SBOMs tạo và upload
 - [ ] Sigstore attestations publish
@@ -338,4 +286,5 @@ services:
 
 ---
 
-*Cập nhật lần cuối: 2025-01-19 / Last updated: 2025-01-19*
+*Historical document date / Ngày ghi trên tài liệu trước đối chiếu: 2025-01-19.*
+Source review: 2026-10-18. Historical diagrams were previously dated 2025-01-19. Test targets are goals, not measured accuracy or coverage; no runtime, Windows/editor-host, database or release checks were performed in this documentation-only pass.

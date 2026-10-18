@@ -1,4 +1,9 @@
+> **Historical evidence / Tài liệu lịch sử — 2026-10-18:** Dated 2025-01-19 product concept: version 1.0 roadmap, distribution and readiness statements are historical, not current release instructions. Current authority / Nguồn hiện hành: [capabilities](product/capabilities.md), [evaluation](product/evaluation.md), [release claims](product/release-claims.md). Historical body retained; not revalidated / Giữ nội dung cũ, chưa kiểm chứng lại.
+
 # Sản Phẩm DataGuard / DataGuard Product / Sản Phẩm DataGuard
+
+> Legacy overview under reconciliation — 2026-10-18: distribution, performance and broad readiness claims below require current evidence; do not copy them into Marketplace text as verified facts. See [source/claim mapping](product/source-map.md). Original content is retained pending consumer reconciliation (SA-DOC-015).
+
 
 ## Tổng Quan Sản Phẩm / Product Overview / Tổng Quan Sản Phẩm
 

@@ -268,17 +268,22 @@ trung lập với provider:
 | Điểm nối trong Core | Mặc định của Core | Triển khai trong adapter SQL Server |
 |---------------------|-------------------|-------------------------------------|
 | `ILiveQuerySchemaProvider` (DG018/DG020) | không có: connection mà không có provider được báo là chưa đánh giá (DG020) | `SqlServerLiveQuerySchemaProvider` |
-| `ITypeCompatibility` + `TypeCompatibilityRegistry` | `UnknownTypeCompatibility` (không báo lỗi) | `SqlServerTypeCompatibility` (đăng ký cho `sqlserver`) |
+| `ITypeCompatibility` + `TypeCompatibilityRegistry` | `UnknownTypeCompatibility` (Unknown; kiểm tra liên quan là unevaluated) | `SqlServerTypeCompatibility` (đăng ký cho `sqlserver`) |
 | `IPhantomReferenceAnalyzer` (DG015/DG016) | `PhantomSqlAnalyzer` (tokenizer) | `TSqlPhantomAnalyzer` |
-| `ISqlStatementParser` (DG019) | `NoOpSqlStatementParser` (chấp nhận mọi thứ) | `TSqlStatementParser` |
+| `ISqlStatementParser` (DG019) | `NoOpSqlStatementParser` (không có grammar; DG019 đánh dấu raw SQL unevaluated) | `TSqlStatementParser` |
 
 DG019 (`RawSqlParseStatusRule`) parse từng contract raw SQL bằng parser được inject và báo lỗi ScriptDOM đầu tiên
 (`Line L, column C: message`) ở mức Error. Placeholder phía client (`:name`, `?`, `{0}`) được đổi thành biến `@` trước khi
-parse; lời gọi stored procedure và raw SQL có connection hint của provider khác không bị parse. Các provider khác không có
-parser, nên DG019 chỉ báo trạng thái parse do nguồn thu thập đặt.
+parse; lời gọi stored procedure và raw SQL có connection hint của provider khác không bị parse. Khi không có grammar được inject, DG019 báo lỗi từ nguồn thu thập và đánh dấu raw SQL liên quan còn lại là unevaluated; thiếu parser không đồng nghĩa với cú pháp đã được xác thực.
 
 Code thư viện từng dùng `DataGuard.Core.Sources.SqlServerStoredProcedureParser`, `RawSqlParser`,
 `DataGuard.Core.Rules.SqlServerLiveQuerySchemaProvider` hoặc `DataGuard.Core.Rules.TypeCompatibility.SqlServerTypeCompatibility`
 cần tham chiếu package `DataGuard.SqlServer.Adapter` và đổi `using` sang `DataGuard.SqlServer.Adapter` (không có type
 forwarder). Code resolve bảng SQL Server qua `TypeCompatibilityRegistry` mà không đăng ký giờ nhận `UnknownTypeCompatibility`;
 hãy gọi `TypeCompatibilityRegistry.Register(SqlServerTypeCompatibility.Instance)` hoặc inject bảng trực tiếp.
+
+## Giới hạn mô tả live raw SQL
+
+`SqlServerLiveQuerySchemaProvider` gọi `EXEC sys.sp_describe_first_result_set @tsql = @tsql, @params = NULL, @browse_information_mode = 0`, bind SQL bằng `NVarChar(MAX)` và timeout 5 giây. Đây là path riêng với mô tả catalog procedure ở trên. Lỗi mô tả/kết nối không chứng minh truy vấn hợp lệ; rule live ghi nhận unevaluated. Kiểu Unknown cũng không được coi là tương thích. Chuẩn hóa độ dài Unicode/MAX ở trên áp dụng cho `SqlServerStoredProcedureParser`; provider live hiện sao chép `max_length` vào `MaxLength`/`CharLength`, nên không được giả định metadata độ dài đã tương đương ở hai path.
+
+Nguồn triển khai được đối chiếu: [SqlServerLiveQuerySchemaProvider.cs](../../../src/DataGuard.SqlServer.Adapter/SqlServerLiveQuerySchemaProvider.cs). Các giới hạn mô tả ở đây là hành vi hiện tại, không phải cam kết parity giữa provider hay bằng chứng kiểm thử cơ sở dữ liệu live.

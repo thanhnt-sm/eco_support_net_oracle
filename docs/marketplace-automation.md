@@ -4,6 +4,8 @@
 
 `.github/workflows/marketplace-release.yml` is a separate, opt-in `workflow_dispatch` entry point. Its default `publish=false` only tests and prepares packages. It accepts dispatches from this repository's `main` only. Existing `marketplace.yml` remains test/package-only, the release helper's Marketplace pause stays intact, and `installers.yml` keeps its documented rolling-nightly behavior. This workflow is not release-ready merely because local tests pass: no hosted preparation, Windows toolchain, editor acceptance, environment access or publisher authentication has been exercised by this change.
 
+SA-DOC-015 checked these workflow/helper contracts at baseline `ca68a3159425495f771da866188df75a8237ab4b`; it did not query listings, credentials or hosted run status. DataGuard IDs and license history remain unchanged; see the proposed brand [strategy](product/strategy.md).
+
 ## Prerequisites and current blockers
 
 Preparation is available before release metadata is ready. With `publish=false`, an empty `release_tag` uses the immutable `source_sha` and its actual source version. Version 0.3.0 and the current VS Code engine mismatch are reported as build-only blockers in the run summary, not silently treated as supported or publishable. Matching embedded versions/identities and all test/package assertions remain mandatory. Publication still requires a stable tag at least 0.4.0 and a compatible engine floor. No versions, publishers, tags or settings are changed automatically.

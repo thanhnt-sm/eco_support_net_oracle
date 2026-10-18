@@ -291,7 +291,7 @@ flowchart LR
 | Stage | Tool | Purpose |
 |-------|------|---------|
 | **Build** | `dotnet build --configuration Release` | Compile all 11 projects with `TreatWarningsAsErrors` |
-| **Test** | `dotnet test` + XPlat Code Coverage | 291+ tests, 60% coverage gate |
+| **Test** | `dotnet test` + XPlat Code Coverage | Run-specific counts/scope; thresholds come from the selected workflow SHA |
 | **Format Gate** | `dotnet format --verify-no-changes` | Enforce consistent code style |
 | **Vulnerability Scan** | `dotnet restore -p:NuGetAuditMode=all` | Audits direct and transitive packages; NU1900–NU1905 fail the gate |
 | **Secret Scan** | TruffleHog v3.97.0 | Verified secrets only, exclude build artifacts |

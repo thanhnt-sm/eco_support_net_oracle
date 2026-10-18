@@ -1,5 +1,8 @@
 # Định Hướng Tương Lai & Lộ Trình
 
+> Bản kế hoạch lịch sử — ghi chú 2026-10-18: phiên bản, số liệu và dự báo bên dưới không phải inventory phát hành hiện tại. Giữ làm ngữ cảnh; xem [bản đồ nguồn](../product/source-map.md) và [mục lục chiến lược nháp](../product/README.vi.md).
+
+
 ## Trạng Thái Hiện Tại (v0.1.x)
 
 - ✅ 16+ rules validation (DG001-DG016, MY001-003, PG001-003)

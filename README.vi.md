@@ -1,3 +1,5 @@
+> **Định hướng sản phẩm (2026-10-18):** [StackAccord](docs/product/strategy.vi.md) là thương hiệu dự kiến; tên kỹ thuật hiện tại vẫn giữ nguyên. [Lộ trình](docs/product/roadmap.vi.md) và [bản nháp Marketplace](docs/product/marketplace-copy.vi.md) phân biệt hiện có/đã kiểm chứng/đã phát hành/kế hoạch. Phạm vi review và phần chưa xác minh được ghi trong [kiểm kê tài liệu](docs/product/documentation-inventory.md); không dùng số liệu lịch sử làm bằng chứng phát hành. Vẫn tạm dừng xuất bản.
+
 <div align="center">
   <p>
     <a href="README.md">English</a> | <b>Tiếng Việt</b>
@@ -132,7 +134,7 @@ Rule adapter nào chạy tùy `--provider` (`src/DataGuard.Cli/ProviderRuleCatal
 
 ## Tài liệu
 
-- [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/PRODUCT.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/architecture/architecture.md) · [Bảo mật](SECURITY.md)
+- [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/01-overview/product-overview.vi.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/02-architecture/system-architecture.vi.md) · [Bảo mật](SECURITY.md)
 
 ## Độ phủ Kiểm thử & Chỉ số Chất lượng
 

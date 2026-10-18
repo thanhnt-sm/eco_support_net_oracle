@@ -283,7 +283,7 @@ references.
     <TargetFramework>net9.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="DataGuard.Core" Version="1.0.0" />
+    <PackageReference Include="DataGuard.Core" Version="<verified-compatible-package-version>" />
   </ItemGroup>
 </Project>
 ```

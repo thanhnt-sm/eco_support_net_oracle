@@ -6,11 +6,11 @@
 
 | Section | Description | Link |
 |---------|-------------|------|
-| **Directory Tree** | Full workspace inventory with descriptions | [EN](00-directory-tree/directory-tree.md) · [VI](00-directory-tree/directory-tree.vi.md) |
+| **Directory Tree** | Dated directory overview; exhaustive review status is in the documentation inventory | [EN](00-directory-tree/directory-tree.md) · [VI](00-directory-tree/directory-tree.vi.md) |
 | **Product Overview** | What DataGuard is, why it exists | [EN](01-overview/product-overview.md) · [VI](01-overview/product-overview.vi.md) |
-| **Feature Showcase** | All features and capabilities | [EN](01-overview/feature-showcase.md) · [VI](01-overview/feature-showcase.vi.md) |
+| **Feature Showcase** | Scoped source capabilities and limitations | [EN](01-overview/feature-showcase.md) · [VI](01-overview/feature-showcase.vi.md) |
 | **Pain Points Solved** | .NET/C# developer problems solved | [EN](01-overview/pain-points-solved.md) · [VI](01-overview/pain-points-solved.vi.md) |
-| **Quickstart** | 5-minute getting started | [EN](01-overview/quickstart.md) |
+| **Quickstart** | Source/verified-artifact getting started | [EN](01-overview/quickstart.md) |
 | **System Architecture** | Full architecture with diagrams | [EN](02-architecture/system-architecture.md) · [VI](02-architecture/system-architecture.vi.md) |
 | **Design Philosophy** | Design principles and philosophy | [EN](02-architecture/design-philosophy.md) · [VI](02-architecture/design-philosophy.vi.md) |
 | **Component Model** | Component dependency graph | [EN](02-architecture/component-model.md) · [VI](02-architecture/component-model.vi.md) |
@@ -27,7 +27,7 @@
 
 ## Architecture Decision Records
 
-Component decisions measured against the original goals ([index](adr/README.md)):
+Proposed component recommendations (owner decisions pending), measured against the original goals ([index](adr/README.md)):
 
 - [ADR-0000](adr/ADR-0000-adr-process.md): ADR process and template
 - [ADR-0001](adr/ADR-0001-visual-studio-extension.md): Visual Studio extension (`freeze`)
@@ -54,3 +54,9 @@ Component decisions measured against the original goals ([index](adr/README.md))
 
 - [DG019 dialect selection and source locations](guides/dg019-dialect-and-locations.md)
 - [Configuration and commented Oracle snapshot examples](guides/configuration.md)
+
+## Product strategy reconciliation (draft)
+
+[StackAccord working index](product/README.md) maps current source, proposed capabilities and historical claims. It does not rename existing technical identities or authorize publication.
+
+[Exhaustive documentation inventory and review status](product/documentation-inventory.md).

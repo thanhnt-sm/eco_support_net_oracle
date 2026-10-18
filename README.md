@@ -1,3 +1,5 @@
+> **Product direction (2026-10-18):** [StackAccord](docs/product/strategy.md) is the proposed brand; existing technical identities remain unchanged. The [roadmap](docs/product/roadmap.md) and [Marketplace draft](docs/product/marketplace-copy.md) distinguish implementation, validation, release and plans. Review scope and unresolved verification are recorded in the [documentation inventory](docs/product/documentation-inventory.md); historical numbers are not current release evidence. Publication remains paused.
+
 # DataGuard — Contract Validation for Entity ↔ Stored Procedure / Raw SQL
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
@@ -168,7 +170,7 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 
 ## Documentation
 
-- [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/system_architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
+- [Solution overview](docs/SOLUTION.md) · [Product](docs/01-overview/product-overview.md) · [Usage](docs/USAGE.md) · [Architecture](docs/02-architecture/system-architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
 
 ## Test Coverage & Quality Telemetry
 

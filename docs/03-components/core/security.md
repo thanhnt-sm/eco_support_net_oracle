@@ -1,343 +1,64 @@
-# Security Subsystem
-
-> Source: `src/DataGuard.Core/Security/ZeroTrustCredentialProvider.cs`, `CredentialManager.cs`, `IAuditLogger.cs`, `SupplyChainVerifier.cs`
-
-The security subsystem implements zero-trust credential handling, hash-chain audit logging, and supply chain integrity verification. Every component follows the principle: **never log or serialize secrets, minimize secret lifetime with best-effort clearing, and fail closed by default**. Managed runtimes cannot promise that a secret never appears in a memory dump; callers must treat process-memory access as privileged.
-
-`EncryptConnectionStringAtRest` uses Windows DPAPI on Windows, the login Keychain on macOS, and Linux Secret Service through `secret-tool` on Linux. The Keychain bridge calls Security.framework directly; the Linux bridge supplies a secret on standard input, so neither puts it in command-line arguments. Linux helper output is bounded (1 MiB for the secret and 16 KiB for errors) and operations time out after 10 seconds. `EncryptConnectionStringAtRest` defaults to `true`. When no backend exists (`CredentialManager.IsPlatformProtectionAvailable()` is false: Linux without `/usr/bin/secret-tool`, other OSes) the write falls back to owner-only plaintext with a warning, or fails before any file is written with `RequireEncryptedCredentialStore: true`. When a backend exists but the write fails (for example no Secret Service session), it fails closed and protected references fail closed. DataGuard never writes plaintext while marking it encrypted. Plaintext storage without a warning is an explicit choice (`EncryptConnectionStringAtRest: false`).
-The additive `ICredentialSecretStore` contract allows platform-gated fakes in tests; production selection remains OS-specific and an unavailable implementation throws before persistence.
-
-## Security Flow
-
-```mermaid
-flowchart TB
-    subgraph Credential Resolution
-        ZTP[ZeroTrustCredentialProvider]
-        ENV[Environment Variables]
-        AKV[Azure Key Vault]
-        AWS[AWS Secrets Manager]
-        HCV[HashiCorp Vault]
-        LCS[Local Encrypted Store]
-        CFG[Config File<br/>dev only]
-    end
-
-    subgraph Credential Lifecycle
-        CM[CredentialManager]
-        CH[CredentialHandle]
-        ROT[Rotation Detection]
-        ENC[DPAPI Encryption]
-    end
-
-    subgraph Audit Trail
-        FAL[FileAuditLogger]
-        HC[Hash Chain<br/>SHA256]
-        NAL[NullAuditLogger]
-    end
-
-    subgraph Supply Chain
-        SCV[SupplyChainVerifier]
-        AH[Assembly Hash]
-        DV[Dependency Verification]
-        TP[Tampering Detection]
-    end
-
-    ENV --> ZTP
-    AKV --> ZTP
-    AWS --> ZTP
-    HCV --> ZTP
-    LCS --> ZTP
-    CFG --> ZTP
-
-    ZTP --> CH
-    CM --> ROT
-    CM --> ENC
-    CH --> |Dispose| CLEAR[Zero Memory]
-
-    ZTP --> FAL
-    CM --> FAL
-    FAL --> HC
-    FAL --> NAL
-
-    SCV --> AH
-    SCV --> DV
-    SCV --> TP
-```
-
-## ZeroTrustCredentialProvider
-
-Resolves credentials from multiple secure sources in priority order. Never exposes secrets in logs or serialization.
-
-```csharp
-public sealed class ZeroTrustCredentialProvider : ICredentialProvider
-{
-    public async Task<CredentialHandle> GetCredentialAsync(
-        string credentialName,
-        CredentialType type,
-        CancellationToken cancellationToken = default)
-    {
-        // Audit log the access (hash only, never the value)
-        await _auditLogger.LogCredentialAccessAsync(...);
-        var value = await ResolveCredentialAsync(credentialName, type, cancellationToken);
-        handle.SetValue(value);
-        return handle;
-    }
-}
-```
-
-### Resolution Priority
-
-| Priority | Source | Configuration | Notes |
-|----------|--------|---------------|-------|
-| 1 | Environment variable | `DATAGUARD_{NAME}` | Highest — CI/CD injection |
-| 2 | Azure Key Vault | `KeyVaultUri` | Uses managed identity (IMDS) |
-| 3 | AWS Secrets Manager | `AwsRegion` | Uses AWS SDK |
-| 4 | HashiCorp Vault | `VaultAddress` | Uses `VAULT_TOKEN` env var |
-| 5 | Local encrypted store | Auto-detected | DPAPI on Windows; login Keychain on macOS; Secret Service via `secret-tool` on Linux; unavailable backends fail closed |
-| 6 | Config file | `AllowPlaintextConfigFallback` | Dev only, fail-closed by default |
-
-### Azure Key Vault Integration
-
-Uses Azure Managed Identity via IMDS endpoint (`169.254.169.254`):
-1. Request OAuth2 token from IMDS
-2. Call Key Vault REST API (`GET secrets/{name}?api-version=7.4`)
-3. Extract `value` from response
-
-### AWS Secrets Manager Integration
-
-`DataGuard.Core` carries no AWS SDK. Secret managers implement `ISecretStore` (`Name`, `IsConfigured`, `GetSecretAsync`; null = absent, an exception = failure that the provider logs at **Warning** with the store name and then tries the next source). Core ships `AzureKeyVaultSecretStore` and `HashiCorpVaultSecretStore`; the CLI registers `DataGuard.Cli.Security.AwsSecretsManagerSecretStore` (`AmazonSecretsManagerClient` for `AwsRegion`) through the `ZeroTrustCredentialProvider(..., IEnumerable<ISecretStore> additionalSecretStores, ...)` constructor. Lookup order: Key Vault → registered stores → HashiCorp Vault → encrypted credential file. A library host that sets `AwsRegion` without registering a store gets a warning.
-
-### HashiCorp Vault Integration
-
-Uses `VAULT_TOKEN` environment variable and HTTPS-only endpoints:
-```csharp
-var url = $"{_config.VaultAddress}/v1/secret/data/{credentialName}";
-request.Headers.Add("X-Vault-Token", token);
-```
-
-## CredentialHandle
-
-Secure handle that reduces accidental credential exposure. Implements `IDisposable` with best-effort memory clearing; it is not a guarantee against process memory dumps or immutable-string copies.
-
-```csharp
-public sealed class CredentialHandle : IDisposable
-{
-    private char[]? _value;
-
-    // Execute action with credential without exposing it
-    public T Use<T>(Func<char[], T> action) { ... }
-
-    // Get as string (use with caution)
-    public string GetString() { ... }
-
-    public void Dispose()
-    {
-        // Zero out the credential in memory
-        Array.Clear(_value, 0, _value.Length);
-        _value = null;
-    }
-}
-```
-
-**Key security properties:**
-- Value stored as `char[]` (can be zeroed), not `string` (immutable in .NET)
-- `Use<T>()` method allows controlled access without string conversion
-- `Dispose()` zeros memory and suppresses finalizer
-- Finalizer as safety net if `Dispose()` is not called
-
-## CredentialManager
-
-Manages credential lifecycle with rotation detection and encryption at rest.
-
-The file-backed store rejects symbolic-link/reparse-point files and ancestors (while
-allowing the operating system's fixed temporary-root alias), caps reads and records
-at 1 MiB, and publishes through a same-directory flushed temporary file with
-owner-only Unix permissions. A final path check immediately before replacement
-documents the remaining check-to-open race boundary.
-
-```csharp
-public sealed class CredentialManager
-{
-    public async Task<string> GetConnectionStringAsync(CancellationToken ct = default)
-    {
-        // Environment variables win over config-file values
-        var connectionString = Environment.GetEnvironmentVariable("DATAGUARD_CONNECTION_STRING")
-            ?? _config.ConnectionString
-            ?? stored?.ConnectionString;
-
-        // Check for credential rotation
-        if (_config.EnableCredentialRotationDetection)
-            await CheckCredentialRotationAsync(connectionString, ct);
-
-        // Decrypt if encrypted (Windows DPAPI)
-        if (_config.EncryptConnectionStringAtRest && IsEncrypted(connectionString))
-            connectionString = DecryptConnectionString(connectionString);
-    }
-}
-```
-
-### Rotation Detection
-
-Compares current connection string hash against stored hash:
-```csharp
-if (stored!.ConnectionString != currentConnectionString)
-{
-    // Warning: credential rotation detected
-    // Old hash vs new hash logged to audit
-}
-```
-
-### Encryption at Rest
-
-Windows-only DPAPI encryption with `ProtectedData`:
-- Encrypt: `ProtectedData.Protect(data, entropy, DataProtectionScope.CurrentUser)`
-- Decrypt: `ProtectedData.Unprotect(encrypted, entropy, DataProtectionScope.CurrentUser)`
-- Prefix: `"ENC:" + base64(encrypted_bytes)`
-- Entropy: `"DataGuard.Credential.Protection"` (constant)
-
-## Audit Logging
-
-### IAuditLogger Interface
-
-```csharp
-public interface IAuditLogger
-{
-    Task LogDatabaseOperationAsync(string operation, string provider,
-        string connectionStringHash, string details, bool success,
-        string? errorMessage = null, CancellationToken ct = default);
-
-    Task LogCredentialAccessAsync(string operation, string provider,
-        string connectionStringHash, CancellationToken ct = default);
-
-    Task LogConfigurationChangeAsync(string setting, string? oldValue,
-        string? newValue, CancellationToken ct = default);
-}
-```
-
-### FileAuditLogger
-
-Hash-chain audit log with SHA256 integrity verification.
-
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant FAL as FileAuditLogger
-    participant Log as audit.log
-    participant CP as checkpoint
-
-    App->>FAL: LogDatabaseOperationAsync(...)
-    FAL->>FAL: Compute content hash
-    FAL->>FAL: Chain with previous hash
-    FAL->>Log: Append JSON entry
-    FAL->>CP: Write latest hash
-
-    Note over FAL,CP: VerifyIntegrityAsync() reads log,<br/>recomputes chain, checks checkpoint
-```
-
-**Hash chain construction:**
-```csharp
-var content = Serialize(entry with { Hash = null, PreviousHash = null });
-var hash = ComputeHash((previousHash ?? "") + content);
-var chained = entry with { Hash = hash, PreviousHash = previousHash };
-```
-
-**Keyed chain**: with `DATAGUARD_AUDIT_KEY` or `AuditKeyFile` (at least 16 bytes; `FileAuditLogger.Create(config)`), each link is `HMAC-SHA256(key, previousHash + content)` and the entry carries `HashAlgorithm: "HMAC-SHA256"` (covered by the link). Without a key the link is SHA-256 and the field is omitted (legacy line format).
-
-**Single writer**: `CredentialManager` writes through the injected `IAuditLogger` (`LogSecurityEventAsync`), never raw lines. Every `FileAuditLogger` instance appends under a per-path lock and re-reads the chain tail before writing, so several writers in one process keep one chain. The checkpoint (`<log>.checkpoint`, JSON) records the last hash, whether the chain is keyed, and a random per-file salt; `HashSensitiveValue` returns `HMAC-SHA256(salt, value)[..16]` for connection-string fingerprints (rotation events).
-
-**Integrity verification** (`VerifyIntegrityAsync` → `AuditIntegrityResult`):
-1. Read all log lines
-2. Recompute hash chain from scratch (`PreviousHash` must match; keyed links need the key)
-3. An unkeyed entry after a keyed one is tampering (downgrade)
-4. Verify checkpoint matches last hash (detects tail truncation; a legacy bare-hash checkpoint is accepted)
-5. Status: `Valid` (keyed and intact), `Unkeyed` (intact SHA-256 chain), `Tampered`, or `KeyRequired` (keyed entries, no key)
-
-### NullAuditLogger
-
-No-op implementation when audit logging is disabled. All methods return `Task.CompletedTask`.
-
-### Sensitive Value Masking
-
-`MaskValue()` redacts sensitive values in configuration change logs:
-- Values of 12 characters or fewer: `"****"`
-- Longer values: `"ab****yz"` (first 2 + last 2; at most four characters kept)
-
-## SupplyChainVerifier
-
-Verifies supply chain integrity following SLSA principles.
-
-```csharp
-public sealed class SupplyChainVerifier
-{
-    public async Task<SupplyChainVerificationResult> VerifyAsync(
-        string? expectedHashFile = null,
-        CancellationToken cancellationToken = default)
-    {
-        // 1. Assembly integrity (fail closed without anchor)
-        // 2. Dependency provenance verification (unverified without signed evidence)
-        // 3. Expected hash file comparison
-        // 4. Tampering indicators
-    }
-}
-```
-
-### Verification Checks
-
-| Check | Description | Fail Behavior |
-|-------|-------------|---------------|
-| AssemblyIntegrity | SHA256 hash of assembly file | Fail closed without anchor |
-| ExpectedHashMatch | Compare against SLSA provenance file | Fail if file missing |
-| Dependency_X | Each referenced assembly requires signed provenance evidence | Fail closed when provenance is unavailable |
-| StrongNameSigning | Check for strong name (informational) | Always passes |
-| DebugSymbols | Detect debug builds via `IsJITTrackingEnabled` | Warn in release |
-
-Assembly-name prefixes are not trust evidence. The built-in verifier reports every
-referenced dependency as unverified until an independent signed provenance/SBOM
-verifier supplies artifact-bound evidence. This deliberately fails closed rather
-than treating a familiar namespace as a trusted origin.
-
-### Security Flow Diagram
-
-```mermaid
-flowchart LR
-    subgraph Zero Trust
-        A[Credential Request] --> B{Source Priority}
-        B --> |1| C[Env Var]
-        B --> |2| D[Key Vault]
-        B --> |3| E[Secrets Manager]
-        B --> |4| F[Vault]
-        B --> |5| G[Encrypted Store]
-        B --> |6| H[Config File]
-        C --> I[CredentialHandle]
-        D --> I
-        E --> I
-        F --> I
-        G --> I
-        H --> I
-        I --> J[Use with callback]
-        J --> K[Dispose: zero memory]
-    end
-
-    subgraph Audit
-        L[Operation] --> M[Hash Chain Entry]
-        M --> N[Append to Log]
-        N --> O[Update Checkpoint]
-    end
-```
-
-## Configuration
-
-Security settings in `DataGuardConfiguration`:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `EnableCredentialRotationDetection` | `true` | Detect connection string changes |
-| `CredentialRotationWarningDays` | `30` | Days before rotation warning |
-| `EncryptConnectionStringAtRest` | `true` | DPAPI (Windows), Keychain (macOS), or Secret Service (Linux when available); plaintext with a warning when no backend exists |
-| `RequireEncryptedCredentialStore` | `false` | Refuse to store when encryption is requested but no backend exists |
-| `AuditKeyFile` | `null` | File whose trimmed text is the audit HMAC key (`DATAGUARD_AUDIT_KEY` wins) |
-| `KeyVaultUri` | `null` | Azure Key Vault URI |
-| `AwsRegion` | `null` | AWS region for Secrets Manager |
-| `VaultAddress` | `null` | HashiCorp Vault address |
-| `EnableAuditLogging` | `true` | Enable hash-chain audit log |
-| `AuditLogPath` | `null` | Custom audit log path |
-| `AllowPlaintextConfigFallback` | `false` | Allow config file credentials (dev only) |
+# Security subsystem
+
+> Source: `src/DataGuard.Core/Security/`, `src/DataGuard.Core/Security/SecretStores/`; CLI AWS adapter: `src/DataGuard.Cli/Security/AwsSecretsManagerSecretStore.cs`.
+
+These components resolve credentials, protect local credential storage where an OS backend is available, record audit events, and compare an assembly with a supplied hash. They are not a guarantee that arbitrary inputs contain no secrets, that process memory is protected, or that a release has verified SLSA provenance. This page describes source behavior; it is not evidence of live cloud or platform certification.
+
+## Credential resolution
+
+The current-source `ZeroTrustCredentialProvider` constructors compose Azure → host-registered stores in the supplied order → Vault. The resolver iterates that configured list and consults only stores whose `IsConfigured` is true; `ISecretStore` itself does not prescribe an order. With this composition, the overall lookup is:
+
+| Order | Source | Boundary |
+| --- | --- | --- |
+| 1 | `DATAGUARD_CONNECTION_STRING` for database credentials, then `DATAGUARD_{NAME}` | Environment values take priority; treat environment/process access as privileged. |
+| 2 | Azure Key Vault | Validate the configured endpoint before requesting an IMDS token. |
+| 3 | Host-registered `ISecretStore` instances | CLI registers AWS Secrets Manager when configured; Core has no AWS SDK dependency. |
+| 4 | HashiCorp Vault | Require configured `VaultAddress` to match independently supplied `VAULT_ADDR` before reading `VAULT_TOKEN`. |
+| 5 | Local credential store | `CredentialManager.GetStoredConnectionStringAsync`; protection and availability depend on the platform. |
+| 6 | Configuration | Only when `AllowPlaintextConfigFallback=true`; otherwise reject this fallback. |
+
+A configured remote store returning no value permits the next source. Failures are logged with store/credential identifiers and exception type, not the arbitrary exception message, then resolution continues. Requested cancellation propagates. Thus an individual store failure does not abort all resolution. The plaintext fallback switch is intended for development; the provider checks the flag, not a separate runtime environment identity.
+
+Azure accepts an HTTPS root of the form `https://name.vault.azure.net` on the default port, with no user information, query or fragment. It requests a managed-identity token from the fixed IMDS endpoint and escapes the secret name in the Key Vault request. This implementation does not support arbitrary or sovereign-cloud Vault domains.
+
+HashiCorp Vault requires HTTPS root addresses without user information, query or fragment. Configured and trusted origins must have the same case-insensitive IDN host and port. It reads KV v2 `/v1/secret/data/{escaped-name}` and the nested `data.data.value` field. HTTPS alone is not authorization to send the ambient token to a repository-selected endpoint. The production shared HTTP client disables redirects; callers injecting clients into the store classes must preserve that requirement.
+
+## Credential memory and storage
+
+`CredentialHandle` holds a `char[]`; `Dispose` clears that array, and its finalizer is a fallback. `Use` passes the backing array to the callback and does **not** clear it after each call. Callbacks can retain/copy it; `GetString` creates an immutable string. Neither API prevents memory dumps, earlier string copies, or misuse by callers.
+
+`CredentialManager` resolves environment → configured connection string → stored value through its own API. This is distinct from `ZeroTrustCredentialProvider`'s gated fallback policy; callers must choose the intended API.
+
+| Platform | Protected storage |
+| --- | --- |
+| Windows | DPAPI `CurrentUser`, constant entropy `DataGuard.Credential.Protection`, `ENC:` plus base64 ciphertext in the record. |
+| macOS | Login Keychain through Security.framework; the file stores a `KEYCHAIN:` reference. |
+| Linux | Secret Service through `/usr/bin/secret-tool`; the file stores a `SECRET-SERVICE:` reference. Secret input uses stdin, not command arguments. |
+
+Linux helper operations have a 10-second timeout and bounded output (1 MiB secret, 16 KiB error). OS backend selection or an injected `ICredentialSecretStore` does not prove the user's actual Keychain/Secret Service session is usable. With encryption requested but no backend available, storage warns and falls back to owner-only plaintext unless `RequireEncryptedCredentialStore=true`. A configured backend write failure fails rather than silently producing an encrypted-looking plaintext record. Explicit `EncryptConnectionStringAtRest=false` selects plaintext.
+
+The credential file path rejects links/reparse points and linked ancestors, with the fixed OS temporary-root alias exception. Reads/records are capped at 1 MiB. Writes use a same-directory flushed temporary file and owner-only Unix permissions. The final path recheck narrows, but does not eliminate, a check-to-open race against a process able to mutate the directory.
+
+Rotation detection compares the current and stored connection string, then emits audit fingerprints when they differ; it does not rotate a credential at the database. `CredentialRotationWarningDays` is declared configuration, not evidence of a scheduled rotation service in this component.
+
+## Audit logging
+
+`FileAuditLogger.Create(config)` selects the optional HMAC key from `DATAGUARD_AUDIT_KEY` or `AuditKeyFile` (trimmed text, at least 16 bytes). With a key, links use HMAC-SHA256; without one, links use SHA-256 and verification reports `Unkeyed`, not authenticated integrity. `NullAuditLogger` performs no logging.
+
+Entries link the previous hash to serialized content. A per-path in-process lock and an exclusive writer file handle with bounded retries coordinate appends; the writer rereads the tail. The checkpoint holds the latest hash, keyed flag and per-file salt used for fingerprints. Verification checks link continuity, keyed-to-unkeyed downgrades, and the checkpoint, returning `Valid`, `Unkeyed`, `Tampered` or `KeyRequired`.
+
+This is local integrity evidence, not an external immutable audit service. An unkeyed chain can be recomputed by an attacker who can rewrite its files; HMAC depends on protecting the key. Protect the log, checkpoint, and their directory. Crash/partial-write recovery and adversarial filesystem behavior require their own operational checks.
+
+Known sensitive-text patterns are redacted; configuration-change masking retains at most the first/last two characters of longer values and masks short values. These mechanisms cannot identify every secret in arbitrary text. Do not supply secrets in names, free-form details, exception messages or configuration labels.
+
+## Supply-chain checks
+
+`SupplyChainVerifier.VerifyAsync` hashes the current Core assembly. A supplied anchor must be an absolute existing file path, no linked ancestors, and at most 1,024 bytes. `ExpectedHashMatch` compares the trimmed file text with the assembly SHA-256. The caller must establish the anchor's provenance independently: the implementation does not verify signatures, attestations or SLSA documents.
+
+`AssemblyIntegrity` records whether an acceptable anchor path exists; equality is the separate `ExpectedHashMatch` result. Every referenced dependency is currently reported unverified. There is no built-in signed-provenance/SBOM verification integration that turns those dependency results into passes. `StrongNameSigning` is informational and always passes; the debug-build indicator can fail its check. `OverallPassed` requires every check to pass. Do not present this component as release certification.
+
+## Configuration and evidence
+
+Defaults: `EnableCredentialRotationDetection=true`, `EncryptConnectionStringAtRest=true`, `RequireEncryptedCredentialStore=false`, `EnableAuditLogging=true`, `AllowPlaintextConfigFallback=false`; cloud addresses/region and audit path/key file are optional. See [configuration](../../guides/configuration.md) for operator setup.
+
+Relevant regression sources include `ZeroTrustCredentialProviderTests`, `SecretStoreEndpointTests`, credential-store tests, audit-chain tests and supply-chain tests under `tests/DataGuard.Core.Tests/`. Source/tests describe intended boundaries; this documentation update did not contact cloud endpoints, inspect credentials, or run Windows/macOS secret-store integration.

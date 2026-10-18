@@ -1,3 +1,5 @@
+> **2026-10-18 — Historical document: the Rust runtime/architecture or old version forecasts below are not current operation/release instructions. The record is retained; do not execute old commands as current product guidance.** [Canonical product documentation](../product/README.md).
+
 # Upgrade Path & Feature Evolution
 
 ## Version History

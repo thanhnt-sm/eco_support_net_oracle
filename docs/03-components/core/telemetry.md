@@ -100,10 +100,10 @@ public sealed record TelemetryConfig(
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `Enabled` | `false` | Master switch — nothing happens when false |
-| `ExportEndpoint` | `null` | Legacy HTTPS URL; used only when `RemoteExportEnabled=true` and the file sink is disabled |
+| `Enabled` | `false` | Recording/flush switch; disabled recording does not imply the object allocates no resources |
+| `ExportEndpoint` | `null` | Compatibility URL: HTTPS, or HTTP loopback; native remote export requires `RemoteExportEnabled=true` and no active file sink |
 | `FlushIntervalSeconds` | `30` | Timer interval for event flushing |
-| `IncludeStackTraces` | `false` | Include stack traces in events |
+| `IncludeStackTraces` | `false` | Legacy constructor option; the collector does not currently use it to collect or strip stack traces |
 | `MaxQueuedEvents` | `10,000` | Maximum queued plus in-flight events; newer events are dropped after the cap |
 | `MaxBatchEvents` | `1,000` | Maximum events in one export request |
 | `MaxPayloadBytes` | `1,048,576` | UTF-8 byte ceiling for one request; an individually oversized event is dropped |
@@ -213,8 +213,7 @@ legacy injected-export model; the file path serializes the safer `ObservabilityR
 
 ### NDJSON Format
 
-The local sink writes newline-delimited JSON. The legacy `TelemetryEvent` shape below is shown only
-for injected exporters; local files use the `ObservabilityRecord` envelope from the dedicated
+The local sink writes newline-delimited JSON. The examples below show the local `ObservabilityRecord` envelope. Injected/legacy exporters instead serialize `TelemetryEvent`; see the dedicated
 [local sink guide](../../observability/local-file-observability.md):
 
 ```json
@@ -247,7 +246,7 @@ if (_consecutiveExportFailures >= MaxConsecutiveExportFailures)
     return; // Stop exporting
 ```
 
-This prevents telemetry failures from affecting the validation pipeline.
+This bounds repeated export attempts; failed telemetry can still lose events and must not be treated as a reliable audit channel.
 
 ## ValidationMetrics
 
@@ -285,13 +284,19 @@ var result = await pipeline.ValidateAsync(contracts);
 // Telemetry automatically recorded
 ```
 
-## Security Guarantees
+## Privacy controls and limits
 
-| Guarantee | Implementation |
+| Control | Implementation |
 |-----------|----------------|
 | **Opt-in** | `Enabled = false` by default |
-| **No secrets** | Allowlisted attributes; bodies omitted/redacted by default |
+| **Local envelope minimization** | Allowlisted attributes; optional bodies are pattern-redacted and capped, not guaranteed secret-free |
 | **Local-first** | Metrics and events archive locally through bounded async writes |
 | **No implicit endpoint** | Remote exporter requires `RemoteExportEnabled=true`; host routes are separate opt-in |
 | **Circuit breaker** | 3 failures → stop exporting |
 | **Shared HttpClient** | Applies only to the legacy compatibility exporter (SEC-005) |
+
+The local file sink and legacy/custom exporter are different trust boundaries. Injecting `exportSink` bypasses file-sink selection and the native `RemoteExportEnabled` gate. That delegate is trusted application code; legacy `TelemetryEvent` details/properties are not passed through the local envelope allowlist. Built-in remote endpoint validation rejects user information, query and fragment, but permits any HTTPS host and loopback HTTP; it is not an operator-owned destination allowlist or a guarantee against redirects. Export failures may include exception messages in stderr. Do not pass secrets in event details, metric names/tags, resource labels, or exception messages.
+
+`IncludeStackTraces` is retained for API compatibility, not an active redaction switch. `WithTelemetry()` explicitly enables collection when called without arguments; `TelemetryConfig.Enabled=false` remains the default for a directly constructed config. The pipeline records its validation summary, while other callers must invoke the corresponding recording methods; the flow diagram does not prove every CLI/rule path is instrumented. Metrics API compatibility does not mean an OpenTelemetry/OTLP exporter is installed or configured.
+
+Evidence: `TelemetryCollector.cs` constructor, `RecordEvent`, `FlushAsync` and `IsAllowedExportEndpoint`; `ObservabilityFileSink.cs`/`ObservabilityRecordFactory`; `PublicApi/PublicApiSurface.cs` (`WithTelemetry`, validation summary). This documentation audit did not exercise network export or an editor/host process.

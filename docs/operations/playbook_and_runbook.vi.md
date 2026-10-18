@@ -1,3 +1,5 @@
+> **2026-10-18 — Tài liệu lịch sử: kiến trúc/runtime Rust hoặc dự báo phiên bản cũ bên dưới không phải hướng dẫn vận hành/phát hành hiện hành. Giữ nguyên bản ghi; không chạy lệnh cũ như hướng dẫn sản phẩm hiện tại.** [Canonical product documentation](../product/README.vi.md).
+
 [English](playbook_and_runbook.md) | [Tiếng Việt](playbook_and_runbook.vi.md)
 
 > Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;

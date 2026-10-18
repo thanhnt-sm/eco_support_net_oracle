@@ -169,7 +169,7 @@ public sealed class CustomNamingConventionRule : IContractRule
 DataGuard is designed for enterprise CI/CD pipelines:
 
 - **SARIF 2.1.0 output**: Industry-standard format, natively supported by GitHub Code Scanning, Azure DevOps, and most SAST platforms.
-- **Audit logging**: Hash-chained audit entries for compliance (SOC 2, ISO 27001).
+- **Audit logging**: Hash-chained audit entries can support review; they do not establish SOC 2/ISO 27001 compliance.
 - **Baseline management**: Commit baselines to source control for legacy codebase onboarding.
 - **SBOM generation**: CycloneDX SBOM via `Microsoft.Sbom.DotNetTool` for supply chain transparency.
 - **Sigstore signing**: Keyless OIDC signing of NuGet packages for provenance verification.
@@ -179,7 +179,7 @@ DataGuard is designed for enterprise CI/CD pipelines:
 flowchart LR
     subgraph "Enterprise Features"
         A["SARIF 2.1.0<br/>GitHub · Azure DevOps"]
-        B["Audit Log<br/>Hash-chained · SOC 2"]
+        B["Audit Log<br/>Hash-chained · review evidence"]
         C["Baseline<br/>Source-controlled snapshots"]
         D["SBOM<br/>CycloneDX · Supply chain"]
         E["Sigstore<br/>Keyless signing"]
@@ -201,8 +201,8 @@ DataGuard uses a **dual-layer analyzer architecture**:
 
 | Layer | Technology | Speed | Scope |
 |-------|-----------|-------|-------|
-| **IDE Light** | `IIncrementalGenerator` | ~ms per keystroke | Syntax-only: unvalidated SQL calls, missing attributes |
-| **IDE heuristics** | `DiagnosticAnalyzer` (syntax-node action) | ~ms per call site | Syntax-only literal-SQL heuristics (DG004/DG017/DG097-DG099); no symbols, no database |
+| **IDE Light** | `IIncrementalGenerator` | Latency not measured | Syntax-only: unvalidated SQL calls, missing attributes |
+| **IDE heuristics** | `DiagnosticAnalyzer` (syntax-node action) | Latency not measured | Syntax-only literal-SQL heuristics (DG004/DG017/DG097-DG099); no symbols, no database |
 | **CLI** | `dataguard validate` | Seconds | Database ground truth (DG002-DG020, DG101); operator-launched, never from the IDE build |
 
 The IDE layer runs on every keystroke and marks unvalidated SQL calls with squiggly underlines. It uses incremental local syntax analysis. Allocation and GC behavior are measured per declared hot-path corpus; no universal zero-allocation claim applies to compiler-host setup or arbitrary documents.
@@ -212,7 +212,7 @@ The CI analyzer runs in the build pipeline using offline metadata only. Full dat
 ```mermaid
 flowchart TD
     subgraph "IDE (On Keystroke)"
-        A["IIncrementalGenerator<br/>Syntax-only · ~ms"]
+        A["IIncrementalGenerator<br/>Syntax-only · unmeasured latency"]
         A --> B["DG001: Unvalidated call<br/>DG004/DG017/DG097-099: literal SQL heuristics"]
     end
 

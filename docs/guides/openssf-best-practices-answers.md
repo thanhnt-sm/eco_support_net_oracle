@@ -1,9 +1,11 @@
+> **Dated questionnaire evidence (2026-10-18):** portal scores, submissions, signing and release assertions below are historical self-assessment statements, not a fresh remote verification. Recheck each answer against the exact artifact/run before submission; publication remains paused. License authority: [legal notices](../legal/ADDITIONAL-PERMISSIONS.md).
+
 # OpenSSF Best Practices (CII) Questionnaire Cheat Sheet: DataGuard
 
 > **Target Repository**: `thanhnt-sm/eco_support_net_oracle`  
 > **Self-Certification Portal**: [https://bestpractices.dev](https://bestpractices.dev)  
 > **Target Tier**: Silver (Path to 100% compliant)  
-> **Historical License Note**: Dual-licensed under GNU GPL v3.0-only and Commercial since release v0.3.0; earlier pre-v0.3.0 commits historically MIT (see `docs/legal/MIT-v0.1.0-v0.3.0.txt`).
+> **Historical License Note**: Dual-licensed under GNU GPL v3.0-only and Commercial from v0.4.0; v0.3.0 and earlier retain their historical MIT terms (see `docs/legal/MIT-v0.1.0-v0.3.0.txt`).
 
 ---
 

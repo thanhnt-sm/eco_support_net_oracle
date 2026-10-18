@@ -169,7 +169,7 @@ public sealed class CustomNamingConventionRule : IContractRule
 DataGuard được thiết kế cho pipeline CI/CD doanh nghiệp:
 
 - **Output SARIF 2.1.0**: Định dạng tiêu chuẩn ngành, được hỗ trợ native bởi GitHub Code Scanning, Azure DevOps và hầu hết các nền tảng SAST.
-- **Audit logging**: Các mục audit hash chuỗi cho tuân thủ (SOC 2, ISO 27001).
+- **Audit logging**: Các mục audit hash chuỗi hỗ trợ xem xét; không xác lập tuân thủ SOC 2/ISO 27001.
 - **Quản lý baseline**: Commit baselines vào source control cho onboard codebase cũ.
 - **Tạo SBOM**: SBOM CycloneDX qua `Microsoft.Sbom.DotNetTool` cho minh bạch chuỗi cung ứng.
 - **Ký Sigstore**: Ký keyless OIDC các gói NuGet để xác minh nguồn gốc.
@@ -179,7 +179,7 @@ DataGuard được thiết kế cho pipeline CI/CD doanh nghiệp:
 flowchart LR
     subgraph "Tính Năng Doanh Nghiệp"
         A["SARIF 2.1.0<br/>GitHub · Azure DevOps"]
-        B["Audit Log<br/>Hash chuỗi · SOC 2"]
+        B["Audit Log<br/>Hash chuỗi · bằng chứng xem xét"]
         C["Baseline<br/>Snapshots quản lý source"]
         D["SBOM<br/>CycloneDX · Chuỗi cung ứng"]
         E["Sigstore<br/>Ký keyless"]
@@ -201,8 +201,8 @@ DataGuard sử dụng **kiến trúc analyzer tầng kép**:
 
 | Tầng | Công Nghệ | Tốc Độ | Phạm Vi |
 |------|-----------|--------|---------|
-| **IDE Nhẹ** | `IIncrementalGenerator` | ~ms mỗi phím | Chỉ syntax: calls SQL chưa validate, attributes thiếu |
-| **Heuristic IDE** | `DiagnosticAnalyzer` (syntax-node action) | ~ms mỗi call site | Heuristic SQL literal chỉ dùng syntax (DG004/DG017/DG097-DG099); không symbol, không database |
+| **IDE Nhẹ** | `IIncrementalGenerator` | Chưa đo latency | Chỉ syntax: calls SQL chưa validate, attributes thiếu |
+| **Heuristic IDE** | `DiagnosticAnalyzer` (syntax-node action) | Chưa đo latency | Heuristic SQL literal chỉ dùng syntax (DG004/DG017/DG097-DG099); không symbol, không database |
 | **CLI** | `dataguard validate` | Giây | Ground truth database (DG002-DG020, DG101); do operator chạy, không chạy từ build IDE |
 
 Tầng IDE chạy trên từng phím và đánh dấu SQL call chưa validate bằng gạch chân sóng. Nó dùng phân tích syntax local tăng dần. Allocation và GC được đo theo hot-path corpus đã khai báo; không có claim zero-allocation phổ quát cho compiler-host setup hay tài liệu tùy ý.
@@ -212,7 +212,7 @@ Analyzer CI chạy trong pipeline build chỉ với offline metadata. Full datab
 ```mermaid
 flowchart TD
     subgraph "IDE (Khi Gõ Phím)"
-        A["IIncrementalGenerator<br/>Chỉ syntax · ~ms"]
+        A["IIncrementalGenerator<br/>Chỉ syntax · chưa đo latency"]
         A --> B["DG001: Call chưa validate<br/>DG004/DG017/DG097-099: heuristic SQL literal"]
     end
 
