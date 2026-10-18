@@ -1,6 +1,8 @@
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataGuard.Core.Tests")]
+
 namespace DataGuard.SqlServer.Adapter;
 
 /// <summary>
@@ -43,10 +45,7 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
         using var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        using var command = connection.CreateCommand();
-        command.CommandTimeout = 5;
-        command.CommandText = "SELECT name, system_type_name, is_nullable, max_length, precision, scale, column_ordinal FROM sys.sp_describe_first_result_set(@tsql, NULL, 0) ORDER BY column_ordinal";
-        command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@tsql", sqlText));
+        using var command = CreateDescribeCommand(connection, sqlText);
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -80,5 +79,16 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
         }
 
         return columns;
+    }
+
+    internal static Microsoft.Data.SqlClient.SqlCommand CreateDescribeCommand(
+        Microsoft.Data.SqlClient.SqlConnection connection,
+        string sqlText)
+    {
+        var command = connection.CreateCommand();
+        command.CommandTimeout = 5;
+        command.CommandText = "EXEC sys.sp_describe_first_result_set @tsql = @tsql, @params = NULL, @browse_information_mode = 0";
+        command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@tsql", System.Data.SqlDbType.NVarChar, -1) { Value = sqlText });
+        return command;
     }
 }
