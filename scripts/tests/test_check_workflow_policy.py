@@ -323,6 +323,14 @@ class PublishNeedsTestPolicyTests(unittest.TestCase):
         doc["jobs"]["test"]["steps"][0]["run"] = "dotnet test \\\n  DataGuard.sln --configuration Release\n"
         self.assert_rule_f(doc, expected_failure=False)
 
+    def test_visual_studio_publisher_requires_product_tests(self) -> None:
+        for command in ('& $publisher publish -payload package.vsix',
+                        '& "C:/tools/VsixPublisher.exe" publish -payload package.vsix'):
+            doc = publish_fixture(publish_step='run: |\n          ' + command)
+            self.assertTrue(policy.publish_markers(doc["jobs"]["publish"]))
+            doc["jobs"]["publish"]["needs"] = []
+            self.assert_rule_f(doc, expected_failure=True)
+
     def test_each_publish_marker_is_detected(self) -> None:
         steps = {
             "cosign": "run: cosign sign-blob --yes --bundle a.sigstore.json a.zip",
