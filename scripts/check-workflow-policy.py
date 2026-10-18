@@ -2,7 +2,7 @@
 """Workflow policy check for the Visual Studio VSIX gate and the publish-after-test rule.
 
 Asserts, over .github/workflows/ci.yml, release.yml, installers.yml, marketplace.yml and
-build_release.yml:
+build_release.yml and marketplace-release.yml:
   (a) every step that builds DataGuard.VisualStudio.csproj with MSBuild is followed, in the
       same job, by an *effective* step (no `if: false`, no `continue-on-error: true`) whose
       non-comment `run` lines invoke scripts/assert-vsix.ps1;
@@ -16,7 +16,7 @@ build_release.yml:
   (d) the nightly/release signing and attestation jobs keep their permissions and steps;
   (e) every Dockerfile `dotnet restore` uses --locked-mode;
   (f) every job that signs, attests or publishes (a step running `cosign`, `gh release`,
-      `vsce publish`, `dotnet nuget push` or `docker push`, using `attest-build-provenance` or a
+      `vsce publish`, `VsixPublisher`, `dotnet nuget push` or `docker push`, using `attest-build-provenance` or a
       cosign action, or `docker/build-push-action` with `push` not false) transitively `needs` a
       job that runs `dotnet test` of the product solution (DataGuard.CrossPlatform.slnf or
       DataGuard.sln, directly or via env.CROSS_PLATFORM_SOLUTION) as an effective step, in a job
@@ -48,9 +48,10 @@ WORKFLOWS = [
     ".github/workflows/installers.yml",
     ".github/workflows/marketplace.yml",
     ".github/workflows/build_release.yml",
+    ".github/workflows/marketplace-release.yml",
 ]
 # Rule (f): substrings of a step's non-comment `run` text that sign, attest or publish.
-PUBLISH_RUN_MARKERS = ("cosign", "gh release", "vsce publish", "dotnet nuget push", "docker push")
+PUBLISH_RUN_MARKERS = ("cosign", "gh release", "vsce publish", "dotnet nuget push", "docker push", "VsixPublisher", "$publisher publish")
 # Rule (f): substrings of a step's `uses` that sign or attest.
 PUBLISH_USES_MARKERS = ("attest-build-provenance", "cosign")
 DOCKER_BUILD_PUSH_ACTION = "docker/build-push-action"

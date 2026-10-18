@@ -9,7 +9,11 @@
 
 `tools/git-tools/dg-release` is the single explicit release entry point. It creates one immutable annotated Git tag, waits for the GitHub **Release** workflow to finish, with marketplace publication paused.
 
-It never accepts a secret on the command line, never reads a secret file, and never prints credentials.
+The helper accepts `DG_RELEASE_GITHUB_TOKEN` from the environment or, for compatibility,
+from `.release.env` when the environment value is absent. It reads that configuration file;
+keep credentials out of the example below and prefer an approved session-only mechanism.
+Browser Marketplace upload needs no PAT or GitHub dispatch token. See the
+[browser route and acceptance gates](../marketplace-publishing.md).
 
 ## 1. One-time GitHub configuration
 
@@ -46,7 +50,7 @@ Create a fine-grained personal access token under **GitHub → Settings → Deve
 - Expiration: 30 days or the shortest practical value.
 - Do not grant Administration, Secrets, Workflows outside this repository, Packages, or organization-wide access.
 
-The token only starts/observes GitHub workflows. NuGet and Marketplace credentials remain GitHub Actions secrets and never exist on the workstation.
+The token only starts/observes GitHub workflows. The workflow references NuGet/Marketplace credentials by secret name; this does not prove they are configured or prevent a user from storing copies elsewhere. Do not copy them to the workstation for browser upload.
 
 Store the token in the current shell session only:
 
@@ -83,14 +87,13 @@ To release without remembering CLI options:
 2. Open `.release.env` and configure the values:
    ```env
    RELEASE_TAG=v1.0.0
-   PUBLISH_MARKETPLACES=true
-   DG_RELEASE_GITHUB_TOKEN=github_pat_...
-   DRY_RUN=false
-   CONFIRM_RELEASE=true
+   PUBLISH_MARKETPLACES=false
+   DRY_RUN=true
+   CONFIRM_RELEASE=false
    ```
-   *Security note*: `.release.env` is strictly ignored by `.gitignore`. It is never committed to GitHub.
+   *Security note*: `.release.env` is ignored by `.gitignore`; that is not encryption or a guarantee against accidental disclosure. Do not put token values in this example.
 
-3. Run 1 command to execute the entire release:
+3. Run the helper to review this dry-run configuration:
    ```bash
    bash tools/git-tools/dg-release
    ```
@@ -116,7 +119,7 @@ The preflight verifies:
 - Tag does not already exist locally or on GitHub.
 - JSON parser (`jq` or `python`) is available.
 ## 4. Publish to every supported platform
-After the dry run passes and the protected environment reviewers are available:
+After the dry run passes and the owner has verified actual environment protections and required reviewers:
 
 ```bash
 bash tools/git-tools/dg-release \
@@ -167,4 +170,11 @@ Dry-run never creates a tag, dispatches a workflow, publishes a package, creates
 
 ## 6. What the tool cannot and must not automate locally
 
-`dg-release` does not receive NuGet, VS Code Marketplace, Visual Studio Marketplace, or GitHub Release write credentials. Those actions execute only on GitHub-hosted runners with scoped secrets, OIDC, build attestations, and protected environments.
+`dg-release` does not receive NuGet, VS Code Marketplace, Visual Studio Marketplace, or GitHub Release write credentials. Those release actions are configured for GitHub-hosted runners with secret/OIDC references and attestations. An environment name in YAML does not prove configured protection; verify actual reviewers and branch restrictions before relying on approval gates.
+
+## Rolling nightly versus Marketplace
+
+`installers.yml` can publish a rolling GitHub nightly on qualifying main pushes and defaults
+to publication on manual dispatch. It deletes/recreates the nightly release and tag; it does
+not publish to Marketplace. Use `publish_prerelease=false` for artifact-only dispatch.
+See [triggers, path exclusions and immutable-artifact requirements](../marketplace-publishing.md#rolling-nightly-is-a-different-publication-channel).
