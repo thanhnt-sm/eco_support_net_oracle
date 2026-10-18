@@ -2,7 +2,7 @@
 
 > **Repository**: `thanhnt-sm/eco_support_net_oracle`  
 > **Target**: Maximum OpenSSF Scorecard rating ([scorecard.dev](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle))  
-> **Current Baseline**: 7.9 / 10 at commit `3656e0e` (scorecard.dev scan 2026-10-05; weighted ceiling reachable from the repository alone: 8.1 after the provenance backfill below, the remaining checks need owner-side settings, time, or other contributors)  
+> **Historical Baseline (2026-10-05)**: 7.9 / 10 at commit `3656e0e` (scorecard.dev scan 2026-10-05; weighted ceiling reachable from the repository alone: 8.1 after the provenance backfill below, the remaining checks need owner-side settings, time, or other contributors)
 > **Historical License Note**: Dual-licensed under GNU GPL v3.0-only and Commercial since release v0.3.0; earlier pre-v0.3.0 commits historically MIT (see `docs/legal/MIT-v0.1.0-v0.3.0.txt`).
 
 ---
@@ -24,7 +24,7 @@
 | **Maintained** | 0/10 | Temporal Gate | Repository created 2026-08-16; Scorecard returns 0 while it is younger than 90 days, i.e. until **2026-11-14**. After that it needs an average of 1 commit or issue update per week over the trailing 90 days (13 in total) for 10/10; the current cadence is far above that. |
 | **Packaging** | 10/10 | Met | Automated packaging configured in `.github/workflows/ci.yml`. |
 | **Pinned-Dependencies** | 10/10 | Met | All GitHub Actions pinned to full commit SHA; npm & NuGet dependencies locked. |
-| **SAST** | 10/10 | Met | CodeQL workflow runs on `ci.yml` and `release.yml`; all recent commits evaluated. |
+| **SAST** | 10/10 (historical) | Revalidation needed | Historical scan only; main CI does not establish final-head scan evidence for every sampled merged PR. See the [2026-10-16 readiness proposal](scorecard-readiness.md) ([VI](scorecard-readiness.vi.md)); no current score or alert-resolution claim. |
 | **Security-Policy** | 10/10 | Met | Comprehensive `SECURITY.md` covering disclosure, timelines, and reporting. |
 | **Signed-Releases** | 8/10 → 10/10 | Backfilled | Scorecard scores each of the last 5 releases: 8 when every asset is signed (`*.sigstore.json`), 10 when a provenance asset (`*.intoto.jsonl`) is also attached. `nightly` had both; v0.3.0–v0.3.2 only had signatures because `release.yml` attested the assets but only started uploading the bundle on 2026-10-05. The bundles were still in the repository attestation store, so `.github/workflows/release-provenance-backfill.yml` re-attached the genuine build-time bundles (see section 4). |
 | **Token-Permissions** | 10/10 | Met | Top-level `contents: read` default; job-level least privilege throughout. |

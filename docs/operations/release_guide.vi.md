@@ -9,7 +9,10 @@
 
 `tools/git-tools/dg-release` là một điểm vào rõ ràng để phát hành. Tool tạo một Git tag annotated bất biến, chờ workflow GitHub **Release** hoàn tất, không dispatch Marketplace trong thời gian tạm dừng.
 
-Tool không nhận secret qua command line, không đọc file chứa secret và không in credential ra log.
+Helper nhận `DG_RELEASE_GITHUB_TOKEN` từ environment hoặc, để tương thích, từ `.release.env`
+khi environment chưa có giá trị. Tool có đọc file cấu hình đó; không đặt token vào ví dụ dưới
+đây, ưu tiên cơ chế session đã được duyệt. Upload Marketplace qua trình duyệt không cần PAT
+hay token dispatch GitHub. Xem [đường trình duyệt và gate](../marketplace-publishing.vi.md).
 
 ## 1. Cấu hình GitHub một lần
 
@@ -46,7 +49,7 @@ Vào **GitHub → Settings → Developer settings → Personal access tokens →
 - Expiration: 30 ngày hoặc ngắn nhất phù hợp.
 - Không cấp Administration, Secrets, Workflows ở repository khác, Packages, hoặc quyền toàn organization.
 
-Token này chỉ được dùng để theo dõi/gọi GitHub workflow. Credential NuGet và Marketplace vẫn chỉ nằm trong GitHub Actions secrets, không tồn tại trên máy local.
+Token này chỉ được dùng để theo dõi/gọi GitHub workflow. Workflow tham chiếu credential NuGet/Marketplace bằng tên secret; không chứng minh đã cấu hình hay không có bản sao ở máy khác. Không chép credential vào máy chỉ để upload qua trình duyệt.
 
 Nhập token vào shell hiện tại, không ghi vào file:
 
@@ -83,14 +86,13 @@ Remove-Item Env:DG_RELEASE_GITHUB_TOKEN
 2. Mở `.release.env` và điền các thông tin:
    ```env
    RELEASE_TAG=v1.0.0
-   PUBLISH_MARKETPLACES=true
-   DG_RELEASE_GITHUB_TOKEN=github_pat_...
-   DRY_RUN=false
-   CONFIRM_RELEASE=true
+   PUBLISH_MARKETPLACES=false
+   DRY_RUN=true
+   CONFIRM_RELEASE=false
    ```
-   *Lưu ý bảo mật*: File `.release.env` được quản lý nghiêm ngặt trong `.gitignore`, không bao giờ bị commit lên GitHub.
+   *Lưu ý bảo mật*: `.gitignore` bỏ qua `.release.env` nhưng không mã hóa hay bảo đảm tránh lộ file. Không đặt token vào ví dụ này.
 
-3. Chạy 1 lệnh duy nhất để toàn bộ hệ thống tự động chạy:
+3. Chạy helper để kiểm tra cấu hình dry-run này:
    ```bash
    bash tools/git-tools/dg-release
    ```
@@ -118,7 +120,7 @@ Tool sẽ kiểm tra toàn diện:
 
 ## 4. Phát hành tất cả nền tảng
 
-Sau khi dry-run pass và maintainer bảo vệ environment đã sẵn sàng:
+Sau khi dry-run pass và owner đã xác minh reviewer/bảo vệ environment thực tế đã sẵn sàng:
 
 ```bash
 bash tools/git-tools/dg-release \
@@ -169,4 +171,10 @@ Dry-run không tạo tag, không dispatch workflow, không publish package, khô
 
 ## 6. Điều tool không được tự động hóa ở máy local
 
-`dg-release` không nhận credential write của NuGet, VS Code Marketplace, Visual Studio Marketplace hay GitHub Release. Các thao tác đó chỉ chạy trên GitHub-hosted runners, với secret scope hẹp, OIDC, build attestation và protected environment.
+`dg-release` không nhận credential write của NuGet, VS Code Marketplace, Visual Studio Marketplace hay GitHub Release. Các thao tác đó chỉ chạy trên GitHub-hosted runners, với tham chiếu secret/OIDC và attestation. Tên environment trong YAML không chứng minh có bảo vệ; phải xác minh reviewer và giới hạn branch thực tế trước khi dựa vào gate phê duyệt.
+
+## Nightly khác Marketplace
+
+`installers.yml` có thể công bố GitHub nightly khi push main đủ điều kiện; dispatch mặc định
+cũng công bố. Job xóa/tạo lại release và tag nightly, không công bố Marketplace. Chọn rõ
+`publish_prerelease=false` khi chỉ cần artifact. Xem [trigger, paths-ignore và yêu cầu gói bất biến](../marketplace-publishing.vi.md#nightly-là-kênh-công-bố-khác).

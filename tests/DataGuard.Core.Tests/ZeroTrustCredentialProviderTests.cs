@@ -167,7 +167,7 @@ public class ZeroTrustCredentialProviderTests : IDisposable
     [Fact]
     public async Task SecretStoreFailure_IsLoggedAtWarningWithStoreName_AndNeverTheSecret()
     {
-        var failing = new FakeStore("BrokenStore", value: null, failure: new InvalidOperationException("access denied"));
+        var failing = new FakeStore("BrokenStore", value: null, failure: new InvalidOperationException("Password=synthetic-secret"));
         var working = new FakeStore("WorkingStore", "Server=second;Password=super-secret");
         var logger = new ListLogger();
         var provider = CreateProviderWithStores(new DataGuardConfiguration(), new[] { failing, working }, logger);
@@ -175,9 +175,9 @@ public class ZeroTrustCredentialProviderTests : IDisposable
         using var handle = await provider.GetDatabaseConnectionAsync();
 
         handle.GetString().Should().Be("Server=second;Password=super-secret");
-        logger.Entries.Should().ContainSingle(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("BrokenStore") && entry.Message.Contains("access denied"));
+        logger.Entries.Should().ContainSingle(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("BrokenStore") && entry.Message.Contains("InvalidOperationException"));
         logger.Entries.Should().NotContain(entry => entry.Level == LogLevel.Debug);
-        logger.Entries.Should().NotContain(entry => entry.Message.Contains("super-secret"));
+        logger.Entries.Should().NotContain(entry => entry.Message.Contains("super-secret") || entry.Message.Contains("synthetic-secret"));
     }
 
     [Fact]
@@ -379,7 +379,11 @@ public class CliCredentialResolutionTests : IDisposable
         var value = await source!(default);
 
         value.Should().BeNull();
-        warnings.ToString().Should().StartWith("warning: Secret store AwsSecretsManager lookup").And.Contain("simulated outage");
+        warnings.ToString().Should().StartWith("warning: Secret store AwsSecretsManager lookup")
+            .And.Contain("SecretStoreException")
+            .And.Contain("trying the next source")
+            .And.NotContain("simulated outage")
+            .And.NotContain("synthetic-cli-secret");
     }
 
     private sealed class ThrowingAwsLikeStore : ISecretStore
@@ -389,6 +393,6 @@ public class CliCredentialResolutionTests : IDisposable
         public bool IsConfigured(DataGuardConfiguration configuration) => true;
 
         public Task<string?> GetSecretAsync(string secretName, DataGuardConfiguration configuration, CancellationToken cancellationToken) =>
-            Task.FromException<string?>(new SecretStoreException("simulated outage"));
+            Task.FromException<string?>(new SecretStoreException("simulated outage; Password=synthetic-cli-secret"));
     }
 }
