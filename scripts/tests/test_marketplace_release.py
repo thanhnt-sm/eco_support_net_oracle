@@ -2,6 +2,9 @@
 import copy
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -32,6 +35,83 @@ class ReleaseContracts(unittest.TestCase):
     def test_valid_prepare_and_publish(self):
         self.assertEqual(self.validate(self.config())['version'], '0.4.1')
         self.assertTrue(self.validate(self.config(True))['publish'])
+
+    def test_optional_fields_are_normalized_without_mutating_input(self):
+        optional = ('release_tag', 'prepared_run_id', 'vscode_sha256', 'visualstudio_sha256', 'readiness_url', 'confirm')
+        minimal = {'source_sha': SHA, 'target': 'both', 'publish': False}
+        omitted = self.validate(minimal)
+        explicit = self.validate(dict(minimal, **dict.fromkeys(optional, '')))
+        self.assertEqual(omitted, explicit)
+        self.assertEqual(minimal, {'source_sha': SHA, 'target': 'both', 'publish': False})
+        for field in optional:
+            for value in (None, False, 123, [], {}):
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    self.validate(dict(minimal, **{field: value}))
+
+    def test_publication_still_requires_every_selected_optional_field(self):
+        for field in ('release_tag', 'prepared_run_id', 'vscode_sha256', 'visualstudio_sha256', 'readiness_url', 'confirm'):
+            for omitted in (True, False):
+                config = self.config(True)
+                if omitted: del config[field]
+                else: config[field] = ''
+                with self.subTest(field=field, omitted=omitted), self.assertRaises(ValueError):
+                    self.validate(config)
+        config = self.config(True)
+        config.update(target='vscode', confirm='PUBLISH v0.4.1 vscode')
+        del config['visualstudio_sha256']
+        self.assertEqual(self.validate(config)['visualstudio_sha256'], '')
+
+    def test_record_entrypoint_accepts_omitted_and_empty_inputs_for_both_packages(self):
+        optional = ('release_tag', 'prepared_run_id', 'vscode_sha256', 'visualstudio_sha256', 'readiness_url', 'confirm')
+        for target in ('vscode', 'visualstudio'):
+            recorded = []
+            for explicit in (False, True):
+                with self.subTest(target=target, explicit=explicit), tempfile.TemporaryDirectory() as directory:
+                    folder = Path(directory)
+                    self.package(directory, product=target, version='0.3.0')
+                    if target == 'visualstudio':
+                        (folder / 'vs-publish.json').write_text(json.dumps({
+                            'publisher': 'thanhnt-sm', 'identity': {'internalName': 'DataGuard.VisualStudio'},
+                            'private': False, 'overview': 'overview.md'}))
+                        (folder / 'overview.md').write_text('Synthetic listing')
+                    inputs = {'source_sha': SHA, 'target': 'both', 'publish': False}
+                    if explicit: inputs.update(dict.fromkeys(optional, ''))
+                    env = {'RELEASE_INPUTS': json.dumps(inputs), 'GITHUB_REPOSITORY': REPO,
+                           'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main',
+                           'GITHUB_SHA': SHA, 'GITHUB_RUN_ID': '123', 'PACKAGE_VERSION': '0.3.0',
+                           'GITHUB_STEP_SUMMARY': str(folder / 'summary.md')}
+                    result = subprocess.run([sys.executable, str(ROOT / 'scripts/marketplace_release.py'),
+                                             'record', target, directory], env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    manifest = json.loads((folder / 'manifest.json').read_text())
+                    self.assertEqual(manifest['release_tag'], '')
+                    self.assertEqual(manifest['version'], '0.3.0')
+                    self.assertEqual(manifest['source_sha'], SHA)
+                    self.assertTrue((folder / 'package.vsix.sha256').is_file())
+                    # ZIP timestamps vary; compare the canonical dispatch metadata separately from package bytes.
+                    recorded.append({key: value for key, value in manifest.items() if key != 'sha256'})
+            self.assertEqual(recorded[0], recorded[1])
+
+    def test_source_and_verify_entrypoints_share_optional_input_validation(self):
+        minimal = {'source_sha': SHA, 'target': 'both', 'publish': False}
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'RELEASE_INPUTS': json.dumps(minimal), 'GITHUB_REPOSITORY': REPO,
+                   'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main',
+                   'GITHUB_SHA': SHA, 'GITHUB_STEP_SUMMARY': str(Path(directory) / 'summary.md'),
+                   'GITHUB_OUTPUT': str(Path(directory) / 'output')}
+            def source(root, config, workflow_sha):
+                self.assertEqual(config['release_tag'], '')
+                config['version'] = '0.3.0'
+                return ['Build-only preview']
+            with patch.dict(os.environ, env, clear=True), patch.object(sys, 'argv', ['release', 'source', directory]), patch.object(release, 'verify_source', side_effect=source), patch.object(release, 'api') as api:
+                release.main()
+                api.assert_not_called()
+            self.assertEqual((Path(directory) / 'output').read_text(), 'version=0.3.0\n')
+            env['RELEASE_INPUTS'] = json.dumps(dict(minimal, publish=True))
+            with patch.dict(os.environ, env, clear=True), patch.object(sys, 'argv', ['release', 'verify', 'vscode', directory]), patch.object(release, 'verify_package') as verify:
+                with self.assertRaisesRegex(ValueError, 'Publication requires an existing release tag'):
+                    release.main()
+                verify.assert_not_called()
 
     def test_invalid_input_matrix(self):
         mutations = [('release_tag', 'nightly'), ('release_tag', 'v0.3.0'), ('release_tag', 'v01.4.0'),

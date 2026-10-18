@@ -32,6 +32,14 @@ def targets(config):
 def validate_inputs(config, *, repository, event, ref, today=None):
     require(repository == REPOSITORY and event == 'workflow_dispatch' and ref == 'refs/heads/main',
             'Only a manual dispatch from this repository main is allowed')
+    require(isinstance(config, dict), 'Release inputs must be an object')
+    config = dict(config)
+    # GitHub omits blank optional dispatch inputs. All entrypoints consume the
+    # same canonical mapping; malformed explicit values are never coerced.
+    for field in ('release_tag', 'prepared_run_id', 'vscode_sha256',
+                  'visualstudio_sha256', 'readiness_url', 'confirm'):
+        config.setdefault(field, '')
+        require(isinstance(config[field], str), 'Optional release inputs must be strings: ' + field)
     require(type(config.get('publish')) is bool, 'publish must be a boolean')
     tag = config.get('release_tag', '')
     require(not config['publish'] or bool(tag), 'Publication requires an existing release tag')
@@ -44,7 +52,6 @@ def validate_inputs(config, *, repository, event, ref, today=None):
         require(not config['publish'] or parts >= (0, 4, 0), 'Resolve the GPL transition before publication')
     require(SHA.fullmatch(config.get('source_sha', '')), 'A full lowercase source SHA is required')
     require(config.get('target') in ('vscode', 'visualstudio', 'both'), 'Invalid target')
-    require(type(config.get('publish')) is bool, 'publish must be a boolean')
     result = dict(config, version=version)
     if config['publish']:
         require((today or date.today()) < date(2026, 12, 1), 'PAT bridge expired; review supported authentication before publication')
