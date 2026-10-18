@@ -47,8 +47,14 @@ Chưa có parser ngữ pháp Oracle. Cấu hình đúng tránh dùng sai T-SQL n
 | Rotation/audit | Áp dụng cho quản lý credential; audit riêng với telemetry. AuditLogPath trống dùng mặc định application-data của logger. Key toàn vẹn audit ở ngoài repo. Offline/IDE-safe không khởi tạo chuỗi provider credential live. |
 | Telemetry | Observability local opt-in, nhãn service/version và chi tiết đã redacted/giới hạn. Giữ false và details false nếu chưa cần. IDE-safe chặn output telemetry do repo chỉ định. |
 
+Với HashiCorp Vault, đặt `VAULT_ADDR` đáng tin cậy trong môi trường operator/CI cùng với `VAULT_TOKEN`. `VaultAddress` trong YAML phải khớp origin HTTPS đó (host và port); cả hai địa chỉ phải là root, không có user information, path, query hoặc fragment. Dấu `/` cuối và port 443 tường minh tương đương giá trị mặc định; hỗ trợ port HTTPS tùy chỉnh khi cả hai khớp nhau. Thiếu hoặc sai địa chỉ tin cậy sẽ bị từ chối trước khi đọc token hoặc gửi request. Đây là thay đổi chủ ý siết chặt cấu hình cũ chỉ có `VaultAddress` và `VAULT_TOKEN`.
+
+`KeyVaultUri` của Azure phải là root HTTPS tại `name.vault.azure.net`, dùng port HTTPS mặc định, không có user information, query hoặc fragment. HTTP client tích hợp của credential provider không đi theo redirect. Host tự truyền `HttpClient` vào secret store cũng phải tắt automatic redirect. Lỗi secret store vẫn được báo Warning với tên store và loại exception; bỏ nội dung exception tùy ý vì có thể chứa credential. Kiểm tra endpoint này không xác lập quyền sở hữu hostname.
+
 `init` và `init --wizard` dùng chung writer có chú thích, từ chối ghi đè file đã có để giữ comment thủ công. Sửa tại chỗ hoặc sinh sang --output mới rồi xem diff. config validate/show và validate không ghi lại YAML. API serialize tái tạo chú thích chuẩn; object không giữ comment tùy ý nên không roundtrip comment thủ công qua API đó.
 
 ## Tùy chọn Visual Studio là luồng riêng
 
 **Live Provider = oracle** chỉ áp dụng cho Refresh Snapshot và Verify SQL Shapes Against Database. Run Validation truyền `.dataguard.yml` của solution cùng `--ide-safe`, không truyền `--provider`, nên dùng DefaultProvider trong YAML. Tên biến môi trường live để trống sẽ chặn lệnh live, không chọn phương ngữ validate. Live Schema cũng riêng. **Custom CLI Path** có ưu tiên hơn CLI kèm VSIX; cài VSIX mới không chứng minh validate đã chạy CLI mới. Kiểm tra executable được ghi trong DataGuard output và phiên bản của nó; không cần giá trị credential.
+
+Phạm vi kiểm thử giả lập và bằng chứng tương thích credential: [kế hoạch đối chiếu cục bộ](../../plans/2026-10-16-credential-reconciliation.md).

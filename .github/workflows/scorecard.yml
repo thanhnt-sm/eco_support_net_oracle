@@ -12,13 +12,54 @@ on:
 
 permissions: read-all
 
+# Serializes active runs per ref; GitHub may replace a pending run (not FIFO).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  readiness:
+    name: Wait for sampled PR head scans
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      sample_sha: ${{ steps.wait.outputs.sample_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Observe bounded CodeQL service-suite readiness
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/scorecard_readiness.py
+          --repo "$GITHUB_REPOSITORY" --branch main --timeout 900 --grace 900
+          --output "$RUNNER_TEMP/scorecard-readiness.json"
+      - name: Retain readiness evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scorecard-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/scorecard-readiness.json
+          if-no-files-found: error
+          retention-days: 7
+
   analysis:
     name: Scorecard analysis
+    needs: readiness
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
+    outputs:
+      artifact_id: ${{ steps.report.outputs.artifact-id }}
     runs-on: ubuntu-latest
     permissions:
-      # Needed for Code scanning upload.
-      security-events: write
       # Needed for GitHub OIDC token if publish_results is true.
       id-token: write
       contents: read
@@ -33,6 +74,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Run analysis
@@ -43,7 +86,77 @@ jobs:
           # Publish results to the Scorecard REST API (public repo badge).
           publish_results: true
 
-      - name: Upload SARIF to code scanning
-        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - name: Retain original scan reports
+        id: report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          sarif_file: results.sarif
+          name: scorecard-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            results.json
+            results.sarif
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-report:
+    name: Verify actual scanned revision
+    needs: [readiness, analysis]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.analysis.outputs.artifact_id != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      valid: ${{ steps.metadata.outputs.valid }}
+      sha: ${{ steps.metadata.outputs.sha }}
+      ref: ${{ steps.metadata.outputs.ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.analysis.outputs.artifact_id }}
+          path: ${{ runner.temp }}/scorecard-report
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Validate metadata without rewriting reports
+        id: metadata
+        env:
+          EXPECTED_SHA: ${{ needs.readiness.outputs.sample_sha }}
+        run: >-
+          python3 scripts/verify_scorecard_report.py
+          --repo "$GITHUB_REPOSITORY" --expected-sha "$EXPECTED_SHA"
+          --directory "$RUNNER_TEMP/scorecard-report"
+
+  upload-sarif:
+    name: Upload report at actual scanned revision
+    needs: [analysis, verify-report]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.analysis.result == 'success' && needs.verify-report.outputs.valid == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.verify-report.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.analysis.outputs.artifact_id }}
+          path: ${{ runner.temp }}/scorecard-report
+          merge-multiple: true
+          digest-mismatch: error
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: ${{ runner.temp }}/scorecard-report/results.sarif
+          sha: ${{ needs.verify-report.outputs.sha }}
+          ref: ${{ needs.verify-report.outputs.ref }}

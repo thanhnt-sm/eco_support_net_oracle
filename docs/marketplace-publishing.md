@@ -1,125 +1,106 @@
-# DataGuard — Marketplace Publishing Runbook
+# DataGuard Marketplace publishing
 
-## Publication paused — 2026-10-15
+[Tiếng Việt](marketplace-publishing.vi.md) · [Other release channels](operations/release_guide.md)
 
-The product is not ready for marketplace distribution. `marketplace.yml` now runs only
-`test`, `vscode-package`, and `visual-studio-package` on push, pull request, and manual dispatch.
-Both publication jobs and the `publish` input are removed, so PRs have no skipped publish checks.
-Build/test/package gates, VSIX/checksum/SBOM artifacts, fork upload guards, and non-PR
-attestations remain enabled. `tag` still selects the version to package.
+## Scope and current state
 
-`dg-release` defaults to no marketplace publication and rejects `--publish-marketplaces`
-or configuration `PUBLISH_MARKETPLACES=true` before tag creation/push/API calls, even in dry-run.
-Use `--no-marketplaces` to override an older configuration. Other release channels are unchanged.
-No repository secrets, environment approvals, permissions, or branch rules were changed.
-Existing tags/branches retain their historical workflow definitions; do not dispatch an old
-publishing workflow during this pause. This is a source change, not credential revocation.
+Publication through the legacy `.github/workflows/marketplace.yml` remains paused. It contains
+only `test`, `vscode-package` and `visual-studio-package`; it has no publication jobs or `publish`
+input. Packaging, tests, checksums, SBOMs and non-PR attestations remain. `dg-release` rejects
+`--publish-marketplaces` and `PUBLISH_MARKETPLACES=true`; `--no-marketplaces` overrides an old
+configuration. A signed-in browser does not enable these jobs or repair GitHub CLI authentication.
 
-## Re-enable only after product readiness approval
+Owner-authorized browser publication is a separate route after the readiness gates below.
+No PAT is required for manual upload through the signed-in Marketplace portal; do not create
+`VSCE_PAT`, `VS_MARKETPLACE_PAT`, a GitHub token or new settings just to use that route.
+This guide documents the route, not evidence that a package is ready or has been published.
 
-1. In a reviewed PR, recover the two publication job definitions from
-   `0fb5f3f91078ba0df508f41cc822d6192e1be748:.github/workflows/marketplace.yml`.
-   Prefer a separate manual-only publication workflow to keep publication checks off PRs;
-   retain immutable-tag validation, both packaging/test dependencies, artifact verification,
-   pinned tooling, and `marketplace-production` approvals. Do not blindly restore old tooling.
-2. Verify publisher ownership, credential validity, Windows publishing tooling and IDE smoke
-   results. Resolve the Visual Studio checksum/provenance verification gap before enabling it.
-3. Restore the dispatch contract and release-helper preflight together; update topology and
-   release-helper tests and these runbooks. Keep publishing opt-in, never default-on.
-4. Run actionlint, workflow policy/unit tests, release-helper tests, unchanged local hooks,
-   independent review, and CI on the final head. Actual publication needs separate owner approval.
+## Publisher and release gates
 
-The instructions below are preparation for that future re-enablement, **not executable
-publication instructions during the pause**. Secrets `VSCE_PAT` / `VS_MARKETPLACE_PAT`,
-environment `marketplace-production`, and publisher ID `thanhnt-sm` are historical configuration;
-their current availability was not inspected.
+- Open <https://marketplace.visualstudio.com/manage> with the owner's Microsoft account.
+  Verify authority to manage the intended publisher and existing listing. GitHub ownership
+  does not establish Marketplace ownership. Configured IDs are publisher `thanhnt-sm`,
+  VS Code `thanhnt-sm.dataguard-vscode`, and VS `thanhnt-sm.DataGuard.VisualStudio`.
+  If unavailable or different, stop and resolve identity rather than silently changing it.
+- A new publisher may present a **Publisher Agreement**. The owner must review and explicitly
+  approve acceptance of the displayed terms. Signing in or asking for upload assistance alone
+  is not authorization for an assistant to accept a new legal agreement. Record the approval
+  without copying account secrets. Do not create another publisher to evade access problems.
+- Freeze the final merged source SHA and select an unused release version after inspecting
+  both listing histories. Current source manifests say **0.3.0**, while license documentation
+  preserves MIT through v0.3.0 and states GPL begins at **0.4.0**. Reconcile version/licensing
+  before public release; a filename or nightly suffix does not fix embedded metadata.
+- Record each exact VSIX filename, embedded publisher/ID/version, source SHA, workflow run,
+  **SHA-256**, sidecar checksum and provenance. Compare package contents with SBOM/dependencies
+  and included license/notices; inspect for unintended configuration or secrets. Keep the
+  approved bytes immutable; never rebuild or swap them between acceptance and upload.
+- Validate support/help/privacy links and claims in the rendered listing. Retain package
+  evidence outside the mutable nightly URL. A checksum proves identity, not product acceptance.
 
-## Prerequisite 1 — Tạo/verify publisher (bắt buộc, do owner làm)
+## Installed-editor acceptance
 
-VS Code và Visual Studio Marketplace dùng chung nền Azure DevOps. Publisher ID là identity riêng, **không** tự sinh từ GitHub username.
+Install the actual candidate VSIX, not only a development build. For Visual Studio **18.10.2**,
+record the full IDE version and package SHA-256. Check activation, bundled CLI version and
+IDE-safe behavior, Error List, cancellation and process cleanup. Use saved synthetic fixtures
+at 1:1 and 42:12 plus multiline SQL, Unicode, tabs and CRLF/LF: compare SARIF positions,
+Error List display and double-click caret location; test Roslyn squiggles separately.
+CI packaging or coordinate unit tests do not replace this live-editor acceptance.
 
-1. Truy cập https://marketplace.visualstudio.com/manage, đăng nhập bằng Microsoft account của owner.
-2. Chọn **Create publisher**.
-3. Điền:
-   - **ID**: `thanhnt-sm` (chỉ dùng nếu ID này còn trống và do owner sở hữu; đây là giá trị đang ghi trong `src/DataGuard.VSCode/package.json` và `src/DataGuard.VisualStudio/vs-publish.json`).
-   - **Name**: `Than Nguyen` (hoặc tên hiển thị owner chọn).
-4. Ghi nhận publisher ID cuối cùng. Nếu khác `thanhnt-sm`, phải cập nhật `package.json`, `vs-publish.json`, `source.extension.vsixmanifest` trước khi publish.
+For VS Code, verify installed activation, LSP/runtime discovery, diagnostic ranges, trusted and
+untrusted workspaces, compatible CLI, timeout and deactivation. It bundles the language server,
+not the CLI; the server targets .NET 9 and starts through `dotnet`. Resolve the separate engine
+mismatch (`engines.vscode` ^1.85.0 versus locked languageclient ^1.91.0) before claiming support.
+Test upgrade from the published version and uninstall/reinstall, including retained settings,
+trust and synthetic credential removal. No live production credentials are needed.
 
-## Prerequisite 2 — Tạo Personal Access Token (PAT)
+## Browser upload: Visual Studio
 
-### VS Code Marketplace (`VSCE_PAT`)
+Choose the verified publisher, then **New extension → Visual Studio**; for an existing listing,
+use its edit/upload action. Select the approved VSIX and review populated identity and metadata.
+**Save & Upload** stages the Visual Studio entry; the documented public transition is
+**Make Public**. Review the preview and current listing state before that action, including
+when updating an existing public listing. After publication, verify availability and install.
+See the [official Visual Studio walkthrough](https://learn.microsoft.com/en-us/visualstudio/extensibility/walkthrough-publishing-a-visual-studio-extension?view=visualstudio).
 
-1. Vào https://dev.azure.com (tổ chức của owner).
-2. **User settings → Personal access tokens → New Token**.
-3. Tên token tùy chọn; Organization: **All accessible organizations**.
-4. Scopes: **Custom defined** → mở **Show all scopes** → **Marketplace** → tick **Manage**.
-5. Copy token ngay (chỉ hiện một lần).
+## Browser upload: Visual Studio Code
 
-> Deadline 2026-12-01: global PAT bị retire. Sau này chuyển sang Microsoft Entra workload identity (`vsce publish --azure-credential`). Runbook này dùng PAT làm bước đầu; không để PAT hết hạn gây đứt pipeline.
+Choose the publisher and **New extension → Visual Studio Code**, or the existing listing's
+update action, then submit the approved VSIX. Microsoft documents manual upload as an
+alternative to CLI publishing. Treat submission as a publication action: do not assume the
+Visual Studio **Save & Upload → Make Public** staging sequence applies to VS Code. Check the
+actual validation/visibility state and listing after submission; a pending result is not success.
+See the [official VS Code publishing guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#publish-an-extension).
 
-### Visual Studio Marketplace (`VS_MARKETPLACE_PAT`)
+## Computer assistance boundaries
 
-`VsixPublisher.exe` dùng PAT cho publisher tương ứng. Có thể dùng cùng token Marketplace Manage, hoặc token riêng với quyền Marketplace Manage.
+An assistant can inspect the signed-in page, select the intended publisher, prepare metadata,
+verify local artifacts and fill the upload flow within the owner's authorization. Before an
+irreversible/public step, present the concrete product, publisher, version, hash and visibility
+change; use existing explicit authorization when it covers that exact action. Never infer new
+agreement acceptance, publisher creation, credential creation or permission changes. If account
+access, an agreement or a validation error blocks the flow, report that state; do not bypass it.
+Uploading this documentation patch performs none of those Marketplace actions.
 
-## Prerequisite 3 — Tạo GitHub Environment và secrets
+## Rolling nightly is a different publication channel
 
-1. Repository → **Settings → Environments → New environment**.
-2. Tên: **`marketplace-production`** (khớp `environment:` trong workflow).
-3. Thêm environment secrets:
+`.github/workflows/installers.yml` runs on main pushes except `paths-ignore` matches
+(`**/*.md`, `docs/**`, `plans/**`) and on manual dispatch. Qualifying main pushes publish a
+rolling **nightly** GitHub prerelease after required gates. Manual dispatch defaults to
+`publish_prerelease=true`; choose `publish_prerelease=false` explicitly for artifact-only work.
+This is not Marketplace publication. Adding regression-test code to a docs change means the
+change is not necessarily covered by the documentation-only path exclusions.
 
-| Secret | Giá trị |
-|---|---|
-| `VSCE_PAT` | PAT Azure DevOps với scope Marketplace → Manage |
-| `VS_MARKETPLACE_PAT` | PAT cho VsixPublisher.exe (Marketplace Manage) |
+The publish job deletes the previous nightly release and its tag (`--cleanup-tag`), removes a
+dangling nightly tag if needed, then creates the release/tag at the current commit. It does not
+replace versioned `v*` tags. Thus the nightly URL/tag is mutable and is not immutable release
+provenance. Nightly VS filenames can carry a prerelease suffix while their embedded VSIX
+version stays at the committed fallback; do not assume that is a valid Marketplace update.
 
-## Bước 4 — Smoke test Visual Studio (gate bắt buộc)
+For a versioned artifact-only bundle, `build_release.yml` packages without Marketplace,
+NuGet, GitHub Release or GHCR publication; select and record the dispatch revision and inputs.
+`dg-release` is different: it can create/push a tag and trigger NuGet/GitHub/GHCR release effects.
+Do not use it as a browser-upload prerequisite or an extension-only shortcut.
 
-Trước khi publish public, phải chạy trên máy Windows có Visual Studio 2022:
+## Separate manual automation
 
-1. Tải artifact `dataguard-visualstudio-vsix` từ run Marketplace gần nhất.
-2. Giải nén `.vsix`, double-click để cài vào VS 2022 (hoặc **Extensions → Manage Extensions → Install**).
-3. Mở solution có `.dataguard.yml`, chạy **Tools → DataGuard: Run Validation**.
-4. Xác nhận: Error List có diagnostics từ SARIF; không hiển thị stdout/stderr CLI thô.
-5. Test missing-CLI path (xóa `dataguard` khỏi PATH hoặc `DATAGUARD_CLI_PATH` sai) và **Cancel Validation** (process tree bị terminate).
-
-Không publish public khi chưa qua smoke này.
-
-## Bước 5 — Tạo release tag (SemVer mới)
-
-Không di chuyển tag cũ `v0.1.0`. Tạo tag mới trỏ đúng commit đã verify:
-
-```bash
-git fetch origin --tags
-git checkout main
-git pull --ff-only origin main
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-Tag phải khớp commit được package trong cùng run publish.
-
-## Bước 6 — Dispatch publish (only after re-enablement)
-
-Repository → **Actions → Marketplace Extensions → Run workflow**:
-
-- `tag`: `v0.2.0` (hoặc tag ở bước 5)
-- `publish`: **true**
-
-Workflow sẽ:
-1. Package + attest + SBOM cho cả hai artifact tại chính tag đó.
-2. Publish VS Code qua `npx --no-install @vscode/vsce publish --packagePath "$VSIX_PATH" (PAT via environment)`.
-3. Publish Visual Studio qua `VsixPublisher.exe publish`.
-
-## Bước 7 — Xác minh kết quả
-
-- **VS Code**: https://marketplace.visualstudio.com/items?itemName=thanhnt-sm.dataguard-vscode
-- **Visual Studio**: https://marketplace.visualstudio.com/items?itemName=thanhnt-sm.DataGuard.VisualStudio
-
-Kiểm tra version khớp tag, có icon/description/license, và acquiition có thể cài từ host tương ứng.
-
-## Known gaps (không được coi là đã hoàn tất)
-
-- `publish-visualstudio` chạy `vswhere` để tìm `VsixPublisher.exe`. GitHub-hosted `windows-latest` thường **không** có Visual Studio extension development workload → job sẽ fail "VsixPublisher.exe was not found". Trước khi automate, phải:
-  - Cài workload trong runner (self-hosted hoặc setup bước cài), **hoặc**
-  - Dùng fallback thủ công: tải `.vsix` artifact rồi upload qua https://marketplace.visualstudio.com/manage → **New extension**.
-- Chưa có VS 2022 Experimental Instance smoke tự động trên CI; bước 4 là thủ công.
+The opt-in `marketplace-release.yml` workflow now has a separate [two-phase prepare/publish contract](marketplace-automation.md). Default publication is false. Existing `marketplace.yml` and the release helper remain paused for Marketplace publication. This local implementation still needs owner-authorized hosted preparation, editor acceptance and verified existing authentication/environment access. Browser publication does not depend on restoring the old workflow. Do not dispatch old-tag publishing code or change protections to bypass these gates.

@@ -47,8 +47,14 @@ Oracle raw SQL grammar is unavailable. Correct configuration avoids T-SQL parsin
 | Rotation/audit | Rotation settings apply to credential management. Audit is separate from telemetry; empty AuditLogPath uses the logger's application-data default. Optional integrity keys stay outside the repository. Offline/IDE-safe runs do not instantiate the live credential-provider chain. |
 | Telemetry | Opt-in local observability with service/version labels and optional redacted bounded details. Keep disabled/details false unless intentionally needed. IDE-safe suppresses repository-directed telemetry output. |
 
+For HashiCorp Vault, set the trusted `VAULT_ADDR` in the operator/CI environment as well as `VAULT_TOKEN`. The YAML `VaultAddress` must match that HTTPS origin (host and port); both addresses must be roots without user information, a path, query or fragment. A trailing slash and explicit port 443 are equivalent to their defaults; matching custom HTTPS ports are supported. Missing or mismatched trust is rejected before reading the token or sending a request. This intentionally tightens older configurations that supplied only `VaultAddress` and `VAULT_TOKEN`.
+
+Azure `KeyVaultUri` must be an HTTPS root at `name.vault.azure.net`, using the default HTTPS port, with no user information, query or fragment. The built-in credential-provider HTTP client does not follow redirects. Hosts constructing a secret store with their own `HttpClient` must also disable automatic redirects. Secret-store failures remain warnings with the store name and exception type; arbitrary exception messages are omitted because they may contain credentials. These endpoint checks do not establish ownership of a hostname.
+
 `init` and `init --wizard` share the commented writer and refuse an existing output file, preserving handwritten comments. Edit it in place or generate to a new `--output` and review the diff. `config validate`, `config show`, and validation do not rewrite YAML. Programmatic serialization regenerates canonical comments; arbitrary handwritten comments are not part of the configuration object and are not roundtripped by that API.
 
 ## Visual Studio settings are separate
 
 **Live Provider = oracle** applies only to Refresh Snapshot and Verify SQL Shapes Against Database. Run Validation passes the solution's `.dataguard.yml` and `--ide-safe`, without `--provider`; it therefore uses YAML `DefaultProvider`. An empty live environment-variable name blocks live commands; it does not select a validation dialect. Live Schema is likewise separate. A configured **Custom CLI Path** takes precedence over the bundled CLI, so installing a new VSIX does not prove that validation used its new CLI. Check the executable reported in DataGuard output and its version; no credential value is needed.
+
+Credential-boundary synthetic regression scope and compatibility evidence: [local reconciliation plan](../../plans/2026-10-16-credential-reconciliation.md).
