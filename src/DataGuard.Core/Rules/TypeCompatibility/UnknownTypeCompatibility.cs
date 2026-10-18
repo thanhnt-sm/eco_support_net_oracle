@@ -4,7 +4,7 @@ namespace DataGuard.Core.Rules.TypeCompatibility;
 
 /// <summary>
 /// Provider-neutral table that answers <see cref="TypeCompatibilityResult.Unknown"/> for every pair, so rules built
-/// without a provider table report nothing instead of borrowing another dialect's mappings. This is the
+/// without a provider table report no mismatch findings instead of borrowing another dialect's mappings. This is the
 /// <see cref="TypeCompatibilityRegistry"/> fallback for every provider whose adapter has not registered a table.
 /// </summary>
 public sealed class UnknownTypeCompatibility : ITypeCompatibility
