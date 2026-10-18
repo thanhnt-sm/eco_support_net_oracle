@@ -66,7 +66,7 @@ Build or select an accepted VS Code VSIX using the [extension build guide](../05
 code --install-extension /path/to/accepted-vscode-package.vsix
 ```
 
-Replace the path, open a trusted .NET workspace, and inspect DataGuard output and Problems after activation/validation. Do not assume a public Marketplace listing or automatic full database validation. The manifest declares VS Code `^1.85.0`, while the locked language client requires `^1.91.0`; use 1.91 or later for acceptance and track the unresolved metadata mismatch.
+Replace the path, open a trusted .NET workspace, and inspect DataGuard output and Problems after activation/validation. Do not assume a public Marketplace listing or automatic full database validation. The manifest and locked language client both require VS Code `^1.91.0`; use a compatible editor for acceptance. Source metadata alignment does not establish installed-editor acceptance.
 
 Supported settings include:
 

@@ -4,7 +4,7 @@
 
 Build gói cài đặt VS Code và Visual Studio tại máy local, sau đó stage output kèm SHA-256 vào `artifacts/` để kiểm thử thủ công. Các lệnh dưới đây không publish lên marketplace.
 
-Checksum SHA-256 không phải chữ ký số. Build local không chứng minh listing Marketplace hoặc nghiệm thu editor. VS Code khai báo `^1.85.0` nhưng dependency khóa cần `^1.91.0`; kiểm thử trên 1.91 trở lên và sửa metadata trong thay đổi source riêng. Xem [gate phát hành](../marketplace-publishing.vi.md).
+Checksum SHA-256 không phải chữ ký số. Build local không chứng minh listing Marketplace hoặc nghiệm thu editor. VS Code và language client đã khóa đều khai báo `^1.91.0`; chênh lệch metadata nguồn đã được sửa, nhưng nghiệm thu trên editor đã cài vẫn chưa hoàn tất. Xem [gate phát hành](../marketplace-publishing.vi.md).
 
 ## Điều kiện cần
 

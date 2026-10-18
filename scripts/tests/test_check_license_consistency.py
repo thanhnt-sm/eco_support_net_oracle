@@ -15,8 +15,12 @@ Run:  python3 -m unittest discover -s scripts/tests -v
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 import unittest
+import subprocess
+import sys
+import zipfile
 from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "check-license-consistency.py"
@@ -179,6 +183,120 @@ class MetadataTests(unittest.TestCase):
             write(root, "src/DataGuard.VSCode/package-lock.json",
                   '{"packages": {"": {"license": "SEE LICENSE IN LICENSE"}}}')
             self.assertEqual(gate.check_npm_metadata(root), [])
+
+
+
+
+class VisualStudioReleasePolicyTests(unittest.TestCase):
+    def test_current_visualstudio_source_matches_gpl_transition(self):
+        self.assertEqual(gate.check_visualstudio_version(SCRIPT_PATH.parents[1]), [])
+
+    def test_shared_extension_metadata_matches_documented_transition(self):
+        root = SCRIPT_PATH.parents[1]
+        package = json.loads((root / "src/DataGuard.VSCode/package.json").read_text())
+        lock = json.loads((root / "src/DataGuard.VSCode/package-lock.json").read_text())
+        self.assertEqual(package["version"], "0.4.0")
+        self.assertEqual(lock["version"], package["version"])
+        self.assertEqual(lock["packages"][""]["version"], package["version"])
+        self.assertIn('$version = "0.4.0"', (root / "scripts/build-extensions.ps1").read_text())
+
+    def test_source_version_rejects_drift_and_unsupported_versions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = root / "src/DataGuard.VisualStudio"
+            base.mkdir(parents=True)
+            for version, fallback in (("0.4.0", "0.3.0"), ("0.3.0", "0.3.0"),
+                                      ("0.4.0-rc.1", "0.4.0-rc.1"), ("65536.0.0", "65536.0.0")):
+                with self.subTest(version=version, fallback=fallback):
+                    (base / "source.extension.vsixmanifest").write_text(
+                        '<PackageManifest xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">'
+                        '<Metadata><Identity Version="' + version + '" /></Metadata></PackageManifest>')
+                    (base / "ExtensionVersion.cs").write_text('internal const string Fallback = "' + fallback + '";')
+                    self.assertTrue(gate.check_visualstudio_version(root))
+
+    def test_shared_package_gate_invokes_license_policy(self):
+        text = (SCRIPT_PATH.parents[1] / "scripts/assert-vsix.ps1").read_text()
+        self.assertIn("check-license-consistency.py", text)
+        self.assertIn("--root $SourceRoot", text)
+        workflow = (SCRIPT_PATH.parents[1] / ".github/workflows/marketplace-release.yml").read_text()
+        self.assertIn("-SourceRoot (Resolve-Path source).Path", workflow)
+        self.assertIn("--vsix $vsix.FullName --expected-version $ExpectedVersion", text)
+        self.assertIn("if ($LASTEXITCODE -ne 0) { Fail 'VSIX license/version policy inspection failed' }", text)
+
+    def package(self, root, version="0.4.0", drift=None):
+        repository = SCRIPT_PATH.parents[1]
+        path = root / "fixture.vsix"
+        entries = {
+            "extension.vsixmanifest": (
+                '<PackageManifest xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">'
+                '<Metadata><Identity Version="' + version + '" />'
+                '<License>LICENSE.txt</License></Metadata></PackageManifest>').encode(),
+            "LICENSE.txt": (repository / "LICENSE").read_bytes(),
+            "THIRD-PARTY-NOTICES.md": (repository / "docs/legal/THIRD-PARTY-NOTICES.md").read_bytes(),
+            "ADDITIONAL-PERMISSIONS.md": (repository / "docs/legal/ADDITIONAL-PERMISSIONS.md").read_bytes(),
+        }
+        if drift:
+            entries[drift] += b"changed"
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, data in entries.items():
+                archive.writestr(name, data)
+        return path
+
+    def test_real_package_cli_accepts_matching_legal_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.package(Path(directory))
+            result = subprocess.run([sys.executable, str(SCRIPT_PATH), "--vsix", str(path),
+                                     "--expected-version", "0.4.0"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_package_comparison_uses_selected_source_not_tooling_notices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = self.package(root)
+            selected = root / "selected"
+            selected.mkdir()
+            repository = SCRIPT_PATH.parents[1]
+            for name in ("LICENSE", "docs/legal/THIRD-PARTY-NOTICES.md", "docs/legal/ADDITIONAL-PERMISSIONS.md"):
+                target = selected / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((repository / name).read_bytes())
+            # Selected source carries a changed notice; compare the package against that source.
+            changed = (selected / "docs/legal/THIRD-PARTY-NOTICES.md").read_bytes() + b"\nSelected source notice\n"
+            (selected / "docs/legal/THIRD-PARTY-NOTICES.md").write_bytes(changed)
+            with zipfile.ZipFile(path) as archive:
+                entries = {entry.filename: archive.read(entry) for entry in archive.infolist()}
+            entries["THIRD-PARTY-NOTICES.md"] = changed
+            with zipfile.ZipFile(path, "w") as archive:
+                for name, value in entries.items():
+                    archive.writestr(name, value)
+            self.assertEqual(gate.check_vsix(selected, path, "0.4.0"), [])
+            self.assertTrue(gate.check_vsix(repository, path, "0.4.0"))
+
+    def test_rejects_historical_version_with_current_gpl_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.package(Path(directory), "0.3.0")
+            problems = gate.check_vsix(SCRIPT_PATH.parents[1], path, "0.3.0")
+            self.assertTrue(any("0.4.0" in problem for problem in problems), problems)
+
+    def test_rejects_version_mismatch_and_each_changed_legal_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertTrue(gate.check_vsix(SCRIPT_PATH.parents[1], self.package(root), "0.4.1"))
+            for name in ("LICENSE.txt", "THIRD-PARTY-NOTICES.md", "ADDITIONAL-PERMISSIONS.md"):
+                with self.subTest(name=name):
+                    self.assertTrue(gate.check_vsix(SCRIPT_PATH.parents[1], self.package(root, drift=name), "0.4.0"))
+
+    def test_rejects_duplicate_missing_and_malformed_package_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for payload in (b"not xml", b'<!DOCTYPE x><PackageManifest/>'):
+                with zipfile.ZipFile(root / "bad.vsix", "w") as archive:
+                    archive.writestr("extension.vsixmanifest", payload)
+                self.assertTrue(gate.check_vsix(SCRIPT_PATH.parents[1], root / "bad.vsix", "0.4.0"))
+            path = self.package(root)
+            with zipfile.ZipFile(path, "a") as archive:
+                archive.writestr("license.TXT", b"alias")
+            self.assertTrue(gate.check_vsix(SCRIPT_PATH.parents[1], path, "0.4.0"))
 
 
 if __name__ == "__main__":

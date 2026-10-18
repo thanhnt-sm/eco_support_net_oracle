@@ -2,7 +2,7 @@
 
 Bản dự thảo chiến lược chuẩn ngày 2026-10-18; baseline nguồn `ca68a3159425495f771da866188df75a8237ab4b`. Đã tổng hợp nghiên cứu; discovery khách hàng và nghiệm thu sản phẩm chưa thực hiện. [English](README.md).
 
-Baseline chuẩn bị PR: `1ca7caa9bd9546adecf5901a4e3915bf1b9454eb` đã có PR #73; baseline đối chiếu gốc ở trên được giữ làm nguồn bằng chứng. PR #74 vẫn riêng và chưa merge. Xem [đối chiếu nguồn](source-map.md).
+Baseline tích hợp: `121b05d166c359c1d520d035dca40e86ea9cca1f` đã có PR #73 và PR #74. Metadata nguồn hiện là 0.4.0, engine VS Code ^1.91.0; baseline đối chiếu gốc ở trên được giữ làm nguồn bằng chứng. Cổng release identity của gói Windows build-only đã đạt cho main 121b05d; chưa nghiệm thu editor đã cài. Xem [bằng chứng chuẩn bị có giới hạn](release-claims.md). Xem [đối chiếu nguồn](source-map.md).
 
 - [Chiến lược, thương hiệu, sứ mệnh và tầm nhìn](strategy.vi.md)
 - [Lộ trình theo phụ thuộc và cổng nghiệm thu](roadmap.vi.md)

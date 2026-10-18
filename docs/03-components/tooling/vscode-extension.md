@@ -4,7 +4,7 @@ DataGuard combines CLI batch commands, a packaged language server and editor UI.
 
 ## Requirements and activation
 
-The manifest requires VS Code `^1.85.0`, declares a workspace extension, and does not support untrusted or virtual workspaces. Activation events are `onLanguage:csharp` and `onStartupFinished`; activation does not depend on finding `.dataguard.yml` or a DataGuard package reference.
+The `0.4.0` manifest requires VS Code `^1.91.0`, declares a workspace extension, and does not support untrusted or virtual workspaces. Activation events are `onLanguage:csharp` and `onStartupFinished`; activation does not depend on finding `.dataguard.yml` or a DataGuard package reference.
 
 CLI commands use `dataguard.cliPath` (default `dataguard`). The language server instead runs the packaged `server/DataGuard.LanguageServer.dll` through `dotnet`; it needs a compatible .NET runtime. Before starting it, the extension checks the artifact against its SHA-256 manifest. This checks bundle consistency, not an independent publisher signature. See the [extension build guide](../../05-operations/extension-build-guide.md) for packaging prerequisites.
 

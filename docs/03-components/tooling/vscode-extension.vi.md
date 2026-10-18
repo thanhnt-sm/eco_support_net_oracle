@@ -4,7 +4,7 @@ DataGuard kết hợp lệnh CLI theo đợt, language server đi kèm và giao 
 
 ## Yêu cầu và kích hoạt
 
-Manifest yêu cầu VS Code `^1.85.0`, khai báo workspace extension, không hỗ trợ workspace chưa tin cậy hoặc workspace ảo. Sự kiện kích hoạt là `onLanguage:csharp` và `onStartupFinished`; không phụ thuộc việc tìm thấy `.dataguard.yml` hoặc tham chiếu package DataGuard.
+Manifest phiên bản `0.4.0` yêu cầu VS Code `^1.91.0`, khai báo workspace extension, không hỗ trợ workspace chưa tin cậy hoặc workspace ảo. Sự kiện kích hoạt là `onLanguage:csharp` và `onStartupFinished`; không phụ thuộc việc tìm thấy `.dataguard.yml` hoặc tham chiếu package DataGuard.
 
 Lệnh CLI dùng `dataguard.cliPath` (mặc định `dataguard`). Language server chạy `server/DataGuard.LanguageServer.dll` đi kèm qua `dotnet`, cần runtime .NET tương thích. Trước khi chạy, extension đối chiếu artifact với manifest SHA-256. Đây là kiểm tra tính nhất quán của gói, không phải chữ ký nhà phát hành độc lập. Xem [hướng dẫn build extension](../../05-operations/extension-build-guide.vi.md) về yêu cầu đóng gói.
 

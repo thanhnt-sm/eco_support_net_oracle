@@ -4,7 +4,7 @@
 
 Build the VS Code and Visual Studio installation packages locally, then stage the packages and their SHA-256 checksums in `artifacts/` for manual testing. This guide does not publish to either marketplace.
 
-A SHA-256 checksum is not a digital signature. A local build does not establish Marketplace availability or editor acceptance. VS Code declares `^1.85.0` while its locked dependency needs `^1.91.0`; test on 1.91 or later and resolve metadata in a separate source change. See [release gates](../marketplace-publishing.md).
+A SHA-256 checksum is not a digital signature. A local build does not establish Marketplace availability or editor acceptance. VS Code and its locked language client both declare `^1.91.0`; the source metadata mismatch is resolved, while installed-editor acceptance remains pending. See [release gates](../marketplace-publishing.md).
 
 ## Prerequisites
 

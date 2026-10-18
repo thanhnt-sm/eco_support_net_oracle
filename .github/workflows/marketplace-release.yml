@@ -210,6 +210,9 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
           dotnet-version: 9.0.319
+      - name: Test VSIX release identity rejection
+        shell: pwsh
+        run: ./tooling/scripts/tests/test-vsix-release-identity.ps1 -SourceRoot (Resolve-Path source).Path
       - name: Package Visual Studio
         shell: pwsh
         working-directory: source
@@ -217,7 +220,7 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           if (-not $msbuild) { throw 'MSBuild unavailable' }
-          & $msbuild src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /m /nologo /v:minimal
+          & $msbuild src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /p:MinVerVersionOverride=$env:PACKAGE_VERSION /m /nologo /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Inspect and stage Visual Studio VSIX
         shell: pwsh
@@ -226,7 +229,7 @@ jobs:
         run: |
           $packages = @(Get-ChildItem source/src/DataGuard.VisualStudio/bin/Release -Filter '*.vsix' -Recurse)
           if ($packages.Count -ne 1) { throw 'Expected exactly one VSIX' }
-          & ./tooling/scripts/assert-vsix.ps1 -VsixPath $packages[0].FullName -ExpectedVersion $env:VERSION
+          & ./tooling/scripts/assert-vsix.ps1 -VsixPath $packages[0].FullName -ExpectedVersion $env:VERSION -SourceRoot (Resolve-Path source).Path -RequireReleaseIdentity
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/release" | Out-Null
           Copy-Item $packages[0].FullName "$env:RUNNER_TEMP/release/package.vsix"

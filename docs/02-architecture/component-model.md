@@ -262,7 +262,7 @@ Note: everything lives in `src/DataGuard.SqlServer.Adapter/` (namespace `DataGua
 | Property | Value |
 |----------|-------|
 | **Target** | TypeScript → Node.js extension host |
-| **Engines** | VS Code ≥ 1.85 |
+| **Engines** | VS Code ≥ 1.91 |
 | **Role** | VS Code extension: surfaces DataGuard diagnostics (SARIF-backed) as problems, decorations, and commands |
 
 ---

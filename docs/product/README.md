@@ -2,7 +2,7 @@
 
 Canonical strategy draft, 2026-10-18; source baseline `ca68a3159425495f771da866188df75a8237ab4b`. Research synthesis is incorporated; customer discovery and product acceptance remain pending. [Tiếng Việt](README.vi.md).
 
-Publication preparation baseline: `1ca7caa9bd9546adecf5901a4e3915bf1b9454eb` includes PR #73; the original inspection baseline above remains provenance. PR #74 is separate and unmerged. See [source reconciliation](source-map.md).
+Integration baseline: `121b05d166c359c1d520d035dca40e86ea9cca1f` includes PR #73 and merged PR #74. Current source metadata is 0.4.0 with VS Code engine ^1.91.0; the original inspection baseline above remains provenance. The manual build-only release-identity gate passed for main 121b05d; installed-editor acceptance remains unverified. See the [bounded preparation evidence](release-claims.md). See [source reconciliation](source-map.md).
 
 - [Strategy, brand, mission and vision](strategy.md) / [Tiếng Việt](strategy.vi.md)
 - [Dependency-based roadmap](roadmap.md) / [Tiếng Việt](roadmap.vi.md)

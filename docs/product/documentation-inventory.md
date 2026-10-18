@@ -1,6 +1,6 @@
 # Exhaustive tracked-document inventory / Kiểm kê tài liệu
 
-SA-DOC-015, original review 2026-10-18 at `ca68a3159425495f771da866188df75a8237ab4b`; path inventory reconciled on 2026-10-19 against `1ca7caa9bd9546adecf5901a4e3915bf1b9454eb`. The added PR #73 plan is a retained implementation record, not evidence that every historical plan was accepted. This is an exhaustive **path inventory**, not a claim of exhaustive semantic validation. Every listed file was read for classification and claim screening. Source-level review depth is reported separately. No keyword replacement is used to certify correctness.
+SA-DOC-015, original review 2026-10-18 at `ca68a3159425495f771da866188df75a8237ab4b`; path inventory reconciled on 2026-10-19 against `121b05d166c359c1d520d035dca40e86ea9cca1f`. The added PR #73 and PR #74 plans are retained implementation records, not evidence that every historical plan was accepted. This is an exhaustive **path inventory**, not a claim of exhaustive semantic validation. Every listed file was read for classification and claim screening. Source-level review depth is reported separately. No keyword replacement is used to certify correctness.
 
 Scope: every `git ls-files` path ending `.md`, `.mdx`, `.rst`, `.txt`, plus extensionless `LICENSE`, `NOTICE`, `COPYING`; new documentation is listed separately. Generated/untracked runtime files, source comments and manifests are outside this document inventory. Legal text, attribution, technical IDs and dated evidence are preserved.
 
@@ -13,7 +13,7 @@ States / Trạng thái:
 
 Historical plans/research/journals are classified here by path and context, not rewritten en masse. Existing historical product/runbook/roadmap pages linked by users receive explicit in-file context where necessary. Product documentation authority: [strategy](strategy.md), [capabilities](capabilities.md), [claim controls](release-claims.md). See [reconciliation outcome](reconciliation.md) for concrete fixes and remaining decisions.
 
-Inventory: **576 tracked documents** + **17 new documents** at generation. States across those rows: **current: 67**, **deferred: 74**, **historical: 299**, **reviewed: 153**. This inventory file itself is added after the first generation and is included on subsequent generation.
+Inventory: **577 tracked baseline documents** + **17 new documents** at generation. States across those rows: **current: 67**, **deferred: 74**, **historical: 300**, **reviewed: 153**. This inventory file itself is added after the first generation and is included on subsequent generation.
 
 ## Tracked baseline documents
 
@@ -595,6 +595,7 @@ Inventory: **576 tracked documents** + **17 new documents** at generation. State
 | [tools/benchmarks/DataGuard.Benchmarks/README.md](../../tools/benchmarks/DataGuard.Benchmarks/README.md) | reviewed | embedded doc screened | Local component/tool/fixture reference; product claim screening only, no new execution or exhaustive API audit. |
 | [tools/corpus/README.md](../../tools/corpus/README.md) | reviewed | embedded doc screened | Local component/tool/fixture reference; product claim screening only, no new execution or exhaustive API audit. |
 | [plans/2026-10-18-marketplace-optional-inputs.md](../../plans/2026-10-18-marketplace-optional-inputs.md) | historical | implementation record read | PR #73 is incorporated in baseline; preserve original reproduction and local validation context, not Marketplace publication approval. |
+| [plans/2026-10-18-vsix-release-readiness.md](../../plans/2026-10-18-vsix-release-readiness.md) | historical | implementation record read | PR #74 source integration is preserved; original local evidence is not manual release-path or installed-editor acceptance. |
 
 ## Documents introduced by this batch
 

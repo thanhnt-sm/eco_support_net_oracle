@@ -1,6 +1,6 @@
 # SA-DOC-015 reconciliation outcome / Kết quả đối chiếu
 
-Original review: 2026-10-18, branch `local/stackaccord-documentation-strategy`, baseline `ca68a3159425495f771da866188df75a8237ab4b`. That source is preserved in Library v3. PR preparation on 2026-10-19 uses `docs/stackaccord-strategy`, baseline `1ca7caa9bd9546adecf5901a4e3915bf1b9454eb`, including PR #73. Scope: documentation and two encoding-QA Python files; no production-source, technical rename, license-text or release change. PR #74 readiness remains separate, pending hosted validation and merge.
+Original review: 2026-10-18, branch `local/stackaccord-documentation-strategy`, baseline `ca68a3159425495f771da866188df75a8237ab4b`. That source is preserved in Library v3. PR preparation on 2026-10-19 uses `docs/stackaccord-strategy`, baseline `121b05d166c359c1d520d035dca40e86ea9cca1f`, including PR #73 and PR #74. Scope: documentation and two encoding-QA Python files; no production-source, technical rename, license-text or release change. Merged PR #74 source changes are preserved; manual Windows release-identity validation passed in run 39176474395; installed-host acceptance remains pending.
 
 ## Completed scope
 
@@ -20,7 +20,7 @@ The [inventory](documentation-inventory.md) enumerates every tracked Markdown/re
 
 ## Remaining decisions and verification — not silently closed
 
-1. **Release owner:** baseline metadata remains 0.3.0; current license descriptions use the v0.4.0 boundary, and separate unmerged PR #74 proposes version/engine changes. Accept/reject that patch explicitly; then verify exact artifacts, host versions, same-ID upgrades and listing availability. This docs branch cannot decide or publish it.
+1. **Release owner:** merged PR #74 aligns source metadata to 0.4.0 and engine ^1.91.0. The manual binary identity path passed in run 39176474395; installed-editor acceptance remains unverified. Verify exact artifacts, host versions, same-ID upgrades and listing availability. This docs branch cannot decide or publish it.
 2. **ADR owners:** existing Proposed freeze/extract/preview recommendations need disposition before expanding IDE, observability/host, assessment, plugins, autodetection or providers. Documentation does not accept them.
 3. **Provider/QA owners:** live integration and supported grammar/type/permission matrices are not certified. SQL Server live `max_length`→`CharLength` differs from catalog normalization; retain as a source issue requiring independent regression work, not a docs-only fix. Oracle opt-in routine execution must remain visible.
 4. **Product/security/customer owners:** proposed default parse-only boundary, enterprise controls, agent tools and budgets require implementation/evaluation; discovery, name clearance and banking acceptance remain pending.
@@ -53,7 +53,7 @@ Source review completed against the same baseline; every row below moves from `d
 | `docs/03-components/tooling/visual-studio-extension.md` | Reconciled options, safe/live commands, SARIF handling and lifecycle from source | Windows VS host: consent/secret handling, CLI provenance, diagnostics/location, cancellation and shutdown |
 | `docs/03-components/tooling/visual-studio-extension.vi.md` | Same source behavior and host limitations in Vietnamese | Same Windows fixture matrix; source inspection is not installed-host evidence |
 | `docs/03-components/tooling/vscode-extension.md` | Reconciled command registration, process/report boundaries, actions and engine metadata | VS Code host: marker/framing, consent, stale-report rejection, cancellation/process cleanup and path handling |
-| `docs/03-components/tooling/vscode-extension.vi.md` | Same source behavior and host limitations in Vietnamese | Same host matrix; baseline engine/version retained, separate readiness patch excluded |
+| `docs/03-components/tooling/vscode-extension.vi.md` | Same source behavior and host limitations in Vietnamese | Same host matrix; merged source engine/version reflected, runtime acceptance still pending |
 | `docs/01-overview/pain-points-solved.md` | Replaced unsupported outcome/uniqueness claims with 12 source-scoped scenarios | Synthetic DG004 projection/threshold, DG005 mapping, DG006 conventions, DG009 CLOB fixtures; provider/editor tests separate |
 | `docs/01-overview/pain-points-solved.vi.md` | Same 12 scenarios, source references and limitations in Vietnamese | Same fixtures; no customer incident or market-frequency evidence invented |
 | `docs/security/scorecard-readiness.md` | Verified workflow/script contracts; historical remote observations remain historical | Missing/failed suite, actual-SHA mismatch, skipped/cancelled job, OIDC/admission/artifact/ingestion checks require authorized hosted run |
@@ -61,7 +61,7 @@ Source review completed against the same baseline; every row below moves from `d
 
 ### Human decisions versus runtime evidence
 
-**Human decisions:** accept/reject the separate version/engine readiness patch; authorize any future publication/hosted run; decide pending component ADRs; define intended naming-convention and Oracle format contracts before fixes. None was silently made in this pass.
+**Human decisions:** merged PR #74 records the source version/engine decision; separately authorize any future publication/hosted run; decide pending component ADRs; define intended naming-convention and Oracle format contracts before fixes. No release or remaining ADR decision was silently made in this documentation pass.
 
 **Runtime evidence:** Windows/VS and VS Code installed-host matrix; OS-specific child termination and filesystem boundaries; disposable provider metadata/permission/charset cases; artifact signing/install/upgrade; actual CI/SARIF/Scorecard ingestion. Each document describes expected behavior and the required test. Lack of that runtime evidence does not block describing the inspected source, but does block claiming runtime acceptance.
 

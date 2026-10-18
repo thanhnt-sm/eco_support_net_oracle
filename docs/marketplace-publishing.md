@@ -29,9 +29,9 @@ This guide documents the route, not evidence that a package is ready or has been
   is not authorization for an assistant to accept a new legal agreement. Record the approval
   without copying account secrets. Do not create another publisher to evade access problems.
 - Freeze the final merged source SHA and select an unused release version after inspecting
-  both listing histories. Current source manifests say **0.3.0**, while license documentation
-  preserves MIT through v0.3.0 and states GPL begins at **0.4.0**. Reconcile version/licensing
-  before public release; a filename or nightly suffix does not fix embedded metadata.
+  both listing histories. Current source manifests say **0.4.0**, matching the documented GPL
+  transition; historical releases through v0.3.0 retain their MIT terms. Verify version/licensing
+  in the actual package before public release; a filename or nightly suffix does not fix embedded metadata.
 - Record each exact VSIX filename, embedded publisher/ID/version, source SHA, workflow run,
   **SHA-256**, sidecar checksum and provenance. Compare package contents with SBOM/dependencies
   and included license/notices; inspect for unintended configuration or secrets. Keep the
@@ -50,8 +50,8 @@ CI packaging or coordinate unit tests do not replace this live-editor acceptance
 
 For VS Code, verify installed activation, LSP/runtime discovery, diagnostic ranges, trusted and
 untrusted workspaces, compatible CLI, timeout and deactivation. It bundles the language server,
-not the CLI; the server targets .NET 9 and starts through `dotnet`. Resolve the separate engine
-mismatch (`engines.vscode` ^1.85.0 versus locked languageclient ^1.91.0) before claiming support.
+not the CLI; the server targets .NET 9 and starts through `dotnet`. The declared engine now matches locked languageclient at ^1.91.0; installed-host acceptance
+is still required before claiming support.
 Test upgrade from the published version and uninstall/reinstall, including retained settings,
 trust and synthetic credential removal. No live production credentials are needed.
 
@@ -105,4 +105,12 @@ Do not use it as a browser-upload prerequisite or an extension-only shortcut.
 
 ## Separate manual automation
 
-The opt-in `marketplace-release.yml` workflow now has a separate [two-phase prepare/publish contract](marketplace-automation.md). Default publication is false. Existing `marketplace.yml` and the release helper remain paused for Marketplace publication. This local implementation still needs owner-authorized hosted preparation, editor acceptance and verified existing authentication/environment access. Browser publication does not depend on restoring the old workflow. Do not dispatch old-tag publishing code or change protections to bypass these gates.
+The opt-in `marketplace-release.yml` workflow now has a separate [two-phase prepare/publish contract](marketplace-automation.md). Default publication is false. Existing `marketplace.yml` and the release helper remain paused for Marketplace publication. The exact hosted preparation recorded in [release-claims preparation evidence](product/release-claims.md) passed. Installed-editor acceptance and verification of existing publication authentication/environment access remain pending; future artifacts require their own authorized preparation and acceptance. Browser publication does not depend on restoring the old workflow. Do not dispatch old-tag publishing code or change protections to bypass these gates.
+
+### Visual Studio 0.4.0 preparation
+
+The current Visual Studio source manifest and registration fallback target 0.4.0, matching the existing GPL transition documented in the bundled notices. Historical releases through v0.3.0 keep their existing terms; this change does not rewrite license text. `scripts/assert-vsix.ps1` now invokes `check-license-consistency.py --vsix <file> --expected-version 0.4.0` to check the embedded version and byte-identical canonical license/notices. A nightly filename is not evidence of the embedded version or a prerelease marker.
+
+This is source preparation, not release approval. Both extension manifests, the VS Code lockfile and the build-helper fallback are aligned to 0.4.0 solely for the existing shared release contract. Visual Studio remains the intended publication target. The engine declaration now matches the locked vscode-languageclient 10.1.2 minimum, ^1.91.0, in package.json and the lockfile. This resolves the source contract mismatch, without claiming installed VS Code acceptance. The baseline includes PR73’s omitted optional-input fix; this readiness patch preserves that normalization and its publication checks. Build from an approved immutable release source on Windows; inspect catalog, registration, extension/analyzer/CLI informational versions, run packaging tests and record actual installation on the intended Visual Studio host before accepting the exact VSIX hash. Without an explicit override, MinVer derives development versions from Git history; do not assume they match the VSIX version. Manual preparation now passes its validated PACKAGE_VERSION through MinVerVersionOverride to the VS build and the separate CLI publish; nested analyzer builds inherit it. RequireReleaseIdentity checks actual packaged DLL/CLI file and product versions against the VSIX version, preserving MinVer 8 assembly binding identity major.0.0.0. Local explicit builds demonstrated 0.4.0 metadata; no release tag was created. Windows packaging, PE CLI inspection and the PowerShell rejection tests passed for preparation run `39176474395`, as recorded in [release claims](product/release-claims.md). These checks remain mandatory for each future prepared artifact; installed-editor acceptance is still pending. The standalone build helper derives its artifact name from VS Code; aligned filenames still do not prove the embedded Visual Studio assembly identity. No tag, workflow dispatch or Marketplace publication is authorized by these checks.
+
+The bounded build-only result for source `121b05d` is recorded in [release-claims preparation evidence](product/release-claims.md). Its Windows identity gate passed; installed-editor acceptance and Marketplace publication remain unverified/unperformed. This does not approve later artifacts or release tags.

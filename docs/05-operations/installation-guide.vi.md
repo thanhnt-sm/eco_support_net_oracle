@@ -9,7 +9,7 @@ Dùng bản build từ source hoặc artifact đã kiểm tra. Hướng dẫn n�
 - .NET 9 SDK theo `global.json` để build; CLI/tool dạng framework-dependent cần runtime .NET 9. Archive RID self-contained mang theo runtime.
 - Node 22 và npm để build extension VS Code.
 - Windows cùng Visual Studio MSBuild/SDK để build VSIX Visual Studio.
-- VS Code khai báo `^1.85.0`, nhưng language client trong lock cần `^1.91.0`. Kiểm thử trên 1.91 trở lên; chênh lệch metadata vẫn cần sửa source và nghiệm thu trên editor thật.
+- VS Code và language client trong lock đều khai báo `^1.91.0`. Chênh lệch metadata nguồn đã được sửa; nghiệm thu trên editor đã cài vẫn chưa hoàn tất.
 - Manifest VS nhắm `[17.12,19.0)`; đây là phạm vi khai báo, không chứng minh mọi host đã được kiểm thử. Runbook yêu cầu nghiệm thu Visual Studio 18.10.2.
 
 Validate offline cần snapshot phù hợp hoặc nguồn contract được chỉ định rõ. Truy cập metadata live cần provider và quyền database được duyệt; có adapter không chứng minh mọi phiên bản database/cú pháp SQL đều hoạt động.

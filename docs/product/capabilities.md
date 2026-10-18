@@ -2,14 +2,14 @@
 
 Source baseline `ca68a3159425495f771da866188df75a8237ab4b`, 2026-10-18. Detailed symbols/tests and qualifications: [source map](source-map.md). Test presence is not a test run.
 
-Publication preparation baseline: `1ca7caa9bd9546adecf5901a4e3915bf1b9454eb` includes PR #73; the original inspection baseline above remains provenance. PR #74 is separate and unmerged. See [source reconciliation](source-map.md).
+Integration baseline: `121b05d166c359c1d520d035dca40e86ea9cca1f` includes PR #73 and merged PR #74. Current source metadata is 0.4.0 with VS Code engine ^1.91.0; the original inspection baseline above remains provenance. The manual build-only release-identity gate passed for main 121b05d; installed-editor acceptance remains unverified. See the [bounded preparation evidence](release-claims.md). See [source reconciliation](source-map.md).
 
 Four independent axes: **Implemented** = source exists; **Validated** = exact scoped run evidence exists; **Released** = accepted distributed artifact is evidenced; **Planned** = intended scope. “Partial” never implies provider parity. This documentation-only task does not establish new product validation or release evidence.
 
 | Capability IDs | Implemented at baseline | Validated in this task | Released evidence here | Planned extension |
 |---|---|---|---|---|
 | SA-CAP-001–003 | Partial .NET/SQL checking, snapshots, extraction; four adapters | Not rerun | Not established | M0–M2 provider/grammar matrix and independent corpus |
-| SA-CAP-004 | Reporting and CLI/IDE integrations | Not rerun; Windows/editor hosts unavailable | Not established | Artifact-specific same-ID upgrades, shared findings |
+| SA-CAP-004 | Reporting and CLI/IDE integrations | Windows preparation/identity checks passed for the [exact run](release-claims.md); installed-editor behavior remains unverified | Not established | Artifact-specific same-ID upgrades, shared findings |
 | SA-CAP-005 | Descriptor-to-TypeScript export | Not rerun; export path returns before later validation | Not established | M3/M4 wire and runtime contracts |
 | SA-CAP-006 | Analysis-only upgrade assessment | Not rerun | Not established | No mutation promise |
 | SA-CAP-007 | Credential/IDE-safe policy mechanisms | Not rerun; not blanket security assurance | Not established | Threat-model controls and hostile corpus |

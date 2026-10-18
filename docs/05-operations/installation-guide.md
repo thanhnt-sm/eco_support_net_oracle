@@ -9,7 +9,7 @@ Use a source build or an inspected build artifact. This guide does not establish
 - .NET 9 SDK selected by `global.json` for source builds; framework-dependent CLI/tool packages also need the .NET 9 runtime. Self-contained RID archives carry their runtime.
 - Node 22 and npm for VS Code extension builds.
 - Windows and Visual Studio MSBuild/SDK tooling for the Visual Studio VSIX.
-- VS Code currently declares `^1.85.0`, but its locked language client requires `^1.91.0`. Test on 1.91 or later; the metadata mismatch still needs a source fix and installed-editor acceptance.
+- VS Code and its locked language client both declare `^1.91.0`. The source metadata mismatch is resolved; installed-editor acceptance remains pending.
 - The VS manifest targets `[17.12,19.0)`; this is a declared range, not evidence that every host was tested. The readiness runbook calls for Visual Studio 18.10.2 acceptance.
 
 Offline validation needs an appropriate snapshot or explicitly supplied contract source. Live metadata access needs a supported provider and authorized database access; adapter presence does not prove every database version/SQL feature works.
