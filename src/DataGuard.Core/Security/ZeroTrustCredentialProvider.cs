@@ -24,7 +24,8 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     // Shared process-lifetime client: per-call instantiation causes socket
     // exhaustion under repeated resolution (SEC-005). HttpClient is thread-safe
     // for concurrent requests; per-request headers go on HttpRequestMessage.
-    private static readonly HttpClient SharedHttpClient = new();
+    // Never forward ambient credentials (including the custom Vault token header) through redirects.
+    private static readonly HttpClient SharedHttpClient = new(new HttpClientHandler { AllowAutoRedirect = false });
 
     private readonly IConfiguration _configuration;
     private readonly ILogger<ZeroTrustCredentialProvider>? _logger;
@@ -193,7 +194,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
             catch (Exception ex)
             {
                 // Warning, never Debug (red-team D1): a misconfigured or unreachable store must be visible. The message
-                // names the store and the exception type only; store exceptions never carry the secret.
+                // names the store and the exception type only; arbitrary exception messages may contain secrets.
                 LogStoreFailure(store.Name, credentialName, ex);
                 continue;
             }
@@ -250,11 +251,10 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
     private void LogStoreFailure(string storeName, string credentialName, Exception exception)
     {
         _logger?.LogWarning(
-            "Secret store {Store} lookup for '{CredentialName}' failed ({ErrorType}: {ErrorMessage}); trying the next source",
+            "Secret store {Store} lookup for '{CredentialName}' failed ({ErrorType}); trying the next source",
             storeName,
             credentialName,
-            exception.GetType().Name,
-            exception.Message);
+            exception.GetType().Name);
     }
 
     private static string GetEnvironmentVariableName(string credentialName)
