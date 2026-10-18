@@ -325,11 +325,11 @@ export function resolveWorkspaceConfigPath(workspacePath: string, configuredPath
 
 ```json
 {
-    "name": "dataguard",
+    "name": "dataguard-vscode",
     "displayName": "DataGuard - Contract Validator",
     "description": "Validate Entity ↔ SP/Raw SQL contracts in .NET projects",
-    "version": "0.1.0",
-    "engines": { "vscode": "^1.85.0" },
+    "version": "0.4.0",
+    "engines": { "vscode": "^1.91.0" },
     "categories": ["Linters", "Programming Languages"],
     "activationEvents": [
         "onLanguage:csharp",
@@ -457,7 +457,7 @@ npm run test:extension-host
 npx vsce package
 ```
 
-Tạo ra file `.vsix` có thể cài đặt qua `code --install-extension dataguard-0.1.0.vsix`.
+Tạo ra file `.vsix` có thể cài đặt qua `code --install-extension dataguard-vscode-0.4.0.vsix`.
 
 ## Giới hạn
 

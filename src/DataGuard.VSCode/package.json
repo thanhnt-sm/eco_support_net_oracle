@@ -2,7 +2,7 @@
   "name": "dataguard-vscode",
   "displayName": "DataGuard",
   "description": "Detect database contract drift between .NET code, stored procedures, and SQL before it reaches production.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "thanhnt-sm",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -14,7 +14,7 @@
     "url": "https://github.com/thanhnt-sm/eco_support_net_oracle/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Linters",
