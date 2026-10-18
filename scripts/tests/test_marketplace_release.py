@@ -32,6 +32,21 @@ class ReleaseContracts(unittest.TestCase):
         return release.validate_inputs(config, repository=REPO, event='workflow_dispatch',
                                        ref='refs/heads/main', today=date(2026, 10, 18), **kwargs)
 
+    def test_committed_engine_matches_locked_languageclient_minimum(self):
+        package = json.loads((ROOT / 'src/DataGuard.VSCode/package.json').read_text())
+        lock = json.loads((ROOT / 'src/DataGuard.VSCode/package-lock.json').read_text())
+        client = lock['packages']['node_modules/vscode-languageclient']
+        self.assertEqual(client['version'], '10.1.2')
+        self.assertEqual(package['engines']['vscode'], client['engines']['vscode'])
+        self.assertEqual(lock['packages']['']['engines'], package['engines'])
+
+    def test_explicit_vs_release_version_reaches_parent_and_cli(self):
+        workflow = (ROOT / '.github/workflows/marketplace-release.yml').read_text()
+        self.assertIn('/p:MinVerVersionOverride=$env:PACKAGE_VERSION', workflow)
+        self.assertIn('-RequireReleaseIdentity', workflow)
+        project = (ROOT / 'src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj').read_text()
+        self.assertIn('/p:MinVerVersionOverride=&quot;$(MinVerVersionOverride)&quot;', project)
+
     def test_valid_prepare_and_publish(self):
         self.assertEqual(self.validate(self.config())['version'], '0.4.1')
         self.assertTrue(self.validate(self.config(True))['publish'])

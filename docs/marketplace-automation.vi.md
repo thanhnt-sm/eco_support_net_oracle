@@ -6,7 +6,7 @@
 
 ## Điều kiện trước khi chạy và điểm chặn hiện tại
 
-Có thể chuẩn bị trước khi metadata phát hành sẵn sàng. Với `publish=false`, để trống `release_tag` thì workflow dùng `source_sha` bất biến và version thật trong source. Version 0.3.0 và engine VS Code chưa khớp được ghi rõ là điểm chặn công bố trong summary; không coi là đã tương thích hoặc sẵn sàng phát hành. Vẫn bắt buộc identity/version trong gói khớp và mọi test/kiểm tra đóng gói thành công. Công bố vẫn cần tag ổn định từ 0.4.0 và engine phù hợp. Không tự sửa version, publisher, tag hay setting.
+Có thể chuẩn bị trước khi metadata phát hành sẵn sàng. Với `publish=false`, để trống `release_tag` thì workflow dùng `source_sha` bất biến và version thật trong source. Gói Visual Studio GPL hiện tại phải có version từ 0.4.0 kể cả build-only; gói 0.3.0 mâu thuẫn bị từ chối. Version nguồn của hai extension vẫn phải khớp và kiểm tra engine VS Code vẫn giữ nguyên. Vẫn bắt buộc identity/version trong gói khớp và mọi test/kiểm tra đóng gói thành công. Công bố vẫn cần tag ổn định từ 0.4.0 và engine phù hợp. Không tự sửa version, publisher, tag hay setting.
 
 Công bố dùng lại environment `release` mà `release.yml` đã tham chiếu. Validation kiểm tra environment tồn tại trước khi job publisher đủ điều kiện; nếu thiếu hoặc không đọc được thì dừng, không tự tạo. GitHub thực thi các quy tắc deployment hiện có. Bản sửa không bắt buộc người thứ hai, ngăn tự review, chính sách admin bypass hoặc branch protection mới. Maintainer duy nhất tự chọn hash đã nghiệm thu, target và xác nhận. Reviewer độc lập là phương án tăng bảo vệ tùy chọn, không phải điều kiện mới. Không tắt bảo vệ hiện có để chạy được workflow. Xem [quy tắc environment của GitHub](https://docs.github.com/actions/using-jobs/using-environments-for-jobs).
 
@@ -21,9 +21,9 @@ Chuẩn bị thành công là kết quả đóng gói, chưa phải quyền côn
 
 ## Đường đi cụ thể từ source hiện tại tới nghiệm thu
 
-1. Sau khi workflow được review và có trên main, chọn SHA source đầy đủ, để trống `release_tag`, giữ `publish=false`, chọn `target=both`. Không cần PAT, environment mới, tag, release hay gửi Marketplace cho bước chuẩn bị. Cả hai gói giữ version 0.3.0 của source. Lỗi test/công cụ đóng gói vẫn chặn run; cảnh báo không chứng minh engine tương thích.
+1. Sau khi workflow được review và có trên main, chọn SHA source đầy đủ, để trống `release_tag`, giữ `publish=false`, chọn `target=both`. Không cần PAT, environment mới, tag, release hay gửi Marketplace cho bước chuẩn bị. Version nguồn của hai extension đã đồng bộ theo mốc 0.4.0. Engine VS Code đã khớp mức tối thiểu ^1.91.0 của languageclient 10.1.2 bị khóa. Lỗi test/công cụ đóng gói vẫn chặn run; cảnh báo không chứng minh engine tương thích.
 2. Tải artifact chỉ để kiểm tra build/cài đặt. Ghi rõ cảnh báo version/license và engine. Chưa khẳng định hosted build trước khi run thành công; vẫn cần nghiệm thu Windows.
-3. Trong thay đổi source riêng được owner cho phép, đồng bộ version/license và engine VS Code (hiện ^1.85.0, dependency khóa yêu cầu ^1.91.0). Chạy test và nghiệm thu editor thật. Patch này không sửa các giá trị đó.
+3. Chạy đóng gói Windows và test PowerShell từ chối fixture. Build thủ công truyền version đã kiểm tra tới MinVer; dùng RequireReleaseIdentity kiểm extension/analyzer/CLI thật trong gói. Hoàn thành cài đặt nghiệm thu host đích và review sẵn sàng phát hành/giấy phép với văn bản pháp lý giữ nguyên. Khớp engine nguồn không thay thế nghiệm thu editor thật.
 4. Chỉ khi có chủ đích phát hành, dùng tag ổn định đã duyệt từ v0.4.0 và SHA chính xác để chuẩn bị lại. Nghiệm thu hash mới trước lần `publish=true` riêng. Không thể nâng artifact 0.3 chưa tag thành bản công bố bằng đổi tên hay sửa input.
 
 Preparation chỉ tạo Actions artifact/attestation tạm thời. Đưa workflow lên main là thao tác repository riêng: `installers.yml` không đổi vẫn có thể công bố rolling nightly khi push main phù hợp. Vì vậy không gọi việc merge mã này là không có side effect release. Tác vụ cục bộ này không merge hoặc dispatch.

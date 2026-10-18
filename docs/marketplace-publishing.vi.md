@@ -26,8 +26,8 @@ bằng chứng gói đã sẵn sàng hoặc đã công bố.
   chấp nhận thỏa thuận pháp lý mới. Ghi nhận phê duyệt, không sao chép bí mật; không tạo publisher
   khác để né lỗi quyền.
 - Chốt SHA nguồn sau merge và chọn version chưa dùng bằng cách kiểm tra lịch sử hai listing.
-  Manifest hiện là **0.3.0**, nhưng tài liệu giữ MIT đến v0.3.0 và bắt đầu GPL từ **0.4.0**.
-  Phải đối chiếu version/license trước công bố; tên file hoặc hậu tố nightly không sửa metadata.
+  Manifest hiện là **0.4.0**, khớp mốc GPL đã ghi; các bản lịch sử đến v0.3.0 giữ điều khoản MIT.
+  Phải đối chiếu version/license trong gói thật trước công bố; tên file hoặc hậu tố nightly không sửa metadata.
 - Ghi từng tên VSIX, publisher/ID/version bên trong, SHA nguồn, workflow run, **SHA-256**,
   checksum sidecar và provenance. Đối chiếu SBOM/dependency với nội dung, license/notices và
   kiểm tra config/bí mật ngoài ý muốn. Giữ nguyên byte đã nghiệm thu, không rebuild/đổi file
@@ -44,7 +44,7 @@ không thay nghiệm thu editor thật.
 
 VS Code cần kiểm tra activation gói đã cài, runtime/LSP, range diagnostic, workspace trusted/
 untrusted, CLI tương thích, timeout/deactivate. Gói chứa language server, không chứa CLI;
-server dùng .NET 9 qua `dotnet`. Sửa riêng chênh lệch engine ^1.85.0 với languageclient ^1.91.0
+server dùng .NET 9 qua `dotnet`. Engine đã khớp languageclient khóa ở ^1.91.0; vẫn phải nghiệm thu host đã cài
 trước khi công bố hỗ trợ. Thử upgrade từ version đã phát hành và uninstall/reinstall, bao gồm
 setting/trust lưu lại và xóa credential tổng hợp; không dùng credential production.
 
@@ -93,3 +93,9 @@ NuGet/GitHub/GHCR; không dùng như điều kiện upload trình duyệt hoặc
 ## Workflow thủ công riêng
 
 Workflow `marketplace-release.yml` có [quy trình hai bước prepare/publish riêng](marketplace-automation.vi.md), mặc định không công bố. `marketplace.yml` và release helper vẫn tạm dừng công bố Marketplace. Bản triển khai cục bộ còn cần hosted preparation được owner cho phép, nghiệm thu editor và xác minh xác thực/environment có sẵn. Đường trình duyệt không phụ thuộc việc khôi phục workflow cũ. Không chạy mã publish từ tag cũ hoặc giảm bảo vệ để vượt gate.
+
+### Chuẩn bị Visual Studio 0.4.0
+
+Manifest nguồn và fallback đăng ký Visual Studio hiện hướng tới 0.4.0, phù hợp mốc GPL đã ghi trong notice đóng gói. Các bản lịch sử đến v0.3.0 giữ điều khoản cũ; không sửa nội dung giấy phép. `scripts/assert-vsix.ps1` gọi `check-license-consistency.py --vsix <file> --expected-version 0.4.0` để kiểm phiên bản bên trong và so sánh từng byte giấy phép/notice với nguồn canonical. Tên tệp nightly không chứng minh phiên bản bên trong hay cờ prerelease.
+
+Đây là chuẩn bị nguồn, chưa phải phê duyệt phát hành. Manifest hai extension, lockfile VS Code và fallback helper build đã đồng bộ 0.4.0 chỉ để giữ hợp đồng phát hành chung; mục tiêu công bố vẫn chỉ là Visual Studio. Engine trong package.json và lockfile đã khớp mức tối thiểu ^1.91.0 của vscode-languageclient 10.1.2 bị khóa. Đây là sửa hợp đồng nguồn, không khẳng định nghiệm thu VS Code thật. Baseline đã có bản sửa PR73 cho optional input bị bỏ trống; bản sửa readiness này giữ nguyên chuẩn hóa đó và các kiểm tra công bố. Cần build nguồn phát hành bất biến đã được duyệt trên Windows, kiểm catalog, đăng ký, informational version của extension/analyzer/CLI, chạy test đóng gói và ghi nhận cài đặt thật trên host Visual Studio đích trước khi chấp nhận hash VSIX. Nếu không override, checkout chưa tag tạo metadata 0.0.0-alpha. Preparation thủ công nay truyền PACKAGE_VERSION đã kiểm tra qua MinVerVersionOverride tới build VS và tiến trình publish CLI riêng; build analyzer con kế thừa giá trị này. RequireReleaseIdentity đối chiếu file/product version của DLL/CLI thật trong VSIX, giữ binding identity major.0.0.0 của MinVer 8. Build local có override đã tạo metadata 0.4.0; không tạo tag. Đóng gói Windows, kiểm PE CLI và test từ chối PowerShell vẫn cần chạy trên hosted Windows. Helper build lấy tên artifact từ VS Code; tên tệp đã đồng bộ vẫn không chứng minh phiên bản assembly Visual Studio bên trong. Các bước kiểm này không cho phép tạo tag, dispatch workflow hay công bố Marketplace.

@@ -22,6 +22,8 @@ import fnmatch
 import json
 import re
 import sys
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -174,14 +176,80 @@ def check_npm_metadata(root: Path) -> list[str]:
     return problems
 
 
+VSIX_NS = "{http://schemas.microsoft.com/developer/vsx-schema/2011}"
+
+
+def check_visualstudio_version(root: Path) -> list[str]:
+    """Keep the current GPL source out of historical MIT release identities."""
+    try:
+        base = root / "src/DataGuard.VisualStudio"
+        identity = ET.parse(base / "source.extension.vsixmanifest").find(f"{VSIX_NS}Metadata/{VSIX_NS}Identity")
+        version = identity.attrib["Version"]
+        fallback = re.findall(r'Fallback = "([^"\n]+)"', (base / "ExtensionVersion.cs").read_text())
+        if fallback != [version]:
+            return ["Visual Studio manifest and registration fallback versions differ"]
+        return check_gpl_version(version)
+    except (OSError, ET.ParseError, AttributeError, KeyError) as error:
+        return [f"Visual Studio source version unreadable: {error}"]
+
+
+def check_gpl_version(version: str) -> list[str]:
+    if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+        return ["Current GPL VSIX requires a stable numeric version"]
+    parts = tuple(map(int, version.split(".")))
+    if parts < (0, 4, 0) or max(parts) > 65535:
+        return ["Current GPL VSIX version must be at least 0.4.0 within VS numeric bounds"]
+    return []
+
+
+def check_vsix(root: Path, path: Path, expected_version: str) -> list[str]:
+    """Inspect embedded identity and legal bytes; filenames do not establish release policy."""
+    problems = check_gpl_version(expected_version)
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = [entry.filename.replace("\\", "/") for entry in archive.infolist()]
+            if len(names) != len({name.casefold() for name in names}):
+                return problems + ["VSIX contains duplicate or case-alias entries"]
+            entries = dict(zip(names, archive.infolist()))
+            def read(name):
+                entry = entries[name]
+                if entry.file_size > 4 * 1024 * 1024:
+                    raise ValueError("VSIX metadata exceeds inspection limit")
+                return archive.read(entry)
+            raw = read("extension.vsixmanifest")
+            if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+                return problems + ["VSIX manifest entities are not allowed"]
+            manifest = ET.fromstring(raw)
+            identities = manifest.findall(f"{VSIX_NS}Metadata/{VSIX_NS}Identity")
+            if len(identities) != 1 or identities[0].get("Version") != expected_version:
+                problems.append("VSIX embedded version differs from expected version")
+            if manifest.findtext(f"{VSIX_NS}Metadata/{VSIX_NS}License") != "LICENSE.txt":
+                problems.append("VSIX must reference LICENSE.txt")
+            for name, source in (("LICENSE.txt", "LICENSE"),
+                                 ("THIRD-PARTY-NOTICES.md", "docs/legal/THIRD-PARTY-NOTICES.md"),
+                                 ("ADDITIONAL-PERMISSIONS.md", "docs/legal/ADDITIONAL-PERMISSIONS.md")):
+                if read(name) != (root / source).read_bytes():
+                    problems.append(f"VSIX {name} differs from canonical {source}")
+    except (OSError, KeyError, ValueError, ET.ParseError, zipfile.BadZipFile, RuntimeError) as error:
+        problems.append(f"VSIX policy inspection failed: {error}")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root (default: this checkout)")
-    root = parser.parse_args(argv).root.resolve()
+    parser.add_argument("--vsix", type=Path, help="inspect the actual VSIX legal payload and version")
+    parser.add_argument("--expected-version", help="required with --vsix")
+    args = parser.parse_args(argv)
+    if bool(args.vsix) != bool(args.expected_version):
+        parser.error("--vsix and --expected-version must be supplied together")
+    root = args.root.resolve()
     if hasattr(sys.stdout, "reconfigure"):  # Vietnamese doc lines must not crash a cp1258/cp1252 console
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     problems = (check_mentions(root) + check_metadata(root) + check_license_text(root)
-                + check_npm_metadata(root) + check_copies(root))
+                + check_npm_metadata(root) + check_copies(root) + check_visualstudio_version(root))
+    if args.vsix:
+        problems += check_vsix(root, args.vsix, args.expected_version)
     for problem in problems:
         print(f"FAIL {problem}")
     if problems:
