@@ -1,5 +1,8 @@
 # Future Directions & Roadmap
 
+> Historical planning snapshot — 2026-10-18: version labels, counts and forecasts below are not the current release inventory. Preserve this roadmap as context; use the [source map](../product/source-map.md) and [draft strategy index](../product/README.md) for reconciliation.
+
+
 ## Current State (v0.1.x)
 
 - ✅ 16+ validation rules (DG001-DG016, MY001-003, PG001-003)

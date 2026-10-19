@@ -1,3 +1,5 @@
+> **2026-10-18 — Tài liệu lịch sử: kiến trúc/runtime Rust hoặc dự báo phiên bản cũ bên dưới không phải hướng dẫn vận hành/phát hành hiện hành. Giữ nguyên bản ghi; không chạy lệnh cũ như hướng dẫn sản phẩm hiện tại.** [Canonical product documentation](../product/README.vi.md).
+
 # Kiến Trúc Cấu Hình Agent
 
 ## Tổng Quan

@@ -1,3 +1,5 @@
+> **Đối chiếu nguồn 2026-10-18:** workflow/script hiện có tại `ca68a3159425495f771da866188df75a8237ab4b` đã được đọc; đoạn nghiên cứu/run ngày 2026-10-16 bên dưới là bằng chứng lịch sử, không được truy vấn lại. Đã có implementation trong baseline không đồng nghĩa hosted run thành công hay alert đã xử lý.
+
 # Chờ bằng chứng SAST cho Scorecard (2026-10-16)
 
 Đây là đề xuất local, chưa xác nhận alert #52 đã được xử lý hoặc điểm hosted đã tăng. Không thay đổi branch protection, required checks, CodeQL hay trạng thái tạm dừng Marketplace. Điểm ngày 2026-10-05 chỉ là dữ liệu lịch sử.
@@ -17,3 +19,17 @@ Preflight bảo thủ hơn Scorecard v5.6.0: chỉ CodeQL, chỉ success, yêu c
 Action SHA vẫn tham chiếu Docker tag có thể thay đổi. Runtime metadata được ghi nhận, không phải chứng thực digest. Required CodeQL check trên final head trước merge là quyết định bảo mật riêng của owner, chưa thay đổi.
 
 Kiểm tra local: `python3 -m unittest discover -s scripts/tests`, `actionlint .github/workflows/*.yml` và các hook gate hiện có. Test dùng fixture giả, không API thật hoặc credential thật. Hosted Actions, OIDC admission, artifact transfer và ingestion SARIF chưa được xác minh. Không dispatch/publish/API retry khi chưa có phê duyệt riêng. Xem [tài liệu EN và nguồn upstream](scorecard-readiness.md), [kế hoạch](../../plans/2026-10-16-sast52-readiness.md).
+
+## Nghiệm thu còn cần runtime
+
+Nguồn được đối chiếu: `.github/workflows/scorecard.yml`, `scripts/scorecard_readiness.py` (`Readiness`, transport), `scripts/verify_scorecard_report.py` (`validate`, `main`), và test tương ứng trong `scripts/tests/`.
+
+| Thử nghiệm chưa chạy | Hành vi kỳ vọng từ nguồn | Bằng chứng cần thu khi được phép |
+|---|---|---|
+| Missing/pending/failed CodeQL suite | Không suy success từ thiếu suite; bounded wait/report | Readiness JSON của đúng run, final head SHA và trạng thái suite |
+| Readiness thất bại nhưng analysis metadata hợp lệ | Analysis vẫn được thử; report được giữ; chỉ upload nếu analysis success và metadata valid | Job results, immutable artifact ID, nguyên bản JSON/SARIF |
+| Metadata hợp lệ nhưng SHA readiness khác | Verifier exit 1 nhưng xuất valid=true và SHA thực; upload có thể chạy tại SHA thực nếu analysis success | Verify outputs và ingestion gắn đúng SHA, không gắn SHA trigger |
+| Non-main dispatch hoặc cancelled run | Điều kiện job ngăn chạy tương ứng | Job skip/cancellation evidence; không dispatch trong nhiệm vụ này |
+| OIDC/public REST, artifact transfer, code scanning | Cấu hình có ý định publish; không chứng minh admission/ingestion | Run được owner cho phép và artifact/ingestion evidence; không thử tự động |
+
+Không thay quyền, protection hoặc required checks. Quyết định bắt buộc CodeQL trên final head thuộc owner. Không cần quyết định mới để diễn giải nguồn; kết quả dịch vụ thật vẫn chưa xác minh.

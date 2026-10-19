@@ -2,75 +2,21 @@
 
 ## Cài Đặt Nhanh / Quick Start / Cài Đặt Nhanh
 
-### 1. Cài Đặt Package / Install Packages
+### 1. Source/artifact installation / Cài từ source hoặc artifact
 
-```bash
-# Core (bắt buộc / required)
-dotnet add package DataGuard.Core
+Use the [installation guide](05-operations/installation-guide.md) ([VI](05-operations/installation-guide.vi.md)) for a source build or exact inspected package. This source review does not establish NuGet, Marketplace or GitHub Release asset availability. Record the actual SHA/version/hash; do not assume a released 0.3.0 or 1.0.0 package from examples.
 
-# SQL Server (nếu dùng SQL Server)
-dotnet add package DataGuard.SqlServer.Adapter
+Dùng bản source/artifact đã kiểm tra; không suy ra package công khai tồn tại từ ID trong source. RID archives from `release.yml`/`installers.yml` are framework-dependent (.NET 9 runtime); `build_release.yml` publishes self-contained CLI archives. The Visual Studio VSIX bundles a self-contained CLI.
 
-# Oracle (nếu dùng Oracle) - cần chấp nhận Oracle License
-dotnet add package DataGuard.Oracle.Adapter
+### 2. Release channels / Kênh phân phối
 
-# Analyzers cho IDE (khuyên dùng / recommended)
-dotnet add package DataGuard.Analyzers
-```
+`installers.yml` runs on qualifying main pushes, excluding changes limited to `**/*.md`, `docs/**`, `plans/**`. Manual dispatch defaults `publish_prerelease=true`; explicitly select false for artifact-only preparation. Publication replaces the rolling nightly release/tag and signs blobs with Sigstore bundles and provenance attestations. Those signatures are distinct from a Windows embedded VSIX certificate. Filename nightly versions do not establish the embedded VSIX version or editor acceptance.
 
-### 2. Cài Đặt CLI Tool
+Workflow nightly chỉ chạy với trigger/path phù hợp; không phải mọi push. Nightly là URL có thể đổi, nên lưu run/SHA/hash và bản gói được nghiệm thu. Không suy ra listing Marketplace đã được công bố.
 
-`DataGuard.Cli` **chưa** được publish lên nuget.org (owner sẽ đăng ký package ID), nên không dùng
-`dotnet tool install`. Tải `dataguard` từ GitHub Releases và kiểm tra SHA-256:
+A manual `release.yml` run defaults to `dry_run=true`: it still runs hosted build/test/signing and uploads artifacts, but its publication jobs are gated. Cosign keyless signing can contact public signing/transparency services; it is not a local/no-external-write check. Tag pushes and manual `dry_run=false` enter publication gates. See [release guide](operations/release_guide.md) for the distinction from the local helper's dry-run mode, which does not dispatch a workflow.
 
-```bash
-# 1. Tải dataguard-<version>-<rid>.zip (rid: win-x64 | linux-x64 | osx-arm64) và file .sha256 đi kèm từ
-#    https://github.com/thanhnt-sm/eco_support_net_oracle/releases
-# 2. Kiểm tra checksum
-sha256sum -c dataguard-0.3.0-linux-x64.zip.sha256                                   # Linux/macOS
-(Get-FileHash dataguard-0.3.0-win-x64.zip).Hash -ieq (Get-Content dataguard-0.3.0-win-x64.zip.sha256).Split(' ')[0]   # Windows
-# 3. Giải nén; đặt thư mục vào PATH hoặc trỏ IDE tới đường dẫn tuyệt đối của dataguard(.exe)
-#    Bản build là framework-dependent: máy cần .NET 9 runtime.
-```
-
-IDE hosts (Visual Studio, VS Code) yêu cầu CLI **0.3.0 trở lên** cho `validate`/`assess`; CLI 0.2.2 trở
-xuống bị từ chối (xem `--ide-safe`). VSIX Visual Studio đã bundle sẵn `cli\dataguard.exe`.
-
-#### Nightly installers / Bản build nightly
-
-Mỗi push lên `main` (và khi chạy tay workflow **Build Installers**) tự động build CLI zip cho 3 RID,
-VSIX VS Code và VSIX Visual Studio, rồi đăng lên pre-release **`nightly`** (rolling, luôn trỏ tới
-commit mới nhất): <https://github.com/thanhnt-sm/eco_support_net_oracle/releases/tag/nightly>.
-Bản nightly **chưa ký** và có version dạng `<version>-nightly.<yyyyMMdd>.<run>`; dùng release `v*`
-khi cần bản chính thức.
-
-Every push to `main` (and a manual run of the **Build Installers** workflow) builds the CLI zips,
-the VS Code VSIX and the Visual Studio VSIX and publishes them to the rolling **`nightly`**
-pre-release. Nightly builds are unsigned; versioned `v*` releases stay the official channel.
-
-Chạy tay workflow **Release** (`workflow_dispatch`, input `tag`) mặc định là **dry run**: build, test,
-ký, SBOM và đóng gói đầy đủ rồi upload artifact của run, nhưng **không** tạo GitHub Release, không
-đẩy NuGet/Docker, không publish attestation; job `dry-run-summary` cuối run liệt kê artifact và xác
-nhận chưa publish gì. Đặt `dry_run=false` để publish thật từ run tay; push tag `v*` vẫn publish như
-trước. Version pre-release (có dấu `-`, ví dụ `0.3.0-rc.1`) được đánh dấu pre-release trên GitHub
-Release và không nhận Docker tag `latest`.
-
-A manual run of the **Release** workflow (`workflow_dispatch`, input `tag`) is a **dry run** by
-default: it builds, tests, signs, generates SBOMs and packages everything, uploads the run
-artifacts, but does **not** create the GitHub Release, push NuGet/Docker or publish attestations;
-the final `dry-run-summary` job lists the artifacts and confirms nothing was published. Set
-`dry_run=false` to publish from a manual run; `v*` tag pushes publish as before. A pre-release
-version (hyphen, e.g. `0.3.0-rc.1`) is marked pre-release on GitHub and never gets the `latest`
-Docker tag.
-
-```bash
-# Kiểm tra checksum trước khi cài / verify before installing (mọi file đều có .sha256 đi kèm)
-sha256sum -c dataguard-0.3.0-nightly.<yyyyMMdd>.<run>-linux-x64.zip.sha256                          # Linux/macOS
-(Get-FileHash DataGuard.VisualStudio-0.3.0-nightly.<yyyyMMdd>.<run>.vsix).Hash -ieq (Get-Content DataGuard.VisualStudio-0.3.0-nightly.<yyyyMMdd>.<run>.vsix.sha256).Split(' ')[0]   # Windows
-# VS Code: code --install-extension dataguard-vscode-<version>.vsix --force
-# Visual Studio: double-click VSIX. Manifest VSIX nightly giữ version đã commit (VSIX không nhận
-#   prerelease), nên gỡ extension DataGuard đang cài trước khi cài bản nightly.
-```
+Release dry run trên GitHub vẫn build/ký/upload artifact; không đồng nghĩa dry run cục bộ của helper. Xem [hướng dẫn release](operations/release_guide.vi.md). Actual package downloads, hosted signatures, installed editors and registry publication must be verified for the selected run; none are established by this source-level documentation review.
 
 ### 3. Khởi Tạo Cấu Hình / Initialize Config
 
@@ -115,7 +61,7 @@ EnableTelemetry: false             # Opt-in telemetry
 Oracle:
   Owner: MY_SCHEMA                 # Schema owner
   UseRefCursorDescribe: false      # Không còn dùng cho catalog; xem DescribeRefCursors
-  DescribeRefCursors: false        # true = THỰC THI procedure trả REF CURSOR (IN = NULL) để đọc cột kết quả; chỉ dùng account read-only
+  DescribeRefCursors: false        # true = THỰC THI procedure trả REF CURSOR (IN = NULL) để đọc cột kết quả; procedure vẫn có thể có side effect; cần xác minh procedure và quyền trước khi bật
   UseAllArguments: true            # Dùng ALL_ARGUMENTS
   UseAllTabColumns: true           # Dùng ALL_TAB_COLUMNS
 
@@ -179,13 +125,12 @@ dataguard validate --connection "..." --verbose
 | `--allow-assembly-from-config` | Cho phép Manual mode đọc `ManualAssemblyPath` trong file config (thiếu cờ => exit `2`); `--offline --assembly` không cần cờ; luôn bị từ chối dưới `--ide-safe`. Có ở `validate` và `baseline` | `false` |
 | `--config` | Đường dẫn .dataguard.yml; file không tồn tại => exit `2` (không tự dùng mặc định) | - (mặc định cấu hình built-in) |
 | `--output` | File output SARIF/JSON | Stdout |
-| `--format` | `sarif` \| `json` \| `text` | `sarif` |
+| `--format` | `text` \| `sarif` \| `evidence` \| `contracts` \| `yaml` \| `typescript` | `text` |
 | `--offline` | Không DB. Không có `--assembly` => Snapshot mode (dùng snapshot đã commit); có `--assembly` => Manual mode | `false` |
 | `--assembly` | Assembly cho Manual mode (cùng `--offline`) | - |
 | `--verbose` | Log chi tiết | `false` |
 | `--provider` | `sqlserver` \| `oracle` \| `mysql` \| `postgresql` (`postgres`), không phân biệt hoa thường; giá trị khác => exit `2` kèm danh sách hợp lệ | Từ config, rồi `sqlserver` |
 | `--schema` | Schema/owner name | Từ config |
-| `--package` | Oracle package name | Từ config |
 | `--project` | `.csproj` / `.sln` / thư mục để trích SQL inline và model C# | - |
 | `--skip-rules` | Danh sách rule ID bỏ qua, phân cách dấu phẩy (`DG002,DG017`); áp dụng trước kiểm tra rule không khả dụng | - |
 | `--fail-on-unavailable` | Exit `3` khi có rule không khả dụng cho provider (config `FailOnUnavailableRules`) | `false` |
@@ -202,7 +147,7 @@ dataguard validate --connection "..." --verbose
 1. `--connection <value>` (kèm cảnh báo deprecated)
 2. `--connection-env NAME`
 3. `DATAGUARD_CONNECTION_STRING`
-4. Credential provider: Azure Key Vault (`KeyVaultUri`) → AWS Secrets Manager (`AwsRegion`) → HashiCorp Vault (`VaultAddress` + `VAULT_TOKEN`) → biến `DATAGUARD_DATABASECONNECTION` → file credential đã mã hoá (`ApplicationData/DataGuard/credentials.json`). Store lỗi => một dòng `warning: Secret store <Name> lookup ... failed` (không bao giờ in secret) rồi thử nguồn kế tiếp. Bỏ qua hoàn toàn với `--offline`/`--ide-safe`.
+4. Credential provider: Azure Key Vault (`KeyVaultUri`) → AWS Secrets Manager (`AwsRegion`) → HashiCorp Vault (`VaultAddress` khớp origin HTTPS tin cậy trong `VAULT_ADDR` + `VAULT_TOKEN`) → biến `DATAGUARD_DATABASECONNECTION` → file credential đã mã hoá (`ApplicationData/DataGuard/credentials.json`). Store lỗi => một dòng `warning: Secret store <Name> lookup ... failed` (không bao giờ in secret) rồi thử nguồn kế tiếp. Bỏ qua hoàn toàn với `--offline`/`--ide-safe`.
 5. `ConnectionString` trong `.dataguard.yml` **chỉ khi** `AllowPlaintextConfigFallback: true`; mặc định key này bị bỏ qua kèm `warning: ignoring the plaintext ConnectionString key in the configuration file ...`.
 
 Khi credential provider được dùng, mọi truy cập được ghi vào audit log (`AuditLogPath`) qua một writer duy nhất; đặt `DATAGUARD_AUDIT_KEY` (hoặc `AuditKeyFile`, ≥ 16 byte) để chuỗi được khoá bằng HMAC-SHA256 — xem `SECURITY.md`.
@@ -245,7 +190,7 @@ Khi credential provider được dùng, mọi truy cập được ghi vào audit
 
 ```bash
 # Tạo baseline từ validation hiện tại
-dataguard baseline --connection "Oracle CI Schema" --output .dataguard-baseline.json
+dataguard baseline --connection-env ORACLE_CI --output .dataguard-baseline.json
 
 # Không có connection: dùng cùng snapshot mà validate dùng (.dataguard-snapshot.json)
 dataguard baseline
@@ -268,9 +213,8 @@ dataguard baseline
 - SARIF: mỗi result có `partialFingerprints: { "dataguard/v2": <fingerprint> }`, cùng giá trị với baseline.
 
 **Khi nào dùng / When to use**:
-- ✅ **Bắt buộc** khi onboarding legacy codebase
-- ✅ Chạy **một lần** trước khi bật CI gate
-- ✅ Commit file `.dataguard-baseline.json` vào repo
+- Dùng khi cần chấp nhận finding đã biết, sau review. Không bắt buộc cho mọi project.
+- Review metadata và quyền chia sẻ trước khi commit baseline; thay đổi baseline có thể suppress regression.
 
 ---
 
@@ -278,13 +222,13 @@ dataguard baseline
 
 ```bash
 # Làm mới snapshot từ DB hiện tại
-dataguard snapshot refresh --connection "CI Schema"
+dataguard snapshot refresh --connection-env ORACLE_CI
 
 # Xem thông tin snapshot
 dataguard snapshot show
 
 # So sánh schema hiện tại vs snapshot
-dataguard snapshot diff --connection "CI Schema"
+dataguard snapshot diff --connection-env ORACLE_CI
 ```
 
 **Định dạng snapshot v4** (plan gọi là "snapshot v3"; trên đĩa `Version: 4`): `refresh` ghi bảng (kèm `Schema` và `Charset` của cột), `StoredProcedures` (tham số với direction/độ dài/`HasDefault`/overload, cột kết quả, ref cursor, `ReturnType`), `LengthSemantics`, `Charset`, `Provider`, `DatabaseVersion`. `SchemaHash` (`canonical-schema-v2`) phủ toàn bộ nội dung đó. `show` in số bảng/cột/procedure/tham số và kết quả kiểm tra integrity. `diff` so sánh cả procedure (thêm/xoá/đổi tham số), in danh sách bảng/procedure thay đổi, và cảnh báo khi major.minor của database khác snapshot.
@@ -293,7 +237,7 @@ dataguard snapshot diff --connection "CI Schema"
 | | Snapshot | Baseline |
 |---|---|---|
 | **Mục đích** | Schema hiện tại (giống Jest snapshot) | Drift hiện tại (freeze) |
-| **Cập nhật** | `snapshot refresh` (DBA approval) | Tự động khi schema thay đổi hợp lệ |
+| **Cập nhật** | `snapshot refresh` sau review/cho phép | Chạy `baseline` có chủ đích rồi review suppression; không tự cập nhật |
 | **So sánh** | `snapshot diff` | Tự động trong `validate` |
 
 ---
@@ -334,16 +278,12 @@ dataguard config validate --config .dataguard.yml
 
 ```bash
 # Chạy dialect + length checks
-dataguard oracle-check --connection "Oracle CI" --format sarif
+dataguard oracle-check --connection-env ORACLE_CI --format sarif
 ```
 
-**Kiểm tra**:
-- DG010: Oracle syntax trong non-Oracle context
-- DG011: SQL Server syntax trong Oracle context
-- DG012: Missing `UseOracle()` registration
-- DG013: SQL Server EXEC syntax trong Oracle
-- DG014: Unmapped type usage (Oracle EF Core 8+)
-- DG007/DG008/DG009: Length mismatch checks
+**Implemented scope / Phạm vi thực tế:** `OracleCheckCommand.RunOracleValidationAsync` reads NLS length semantics and owner column metadata, then calls `CheckRawSqlUnmappedTypeUsage` on the catalog type/name text. It does not run every DG007–DG014 analyzer/source rule. Set the owner/schema and inspect catalog access on the intended Oracle host. The command currently accepts `--format` but emits console diagnostics plus SARIF when `--output` is supplied; other requested formats are not implemented here.
+
+Lệnh đọc catalog Oracle, không phải toàn bộ rule source/analyzer. `--format` hiện không đổi writer; muốn file SARIF phải chỉ rõ `--output`. Khả năng đọc catalog/NLS và phát hiện type trên host Oracle đích cần test live riêng.
 
 ---
 
@@ -353,16 +293,7 @@ dataguard oracle-check --connection "Oracle CI" --format sarif
 dataguard version
 ```
 
-**Output**:
-```
-DataGuard CLI version 1.0.0
-Runtime: 9.0.12
-OS: Linux 6.8.0
-DataGuard.Core: 1.0.0.0
-DataGuard.Oracle.Adapter: 1.0.0.0
-DataGuard.SqlServer.Adapter: 1.0.0.0
-DataGuard.Analyzers: 1.0.0.0
-```
+Output reports the actual CLI/component informational versions, runtime and OS. These values come from the selected binary/host, not a promised release version. / Output lấy version/runtime/OS thực tế, không chứng minh bản release 1.0.0 tồn tại.
 
 ---
 
@@ -389,13 +320,13 @@ dataguard hook uninstall
 | **Husky** | `.husky/pre-commit` | Nếu folder `.husky/` tồn tại |
 | **Lefthook** | `lefthook.yml` | Nếu file tồn tại |
 
-**Generated Hook Content**:
+**Generated hook behavior (excerpt) / Trích hành vi hook**:
 ```bash
 #!/bin/sh
 # DataGuard pre-commit hook
 echo "🔍 Running DataGuard pre-commit validation..."
 
-if command -v dataguard &> /dev/null; then
+if command -v dataguard >/dev/null 2>&1; then
     dataguard validate --offline --format text
     exit_code=$?
     if [ $exit_code -ne 0 ]; then
@@ -413,52 +344,17 @@ exit 0
 
 ## Workflow Đề Xuất / Recommended Workflows
 
-### 1. Legacy Codebase Onboarding (Onboarding Dự Án Cũ)
+### 1. Legacy onboarding / Project cũ
 
-```bash
-# 1. Cài đặt packages + CLI (tải từ GitHub Releases, kiểm tra SHA-256 — xem "Cài Đặt CLI Tool")
-dotnet add package DataGuard.Core
-dotnet add package DataGuard.Oracle.Adapter  # nếu Oracle
+Provision the reviewed CLI, initialize config without overwriting existing files, acquire an authorized snapshot and validate. Create a baseline only after reviewing the findings you intend to suppress. Review generated metadata before committing it. See [quickstart](01-overview/quickstart.md).
 
-# 2. Interactive setup
-dataguard init --wizard
+Cài CLI đã kiểm tra, tạo config, lấy snapshot được cho phép và validate. Baseline là quyết định chấp nhận finding, không bắt buộc và không tự sửa schema.
 
-# 3. Tạo baseline (MỘT LẦN - bắt buộc)
-dataguard baseline --connection "Oracle CI Schema"
+### 2. Greenfield / Project mới
 
-# 4. Commit baseline
-git add .dataguard-baseline.json .dataguard.yml
-git commit -m "chore: add DataGuard baseline for legacy drift"
+Choose the required library/analyzer packages from a verified local feed or independently verified release. The CLI does not require adding Core/adapters to your application. Test the analyzer against the actual IDE/build host; never add skip attributes merely to remove a warning. Install hooks only deliberately and inspect their generated content: missing CLI currently prints a warning and skips validation, so this hook is not a fail-closed CI gate.
 
-# 4. CI Pipeline (thêm vào .github/workflows/ci.yml)
-# - name: DataGuard Validate
-#   run: dataguard validate --connection ${{ secrets.ORACLE_CI }} --format sarif --output dataguard.sarif
-# - name: Upload SARIF
-#   uses: github/codeql-action/upload-sarif@v3
-#   with: { sarif_file: dataguard.sarif }
-
-# 5. Pre-commit hook (local dev)
-dataguard hook install
-```
-
-### 2. Greenfield Project (Dự Án Mới)
-
-```bash
-# 1. Cài đặt
-dotnet add package DataGuard.Core
-dotnet add package DataGuard.Analyzers
-dotnet add package DataGuard.SqlServer.Adapter  # hoặc Oracle.Adapter
-
-# 2. Analyzer tự động hoạt động trong IDE
-# - DG001: "Unvalidated SQL call" warning trên FromSqlRaw
-# - Click lightbulb → "Add [SkipContractCheck]" hoặc "Add expected params"
-
-# 3. Pre-commit hook
-dataguard hook install
-
-# 4. CI Gate
-# GitHub Actions: dataguard validate --connection "${{ secrets.SQL_CONNECTION }}" --format sarif
-```
+Chọn package đã xác minh; không suy ra registry có sẵn. Analyzer cần nghiệm thu trên host thật. Hook là opt-in; thiếu CLI thì hook hiện bỏ qua validation, không tương đương CI gate bắt buộc.
 
 ### 3. Oracle Length Mismatch Prevention
 
@@ -518,7 +414,7 @@ END;
 
 ```xml
 <!-- .csproj -->
-<PackageReference Include="DataGuard.Analyzers" Version="1.0.0" />
+<PackageReference Include="DataGuard.Analyzers" Version="<verified-package-version>" />
 ```
 
 **Dòng compiler / Compiler line**: analyzer được build với Roslyn 4.12 (`Microsoft.CodeAnalysis` 4.12.0) — dòng compiler mà .NET SDK 9.0.1xx và Visual Studio 2022 17.12+ dùng. Compiler cũ hơn (SDK 8.x, VS 2022 17.0–17.11) từ chối analyzer với `warning CS9057` và không hiện diagnostic nào. / The analyzer targets Roslyn 4.12, the compiler line of the .NET 9.0.1xx SDK and Visual Studio 2022 17.12+; an older compiler refuses it with `warning CS9057` and shows no diagnostics (checked in CI by `scripts/verify-analyzer-packaging.sh`).
@@ -580,121 +476,17 @@ Menu **Tools → DataGuard**: Run Validation, Cancel, Assess Workspace, View Dia
 
 ## CI/CD Integration / Tích Hợp CI/CD
 
-### GitHub Actions
+Provision an exact reviewed CLI artifact and its required runtime before validation; see [installation](05-operations/installation-guide.md). Supply a reviewed snapshot for untrusted PRs. A portable validation step is:
 
-```yaml
-# .github/workflows/dataguard.yml
-name: DataGuard Validation
-
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
-
-jobs:
-  dataguard-validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-      
-      - name: Restore
-        run: dotnet restore
-      
-      - name: Install DataGuard CLI (GitHub Releases, verify SHA-256)
-        run: |
-          asset="dataguard-${DATAGUARD_VERSION}-linux-x64.zip"
-          base="https://github.com/thanhnt-sm/eco_support_net_oracle/releases/download/v${DATAGUARD_VERSION}"
-          curl -sSL -O "$base/$asset" -O "$base/$asset.sha256"
-          sha256sum -c "$asset.sha256"
-          unzip -q "$asset" -d "$HOME/dataguard" && echo "$HOME/dataguard" >> "$GITHUB_PATH"
-        env:
-          DATAGUARD_VERSION: "0.3.0"     # release tag without the v prefix; needs the .NET 9 runtime above
-      
-      - name: DataGuard Validate
-        run: |
-          dataguard validate \
-            --connection "${{ secrets.ORACLE_CONNECTION }}" \
-            --format sarif \
-            --output dataguard.sarif
-        env:
-          ORACLE_CONNECTION: ${{ secrets.ORACLE_CONNECTION }}
-      
-      - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: dataguard.sarif
-          category: dataguard
+```bash
+dataguard validate --offline --project ./MyApp.csproj --format sarif --output dataguard.sarif
 ```
 
-### Azure DevOps
+Replace the project path. Preserve the CLI exit status and retain the report on failure. In an explicitly authorized live job, supply `ORACLE_CONNECTION` through the CI secret mechanism and use `--connection-env ORACLE_CONNECTION --provider oracle`, never interpolate the secret into shell source or argv.
 
-```yaml
-# azure-pipelines.yml
-trigger:
-- main
+GitHub Code Scanning needs a valid SARIF file and appropriate upload permissions. Azure DevOps/GitLab can retain it as a generic artifact; GitLab's native `artifacts:reports:sast` expects its own schema, not arbitrary SARIF. Hosted upload/integration on each platform remains an acceptance test, not evidence provided by these CLI examples.
 
-pool:
-  vmImage: 'ubuntu-latest'
-
-steps:
-- task: UseDotNet@2
-  inputs:
-    version: '9.0.x'
-
-- script: |
-    asset="dataguard-$(DATAGUARD_VERSION)-linux-x64.zip"
-    base="https://github.com/thanhnt-sm/eco_support_net_oracle/releases/download/v$(DATAGUARD_VERSION)"
-    curl -sSL -O "$base/$asset" -O "$base/$asset.sha256"
-    sha256sum -c "$asset.sha256"
-    unzip -q "$asset" -d "$(Agent.ToolsDirectory)/dataguard"
-    echo "##vso[task.prependpath]$(Agent.ToolsDirectory)/dataguard"
-  displayName: 'Install DataGuard CLI (GitHub Releases, verify SHA-256)'
-
-- script: |
-    dataguard validate \
-      --connection "$(ORACLE_CONNECTION)" \
-      --format sarif \
-      --output $(Build.ArtifactStagingDirectory)/dataguard.sarif
-  displayName: 'DataGuard Validate'
-  env:
-    ORACLE_CONNECTION: $(ORACLE_CONNECTION)
-
-- task: PublishBuildArtifacts@1
-  inputs:
-    pathToPublish: 'dataguard.sarif'
-    artifactName: 'DataGuard-SARIF'
-```
-
-### GitLab CI
-
-```yaml
-# .gitlab-ci.yml
-stages:
-  - validate
-
-dataguard_validate:
-  stage: validate
-  image: mcr.microsoft.com/dotnet/sdk:9.0
-  before_script:
-    # Download from GitHub Releases and verify SHA-256 (DataGuard.Cli is not on nuget.org yet)
-    - ASSET="dataguard-${DATAGUARD_VERSION}-linux-x64.zip"
-    - BASE="https://github.com/thanhnt-sm/eco_support_net_oracle/releases/download/v${DATAGUARD_VERSION}"
-    - curl -sSL -O "$BASE/$ASSET" -O "$BASE/$ASSET.sha256"
-    - sha256sum -c "$ASSET.sha256"
-    - unzip -q "$ASSET" -d /opt/dataguard && export PATH="/opt/dataguard:$PATH"
-  script:
-    - dataguard validate --connection "$ORACLE_CONNECTION" --format sarif --output dataguard.sarif
-  artifacts:
-    reports:
-      sast: dataguard.sarif
-    when: always
-```
+CI cần cung cấp CLI/runtime và snapshot đã kiểm tra. Giữ exit status và artifact khi lỗi; chỉ job live được cho phép mới nhận secret. Upload SARIF là bước riêng cần quyền và kiểm thử trên host. Không đưa SARIF trực tiếp vào GitLab SAST report schema.
 
 ---
 
@@ -733,10 +525,10 @@ dataguard validate --offline --format text
 ### 1. Baseline Management
 ```bash
 # Chạy baseline MỘT LẦN khi onboarding
-dataguard baseline --connection "CI"
+dataguard baseline --connection-env ORACLE_CI
 
 # Khi DBA thay đổi schema hợp lệ
-dataguard snapshot refresh --connection "CI"
+dataguard snapshot refresh --connection-env ORACLE_CI
 # → Review diff trong PR → Approve → Merge
 
 # KHÔNG sửa baseline file thủ công
@@ -790,32 +582,17 @@ protected override void OnConfiguring(DbContextOptionsBuilder options)
 | `DATAGUARD_CONNECTION_STRING` | Connection string chính (sau `--connection-env`) | `Server=...;Database=...` |
 | `DATAGUARD_DATABASECONNECTION` | Connection string đọc bởi credential provider | `Server=...;Database=...` |
 | `DATAGUARD_AUDIT_KEY` | Khoá HMAC (≥ 16 byte) cho audit hash chain; thắng `AuditKeyFile` | (secret) |
-| `DATAGUARD_PROVIDER` | Provider mặc định | `Oracle` / `SqlServer` |
-| `DATAGUARD_CONFIG` | Config file path | `.dataguard.yml` |
-| `DATAGUARD_BASELINE_PATH` | Baseline file path | `.dataguard-baseline.json` |
-| `DATAGUARD_SNAPSHOT_PATH` | Snapshot file path | `.dataguard-snapshot.json` |
-| `DATAGUARD_KEY_VAULT_URI` | Azure Key Vault URI | `https://myvault.vault.azure.net` |
+| `DATAGUARD_PROVIDER` | Gợi ý cho AutoDetectionEngine; không ghi đè `--provider`/`DefaultProvider` trong CLI validation | `Oracle` / `SqlServer` |
 
 ---
 
 ## Migration Guide / Hướng Dẫn Nâng Cấp
 
-### Từ v0.x → v1.0
+### Upgrade a selected version / Nâng cấp version đã chọn
 
-```bash
-# 1. Update packages
-dotnet add package DataGuard.Core --version 1.0.0
-dotnet add package DataGuard.Oracle.Adapter --version 1.0.0
+Do not assume a v1.0 release exists. Review the selected version's changes and exact packages, preserve existing config, then run synthetic offline fixtures and the intended provider/editor tests. `init` refuses to overwrite config; create a separate output if comparing defaults. `migrate --baseline <path>` handles legacy v1 baseline format, not arbitrary schema or product upgrades. Review baseline changes instead of blindly recreating them.
 
-# 2. Regenerate config (nếu có breaking changes)
-dataguard init --wizard
-
-# 3. Recreate baseline (schema hash format changed)
-dataguard baseline --connection "CI"
-
-# 4. Update CI pipeline (nếu format SARIF thay đổi)
-# Kiểm tra SARIF 2.1.0 compatibility
-```
+Không coi số version minh họa là release thật. Sao lưu/review config, kiểm thử offline và provider/editor đích; migration baseline v1→v2 không phải migration mọi schema hay mọi version sản phẩm.
 
 ---
 
@@ -825,28 +602,25 @@ dataguard baseline --connection "CI"
 A: Không. EFCorePowerTools scaffold code. DataGuard **validate** hợp đồng tại build/CI. Cùng dùng được.
 
 **Q: Có hỗ trợ PostgreSQL/MySQL không?**
-A: Chưa. Roadmap v1.1. Hiện tại: SQL Server + Oracle.
+A: Có adapter MySQL và PostgreSQL trong source, cùng SQL Server/Oracle. Hỗ trợ phụ thuộc metadata và SQL shape; operation chưa đánh giá phải được báo, không coi như đã validate. Test database/version cụ thể vẫn cần evidence riêng.
 
 **Q: Có cần DB connection trong IDE không?**
-A: Không. IDE layer chỉ syntax-only (~ms). CI layer mới cần DB.
+A: Analyzer/generator IDE kiểm tra local; chưa có số đo latency cho mọi host. Validation theo ground-truth mode; Full dùng DB, Snapshot/Manual không cần live DB. Các lệnh live của extension có consent riêng.
 
 **Q: Baseline file có an toàn để commit không?**
-A: Có. Chỉ chứa violation metadata + hash. Không chứa connection string/data nhạy cảm.
+A: Không tự động an toàn. Baseline chứa message/properties/path và snapshot có thể chứa schema/procedure metadata. Review nội dung, secret và quyền chia sẻ trước khi commit.
 
 **Q: Có thể custom rules không?**
-A: Có. Tạo class implement `IContractRule`, build thành DLL, drop vào `~/.dataguard/plugins/` hoặc config plugin directory.
+A: Có contract plugin qua `validate --plugins-dir`; cần manifest, SHA-256, dependency và rule ID hợp lệ. CLI chưa có signed-provenance verifier mặc định nên từ chối nếu không có opt-in unsigned local; xem option ở trên. Không tự nạp từ `~/.dataguard/plugins/`; IDE-safe cấm plugin.
 
 ---
 
 ## Links Hữu Ích / Useful Links
 
-- **GitHub**: https://github.com/DataGuard/DataGuard
-- **NuGet**: https://www.nuget.org/packages/DataGuard.Core
-- **Documentation**: https://dataguard.github.io/docs
-- **Issues**: https://github.com/DataGuard/DataGuard/issues
-- **Discussions**: https://github.com/DataGuard/DataGuard/discussions
-- **Changelog**: https://github.com/DataGuard/DataGuard/blob/main/CHANGELOG.md
+- [Repository](https://github.com/thanhnt-sm/eco_support_net_oracle)
+- [Issues](https://github.com/thanhnt-sm/eco_support_net_oracle/issues)
+- [Documentation index](README.md)
+- [Installation](05-operations/installation-guide.md)
+- [Rule source overview](03-components/core/rules-engine.md)
 
----
-
-*Phiên bản: 1.0.0 | Cập nhật: 2025-01-19*
+Source-level reconciliation: SA-DOC-015, baseline `ca68a3159425495f771da866188df75a8237ab4b`. Commands and contracts were inspected; public releases, live database operations, OS credential backends and hosted CI/editor execution were not exercised by this review.

@@ -1,3 +1,5 @@
+> **2026-10-18 — Historical document: the Rust runtime/architecture or old version forecasts below are not current operation/release instructions. The record is retained; do not execute old commands as current product guidance.** [Canonical product documentation](../product/README.md).
+
 [English](playbook_and_runbook.md) | [Tiếng Việt](playbook_and_runbook.vi.md)
 
 > Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;

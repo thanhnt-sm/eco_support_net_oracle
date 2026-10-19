@@ -2,7 +2,9 @@
 
 [English](marketplace-automation.md) · [Tải lên bằng trình duyệt, không cần PAT](marketplace-publishing.vi.md)
 
-`.github/workflows/marketplace-release.yml` là workflow `workflow_dispatch` riêng, chỉ chạy khi người dùng chủ động chọn. Mặc định `publish=false` chỉ kiểm thử và đóng gói; chỉ chấp nhận dispatch từ `main` của repository này. `marketplace.yml` vẫn chỉ test/package, helper vẫn tạm dừng Marketplace và `installers.yml` giữ hành vi nightly đã ghi nhận. Test cục bộ thành công chưa chứng minh sẵn sàng phát hành: thay đổi này chưa chạy hosted preparation, công cụ Windows, editor thật, quyền environment hoặc xác thực publisher.
+`.github/workflows/marketplace-release.yml` là workflow `workflow_dispatch` riêng, chỉ chạy khi người dùng chủ động chọn. Mặc định `publish=false` chỉ kiểm thử và đóng gói; chỉ chấp nhận dispatch từ `main` của repository này. `marketplace.yml` vẫn chỉ test/package, helper vẫn tạm dừng Marketplace và `installers.yml` giữ hành vi nightly đã ghi nhận. Đợt review cục bộ ban đầu chưa chạy hosted preparation hoặc công cụ Windows. Sau đó, các kiểm tra chuẩn bị đã đạt cho đúng run và byte được ghi tại [bằng chứng chuẩn bị](product/release-claims.md). Nghiệm thu editor đã cài, quyền environment công bố và xác thực publisher vẫn chưa được xác minh; test cục bộ hoặc chuẩn bị thành công không tự phê duyệt công bố.
+
+SA-DOC-015 đối chiếu workflow/helper tại baseline `ca68a3159425495f771da866188df75a8237ab4b`; không truy vấn listing, credential hoặc trạng thái hosted run. ID DataGuard và lịch sử license giữ nguyên; thương hiệu đề xuất xem [chiến lược](product/strategy.md).
 
 ## Điều kiện trước khi chạy và điểm chặn hiện tại
 
@@ -49,3 +51,5 @@ GitHub có chính sách miễn phí standard hosted runner cho repository công 
 Workflow dùng `scripts/marketplace_release.py` để kiểm tra và dừng khi không đủ điều kiện. `scripts/tests/test_marketplace_release.py` dùng fixture giả lập cho input sai, tráo provenance, source đổi, identity/version sai, ZIP nhập nhằng, thay listing, environment, target và mặc định không công bố. `test_marketplace_docs.py` bảo vệ hướng dẫn trình duyệt và workflow hiện có; test policy yêu cầu job công bố phụ thuộc test sản phẩm. Xem [kế hoạch](../plans/2026-10-18-manual-marketplace-release.md). Actionlint/policy/test/docs cục bộ không thay thế lần hosted preparation không công bố được owner cho phép và nghiệm thu trên editor thật.
 
 GitHub có thể bỏ hẳn trường tùy chọn trống khỏi JSON input. Verifier chuẩn hóa `release_tag`, `prepared_run_id`, hai hash package, `readiness_url` và `confirm` bị thiếu thành chuỗi rỗng ở mọi entrypoint; giá trị được truyền rõ nhưng không phải chuỗi sẽ bị từ chối. Vì vậy bước record build-only xử lý trường bị bỏ và chuỗi rỗng như nhau; công bố vẫn cần đủ giá trị cho target đã chọn và không thể nâng manifest chưa tag thành bản phát hành.
+
+Kết quả build-only có giới hạn cho nguồn `121b05d` được ghi tại [bằng chứng chuẩn bị](product/release-claims.md). Cổng identity Windows đã đạt; chưa nghiệm thu editor đã cài hoặc phát hành Marketplace. Kết quả không phê duyệt artifact hay tag phát hành khác.

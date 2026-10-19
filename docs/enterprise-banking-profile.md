@@ -1,3 +1,5 @@
+> **Historical evidence / Tài liệu lịch sử — 2026-10-18:** Profile scoped to commit 054476e on 2026-08-22: grants, defaults and operational assertions require a new provider/customer review; do not execute the historical role examples as a current least-privilege runbook. Current authority / Nguồn hiện hành: [capabilities](product/capabilities.md), [evaluation](product/evaluation.md), [release claims](product/release-claims.md). Historical body retained; not revalidated / Giữ nội dung cũ, chưa kiểm chứng lại.
+
 # DataGuard — Enterprise / Banking Profile
 
 > **Mục đích**: cấu hình và vận hành DataGuard trong môi trường doanh nghiệp lớn / ngân hàng với tải trọng tuân thủ cao, offline-first, và supply-chain nghiêm ngặt.

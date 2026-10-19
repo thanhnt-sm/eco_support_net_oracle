@@ -20,7 +20,7 @@ graph TB
     subgraph "Rules Engine"
         MY001[MySqlSyntaxRule]
         MY002[NonMySqlSyntaxRule]
-        MY003[MySqlLengthExceedsColumnRule]
+        MY004[MySqlLengthExceedsColumnRule]
     end
 
     MSP -->|SQL queries| R
@@ -28,45 +28,49 @@ graph TB
 
     MY001 --> MDC
     MY002 --> MDC
-    MY003 --> MLMD
+    MY004 --> MLMD
 ```
 
 ## Source Files
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `MySqlStoredProcedureParser.cs` | ~110 | IContractSource implementation for MySQL SPs |
-| `MySqlDialectChecker.cs` | ~100 | Dialect detection + MY001/MY002 rules |
-| `MySqlLengthMismatchDetector.cs` | ~60 | Length mismatch detection + MY003 rule |
+| File | Purpose |
+|------|---------|
+| `MySqlStoredProcedureParser.cs` | IContractSource implementation for MySQL SPs |
+| `MySqlDialectChecker.cs` | Dialect detection + MY001/MY002 rules |
+| `MySqlLengthMismatchDetector.cs` | Length mismatch detection + MY004–MY007 rules |
 
 ## Dependencies
 
 ```xml
-<PackageReference Include="MySqlConnector" Version="2.4.3" />
+<PackageReference Include="MySqlConnector" Version="2.6.2" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
 ```
 
 ## MySqlStoredProcedureParser
 
-Implements `IContractSource` to extract stored procedure contracts from MySQL's `INFORMATION_SCHEMA`.
+Implements `IContractSource` to extract procedure and function contracts from MySQL's `INFORMATION_SCHEMA`.
 
 ### Query Pattern
 
 ```sql
 SELECT r.ROUTINE_NAME, p.PARAMETER_NAME, p.DATA_TYPE, p.PARAMETER_MODE,
        p.ORDINAL_POSITION, p.CHARACTER_MAXIMUM_LENGTH, p.NUMERIC_PRECISION,
-       p.NUMERIC_SCALE, r.ROUTINE_SCHEMA
+       p.NUMERIC_SCALE, r.ROUTINE_SCHEMA, r.ROUTINE_TYPE, r.DATA_TYPE
 FROM information_schema.ROUTINES r
 LEFT JOIN information_schema.PARAMETERS p
-  ON r.SPECIFIC_SCHEMA = p.SPECIFIC_SCHEMA AND r.SPECIFIC_NAME = p.SPECIFIC_NAME
-WHERE r.ROUTINE_TYPE = 'PROCEDURE' AND (@schema = '' OR r.ROUTINE_SCHEMA = @schema)
-ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION
+  ON r.ROUTINE_SCHEMA = p.SPECIFIC_SCHEMA AND r.SPECIFIC_NAME = p.SPECIFIC_NAME
+ AND p.ROUTINE_TYPE = r.ROUTINE_TYPE
+WHERE r.ROUTINE_TYPE IN ('PROCEDURE', 'FUNCTION')
+  AND ((@schema <> '' AND r.ROUTINE_SCHEMA = @schema)
+    OR (@schema = '' AND r.ROUTINE_SCHEMA NOT IN
+        ('mysql', 'sys', 'information_schema', 'performance_schema')))
+ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_TYPE, r.ROUTINE_NAME, p.ORDINAL_POSITION
 ```
 
 ### Key Design Decisions
 
 - **LEFT JOIN**: Procedures without parameters appear as one row with NULL parameter fields. The parser creates their empty `StoredProcedureDescriptor`; it skips only parameter creation for that row.
-- **Schema filtering**: Empty schema string means "all schemas"; otherwise filters by exact match.
+- **Schema filtering**: An omitted schema uses `SELECT DATABASE()`; if no database is selected, extraction includes non-system schemas. An explicit schema filters by exact match.
 - **Overload handling**: MySQL does not support procedure overloading, so each procedure name maps to exactly one contract.
 - **Length normalization**: `CHARACTER_MAXIMUM_LENGTH` returns `BIGINT` — normalized to `int?` with overflow protection.
 
@@ -82,6 +86,7 @@ ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_NAME, p.ORDINAL_POSITION
 
 ```
 mysql:{schema}.{procedure_name}
+mysql:{schema}.{function_name}#function
 ```
 
 ## MySqlDialectChecker
@@ -110,7 +115,7 @@ Detects MySQL-specific syntax in non-MySQL contexts and vice versa using keyword
 
 ## MySqlLengthMismatchDetector
 
-Compares entity `MaxLength` against MySQL column `CHARACTER_MAXIMUM_LENGTH`. Simple direct comparison — MySQL does not have Oracle's CHAR/BYTE semantics complexity.
+Compares entity `MaxLength` against MySQL column `CHARACTER_MAXIMUM_LENGTH`. Character-width checks use MY004; byte limits, row-size estimates and inferred-size risks use separate rules. The snippet below illustrates only the character-width comparison.
 
 ### Detection Logic
 
@@ -123,7 +128,7 @@ foreach (var property in entity.Properties)
         continue;
 
     if (property.MaxLength.Value > column.MaxLength.Value)
-        yield return new ContractViolation("MY003", ...);
+        yield return new ContractViolation("MY004", ...);
 }
 ```
 
@@ -146,7 +151,7 @@ foreach (var property in entity.Properties)
 | **Trigger** | Oracle/SQL Server keywords (`NVL`, `TOP`, `GETDATE`, etc.) in MySQL SQL |
 | **Message** | Non-MySQL syntax '{syntax}' used in MySQL context |
 
-### MY003 — Entity Length Exceeds MySQL Column Length
+### MY004 — Entity Length Exceeds MySQL Column Length
 
 | Property | Value |
 |----------|-------|
@@ -154,7 +159,7 @@ foreach (var property in entity.Properties)
 | **Trigger** | `property.MaxLength > column.MaxLength` |
 | **Message** | Entity property '{name}' MaxLength={n} exceeds column '{col}' length={m} |
 
-The `MySqlVarcharByteLimitRule` form of MY003 also checks TEXT family columns. Those limits are bytes, so the entity length is converted the same way MY006 does it: `MaxLength × bytes per UTF-16 unit` (utf8mb4/utf8mb3/utf8 3, ucs2/utf16 2, single-byte sets 1, `byte[]` 1). A `string` with `MaxLength = 30000` on a utf8mb4 `TEXT` column (90,000 bytes) is reported: `may need 90000 bytes (3 per character in utf8mb4) but MySQL TEXT holds at most 65535 bytes`.
+The separate MY003 rule (`MySqlVarcharByteLimitRule`) also checks TEXT family columns. Those limits are bytes, so the entity length is converted the same way MY006 does it: `MaxLength × bytes per UTF-16 unit` (utf8mb4/utf8mb3/utf8 3, ucs2/utf16 2, single-byte sets 1, `byte[]` 1). A `string` with `MaxLength = 30000` on a utf8mb4 `TEXT` column (90,000 bytes) is reported: `may need 90000 bytes (3 per character in utf8mb4) but MySQL TEXT holds at most 65535 bytes`.
 
 ## Usage in CLI
 
@@ -174,7 +179,7 @@ Unlike Oracle, MySQL does not have packages. The `PackageName` field is always e
 
 ### INFORMATION_SCHEMA Limitations
 
-MySQL's `INFORMATION_SCHEMA.PARAMETERS` may not be available for all MySQL versions or configurations. The adapter gracefully handles missing data by skipping NULL parameter rows.
+NULL parameter fields from the LEFT JOIN represent a routine without parameters; only parameter creation is skipped. A missing catalog view or permission failure is not equivalent to a valid empty contract.
 
 ### Character Set Awareness
 
@@ -191,3 +196,7 @@ MySQL's `CHARACTER_MAXIMUM_LENGTH` is always in characters (not bytes), regardle
 - **MY007**: Pomelo maps a `string` with no `MaxLength` to `longtext`. The rule fires only when that property sits on a `varchar(n)`/`char(n)` column; a TEXT column is not a risk.
 - `GetBytesPerChar` returns MySQL's maximum width per character: `utf8mb3` = 3 (it was wrongly 4), `utf8mb4` = 4.
 
+
+The catalog reads procedures and functions; a function return row at ordinal 0 becomes `ReturnType`. It does not parse routine bodies to infer result sets: `ResultColumns` is empty. `MySqlLiveQuerySchemaProvider` is a separate path for supported raw SQL and does not establish every routine result shape.
+
+Implementation reference: [MySqlStoredProcedureParser.cs](../../../src/DataGuard.MySql.Adapter/MySqlStoredProcedureParser.cs). These limits describe current behavior, not provider parity or evidence of live database verification.

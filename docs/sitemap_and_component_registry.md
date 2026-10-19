@@ -1,4 +1,4 @@
-> **⚠️ ARCHIVED** — This document describes the previous EcoSupport Rust/Python product. It does not apply to DataGuard (.NET). See [README](../../README.md) for current documentation.
+> **⚠️ ARCHIVED** — This document describes the previous EcoSupport Rust/Python product. It does not apply to DataGuard (.NET). See [README](../README.md) for current documentation.
 
 [English](sitemap_and_component_registry.md) | [Tiếng Việt](sitemap_and_component_registry.vi.md)
 

@@ -1,6 +1,6 @@
 # Tiện ích mở rộng Visual Studio 2022
 
-DataGuard chạy CLI đi kèm bên ngoài `devenv.exe` và đưa kết quả kiểm tra theo đợt vào Error List. Roslyn analyzer đi kèm cung cấp diagnostic trong trình soạn thảo qua luồng riêng. Analyzer dùng Roslyn 4.12, cần Visual Studio 2022 **17.12 trở lên**; manifest VSIX chấp nhận `[17.12,19.0)`.
+DataGuard chạy CLI đi kèm bên ngoài `devenv.exe` và đưa kết quả kiểm tra theo đợt vào Error List. Roslyn analyzer đi kèm cung cấp diagnostic trong trình soạn thảo qua luồng riêng. Analyzer dùng Roslyn 4.12, cần Visual Studio 2022 **17.12 trở lên**; manifest VSIX chấp nhận `[17.12,19.0)` trên Windows amd64. Đây không phải extension cho Visual Studio for Mac.
 
 ## Các lệnh và cách sử dụng
 
@@ -9,13 +9,15 @@ Mở solution, lưu mã nguồn/cấu hình rồi chọn **Tools > DataGuard**:
 | Lệnh | Hành vi |
 |---|---|
 | Run Validation | Kiểm tra các file đã lưu với `.dataguard.yml` ở gốc solution; công bố kết quả SARIF hợp lệ. |
-| Cancel Validation | Hủy lệnh DataGuard đang chạy và kết thúc cây tiến trình CLI do extension sở hữu. |
+| Cancel Validation | Hủy lệnh DataGuard đang chạy và yêu cầu kết thúc cây tiến trình CLI do extension sở hữu. |
 | Assess Workspace | Chạy `assess` ưu tiên cục bộ, không bật quyền truy vấn advisory từ xa. |
 | View Diagnostic Logs | Mở vị trí log chẩn đoán. |
 | Validation Rules & Descriptions | Hiển thị danh mục rule. |
 | Forget Solution Consent | Xóa consent validation hiện tại và consent riêng cho lệnh live của file solution này. |
 | Refresh Snapshot | Kết nối database đã chọn và ghi `.dataguard-snapshot.json` vào thư mục solution. |
 | Verify SQL Shapes Against Database | Mô tả các truy vấn SQL đọc trên database đã chọn, báo truy vấn chưa xác minh kèm `file:line`. |
+
+Run Validation truyền đường dẫn `.dataguard.yml` ở gốc solution cùng `--ide-safe`. Nếu thiếu file, CLI cảnh báo và dùng giá trị mặc định: `ValidateCommand` truyền `allowMissingConfig: ideSafe` qua bộ phân giải cấu hình tới `ConfigLoader`. Vì vậy, chỉ riêng việc thiếu file không làm lượt chạy IDE này thất bại. File cấu hình có tồn tại nhưng không hợp lệ vẫn có thể gây lỗi validation.
 
 Các lệnh theo đợt đọc file trên đĩa. Lưu rồi chạy lại sau khi sửa; kết quả Error List cũ được giữ đến khi có kết quả thay thế hợp lệ hoặc đóng solution. Khi đã có lệnh chạy, yêu cầu thứ hai bị từ chối bằng thông báo “already running”, không xếp hàng. `Run Validation on Build` cần bật chủ động và bỏ qua solution chưa cấp consent.
 
@@ -37,7 +39,7 @@ Khởi động lại Visual Studio sau khi đổi biến môi trường. Nếu t
 
 **Run Validation** và **Assess Workspace** truyền `--ide-safe`. Công bố kết quả đòi hỏi handshake IDE-safe dương tính và kết quả hoàn tất hợp lệ. Khóa consent validation gồm thư mục solution, file solution và hash `.dataguard.yml` hiện tại; đổi cấu hình hoặc mở file solution khác sẽ hỏi lại. Lượt chạy từ build không hiện hộp thoại.
 
-IDE-safe là chính sách CLI, không phải sandbox của hệ điều hành. Nó vô hiệu hóa việc tải assembly/plugin từ cấu hình và một số thiết lập kết nối, secret manager, output. Không coi cờ hoặc handshake là bằng chứng cô lập mạng tuyệt đối: audit riêng đang theo dõi khả năng thực thi routine Oracle có điều kiện khi giữ credential/`DescribeRefCursors`. Đợt bảo trì này không sửa phát hiện từ mã nguồn đó, cũng không tuyên bố đã khai thác thực nghiệm. Xem [backlog audit](../../../plans/261014-redteam-full-audit/solution-design-and-remediation-backlog.md).
+IDE-safe là chính sách CLI, không phải sandbox của hệ điều hành. Nó vô hiệu hóa việc tải assembly/plugin từ cấu hình và một số thiết lập kết nối, secret manager, output. `IdeSafePolicy` hiện cũng tắt cả hai tùy chọn mô tả Oracle REF CURSOR (`DescribeRefCursors` và `UseRefCursorDescribe`), kể cả khi giữ credential từ môi trường. Ghi chú audit cũ về việc giữ các tùy chọn này thuộc lịch sử, không phản ánh triển khai hiện tại. Handshake xác nhận lựa chọn chính sách, không chứng minh cô lập hoàn toàn tiến trình hoặc mạng.
 
 **Refresh Snapshot** và **Verify SQL Shapes Against Database** là lệnh live rõ ràng. Đặt **Connection Environment Variable**, **Live Provider** và tùy chọn **Live Schema** trong **Tools > Options > DataGuard > General**. Extension lưu tên biến, không lưu credential, và hiện host đích trích xuất để xác nhận **mỗi lần chạy**. Các lệnh này dùng `--connection-env`, không truyền `--config`, `--ide-safe`, `--connection` và không đọc `.dataguard.yml` của solution.
 
@@ -45,7 +47,7 @@ Consent live dùng thư mục và file solution, độc lập với nội dung c
 
 ## Ánh xạ SARIF sang Error List
 
-`SarifErrorListPublisher.Load` giữ tọa độ SARIF bắt đầu từ một trong nội bộ (giá trị âm không hợp lệ được đưa về không). URI artifact phải nằm trong thư mục solution; kết quả sai cấu trúc hoặc ngoài thư mục bị loại. `ErrorListPresenter.CreateTask` đổi từng tọa độ đúng một lần bằng `Math.Max(1, value) - 1`.
+`SarifErrorListPublisher.Load` giữ tọa độ SARIF bắt đầu từ một trong nội bộ (giá trị âm không hợp lệ được đưa về không). Loader nhận file URI không phải UNC, đường dẫn tuyệt đối và đường dẫn tương đối có `uriBaseId: "%SRCROOT%"`; loại đường dẫn sai hoặc ngoài solution sau chuẩn hóa chuỗi. Kiểm tra này không phân giải junction hoặc symbolic link của hệ thống file. Mỗi lượt giữ tối đa 2.000 diagnostic. `ErrorListPresenter.CreateTask` đổi từng tọa độ đúng một lần bằng `Math.Max(1, value) - 1`.
 
 | Giá trị SARIF | Giá trị task / caret VS | Vị trí hiển thị |
 |---|---|---|
@@ -69,7 +71,7 @@ Consent live dùng thư mục và file solution, độc lập với nội dung c
 | 130 | Người dùng hủy, theo mã extension ghi nhận. |
 | -1 / timeout | Giá trị timeout do extension ghi, không phải kết luận bình thường của CLI. Nếu tiến trình bị kết thúc sau khi đã ghi kết quả, exit code tiến trình không có ý nghĩa kết luận; đọc giải thích timeout. |
 
-`137` không phải contract mã hủy của extension. Lệnh live có xử lý kết quả riêng; đọc Output tương ứng thay vì áp dụng máy móc bảng validation. Hủy không công bố finding dở dang.
+`137` không phải contract mã hủy của extension. Lệnh live có xử lý kết quả riêng; đọc Output tương ứng thay vì áp dụng máy móc bảng validation. Hủy không công bố finding dở dang. Việc kết thúc trước hết dùng `taskkill /T /F`; nếu thất bại, phương án dự phòng chỉ kill tiến trình trực tiếp. Yêu cầu kill thành công chưa chứng minh mọi tiến trình con đã thoát.
 
 ## Cấu hình và log
 
@@ -83,4 +85,4 @@ VSIX chứa `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGuard.Con
 
 ## Giới hạn kiểm chứng
 
-Test hồi quy bao phủ Load → CreateTask → IVsTaskItem, biên tọa độ và cô lập consent. Chạy test Windows `net472`, đóng gói VSIX và nghiệm thu điều hướng thủ công tại 1:1, 42:12 là các bước riêng. Khi báo lỗi IDE, ghi phiên bản Visual Studio chính xác, nguồn đã lưu và cách tái hiện. Xem [bằng chứng bảo trì](../../../plans/261015-vs-maintenance/plan.md) để biết trạng thái chạy thực tế.
+Đợt rà soát tài liệu này chỉ đối chiếu mã nguồn, không chạy editor Windows hoặc cài gói. Test hồi quy bao phủ Load → CreateTask → IVsTaskItem, biên tọa độ và cô lập consent. Chạy test Windows `net472`, đóng gói VSIX và nghiệm thu điều hướng thủ công tại 1:1, 42:12 là các bước riêng. Khi báo lỗi IDE, ghi phiên bản Visual Studio chính xác, nguồn đã lưu và cách tái hiện. Xem [bằng chứng bảo trì](../../../plans/261015-vs-maintenance/plan.md) để biết trạng thái chạy thực tế.

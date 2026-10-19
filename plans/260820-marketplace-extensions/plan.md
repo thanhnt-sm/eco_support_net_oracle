@@ -8,6 +8,8 @@ blocks: [2026-08-20-workspace-rationalization]
 
 # Plan: DataGuard Marketplace product
 
+> Mixed-era plan — 2026-10-18: the legacy licensing paragraph and phase completion assumptions below are not current release authority. Historical releases through v0.3.0 retain their original terms; current canonical license files and the [source map](../../docs/product/source-map.md) govern factual reconciliation. No legal history is rewritten.
+
 ## Outcome
 
 Phát hành hai extension độc lập: **DataGuard for VS Code** và **DataGuard for Visual Studio 2022**. Cả hai biến DataGuard từ CLI/analyzer thành workflow developer cho database/API contract lifecycle: phát hiện drift, procedure/DTO mismatch, raw SQL risk, migration compatibility, policy gate và evidence cho CI. Không biến product thành IDE generic hoặc chạy engine/database client trong IDE host.

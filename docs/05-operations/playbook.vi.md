@@ -1,5 +1,9 @@
 # Sổ Tay Vận Hành
 
+Các ví dụ dưới đây giả định CLI đã được build/cài từ artifact chính xác đã kiểm tra và có trong PATH; `dataguard version` chỉ kiểm tra khả năng gọi lệnh, không cài tool. Xem [hướng dẫn cài đặt](installation-guide.vi.md). Không giả định package NuGet công khai tồn tại.
+
+Các ví dụ live dùng `DATAGUARD_DB` do cơ chế secret session/CI được duyệt cung cấp. Không ghi giá trị thật vào đối số. Đối chiếu source tại `ca68a3159425495f771da866188df75a8237ab4b`: YAML dùng PascalCase theo `ConfigDocument`; test runtime còn cần kiểm tra database/schema cụ thể, backend audit/secret và CI upload trên host đích.
+
 ## Vận Hành Hàng Ngày
 
 ### Kiểm Tra Sáng (CI Pipeline)
@@ -21,7 +25,7 @@ flowchart TD
     C --> D{"Phát hiện drift?"}
     D -->|Có| E["Xem xét thay đổi"]
     E --> F["dataguard snapshot refresh"]
-    F --> G["dataguard validate"]
+    F --> G["dataguard validate --offline"]
     G --> H{"Có violations mới?"}
     H -->|Có| I["Sửa code hoặc cập nhật baseline"]
     H -->|Không| J["✅ Sẵn sàng commit"]
@@ -33,13 +37,13 @@ flowchart TD
 
 ```bash
 # Tạo baseline cho codebase cũ
-dataguard baseline --connection "..." --provider oracle
+dataguard baseline --connection-env DATAGUARD_DB --provider oracle
 
 # Kiểm tra có bao nhiêu violations đã baseline
-cat .dataguard-baseline.json | jq '.violations | length'
+cat .dataguard-baseline.json | jq '.Violations | length'
 
 # Baseline lại sau khi sửa violations
-dataguard baseline --connection "..." --provider oracle
+dataguard baseline --connection-env DATAGUARD_DB --provider oracle
 
 # Di chuyển baseline v1 sang v2
 dataguard migrate --baseline .dataguard-baseline.json
@@ -49,13 +53,13 @@ dataguard migrate --baseline .dataguard-baseline.json
 
 ```bash
 # Làm mới snapshot từ database
-dataguard snapshot refresh --connection "..." --provider oracle
+dataguard snapshot refresh --connection-env DATAGUARD_DB --provider oracle
 
 # Hiển thị thông tin snapshot
 dataguard snapshot show
 
 # Kiểm tra drift
-dataguard snapshot diff --connection "..." --provider oracle --fail-on-drift
+dataguard snapshot diff --connection-env DATAGUARD_DB --provider oracle --fail-on-drift
 ```
 
 ## Quy Trình Nhóm
@@ -63,24 +67,23 @@ dataguard snapshot diff --connection "..." --provider oracle --fail-on-drift
 ### Onboard Project Mới
 
 ```bash
-# 1. Cài DataGuard
-dotnet tool install -g DataGuard.Cli
+# 1. Kiểm tra CLI đã được cung cấp
+dataguard version
 
 # 2. Khởi tạo cấu hình
 dataguard init --provider oracle
 
 # 3. Tạo snapshot ban đầu
-dataguard snapshot refresh --connection "..." --provider oracle
+dataguard snapshot refresh --connection-env DATAGUARD_DB --provider oracle
 
 # 4. Chạy validation lần đầu
-dataguard validate --verbose
+dataguard validate --offline --verbose
 
 # 5. Tạo baseline cho violations hiện có
-dataguard baseline --connection "..." --provider oracle
+dataguard baseline --connection-env DATAGUARD_DB --provider oracle
 
 # 6. Commit các file cấu hình
-git add .dataguard.yml .dataguard-snapshot.json .dataguard-baseline.json
-git commit -m "chore: khởi tạo DataGuard contract validation"
+# Review metadata và quyền chia sẻ trước khi commit; không commit tự động.
 ```
 
 ### Checklist Review PR
@@ -104,8 +107,7 @@ dataguard snapshot diff --fail-on-drift
 dataguard assess --format json --output assessment.json
 
 # 4. Commit artifacts
-git add release-validation.sarif assessment.json
-git commit -m "chore: release validation artifacts"
+# Lưu report đã duyệt tại nơi kiểm soát truy cập.
 ```
 
 ## Cấu Hình Theo Môi Trường
@@ -113,40 +115,42 @@ git commit -m "chore: release validation artifacts"
 ### Development
 
 ```yaml
-groundTruthMode: Manual
-allowPlaintextConfigFallback: true
-enableAuditLogging: false
+GroundTruthMode: Manual
+AllowPlaintextConfigFallback: true
+EnableAuditLogging: false
 ```
 
 ### Staging
 
 ```yaml
-groundTruthMode: Full
-connectionString: null  # Dùng biến môi trường CONNECTION_STRING
-enableAuditLogging: true
-auditLogPath: "/var/log/dataguard/audit.jsonl"
+GroundTruthMode: Full
+ConnectionString: null  # Dùng biến môi trường DATAGUARD_CONNECTION_STRING
+EnableAuditLogging: true
+AuditLogPath: "/var/log/dataguard/audit.jsonl"
 ```
 
 ### Production CI
 
 ```yaml
-groundTruthMode: Snapshot
-snapshotFilePath: ".dataguard-snapshot.json"
-enableAuditLogging: true
-enableCredentialRotationDetection: true
+GroundTruthMode: Snapshot
+SnapshotFilePath: ".dataguard-snapshot.json"
+EnableAuditLogging: true
+EnableCredentialRotationDetection: true
 ```
 
 ## Giám Sát
 
-### Chỉ Số Chính
+### Kiểm tra giám sát đề xuất
 
 | Chỉ số | Nguồn | Ngưỡng cảnh báo |
 |--------|-------|-----------------|
-| Thời gian validation | TelemetryCollector | > 60s |
+| Thời gian validation | TelemetryCollector | Nhóm định nghĩa sau khi đo |
 | Số violations | Validation output | Violations mới ngoài baseline |
 | Schema drift | snapshot diff | Bất kỳ drift nào |
-| Rotation credentials | CredentialManager | < 30 ngày còn lại |
+| Rotation credentials | CredentialManager | Review metadata credential hiện có |
 | Tính toàn vẹn audit log | FileAuditLogger | Chuỗi bị đứt |
+
+Đây là đề xuất, không phải alert đã cấu hình. Cờ rotation không chứng minh credential có ngày hết hạn từ issuer.
 
 ### Kiểm Tra Sức Khỏe
 
@@ -158,5 +162,5 @@ dataguard version
 dataguard config validate
 
 # Xác minh kết nối database
-dataguard validate --verbose 2>&1 | head -20
+dataguard validate --verbose --connection-env DATAGUARD_DB
 ```

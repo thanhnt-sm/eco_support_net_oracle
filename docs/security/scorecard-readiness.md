@@ -1,3 +1,5 @@
+> **Source review 2026-10-18:** current workflow/scripts at `ca68a3159425495f771da866188df75a8237ab4b` were inspected. The 2026-10-16 research/run observations below are historical evidence, not freshly queried. Implementation in this baseline does not establish a successful hosted run or alert resolution.
+
 # Scorecard SAST readiness (2026-10-16)
 
 This local proposal addresses pending SAST observations; it does not claim that alert #52 is resolved or that a hosted score improved. The historical 2026-10-05 score is not current evidence. No repository protection, required checks, Marketplace pause, or CodeQL configuration changes are included.
@@ -32,3 +34,17 @@ The pinned action's [action.yaml](https://github.com/ossf/scorecard-action/blob/
 Run `python3 -m unittest discover -s scripts/tests`, `actionlint .github/workflows/*.yml`, and the unchanged local hook gates. Synthetic tests cover missing/pending/completed evidence, conflicting/rerun suite evidence, repeated heads, fork PRs, ambiguity, bounded transport, report tampering and SHA drift. Workflow contract tests enforce privilege separation and actual-SHA uploads. The new tests call no live repository API and read no real credentials. The existing live alert-state test requires `gh`; when unavailable it is skipped and does not establish alert state.
 
 Hosted Actions behavior, OIDC publication admission, artifact transfer and GitHub code-scanning ingestion remain unverified locally. Deployment and any API retry require separate authorization; retain failed readiness observations rather than dismissing alerts or using `continue-on-error`. See [implementation plan](../../plans/2026-10-16-sast52-readiness.md) and [Vietnamese guide](scorecard-readiness.vi.md).
+
+## Runtime acceptance still required
+
+Inspected sources: `.github/workflows/scorecard.yml`, `scripts/scorecard_readiness.py` (`Readiness`, transport), `scripts/verify_scorecard_report.py` (`validate`, `main`), and corresponding `scripts/tests/` tests.
+
+| Unexecuted scenario | Source-derived expected behavior | Evidence required when authorized |
+|---|---|---|
+| Missing/pending/failed CodeQL suite | Absence is not success; bounded waiting/reporting | Exact-run readiness JSON, final head SHA and suite states |
+| Failed readiness but valid analysis metadata | Analysis is still attempted; reports retained; upload requires successful analysis and valid metadata | Job results, immutable artifact ID, original JSON/SARIF |
+| Valid metadata with mismatched readiness SHA | Verifier exits 1 but emits valid=true and actual SHA; upload may proceed at actual SHA if analysis succeeds | Verifier outputs and ingestion attached to actual SHA, not trigger SHA |
+| Non-main dispatch or cancelled run | Job conditions prevent corresponding execution | Skip/cancellation evidence; no dispatch in this task |
+| OIDC/public REST, artifact transfer, code scanning | Configuration intends publication; it does not prove admission/ingestion | Owner-authorized run and artifact/ingestion evidence; no automatic trial |
+
+No permissions, protection or required checks are changed. Requiring final-head CodeQL before merge is an owner decision. Source interpretation needs no new decision; actual service outcomes remain unverified.

@@ -1,32 +1,32 @@
 # Best Practices
 
+Các ví dụ dưới đây giả định CLI đã được build/cài từ artifact chính xác đã kiểm tra và có trong PATH; `dataguard version` chỉ kiểm tra khả năng gọi lệnh, không cài tool. Xem [hướng dẫn cài đặt](installation-guide.vi.md). Không giả định package NuGet công khai tồn tại.
+
+Các ví dụ live dùng `DATAGUARD_DB` do cơ chế secret session/CI được duyệt cung cấp. Không ghi giá trị thật vào đối số. Đối chiếu source tại `ca68a3159425495f771da866188df75a8237ab4b`: YAML dùng PascalCase theo `ConfigDocument`; test runtime còn cần kiểm tra database/schema cụ thể, backend audit/secret và CI upload trên host đích.
+
 ## Cài Đặt & Thiết Lập
 
 ### 1. Dùng Chế Độ Snapshot Cho CI
 
 ```yaml
 # .dataguard.yml cho CI
-groundTruthMode: Snapshot
-snapshotFilePath: ".dataguard-snapshot.json"
+GroundTruthMode: Snapshot
+SnapshotFilePath: ".dataguard-snapshot.json"
 ```
 
-**Tại sao:** Không cần credentials database trong CI. Snapshot được commit vào repo, validate offline.
+**Tại sao:** Không cần credentials database trong CI. Xem xét và cung cấp snapshot đã được duyệt, rồi validate offline.
 
-### 2. Commit Tất Cả File DataGuard
+### 2. Review metadata trước khi chia sẻ
+
+Kiểm tra config, snapshot, baseline để tìm credential, định nghĩa schema/procedure, đường dẫn và nội dung finding. Chỉ commit metadata được phép đưa vào repository; dùng artifact có kiểm soát truy cập khi cần. Baseline suppress finding cũ nên mọi thay đổi cần review.
+
+### 3. Cố định CLI độc lập với dependency ứng dụng
 
 ```bash
-git add .dataguard.yml .dataguard-snapshot.json .dataguard-baseline.json
+dataguard version
 ```
 
-**Tại sao:** Nhóm chia sẻ cùng baseline validation. Phát hiện drift hoạt động so với snapshot đã commit.
-
-### 3. Dùng Global Tool, Không Dùng Project Reference
-
-```bash
-dotnet tool install -g DataGuard.Cli
-```
-
-**Tại sao:** Phiên bản nhất quán across tất cả projects. Không phình to dependencies trong project files.
+**Tại sao:** Artifact/version được chọn rõ giúp tái lập mà không thêm CLI làm dependency ứng dụng.
 
 ## Cấu Hình
 
@@ -34,42 +34,39 @@ dotnet tool install -g DataGuard.Cli
 
 ```yaml
 # ❌ Sai
-connectionString: "Server=prod-db;Password=secret123"
+ConnectionString: "Server=prod-db;Password=secret123"
 
 # ✅ Đúng - dùng biến môi trường
-connectionString: null  # Đặt biến môi trường CONNECTION_STRING
+ConnectionString: null  # Đặt biến môi trường DATAGUARD_CONNECTION_STRING
 ```
 
 ### 5. Bật Audit Logging Trong Production
 
 ```yaml
-enableAuditLogging: true
-auditLogPath: "/var/log/dataguard/audit.jsonl"
+EnableAuditLogging: true
+AuditLogPath: "/var/log/dataguard/audit.jsonl"
 ```
 
-**Tại sao:** Chuỗi audit hash-chain cho compliance và điều tra sự cố.
+**Tại sao:** Audit hỗ trợ điều tra. HMAC cần `DATAGUARD_AUDIT_KEY` hoặc `AuditKeyFile`; bật logging không tự chứng minh compliance.
 
 ### 6. Tắt Fallback Plaintext
 
 ```yaml
-allowPlaintextConfigFallback: false  # Mặc định, không bao giờ đổi trong production
+AllowPlaintextConfigFallback: false  # Mặc định, không bao giờ đổi trong production
 ```
 
 **Tại sao:** Ngăn chặn downgrade credentials thầm lặng. Chỉ bật trong development local.
 
 ## Quy Trình Validation
 
-### 7. Baseline Trước Khi Ép Buộc
+### 7. Review baseline trước khi áp gate
 
 ```bash
-# Đầu tiên: tạo baseline cho violations hiện có
-dataguard baseline --connection "..." --provider oracle
-
-# Sau đó: CI chỉ fail trên violations MỚI
-dataguard validate
+dataguard baseline --connection-env DATAGUARD_DB --provider oracle
+dataguard validate --offline
 ```
 
-**Tại sao:** Codebase cũ có violations hiện có. Baseline cho phép ép buộc từng bước.
+Baseline suppress finding đã biết khi được bật; không suppress lỗi acquisition hay chứng minh coverage. Đọc stderr, contract chưa đánh giá và exit status. Tạo lại baseline có thể chấp nhận regression; không làm chỉ để CI xanh.
 
 ### 8. Dùng `--fail-on-drift` Trong CI
 
@@ -85,7 +82,7 @@ dataguard snapshot diff --fail-on-drift
 dataguard oracle-check --format sarif --output oracle-results.sarif
 ```
 
-**Tại sao:** Rules Oracle (semantics CHAR/BYTE, kiểm tra dialect) tách biệt khỏi validation chung.
+**Tại sao:** Lệnh live đọc catalog cột Oracle, không chạy mọi rule source/analyzer. Output console và SARIF tùy chọn; `--format` được nhận nhưng chưa đổi writer.
 
 ## Thực Hành Code
 
@@ -98,20 +95,20 @@ public IQueryable<T> DynamicQuery<T>(string whereClause) { ... }
 
 **Tại sao:** Mỗi skip là một điểm mù. Ghi lý do trong attribute hoặc comment.
 
-### 11. Ưu Tiên Attributes Thủ Công Cho Code Mới
+### 11. Khai báo ground truth thủ công có chủ đích
 
 ```csharp
-[ExpectedColumn("CUSTOMER_ID", "int", IsNullable = false)]
+[ExpectedColumn("CUSTOMER_ID", "System.Int32", IsNullable = false)]
 public int CustomerId { get; set; }
 ```
 
-**Tại sao:** Không cần truy cập database. Bắt lỗi mismatch tại compile time qua Roslyn analyzer.
+Attribute cung cấp kỳ vọng Manual mode qua `ManualContractSource`; không tự xác minh schema live hay bảo đảm check lúc compile. Review assembly đáng tin cậy và mode CLI trong [usage](../USAGE.md).
 
 ### 12. Giữ Snapshot Tươi Mới
 
 ```bash
 # Sau mỗi thay đổi schema
-dataguard snapshot refresh --connection "..." --provider oracle
+dataguard snapshot refresh --connection-env DATAGUARD_DB --provider oracle
 ```
 
 **Tại sao:** Snapshot cũ tạo niềm tin sai. Làm mới sau mỗi thay đổi schema từ DBA.
@@ -128,12 +125,13 @@ dataguard snapshot refresh --connection "..." --provider oracle
 
 **Tại sao:** Violations xuất hiện trong GitHub Security tab, liên kết đến vị trí code.
 
-### 14. Chỉ Fail CI Trên Violations Mới
+### 14. Giữ nguyên mọi trạng thái lỗi
 
 ```bash
-# Baseline lọc ra violations đã biết
-dataguard validate  # Exit 1 chỉ cho violations mới
+dataguard validate --offline
 ```
+
+Không coi mọi mã khác 0 là finding mới: config sai, bằng chứng thiếu và lỗi thực thi có kết quả riêng. Xem [exit code theo lệnh](../USAGE.md).
 
 ### 15. Chạy Assessment Định Kỳ
 
@@ -146,11 +144,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: dotnet tool install -g DataGuard.Cli
+      - run: dataguard version
       - run: dataguard assess --format sarif --output assess.sarif
 ```
 
-**Tại sao:** Bắt dependency rot, TFM không được hỗ trợ, và rò rỉ secret trước khi trở thành sự cố.
+**Tại sao:** Assessment báo finding dependency/framework/config được hỗ trợ, không bảo đảm phát hiện mọi lỗ hổng hay secret. Cần cung cấp CLI trước khi workflow fragment chạy.
 
 ## Bảo Mật
 
@@ -158,23 +156,23 @@ jobs:
 
 ```yaml
 # Production: dùng Key Vault / Secrets Manager
-keyVaultUri: "https://my-vault.vault.azure.net/"
+KeyVaultUri: "https://my-vault.vault.azure.net/"
 # hoặc
-awsRegion: "us-east-1"
+AwsRegion: "us-east-1"
 ```
 
 ### 17. Rotate Credentials Định Kỳ
 
 ```yaml
-enableCredentialRotationDetection: true
-credentialRotationWarningDays: 30
+EnableCredentialRotationDetection: true
+CredentialRotationWarningDays: 30
 ```
 
 ### 18. Xem Xét Audit Logs
 
 ```bash
 # Kiểm tra các lần truy cập thất bại
-cat audit-log.jsonl | jq 'select(.success == false)'
+cat audit-log.jsonl | jq 'select(.Success == false)'
 ```
 
 ## Hiệu Suất
@@ -183,13 +181,13 @@ cat audit-log.jsonl | jq 'select(.success == false)'
 
 ```yaml
 # Cho codebase lớn
-maxDegreeOfParallelism: 4  # Giới hạn để tránh quá tải DB
-maxViolationQueueSize: 50000  # Giảm cho CI thiếu bộ nhớ
+MaxDegreeOfParallelism: 4  # Giới hạn để tránh quá tải DB
+MaxViolationQueueSize: 50000  # Giảm cho CI thiếu bộ nhớ
 ```
 
-### 20. Dùng Chế Độ Snapshot Cho Tốc Độ
+### 20. Đo hiệu năng snapshot
 
-Chế độ Snapshot nhanh hơn 10-100x so với Full mode (không có round-trip DB).
+Snapshot tránh round-trip database live nhưng chưa có mức tăng tốc cố định được chứng minh ở đây. So sánh cùng corpus source/snapshot, rule, phần cứng và điều kiện process nóng/lạnh; ghi thời gian, bộ nhớ và số contract chưa đánh giá.
 
 ## Anti-Patterns
 
@@ -197,7 +195,7 @@ Chế độ Snapshot nhanh hơn 10-100x so với Full mode (không có round-tri
 |---------|-------------------|
 | Hardcode connection strings | Dùng biến môi trường hoặc secret managers |
 | Bỏ qua baseline cho code cũ | Baseline trước, ép buộc từng bước |
-| Bỏ qua cảnh báo DG006 | Sửa quy ước đặt tên sớm |
+| Bỏ qua finding/contract chưa đánh giá | Review rule và bằng chứng hiện có |
 | Chạy Full mode trong CI | Dùng Snapshot mode |
 | Tắt audit logging | Giữ bật, rotate logs |
 | Dùng `[SkipContractCheck]` everywhere | Sửa mismatch contract thực tế |

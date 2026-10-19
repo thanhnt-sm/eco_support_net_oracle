@@ -1,6 +1,6 @@
 # Visual Studio 2022 Extension
 
-DataGuard runs its bundled CLI outside `devenv.exe` and publishes batch findings to the Error List. Bundled Roslyn analyzers provide in-editor diagnostics separately. Visual Studio 2022 **17.12 or later** is required by the Roslyn 4.12 analyzer; the VSIX manifest accepts `[17.12,19.0)`.
+DataGuard runs its bundled CLI outside `devenv.exe` and publishes batch findings to the Error List. Bundled Roslyn analyzers provide in-editor diagnostics separately. Visual Studio 2022 **17.12 or later** is required by the Roslyn 4.12 analyzer; the VSIX manifest accepts `[17.12,19.0)` on Windows amd64. This is not a Visual Studio for Mac extension.
 
 ## Commands and everyday use
 
@@ -9,13 +9,15 @@ Open a solution, save the source/configuration files, then use **Tools > DataGua
 | Command | Behavior |
 |---|---|
 | Run Validation | Validate saved files using the solution-root `.dataguard.yml`; publish accepted SARIF findings. |
-| Cancel Validation | Cancel the active DataGuard command and terminate its owned CLI process tree. |
+| Cancel Validation | Cancel the active DataGuard command and request termination of its owned CLI process tree. |
 | Assess Workspace | Run local-first `assess`, without remote advisory consent. |
 | View Diagnostic Logs | Open the diagnostic log location. |
 | Validation Rules & Descriptions | Display the rule catalog. |
 | Forget Solution Consent | Remove current validation consent and the separate live-command consent for this solution file. |
 | Refresh Snapshot | Connect to the selected database and write `.dataguard-snapshot.json` in the solution directory. |
 | Verify SQL Shapes Against Database | Describe read SQL queries against the selected database and report non-verified queries with `file:line`. |
+
+Run Validation passes the solution-root `.dataguard.yml` path together with `--ide-safe`. If that file is missing, the CLI warns and uses defaults: `ValidateCommand` passes `allowMissingConfig: ideSafe` through the configuration resolver to `ConfigLoader`. A missing file therefore does not itself fail this IDE run. A present but invalid configuration can still fail validation.
 
 Batch commands read files on disk. Save and rerun after edits; previous Error List results remain until accepted replacement results arrive or the solution closes. A second command while one is active is rejected with an “already running” message; it is not queued. `Run Validation on Build` is opt-in and skips solutions that have not granted consent.
 
@@ -37,7 +39,7 @@ Restart Visual Studio after environment changes. If the bundled executable is mi
 
 **Run Validation** and **Assess Workspace** pass `--ide-safe`. Publication requires a positive IDE-safe handshake and an acceptable completed result. Validation consent is keyed by solution directory, solution file and the current `.dataguard.yml` hash; changing the configuration or opening a different solution file prompts again. Build-triggered runs do not prompt.
 
-IDE-safe is a CLI policy, not an OS sandbox. It suppresses configured assembly/plugin loading and selected connection, secret-manager and output settings. Do not treat the flag or handshake as proof of universal network isolation: the separate audit tracks conditional Oracle routine execution with retained credentials/`DescribeRefCursors`. This maintenance does not remediate that source finding or claim an executed exploit. See the [audit backlog](../../../plans/261014-redteam-full-audit/solution-design-and-remediation-backlog.md).
+IDE-safe is a CLI policy, not an OS sandbox. It suppresses configured assembly/plugin loading and selected connection, secret-manager and output settings. The current `IdeSafePolicy` also disables both Oracle REF CURSOR describe switches (`DescribeRefCursors` and `UseRefCursorDescribe`), including when an environment credential is retained. Older audit notes about these switches remaining enabled are historical, not the current implementation. The handshake confirms policy selection; it does not establish complete process or network isolation.
 
 **Refresh Snapshot** and **Verify SQL Shapes Against Database** are explicitly live commands. Set **Connection Environment Variable**, **Live Provider** and optional **Live Schema** under **Tools > Options > DataGuard > General**. The extension persists the variable name, not the credential, and shows the extracted target host for confirmation **every run**. These commands use `--connection-env`, omit `--config`, `--ide-safe` and `--connection`, and do not read the solution's `.dataguard.yml`.
 
@@ -45,7 +47,7 @@ Live consent is keyed by solution directory and solution file, independently of 
 
 ## SARIF to Error List integration
 
-`SarifErrorListPublisher.Load` retains one-based SARIF coordinates internally (invalid negative values are clamped to zero). Artifact URIs must remain within the solution directory; malformed/out-of-root results are rejected. `ErrorListPresenter.CreateTask` converts each coordinate once with `Math.Max(1, value) - 1`.
+`SarifErrorListPublisher.Load` retains one-based SARIF coordinates internally (invalid negative values are clamped to zero). The loader accepts non-UNC file URIs, rooted paths and relative paths with `uriBaseId: "%SRCROOT%"`; it rejects malformed paths and paths outside the solution after lexical normalization. This check does not resolve filesystem junctions or symbolic links. At most 2,000 diagnostics are retained per run. `ErrorListPresenter.CreateTask` converts each coordinate once with `Math.Max(1, value) - 1`.
 
 | SARIF value | VS task / caret value | Displayed location |
 |---|---|---|
@@ -69,7 +71,7 @@ Live consent is keyed by solution directory and solution file, independently of 
 | 130 | User cancellation as recorded by the extension. |
 | -1 / timeout | Extension timeout sentinel, not a normal CLI verdict. If the process was killed after results were written, its process exit code is not meaningful; inspect the timeout explanation. |
 
-`137` is not the extension's cancellation contract. Live-command results have their own outcome handling; inspect their Output messages rather than applying the validation table blindly. Cancellation does not publish partial findings.
+`137` is not the extension's cancellation contract. Live-command results have their own outcome handling; inspect their Output messages rather than applying the validation table blindly. Cancellation does not publish partial findings. Termination first uses `taskkill /T /F`; if that fails, the fallback kills the direct process only. A successful kill request is not proof that every descendant exited.
 
 ## Configuration and logging
 
@@ -83,4 +85,4 @@ The VSIX includes `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGua
 
 ## Verification limits
 
-Regression tests cover Load → CreateTask → IVsTaskItem, coordinate bounds and consent isolation. Windows `net472` test execution, VSIX packaging and manual navigation at 1:1 and 42:12 remain distinct acceptance checks. Record the exact Visual Studio version, saved source and reproduction when reporting an IDE issue. See the [maintenance evidence](../../../plans/261015-vs-maintenance/plan.md) for actual execution status.
+This documentation review checked source only; it did not run a Windows editor or package installation. Regression tests cover Load → CreateTask → IVsTaskItem, coordinate bounds and consent isolation. Windows `net472` test execution, VSIX packaging and manual navigation at 1:1 and 42:12 remain distinct acceptance checks. Record the exact Visual Studio version, saved source and reproduction when reporting an IDE issue. See the [maintenance evidence](../../../plans/261015-vs-maintenance/plan.md) for actual execution status.

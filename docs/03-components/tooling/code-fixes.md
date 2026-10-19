@@ -1,236 +1,42 @@
-# Code Fix Providers
+# Code-fix providers
 
-DataGuard ships five Roslyn code-fix providers for contract violations. All providers target `netstandard2.0` and use `Microsoft.CodeAnalysis.CSharp` for syntax manipulation. Provider/action accounting is verified by the code-fix test suite; a diagnostic is advertised only when it has a real syntax transformation.
+> Source: `src/DataGuard.CodeFixes/CodeFixProviders.cs` (`netstandard2.0`). Regression sources: `tests/DataGuard.CodeFixes.Tests/CodeFixProviderTests.cs`, `CodeFixRoundTripTests.cs`, and the verifier stubs under `Verification/`.
 
-## Architecture
+The five Roslyn providers below register source transformations. Registration, compilation in a fixture, or a diagnostic disappearing does not prove that an edit preserves database behavior. Review the preview and verify the resulting contract before applying broad fixes.
 
-```mermaid
-graph TB
-    subgraph "Diagnostics"
-        DG001[DG001: Unvalidated SQL Call]
-        DG002[DG002: Parameter Mismatch]
-        DG006[DG006: Naming Convention]
-        DG007[DG007: Length Exceeds Column]
-        DG012[DG012: Provider Option Mismatch]
-    end
+| Provider | Diagnostics | Current behavior |
+| --- | --- | --- |
+| `DataGuardCodeFixProvider` | DG001 | Adds `[SkipContractCheck]`, a type `[DataContract]`, or parameter `[SqlParameter]` declarations where the syntax supports them. |
+| Same provider | DG002 | Replaces a string literal when diagnostic properties pass the metadata checks below. |
+| Same provider | DG017 | Regex replacement of `SELECT *`/qualified-star patterns with `ExplicitColumns`, or a TODO comment when that property is absent. |
+| `AddMaxLengthAttributeFixProvider` | DG007, DG009 | Adds/replaces a length attribute when metadata contains a digest-shaped string and positive length. |
+| `SkipContractCheckFixProvider` | DG001 | Adds the same named-reason skip attribute. |
+| `NamingConventionFixProvider` | DG006 | Offers PascalCase rename or a snake_case `[Column]` attribute. |
+| `UseOracleCodeFixProvider` | DG012 | Finds the first syntax member invocation named `UseSqlServer` in the enclosing method/statement and changes its name to `UseOracle`. |
 
-    subgraph "Code Fix Providers"
-        DCFP[DataGuardCodeFixProvider]
-        MAFP[AddMaxLengthAttributeFixProvider]
-        SCFP[SkipContractCheckFixProvider]
-        NCFP[NamingConventionFixProvider]
-        UOFP[UseOracleCodeFixProvider]
-    end
+## Diagnostic metadata is a trust boundary
 
-    subgraph "Fix Actions"
-        F1[Add [SkipContractCheck]]
-        F2[Apply verified SQL replacement]
-        F3[Auto-rename property]
-        F4[Add [Column] attribute]
-        F5[Add [MaxLength]]
-        F6[Replace UseSqlServer with UseOracle]
-    end
+DG002 checks `DataGuard.ManifestDigest` for exactly 64 hexadecimal characters and `DataGuard.VerifiedSqlReplacement` for a nonblank string of at most 65,536 characters. DG007/DG009 require the same digest shape and a positive integer `DataGuard.VerifiedMaxLength`.
 
-    DG001 --> DCFP
-    DG002 --> DCFP
-    DG007 --> DCFP
+The provider does **not** load the manifest, recompute its digest, verify a signature, or bind the replacement to a database/catalog itself. The property names express the producer's intended contract; they are not proof of an independent verification step. A trusted diagnostic producer must supply correctly bound metadata. Missing/malformed metadata produces no corresponding action, but a well-formed digest alone does not authenticate a producer or establish SQL correctness. Tests using verifier stubs demonstrate the consumer checks, not an end-to-end trusted verification service.
 
-    DCFP --> F1
-    DCFP --> F2
-    DCFP --> F3
-    DCFP --> F4
-    DCFP --> F5
-    DCFP --> F6
+The SQL replacement is represented as a C# string literal; this preserves that syntactic form, not the semantics of its SQL. The length action replaces existing `MaxLength`/`StringLength` attributes: review loss of other attribute arguments such as minimum length or custom messages.
 
-    DG007 --> MAFP
-    DG001 --> SCFP
-    DG006 --> NCFP
-    DG012 --> UOFP
-```
+## Heuristic and manual actions
 
-## Source File
+- **DG001:** `[SkipContractCheck(Reason = "Dynamic SQL - manual review required")]` suppresses checks; it does not repair a contract. Manual declarations record source intent without proving routine identity, database type or direction.
+- **DG017:** replacement uses a regex, not a dialect parser. `ExplicitColumns` comes from mapped CLR shape where available, including `[Column]` names; it is not a live schema result. With no columns, the TODO placeholder can leave SQL incomplete. Aliases, joins, quoting and nested SQL need manual review even when a C# fixture compiles.
+- **DG006:** rename calls `NameConventions.ToPascalCase` and Roslyn `Renamer.RenameSymbolAsync`; the returned action is a `Document`, not a guarantee that all solution-wide changes are applied. The `[Column]` suggestion computes `ToSnakeCase` from the property name, without looking up the real column or checking for an existing attribute. Review references, mappings and duplicate attributes.
+- **DG012:** the provider matches a method name syntactically and preserves its arguments. It does not establish the receiver's provider identity, choose the correct invocation among multiple builders, add an Oracle package, translate connection strings, or validate overload compatibility. This is not an automatic database-provider migration.
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `CodeFixProviders.cs` | — | Code-fix providers and transformations |
+No automatic CLOB/NCLOB or general SQL-dialect conversion is registered. Unsupported transformations remain manual; comments or compilable syntax are not proof of remediation.
 
-## DataGuardCodeFixProvider
+## Host and batch behavior
 
-The primary code-fix provider handles DG001, DG002 and DG017. Length, naming and provider-option transformations are implemented by their dedicated providers (`AddMaxLengthAttributeFixProvider` for DG007/DG009, `NamingConventionFixProvider` for DG006, `UseOracleCodeFixProvider` for DG012); `SkipContractCheckFixProvider` offers the same `[SkipContractCheck(Reason = "...")]` fix for DG001.
+All five Roslyn providers return `WellKnownFixAllProviders.BatchFixer`. That API enables a supporting Roslyn host to offer batch actions; it does not prove every editor loads the provider or that a batch is safe. Preview edits and validate after application. These docs do not claim an installed Visual Studio/editor-host test result.
 
-Its advertised `FixableDiagnosticIds` are limited to the diagnostics listed below;
-diagnostics without a safe registered transformation are intentionally absent.
+The shipped VS Code extension uses a separate TypeScript `DataGuardQuickFixProvider` in `src/DataGuard.VSCode/src/ui/quick-fix-provider.ts`. Its current remediation command displays manual-review guidance and returns `false`; it applies no automatic source edit. The VS Code light bulb is therefore not evidence that these Roslyn transformations are running. A different C# language-service integration must be verified separately.
 
-### Supported Diagnostics
+## Verification scope
 
-| Diagnostic | Fix Actions |
-|------------|-------------|
-| DG001 | Add `[SkipContractCheck]`, `[DataContract]`, or `[SqlParameter]` declarations |
-| DG002 | Apply verifier-approved SQL replacement (only with valid manifest properties) |
-| DG017 | Replace `SELECT *` (also `SELECT TOP n *`, `SELECT DISTINCT *`, `SELECT t.*`) with the analyzer's `ExplicitColumns`, or a TODO placeholder |
-
-### Fix Registration Flow
-
-```mermaid
-flowchart TD
-    A[Diagnostic Received] --> B{Diagnostic ID?}
-    B -->|DG001| C[RegisterUnvalidatedSqlCallFixes]
-    B -->|DG002| D[RegisterParameterMismatchFixes]
-    B -->|DG017| G[RegisterReplaceSelectStarFix]
-
-    C --> C1[Add contract declaration or SkipContractCheck]
-    D --> D1[Apply verified SQL replacement]
-    G --> G1[Replace SELECT * with explicit columns]
-```
-
-### Fix Implementations
-
-#### Add [SkipContractCheck]
-
-Adds the `SkipContractCheckAttribute` to the enclosing method or class:
-
-```csharp
-[global::DataGuard.Contracts.SkipContractCheck(Reason = "Dynamic SQL - manual review required")]
-public IQueryable<Customer> Search(string query) { ... }
-```
-
-**Implementation:** Uses `DocumentEditor.AddAttribute()` on the `MemberDeclarationSyntax` ancestor.
-`SkipContractCheckAttribute` has only a parameterless constructor, so both providers emit the reason as the named
-`Reason` property (the positional form did not compile, CS1729); a round-trip test compiles the fixed code.
-
-#### Replace SELECT * (DG017)
-
-`ContractValidationAnalyzer` reports DG017 at the SQL literal and, when the mapped type is declared in the
-compilation, adds an `ExplicitColumns` property (column names, `[Column]` honored). The fix rewrites the literal
-(regular, verbatim or raw) and keeps `TOP n` / `DISTINCT` modifiers:
-
-```csharp
-// Before: connection.Query<Customer>("SELECT TOP 10 c.* FROM Customers c")
-// After:  connection.Query<Customer>("SELECT TOP 10 Id, Name FROM Customers c")
-```
-
-#### Add manual contract declarations
-
-For a DG001 SQL call inside a type, the provider can add a fully qualified
-`[DataContract]` declaration to that type. When the enclosing method has
-parameters, it can add one fully qualified `[SqlParameter]` declaration per
-parameter. Neither action invents a database type or a routine identity; the
-manual extractor uses the CLR parameter name and type until verified metadata is
-available. Both transformations are compile-checked in the code-fix tests.
-
-#### Update SQL to Match Parameters
-
-Only offers an SQL replacement when the diagnostic carries both a verifier-approved
-replacement and the 64-character SHA-256 digest of the offline contract manifest.
-The action replaces the string literal and therefore remains compilable. Missing,
-malformed, or unbound manifest evidence offers no automatic edit; a comment or a
-heuristic cannot establish a routine's identity, parameter type, or direction.
-
-#### Auto-Fix Naming Convention
-
-Renames properties to match the configured naming convention using `NameConventions.ToSnakeCase()` / `ToPascalCase()`:
-
-```csharp
-// Before: public string customer_name { get; set; }
-// After:  public string CustomerName { get; set; }
-```
-
-**Implementation:** Uses `Renamer.RenameSymbolAsync()` for safe symbol renaming across the solution.
-
-#### Add [Column] Attribute
-
-Adds an explicit `[Column]` attribute when the property name doesn't match the database column name:
-
-```csharp
-[global::System.ComponentModel.DataAnnotations.Schema.Column("customer_name")]
-public string CustomerName { get; set; }
-```
-
-#### Add [MaxLength] Attribute
-
-Applies a verifier-approved `[MaxLength]` value for DG007/DG009 only when the
- diagnostic carries a valid manifest digest and positive approved length. It replaces
-an existing `MaxLength` or `StringLength` attribute, avoiding a duplicate attribute:
-
-```csharp
-[global::System.ComponentModel.DataAnnotations.MaxLength(100)]
-public string Name { get; set; }
-```
-
-The provider does not infer a database length or offer an action without that evidence.
-
-#### Suggest CLOB/NCLOB
-
-No automatic CLOB/NCLOB conversion is offered. Mapping a property to a database
-LOB requires provider-specific schema evidence and remains a review item until a
-verifier can supply that evidence.
-
-#### Add Dialect Conversion Note
-
-No automatic dialect conversion is offered. A comment is not a remediation, and
-the provider does not advertise dialect diagnostics as fixable without a
-verified, provider-bound transformation.
-
-#### Add .UseOracle()
-
-Suggests adding `.UseOracle()` to the `DbContextOptionsBuilder` for DG012 (Provider Option Mismatch).
-
-## Batch Fix Support
-
-All providers support `FixAllProvider` via `WellKnownFixAllProviders.BatchFixer`:
-
-```csharp
-public sealed override FixAllProvider GetFixAllProvider()
-    => WellKnownFixAllProviders.BatchFixer;
-```
-
-This enables "Fix All in Document", "Fix All in Project", and "Fix All in Solution" actions in IDE.
-
-## Syntax Factory Patterns
-
-The code fixes use consistent patterns for attribute creation:
-
-### Attribute with String Argument
-
-```csharp
-SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
-    .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-        SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-            SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-                SyntaxFactory.Literal("reason")))
-            .WithNameEquals(SyntaxFactory.NameEquals(
-                SyntaxFactory.IdentifierName("Reason"))))));
-```
-
-### Attribute with Numeric Argument
-
-```csharp
-SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.MaxLength"))
-    .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-        SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-            SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression,
-                SyntaxFactory.Literal(100))))));
-```
-
-### Global Qualification
-
-All attribute names use `global::` qualification to avoid namespace conflicts:
-
-- `global::DataGuard.Contracts.SkipContractCheck`
-- `global::System.ComponentModel.DataAnnotations.MaxLength`
-- `global::System.ComponentModel.DataAnnotations.Schema.Column`
-
-## Usage in IDE
-
-### Visual Studio
-
-Right-click on a diagnostic squiggle → "Quick Actions and Refactorings" → Select fix.
-
-### VS Code
-
-Hover over diagnostic → Click "Quick Fix" (light bulb) → Select fix.
-
-### Keyboard Shortcut
-
-- **Visual Studio:** `Ctrl+.` (Windows) / `Cmd+.` (Mac)
-- **VS Code:** `Ctrl+.` (Windows) / `Cmd+.` (Mac)
+Code-fix fixture and round-trip tests cover advertised actions, selected compilation behavior and refusal when required metadata is absent. They do not exhaust SQL grammar, prove database changes safe, validate all solution-wide references, or demonstrate Windows/VS Code host availability. This documentation reconciliation changes no transformation or test code.

@@ -1,6 +1,6 @@
 # DataGuard Workspace Directory Tree
 
-> Complete directory structure of the DataGuard project with descriptions of every file and folder.
+> Directory overview retained for navigation; not an exhaustive current file inventory. See [review inventory](../product/documentation-inventory.md).
 
 ## Directory Hierarchy
 
@@ -266,7 +266,7 @@ Command-line interface tool with 9 commands.
 | `docs/SOLUTION.md` | Solution architecture document | Documentation | Markdown |
 | `docs/assess.md` | Assessment command documentation | Documentation | Markdown |
 | `docs/cli.md` | CLI reference documentation | Documentation | Markdown |
-| `docs/mcp.md` | MCP server integration documentation | Documentation | Markdown |
+| `docs/mcp.md` | Historical EcoSupport MCP documentation; no current DataGuard MCP product | Documentation | Markdown |
 | `docs/contributing.md` | Contributor guide | Documentation | Markdown |
 | `docs/enterprise-banking-profile.md` | Enterprise banking use case profile | Documentation | Markdown |
 

@@ -1,224 +1,42 @@
-# Code Fix Providers
+# Code-fix provider
 
-DataGuard cung cấp năm Roslyn code fix provider cho vi phạm contract. Tất cả provider nhắm đến `netstandard2.0` và sử dụng `Microsoft.CodeAnalysis.CSharp` để thao tác cú pháp. Bộ test code-fix kiểm chứng accounting provider/action; một diagnostic chỉ được quảng bá khi có biến đổi cú pháp thực sự.
+> Nguồn: `src/DataGuard.CodeFixes/CodeFixProviders.cs` (`netstandard2.0`). Nguồn regression: `tests/DataGuard.CodeFixes.Tests/CodeFixProviderTests.cs`, `CodeFixRoundTripTests.cs` và verifier stub trong `Verification/`.
 
-## Kiến trúc
+Năm Roslyn provider dưới đây đăng ký biến đổi source. Có action, fixture biên dịch được hoặc diagnostic biến mất không chứng minh edit bảo toàn hành vi database. Xem preview và xác minh contract sau sửa trước khi áp dụng hàng loạt.
 
-```mermaid
-graph TB
-    subgraph "Diagnostics"
-        DG001[DG001: Unvalidated SQL Call]
-        DG002[DG002: Parameter Mismatch]
-        DG006[DG006: Naming Convention]
-        DG007[DG007: Length Exceeds Column]
-        DG012[DG012: Provider Option Mismatch]
-    end
+| Provider | Diagnostic | Hành vi hiện tại |
+| --- | --- | --- |
+| `DataGuardCodeFixProvider` | DG001 | Thêm `[SkipContractCheck]`, `[DataContract]` trên type hoặc `[SqlParameter]` trên parameter khi cú pháp hỗ trợ. |
+| Cùng provider | DG002 | Thay string literal khi thuộc tính diagnostic qua kiểm tra metadata bên dưới. |
+| Cùng provider | DG017 | Regex thay `SELECT *`/qualified-star bằng `ExplicitColumns`, hoặc TODO comment nếu thiếu thuộc tính đó. |
+| `AddMaxLengthAttributeFixProvider` | DG007, DG009 | Thêm/thay attribute độ dài khi metadata có chuỗi đúng dạng digest và độ dài dương. |
+| `SkipContractCheckFixProvider` | DG001 | Thêm cùng skip attribute với property `Reason` có tên. |
+| `NamingConventionFixProvider` | DG006 | Đưa action rename PascalCase hoặc thêm `[Column]` snake_case. |
+| `UseOracleCodeFixProvider` | DG012 | Tìm member invocation đầu tiên có tên `UseSqlServer` trong method/statement bao quanh rồi đổi tên thành `UseOracle`. |
 
-    subgraph "Code Fix Providers"
-        DCFP[DataGuardCodeFixProvider]
-        MAFP[AddMaxLengthAttributeFixProvider]
-        SCFP[SkipContractCheckFixProvider]
-        NCFP[NamingConventionFixProvider]
-        UOFP[UseOracleCodeFixProvider]
-    end
+## Metadata diagnostic là ranh giới tin cậy
 
-    subgraph "Fix Actions"
-        F1[Thêm [SkipContractCheck]]
-        F2[Áp dụng SQL replacement đã xác thực]
-        F3[Tự đổi tên property]
-        F4[Thêm [Column] attribute]
-        F5[Thêm [MaxLength]]
-        F6[Thay UseSqlServer bằng UseOracle]
-    end
+DG002 kiểm tra `DataGuard.ManifestDigest` có đúng 64 ký tự hex và `DataGuard.VerifiedSqlReplacement` không trắng, tối đa 65.536 ký tự. DG007/DG009 yêu cầu cùng dạng digest và số nguyên dương `DataGuard.VerifiedMaxLength`.
 
-    DG001 --> DCFP
-    DG002 --> DCFP
-    DG007 --> DCFP
+Provider **không** đọc manifest, tính lại digest, xác minh chữ ký hay tự ràng buộc replacement với database/catalog. Tên property mô tả contract dự kiến của producer, không chứng minh đã có bước xác minh độc lập. Producer diagnostic được tin cậy phải cung cấp metadata ràng buộc đúng. Thiếu/sai định dạng thì không có action tương ứng, nhưng digest đúng dạng không xác thực producer hoặc chứng minh SQL đúng. Test dùng verifier stub kiểm tra consumer, không chứng minh dịch vụ verification tin cậy xuyên suốt.
 
-    DCFP --> F1
-    DCFP --> F2
-    DCFP --> F3
-    DCFP --> F4
-    DCFP --> F5
-    DCFP --> F6
+Replacement SQL được biểu diễn bằng C# string literal; giữ dạng cú pháp này không bảo toàn ngữ nghĩa SQL. Action độ dài thay `MaxLength`/`StringLength` có sẵn: cần xem việc mất argument khác như minimum length hoặc custom message.
 
-    DG007 --> MAFP
-    DG001 --> SCFP
-    DG006 --> NCFP
-    DG012 --> UOFP
-```
+## Action heuristic và thủ công
 
-## File nguồn
+- **DG001:** `[SkipContractCheck(Reason = "Dynamic SQL - manual review required")]` tắt kiểm tra, không sửa contract. Declaration manual ghi ý định source, chưa chứng minh routine identity, database type hoặc direction.
+- **DG017:** dùng regex, không phải dialect parser. `ExplicitColumns` lấy từ CLR shape ánh xạ khi có, kể cả tên `[Column]`, không phải kết quả live schema. Không có cột thì TODO placeholder có thể làm SQL chưa hoàn chỉnh. Alias, join, quoting và SQL lồng cần review dù fixture C# biên dịch được.
+- **DG006:** rename gọi `NameConventions.ToPascalCase` và `Renamer.RenameSymbolAsync`; action trả `Document`, không bảo đảm mọi thay đổi toàn solution được áp dụng. Gợi ý `[Column]` tính `ToSnakeCase` từ tên property, không tra cột thật hoặc kiểm tra attribute đã có. Cần review references, mapping và attribute trùng.
+- **DG012:** match tên method bằng cú pháp rồi giữ nguyên arguments. Không xác lập provider identity của receiver, chọn đúng invocation giữa nhiều builder, thêm package Oracle, dịch connection string hay kiểm tra tương thích overload. Đây không phải migration provider database tự động.
 
-| File | Dòng | Mục đích |
-|------|------|----------|
-| `CodeFixProviders.cs` | — | Code-fix provider và các biến đổi |
+Không đăng ký chuyển đổi CLOB/NCLOB hoặc dialect SQL tổng quát tự động. Biến đổi chưa hỗ trợ vẫn thủ công; comment hoặc cú pháp biên dịch được không chứng minh đã khắc phục.
 
-## DataGuardCodeFixProvider
+## Host và batch
 
-Code fix provider chính xử lý DG001, DG002 và DG017. Biến đổi độ dài, naming và provider-option do provider chuyên biệt xử lý (`AddMaxLengthAttributeFixProvider` cho DG007/DG009, `NamingConventionFixProvider` cho DG006, `UseOracleCodeFixProvider` cho DG012); `SkipContractCheckFixProvider` cung cấp cùng fix `[SkipContractCheck(Reason = "...")]` cho DG001.
+Cả năm Roslyn provider trả `WellKnownFixAllProviders.BatchFixer`. API cho phép host Roslyn hỗ trợ đưa batch action; không chứng minh mọi editor nạp provider hay batch an toàn. Xem preview và validate sau khi áp dụng. Trang này không khẳng định đã test cài đặt Visual Studio/editor host.
 
-`FixableDiagnosticIds` được quảng bá chỉ gồm các diagnostic bên dưới có transformation
-an toàn đã đăng ký; diagnostic chưa có sửa đổi an toàn được chủ ý loại khỏi danh sách.
+Extension VS Code đã ship dùng TypeScript `DataGuardQuickFixProvider` riêng tại `src/DataGuard.VSCode/src/ui/quick-fix-provider.ts`. Command remediation hiện chỉ hiển thị hướng dẫn review thủ công và trả `false`, không tự edit source. Bóng đèn VS Code không chứng minh các biến đổi Roslyn này đang chạy. Tích hợp C# language service khác phải được xác minh riêng.
 
-### Diagnostic được hỗ trợ
+## Phạm vi kiểm chứng
 
-| Diagnostic | Hành động sửa |
-|------------|---------------|
-| DG001 | Thêm declaration `[SkipContractCheck]`, `[DataContract]` hoặc `[SqlParameter]` |
-| DG002 | Áp dụng SQL replacement do verifier phê duyệt (chỉ khi có thuộc tính manifest hợp lệ) |
-| DG017 | Thay `SELECT *` (cả `SELECT TOP n *`, `SELECT DISTINCT *`, `SELECT t.*`) bằng `ExplicitColumns` của analyzer, hoặc placeholder TODO |
-
-### Flow đăng ký fix
-
-```mermaid
-flowchart TD
-    A[Nhận Diagnostic] --> B{Diagnostic ID?}
-    B -->|DG001| C[RegisterUnvalidatedSqlCallFixes]
-    B -->|DG002| D[RegisterParameterMismatchFixes]
-    B -->|DG017| G[RegisterReplaceSelectStarFix]
-
-    C --> C1[Thêm contract declaration hoặc SkipContractCheck]
-    D --> D1[Áp dụng SQL replacement đã xác thực]
-    G --> G1[Thay SELECT * bằng cột tường minh]
-```
-
-### Triển khai fix
-
-#### Thêm [SkipContractCheck]
-
-Thêm `SkipContractCheckAttribute` vào method hoặc class bao quanh:
-
-```csharp
-[global::DataGuard.Contracts.SkipContractCheck(Reason = "Dynamic SQL - manual review required")]
-public IQueryable<Customer> Search(string query) { ... }
-```
-
-**Triển khai:** Sử dụng `DocumentEditor.AddAttribute()` trên ancestor `MemberDeclarationSyntax`.
-`SkipContractCheckAttribute` chỉ có constructor không tham số, nên cả hai provider ghi lý do qua property có tên
-`Reason` (dạng positional trước đây không biên dịch được, CS1729); test round-trip biên dịch code sau khi sửa.
-
-#### Thay SELECT * (DG017)
-
-`ContractValidationAnalyzer` báo DG017 tại SQL literal và, khi type ánh xạ được khai báo trong compilation, thêm
-property `ExplicitColumns` (tên cột, tôn trọng `[Column]`). Fix viết lại literal (thường, verbatim hoặc raw) và giữ
-modifier `TOP n` / `DISTINCT`:
-
-```csharp
-// Trước: connection.Query<Customer>("SELECT TOP 10 c.* FROM Customers c")
-// Sau:   connection.Query<Customer>("SELECT TOP 10 Id, Name FROM Customers c")
-```
-
-#### Thêm khai báo manual contract
-
-Với SQL call DG001 trong một type, provider có thể thêm declaration
-`[DataContract]` fully qualified vào type đó. Khi method bao quanh có parameter,
-nó có thể thêm một declaration `[SqlParameter]` fully qualified cho mỗi
-parameter. Hai action không tự tạo database type hay routine identity; manual
-extractor dùng CLR parameter name/type cho đến khi có metadata đã xác minh. Cả
-hai transformation được compile-check trong code-fix tests.
-
-#### Cập nhật SQL khớp tham số
-
-Chỉ đưa SQL replacement khi diagnostic mang cả replacement đã được verifier phê duyệt và digest SHA-256 64 ký tự của offline contract manifest. Action thay string literal nên vẫn biên dịch được. Manifest thiếu, sai định dạng hoặc không ràng buộc sẽ không có automatic edit; comment hay heuristic không thể xác lập identity, kiểu hoặc direction của routine.
-
-#### Tự sửa quy ước đặt tên
-
-Đổi tên property để khớp quy ước đặt tên đã cấu hình sử dụng `NameConventions.ToSnakeCase()` / `ToPascalCase()`:
-
-```csharp
-// Trước: public string customer_name { get; set; }
-// Sau:   public string CustomerName { get; set; }
-```
-
-**Triển khai:** Sử dụng `Renamer.RenameSymbolAsync()` để đổi tên symbol an toàn across solution.
-
-#### Thêm attribute [Column]
-
-Thêm attribute `[Column]` rõ ràng khi tên property không khớp tên cột database:
-
-```csharp
-[global::System.ComponentModel.DataAnnotations.Schema.Column("customer_name")]
-public string CustomerName { get; set; }
-```
-
-#### Thêm attribute [MaxLength]
-
-Áp dụng giá trị `[MaxLength]` đã được verifier phê duyệt cho DG007/DG009 chỉ khi
- diagnostic có manifest digest hợp lệ và độ dài dương đã xác minh. Provider thay
-`MaxLength` hoặc `StringLength` có sẵn để tránh attribute trùng:
-
-```csharp
-[global::System.ComponentModel.DataAnnotations.MaxLength(100)]
-public string Name { get; set; }
-```
-
-Provider không tự suy diễn database length và không đưa action khi thiếu evidence này.
-
-#### CLOB/NCLOB và chuyển đổi phương ngữ
-
-Không có automatic conversion cho CLOB/NCLOB hay phương ngữ SQL. Hai thao tác cần schema evidence theo provider; comment không phải remediation và provider không quảng bá diagnostic này là fixable khi chưa có biến đổi đã được xác thực.
-
-#### Thêm .UseOracle()
-
-Thay `.UseSqlServer()` bằng `.UseOracle()` trong `DbContextOptionsBuilder` cho DG012 (Không khớp tùy chọn provider), giữ nguyên connection-string argument.
-
-## Hỗ trợ batch fix
-
-Tất cả provider hỗ trợ `FixAllProvider` qua `WellKnownFixAllProviders.BatchFixer`:
-
-```csharp
-public sealed override FixAllProvider GetFixAllProvider()
-    => WellKnownFixAllProviders.BatchFixer;
-```
-
-Cho phép các hành động "Fix All in Document", "Fix All in Project", và "Fix All in Solution" trong IDE.
-
-## Mẫu Syntax Factory
-
-Các code fix sử dụng mẫu nhất quán để tạo attribute:
-
-### Attribute với tham số chuỗi
-
-```csharp
-SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::DataGuard.Contracts.SkipContractCheck"))
-    .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-        SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-            SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-                SyntaxFactory.Literal("reason")))
-            .WithNameEquals(SyntaxFactory.NameEquals(
-                SyntaxFactory.IdentifierName("Reason"))))));
-```
-
-### Attribute với tham số số
-
-```csharp
-SyntaxFactory.Attribute(SyntaxFactory.ParseName("global::System.ComponentModel.DataAnnotations.MaxLength"))
-    .WithArgumentList(SyntaxFactory.AttributeArgumentList(
-        SyntaxFactory.SingletonSeparatedList(SyntaxFactory.AttributeArgument(
-            SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression,
-                SyntaxFactory.Literal(100))))));
-```
-
-### Global qualification
-
-Tất cả tên attribute sử dụng qualification `global::` để tránh xung đột namespace:
-
-- `global::DataGuard.Contracts.SkipContractCheck`
-- `global::System.ComponentModel.DataAnnotations.MaxLength`
-- `global::System.ComponentModel.DataAnnotations.Schema.Column`
-
-## Sử dụng trong IDE
-
-### Visual Studio
-
-Click chuột phải vào squiggle diagnostic → "Quick Actions and Refactorings" → Chọn fix.
-
-### VS Code
-
-Hover qua diagnostic → Click "Quick Fix" (bóng đèn) → Chọn fix.
-
-### Phím tắt
-
-- **Visual Studio:** `Ctrl+.` (Windows) / `Cmd+.` (Mac)
-- **VS Code:** `Ctrl+.` (Windows) / `Cmd+.` (Mac)
+Fixture/round-trip test kiểm tra action được quảng bá, một số hành vi biên dịch và từ chối khi thiếu metadata bắt buộc. Không bao phủ hết grammar SQL, chứng minh đổi database an toàn, xác minh mọi reference toàn solution hay khả dụng host Windows/VS Code. Đợt đối chiếu tài liệu không sửa transformation hoặc test code.

@@ -291,7 +291,7 @@ flowchart LR
 | Giai Đoạn | Công Cụ | Mục Đích |
 |-----------|---------|---------|
 | **Build** | `dotnet build --configuration Release` | Biên dịch tất cả 11 dự án với `TreatWarningsAsErrors` |
-| **Test** | `dotnet test` + XPlat Code Coverage | 291+ tests, cổng coverage 60% |
+| **Test** | `dotnet test` + XPlat Code Coverage | Số lượng/phạm vi theo lần chạy; ngưỡng theo SHA workflow được chọn |
 | **Format Gate** | `dotnet format --verify-no-changes` | Ép buộc kiểu code nhất quán |
 | **Quét Lỗ Hổng** | `dotnet restore -p:NuGetAuditMode=all` | Audit package trực tiếp và transitive; NU1900–NU1905 làm gate thất bại |
 | **Quét Secret** | TruffleHog v3.97.0 | Chỉ secrets đã xác minh, loại trừ artifacts build |
