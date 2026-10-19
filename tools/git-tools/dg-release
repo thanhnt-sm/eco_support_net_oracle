@@ -38,7 +38,7 @@ CÁCH DÙNG QUA CỜ DÒNG LỆNH (NẾU MUỐN OVERRIDE):
   dg-release --config path/to/.custom.env
   dg-release --help
 
-CÁC NỀN TẢNG ĐƯỢC TỰ ĐỘNG PHÁT HÀNH:
+CÁC KÊNH TRONG WORKFLOW (PHỤ THUỘC GATE VÀ CREDENTIAL):
   1. NuGet.org                   : Toàn bộ gói DataGuard.* .nupkg (có chữ ký Sigstore OIDC)
   2. GitHub Release              : Release assets, Release Notes, SBOMs (SPDX JSON), Sigstore bundle
   3. GitHub Container Registry   : Multi-arch Docker images (linux/amd64, linux/arm64)
@@ -47,6 +47,12 @@ CÁC NỀN TẢNG ĐƯỢC TỰ ĐỘNG PHÁT HÀNH:
   6. Visual Studio Marketplace   : Temporarily paused pending product readiness
 
 Marketplace publication is temporarily paused; --publish-marketplaces is rejected.
+
+KẾT QUẢ:
+  - Mỗi kênh: succeeded / skipped / failed / unverified (bằng chứng job/step).
+  - Exit 0 không xác nhận mọi kênh đã publish; thiếu token chỉ xác nhận push tag.
+  - Exit 1 khi Git/API/parser lỗi, hết thời gian chờ, workflow/kênh failed.
+  - Kiểm tra registry và chữ ký artifact riêng trước khi công bố phát hành.
 
 BẢO MẬT:
   - Token được đọc từ file `.release.env` (đã nằm trong .gitignore) hoặc biến môi trường `DG_RELEASE_GITHUB_TOKEN`.
@@ -110,51 +116,130 @@ api_post() {
 }
 
 workflow_state() {
-    local workflow="$1"
-    local event="$2"
-    local tag="$3"
-    local sha="$4"
     local response
+    response=$(api_get "/repos/$REPOSITORY/actions/workflows/release.yml/runs?event=push&per_page=100") || return 1
     if [[ "$JSON_PARSER" == "jq" ]]; then
-        jq -r --arg tag "$tag" --arg sha "$sha" '
-            .workflow_runs[]?
-            | select(.head_branch == $tag and .head_sha == $sha)
-            | "\(.status):\(.conclusion // "")"
-        ' <<<"$response" | head -n 1
+        jq -r --arg tag "$TAG" --arg sha "$TAG_SHA" '
+            if (.workflow_runs | type) != "array" then error("Invalid workflow runs") else . end
+            | [.workflow_runs[] | select(.head_branch == $tag and .head_sha == $sha and .event == "push")]
+            | sort_by(.id) | last
+            | if . == null then empty
+              elif (.id | type) != "number" or (.run_attempt | type) != "number" then error("Invalid run identity")
+              else "\(.id):\(.run_attempt):\(.status):\(.conclusion // "")" end
+        ' <<<"$response"
     else
         "$JSON_PARSER" -c '
 import json, sys
-runs = json.load(sys.stdin).get("workflow_runs", [])
+runs = json.load(sys.stdin)["workflow_runs"]
+if not isinstance(runs, list): raise ValueError("Invalid workflow runs")
 tag, sha = sys.argv[1:]
-for run in runs:
-    if run.get("head_branch") == tag and run.get("head_sha") == sha:
-        print("{}:{}".format(run.get("status", ""), run.get("conclusion") or ""))
-        break
-' "$tag" "$sha" <<<"$response"
+runs = [r for r in runs if r.get("head_branch") == tag and r.get("head_sha") == sha and r.get("event") == "push"]
+if runs:
+    if any(type(r.get("id")) is not int or type(r.get("run_attempt")) is not int for r in runs):
+        raise ValueError("Invalid run identity")
+    r = max(runs, key=lambda r: r["id"])
+    print("{}:{}:{}:{}".format(r["id"], r["run_attempt"], r["status"], r.get("conclusion") or ""))
+' "$TAG" "$TAG_SHA" <<<"$response"
     fi
 }
 
 wait_for_workflow() {
-    local workflow="$1"
-    local event="$2"
-    local label="$3"
-    local deadline=$((SECONDS + TIMEOUT_SECONDS))
-    local state=""
-
-    log_info "Đang theo dõi tiến trình GitHub Actions '$label'..."
+    local deadline=$((SECONDS + TIMEOUT_SECONDS)) state remaining
+    log_info "Đang theo dõi GitHub Actions Release (tag/SHA chính xác)..."
     while (( SECONDS < deadline )); do
-        state=$(workflow_state "$workflow" "$event" "$TAG" "$TAG_SHA" 2>/dev/null || true)
-        if [[ "$state" == "completed:success" ]]; then
-            log_ok "Workflow '$label' đã hoàn tất THÀNH CÔNG!"
-            return 0
+        if ! state=$(workflow_state); then
+            log_warn "API/workflow evidence unavailable." >&2
+            return 1
         fi
-        if [[ "$state" == completed:* ]]; then
-            fail "Workflow '$label' kết thúc với trạng thái '$state'. Xem chi tiết tại: https://github.com/$REPOSITORY/actions"
+        if [[ -n "$state" ]]; then
+            if [[ ! "$state" =~ ^[1-9][0-9]*:[1-9][0-9]*:[a-z_]+:[a-z_]*$ ]]; then
+                log_warn "Invalid workflow evidence from API." >&2
+                return 1
+            fi
+            IFS=: read -r RUN_ID RUN_ATTEMPT RUN_STATUS RUN_CONCLUSION <<<"$state"
+            if [[ "$RUN_STATUS" == completed ]]; then
+                return 0
+            fi
         fi
-        sleep 20
+        remaining=$((deadline - SECONDS))
+        (( remaining > 0 )) || break
+        (( remaining < 20 )) || remaining=20
+        sleep "$remaining"
     done
+    log_warn "Workflow verification timed out (${TIMEOUT_SECONDS}s)." >&2
+    return 1
+}
 
-    fail "Hết thời gian chờ (${TIMEOUT_SECONDS}s) cho workflow '$label'. Xem chi tiết tại: https://github.com/$REPOSITORY/actions"
+# Require one matching job and publication step in the selected run attempt.
+# Missing/ambiguous/truncated evidence never establishes publication success.
+channel_status() {
+    local job="$1" step="$2"
+    if [[ "$JSON_PARSER" == jq ]]; then
+        jq -r --arg job "$job" --arg step "$step" '
+            if (.jobs | type) != "array" or .total_count != (.jobs | length) then "unverified"
+            else [.jobs[] | select(.name == $job)] as $jobs
+            | if ($jobs | length) != 1 then "unverified"
+              else $jobs[0] as $j
+              | if $j.status != "completed" then "unverified"
+                elif $j.conclusion == "skipped" then "skipped"
+                elif (["failure", "cancelled", "timed_out", "action_required", "startup_failure"] | index($j.conclusion)) != null then "failed"
+                elif $j.conclusion != "success" or ($j.steps | type) != "array" then "unverified"
+                else [$j.steps[]? | select(.name == $step)] as $steps
+                | if ($steps | length) != 1 then "unverified"
+                  else $steps[0] as $s
+                  | if $s.status != "completed" then "unverified"
+                    elif $s.conclusion == "success" then "succeeded"
+                    elif $s.conclusion == "skipped" then "skipped"
+                    elif (["failure", "cancelled", "timed_out", "action_required", "startup_failure"] | index($s.conclusion)) != null then "failed"
+                    else "unverified" end
+                  end
+                end
+              end
+            end
+        ' <<<"$JOBS_RESPONSE"
+    else
+        "$JSON_PARSER" -c '
+import json, sys
+data = json.load(sys.stdin)
+job, step = sys.argv[1:]
+def status(item):
+    if item.get("status") != "completed": return "unverified"
+    c = item.get("conclusion")
+    if c == "success": return "succeeded"
+    if c == "skipped": return "skipped"
+    if c in ("failure", "cancelled", "timed_out", "action_required", "startup_failure"): return "failed"
+    return "unverified"
+jobs = data.get("jobs")
+result = "unverified"
+if isinstance(jobs, list) and not isinstance(data.get("total_count"), bool) and data.get("total_count") == len(jobs):
+    matches = [j for j in jobs if j.get("name") == job]
+    if len(matches) == 1:
+        j = matches[0]
+        result = status(j)
+        if result == "succeeded":
+            raw_steps = j.get("steps")
+            steps = [s for s in raw_steps if s.get("name") == step] if isinstance(raw_steps, list) else []
+            result = status(steps[0]) if len(steps) == 1 else "unverified"
+print(result)
+' "$job" "$step" <<<"$JOBS_RESPONSE"
+    fi
+}
+
+report_channel() {
+    local label="$1" job="$2" step="$3" status=unverified
+    if [[ -n "$JOBS_RESPONSE" ]]; then
+        if ! status=$(channel_status "$job" "$step"); then
+            log_warn "Invalid API job evidence for $label." >&2
+            status=unverified
+            RESULT=1
+        fi
+    fi
+    case "$status" in
+        succeeded|skipped|failed|unverified) ;;
+        *) status=unverified; RESULT=1 ;;
+    esac
+    [[ "$status" != failed ]] || RESULT=1
+    printf '  %s: %s\n' "$label" "$status"
 }
 
 # ------------------------------------------------------------------------------
@@ -394,13 +479,13 @@ if [[ "$DRY_RUN" == true ]]; then
     log_ok "KIỂM TRA ĐIỀU KIỆN TIÊN QUYẾT HOÀN TOÀN HỢP LỆ (DRY-RUN THÀNH CÔNG)!"
     echo ""
     echo -e "${YELLOW}Các hành động sẽ được thực thi khi bạn chạy Release thật:${NC}"
-    echo -e "  1. Tạo và đẩy Git tag có chữ ký/annotated '${GREEN}$TAG${NC}' lên origin."
+    echo -e "  1. Tạo và đẩy Git tag annotated '${GREEN}$TAG${NC}' lên origin."
     echo -e "  2. GitHub Actions kích hoạt workflow ${GREEN}Release (.github/workflows/release.yml)${NC}:"
     echo -e "     - Build Release, test suite, kiểm tra độ phủ"
     echo -e "     - Đóng gói toàn bộ DataGuard.* NuGet packages với version ${GREEN}${TAG#v}${NC}"
     echo -e "     - Ký số Sigstore keyless (Cosign OIDC)"
     echo -e "     - Sinh phần mềm SBOM (SPDX JSON)"
-    echo -e "     - Xuất bản lên ${GREEN}NuGet.org${NC}"
+    echo -e "     - NuGet.org: publish nếu có credential; nếu không thì skipped"
     echo -e "     - Tạo ${GREEN}GitHub Release${NC} đính kèm nupkg, SBOMs, bundle chữ ký"
     echo -e "     - Tạo GitHub Build Provenance Attestation"
     echo -e "     - Build & Push Multi-arch Docker Image lên ${GREEN}GHCR${NC}"
@@ -435,7 +520,7 @@ fi
 # ------------------------------------------------------------------------------
 # BƯỚC 1: TẠO VÀ PUSH TAG ĐỂ KÍCH HOẠT WORKFLOW RELEASE
 # ------------------------------------------------------------------------------
-log_info "🚀 [1/3] Đang tạo Git tag bất biến '$TAG'..."
+log_info "🚀 Đang tạo Git tag bất biến '$TAG'..."
 git tag -a "$TAG" -m "Release $TAG"
 git push origin "refs/tags/$TAG"
 log_ok "Đã đẩy tag '$TAG' lên GitHub an toàn."
@@ -443,29 +528,29 @@ log_ok "Đã đẩy tag '$TAG' lên GitHub an toàn."
 # ------------------------------------------------------------------------------
 # BƯỚC 2: THEO DÕI VÀ CHỜ WORKFLOW (NẾU CÓ TOKEN) HOẶC ĐIỀU HƯỚNG TRANG WEB
 # ------------------------------------------------------------------------------
+RESULT=0
+RUN_ID="" RUN_ATTEMPT="" RUN_STATUS="" RUN_CONCLUSION=""
+JOBS_RESPONSE=""
 if [[ -n "${DG_RELEASE_GITHUB_TOKEN:-}" ]]; then
-    log_info "⏳ [2/3] Đang chờ GitHub Actions thực thi Release (NuGet + GitHub + GHCR)..."
-    wait_for_workflow "release.yml" "push" "Release"
-
-    if [[ "$PUBLISH_MARKETPLACES" == true ]]; then
-        log_info "📦 [3/3] Đang kích hoạt phát hành Marketplace Extensions cho '$TAG'..."
-        api_post "/repos/$REPOSITORY/actions/workflows/marketplace.yml/dispatches" \
-            "{\"ref\":\"$TAG\",\"inputs\":{\"tag\":\"$TAG\",\"publish\":true}}"
-        log_ok "Đã kích hoạt workflow Marketplace Extensions thành công."
-        wait_for_workflow "marketplace.yml" "workflow_dispatch" "Marketplace Extensions"
+    if wait_for_workflow; then
+        printf 'Workflow Release: %s (run %s, attempt %s)\n' "$RUN_CONCLUSION" "$RUN_ID" "$RUN_ATTEMPT"
+        [[ "$RUN_CONCLUSION" == success ]] || RESULT=1
+        if ! JOBS_RESPONSE=$(api_get "/repos/$REPOSITORY/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs?per_page=100"); then
+            log_warn "API job evidence unavailable." >&2
+            JOBS_RESPONSE=""
+            RESULT=1
+        fi
+    else
+        RESULT=1
     fi
 else
-    log_info "ℹ️  Bỏ qua bước gọi API tự động vì không có token."
-    log_info "GitHub Actions đang tự động biên dịch, đóng gói NuGet, VS Code VSIX và Visual Studio VSIX."
-    echo -e "  👉 Theo dõi trực tiếp tại: ${CYAN}https://github.com/$REPOSITORY/actions${NC}"
+    log_warn "Tag submitted; publication unverified (API monitoring disabled)."
 fi
-echo -e "${GREEN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   🎉 CHÚC MỪNG! PHÁT HÀNH $TAG HOÀN TẤT THÀNH CÔNG TRÊN MỌI NỀN TẢNG!     ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
-echo -e "  • GitHub Release : https://github.com/$REPOSITORY/releases/tag/$TAG"
-echo -e "  • NuGet Packages : https://www.nuget.org/profiles/${REPOSITORY%%/*}"
-echo -e "  • Docker Image   : https://ghcr.io/$REPOSITORY"
-if [[ "$PUBLISH_MARKETPLACES" == true ]]; then
-    echo -e "  • Marketplaces   : VS Code & Visual Studio Marketplace (đã publish)"
-fi
-echo ""
+printf '\nRelease channel evidence (workflow execution, not independent registry verification):\n'
+report_channel "GitHub Release" "Publish GitHub Release" "Flip draft to published"
+report_channel "NuGet" "Publish to NuGet.org" "Publish to NuGet.org"
+report_channel "GHCR" "Build and Push Docker Image" "Build and push Docker image"
+report_channel "Provenance" "Publish Build Provenance Attestations" "Generate and publish build provenance attestation"
+printf '  Marketplaces: skipped (publication paused)\n'
+printf 'Inspect: https://github.com/%s/actions\n' "$REPOSITORY"
+exit "$RESULT"
