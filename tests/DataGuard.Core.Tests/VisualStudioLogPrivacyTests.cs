@@ -37,6 +37,15 @@ public sealed class VisualStudioLogPrivacyTests
     }
 
     [Fact]
+    public void FixedIdeSafeOptionRemainsReadableWithoutExemptingOtherQuotedText()
+    {
+        Assert.Equal("Unrecognized command or argument '--ide-safe'.", LogPrivacyPolicy.Redact("Unrecognized command or argument '--ide-safe'."));
+        Assert.DoesNotContain("PRIVATE", LogPrivacyPolicy.Redact("Unrecognized command or argument '--PRIVATE'."));
+        Assert.DoesNotContain("--ide-safe", LogPrivacyPolicy.Redact("SELECT '--ide-safe' FROM PRIVATE_TABLE"));
+        Assert.DoesNotContain("--ide-safe", LogPrivacyPolicy.Redact("Password='--ide-safe'"));
+    }
+
+    [Fact]
     public void OversizedInputFailsClosedInsteadOfLeakingPartialValues()
     {
         Assert.DoesNotContain("PRIVATE", LogPrivacyPolicy.Redact(new string('x', 70000) + "PRIVATE"));

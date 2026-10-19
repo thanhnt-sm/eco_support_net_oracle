@@ -17,3 +17,5 @@ Sanitizer làm phẳng Output nhiều dòng; cần đánh giá độ dễ đọc
 ## Kiểm chứng và giới hạn
 
 Regression host-free kiểm tra secret dài, bearer/kết nối/SQL/path/control, giới hạn, rotation và allowlist summary. Production helper được link vào Core.Tests, thực thi behavior helper nhưng không được tính vào production instrumentation của coverage union, và không phải coverage UI/editor đã cài. Preview/save/cancel, lifecycle và Output pane trên Windows cần [checklist ứng viên](../testing/vs-beta-acceptance.vi.md). Không khẳng định độ đúng hoặc coverage toàn sản phẩm.
+
+Chuỗi option công khai cố định `'--ide-safe'` vẫn đọc được trong lỗi CLI. Ngoại lệ này không áp dụng cho argument được quote khác, credential assignment hoặc cả câu SQL.

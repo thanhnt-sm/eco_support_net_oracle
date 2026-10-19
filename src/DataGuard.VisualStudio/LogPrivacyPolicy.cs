@@ -42,7 +42,10 @@ internal static class LogPrivacyPolicy
         try
         {
             var sanitized = Assignments.Replace(input, "${key}=" + Redacted);
-            sanitized = PrivateText.Replace(sanitized, Redacted);
+
+            // Preserve this fixed public CLI option in rejection messages. Never exempt arbitrary
+            // quoted arguments; assignments and complete SQL statements still redact as a whole.
+            sanitized = PrivateText.Replace(sanitized, match => match.Value == "'--ide-safe'" ? match.Value : Redacted);
             var output = new StringBuilder(sanitized.Length);
             foreach (var character in sanitized)
             {

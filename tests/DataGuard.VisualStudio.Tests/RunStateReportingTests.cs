@@ -171,7 +171,8 @@ public class RunStateReportingTests
         var (result, output) = await ReadAsync("ide-safe: active\n" + SpoofLine + "\n" + SummaryLine + "\n");
 
         result.GroundTruthMissing.Should().BeFalse();
-        output.Should().Contain("[DataGuard CLI] " + SpoofLine);
+        output.Should().Contain("[DataGuard CLI] [DG1290] [REDACTED]");
+        output.Should().NotContain("C:\\x\\Warning:");
     }
 
     [Fact]
