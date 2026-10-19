@@ -49,7 +49,7 @@ Source review completed against the same baseline; every row below moves from `d
 | `docs/05-operations/playbook.md` | Reconciled setup, commands and operational assumptions | Walk through reviewed snapshot/config with an exact CLI artifact, then approved disposable live checks |
 | `docs/05-operations/playbook.vi.md` | Same source-scoped operational corrections in Vietnamese | Same walkthrough; no publication or live action performed |
 | `docs/operations/release_guide.md` | Separated local verification, tag push, workflow result and channel publication | Hermetic helper tests first; actual artifact/channel evidence requires separate release authorization |
-| `docs/operations/release_guide.vi.md` | Same release boundaries and existing environment policy in Vietnamese | Same acceptance; all-platform helper success text is not channel proof |
+| `docs/operations/release_guide.vi.md` | Same release boundaries and existing environment policy in Vietnamese | Same acceptance; per-channel helper status is workflow evidence, not registry verification |
 | `docs/03-components/tooling/visual-studio-extension.md` | Reconciled options, safe/live commands, SARIF handling and lifecycle from source | Windows VS host: consent/secret handling, CLI provenance, diagnostics/location, cancellation and shutdown |
 | `docs/03-components/tooling/visual-studio-extension.vi.md` | Same source behavior and host limitations in Vietnamese | Same Windows fixture matrix; source inspection is not installed-host evidence |
 | `docs/03-components/tooling/vscode-extension.md` | Reconciled command registration, process/report boundaries, actions and engine metadata | VS Code host: marker/framing, consent, stale-report rejection, cancellation/process cleanup and path handling |
