@@ -35,6 +35,7 @@ internal sealed class OutputPaneWriter
 
     public async Task WriteAsync(string text)
     {
+        text = DataGuardLogger.Redact(text) + "\r\n";
         DataGuardLogger.LogInfo(text.TrimEnd('\r', '\n'));
         await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
         var pane = await this.GetPaneAsync();
@@ -49,6 +50,7 @@ internal sealed class OutputPaneWriter
             return;
         }
 
+        lines = lines.Select(line => DataGuardLogger.Redact(line) + "\r\n").ToArray();
         DataGuardLogger.LogInfoBatch(lines.Select(line => line.TrimEnd('\r', '\n')));
         await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
         var pane = await this.GetPaneAsync();
@@ -61,7 +63,7 @@ internal sealed class OutputPaneWriter
         {
             await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
             var statusBar = await this.package.GetServiceAsync(typeof(SVsStatusbar)) as IVsStatusbar;
-            statusBar?.SetText(text);
+            statusBar?.SetText(DataGuardLogger.Redact(text));
         }
         catch
         {

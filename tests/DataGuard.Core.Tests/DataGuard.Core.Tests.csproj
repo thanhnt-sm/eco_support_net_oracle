@@ -42,4 +42,9 @@
   <ItemGroup>
     <None Include="../../docs/guides/oracle-snapshot.*.yml" Link="ConfigurationExamples/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../src/DataGuard.VisualStudio/BoundedLogFile.cs" Link="VisualStudio/BoundedLogFile.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/LogPrivacyPolicy.cs" Link="VisualStudio/LogPrivacyPolicy.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/SupportSummary.cs" Link="VisualStudio/SupportSummary.cs" />
+  </ItemGroup>
 </Project>

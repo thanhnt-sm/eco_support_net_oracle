@@ -44,6 +44,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private const int ForgetConsentCommandId = 0x0105;
     private const int RefreshSnapshotCommandId = 0x0106;
     private const int VerifyShapeCommandId = 0x0107;
+    private const int SupportSummaryCommandId = 0x0108;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
     private static readonly Guid CommandSet = new(CommandSetGuidString);
 
@@ -94,6 +95,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
             this.AddCommand(commandService, ForgetConsentCommandId, this.ForgetSolutionConsentAsync, "DataGuard/ForgetConsent");
             this.AddCommand(commandService, RefreshSnapshotCommandId, this.RefreshSnapshotAsync, "DataGuard/RefreshSnapshot");
             this.AddCommand(commandService, VerifyShapeCommandId, this.VerifyShapesAsync, "DataGuard/VerifyShapes");
+            this.AddCommand(commandService, SupportSummaryCommandId, this.ExportSupportSummaryAsync, "DataGuard/SupportSummary");
         }
 
         if (await this.GetServiceAsync(typeof(SVsSolutionBuildManager)) is IVsSolutionBuildManager buildManager)
@@ -173,6 +175,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
         {
             if (await this.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE.DTE dte)
             {
+                this.supportHostVersion = dte.Version;
                 return $"{dte.Name} {dte.Version} ({dte.Edition})";
             }
         }

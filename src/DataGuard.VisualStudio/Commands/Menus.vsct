@@ -77,6 +77,13 @@
           <CommandName>DataGuardVerifyShapes</CommandName>
         </Strings>
       </Button>
+      <Button guid="guidDataGuardCommandSet" id="SupportSummaryCommand" priority="0x0108" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>Export Support Summary</ButtonText>
+          <CommandName>DataGuardSupportSummary</CommandName>
+        </Strings>
+      </Button>
     </Buttons>
   </Commands>
   <Symbols>
@@ -93,6 +100,7 @@
       <IDSymbol name="ForgetConsentCommand" value="0x0105" />
       <IDSymbol name="RefreshSnapshotCommand" value="0x0106" />
       <IDSymbol name="VerifyShapeCommand" value="0x0107" />
+      <IDSymbol name="SupportSummaryCommand" value="0x0108" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

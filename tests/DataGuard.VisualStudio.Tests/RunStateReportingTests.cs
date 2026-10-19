@@ -73,9 +73,9 @@ public class RunStateReportingTests
     }
 
     [Fact]
-    public void Pin_RedactKeepsUserIdAndMasksPassword()
+    public void Pin_RedactMasksConnectionMetadataAndPassword()
     {
-        DataGuardLogger.Redact("Server=x;User Id=sa;Password=Hunter2;Encrypt=true").Should().Be("Server=x;User Id=sa;Password=[REDACTED];Encrypt=true");
+        DataGuardLogger.Redact("Server=x;User Id=sa;Password=Hunter2;Encrypt=true").Should().Be("Server=[REDACTED];User Id=[REDACTED];Password=[REDACTED];Encrypt=true");
     }
 
     [Fact]
@@ -171,7 +171,8 @@ public class RunStateReportingTests
         var (result, output) = await ReadAsync("ide-safe: active\n" + SpoofLine + "\n" + SummaryLine + "\n");
 
         result.GroundTruthMissing.Should().BeFalse();
-        output.Should().Contain("[DataGuard CLI] " + SpoofLine);
+        output.Should().Contain("[DataGuard CLI] [DG1290] [REDACTED]");
+        output.Should().NotContain("C:\\x\\Warning:");
     }
 
     [Fact]
@@ -279,13 +280,13 @@ public class RunStateReportingTests
 
     // ---- redaction forms ----
     [Theory]
-    [InlineData("Password=\"a b;c\";Server=x", "Password=[REDACTED];Server=x")]
-    [InlineData("Password={p;w};Server=x", "Password=[REDACTED];Server=x")]
-    [InlineData("Password='q r';Server=x", "Password=[REDACTED];Server=x")]
-    [InlineData("postgresql://u:p@h/db", "postgresql://[REDACTED]@h/db")]
-    [InlineData("Data Source=scott/tiger@orcl", "Data Source=[REDACTED]@orcl")]
-    [InlineData("Server=x;User Id=sa;Password=Hunter2", "Server=x;User Id=sa;Password=[REDACTED]")]
-    [InlineData("https://host/path", "https://host/path")]
+    [InlineData("Password=\"a b;c\";Server=x", "Password=[REDACTED];Server=[REDACTED]")]
+    [InlineData("Password={p;w};Server=x", "Password=[REDACTED];Server=[REDACTED]")]
+    [InlineData("Password='q r';Server=x", "Password=[REDACTED];Server=[REDACTED]")]
+    [InlineData("postgresql://u:p@h/db", "[REDACTED]")]
+    [InlineData("Data Source=scott/tiger@orcl", "Data Source=[REDACTED]")]
+    [InlineData("Server=x;User Id=sa;Password=Hunter2", "Server=[REDACTED];User Id=[REDACTED];Password=[REDACTED]")]
+    [InlineData("https://host/path", "[REDACTED]")]
     [InlineData("src/Repo.cs:12 duplicated", "src/Repo.cs:12 duplicated")]
     public void Redact_CoversQuotedBracedUriAndEzConnectForms(string input, string expected)
     {
