@@ -41,12 +41,19 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
 
     private async Task<IReadOnlyList<ColumnDescriptor>> DescribeCoreAsync(string sqlText, CancellationToken cancellationToken)
     {
-        var columns = new List<ColumnDescriptor>();
         using var connection = new Microsoft.Data.SqlClient.SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
         using var command = CreateDescribeCommand(connection, sqlText);
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadColumnsAsync(reader, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<IReadOnlyList<ColumnDescriptor>> ReadColumnsAsync(
+        System.Data.Common.DbDataReader reader,
+        CancellationToken cancellationToken)
+    {
+        var columns = new List<ColumnDescriptor>();
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var name = reader["name"] is DBNull ? null : reader["name"]?.ToString();
@@ -58,6 +65,10 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
             var typeName = reader["system_type_name"] is DBNull ? "unknown" : reader["system_type_name"]?.ToString() ?? "unknown";
             var isNullable = reader["is_nullable"] is not DBNull && Convert.ToBoolean(reader["is_nullable"]);
             var maxLength = reader["max_length"] is DBNull ? (int?)null : Convert.ToInt32(reader["max_length"]);
+            var systemTypeId = reader["system_type_id"] is DBNull ? 0 : Convert.ToInt32(reader["system_type_id"]);
+
+            // Describe reports bytes; descriptors use UTF-16 units for nchar/nvarchar, as the catalog parser does.
+            var descriptorLength = SqlServerStoredProcedureParser.NormalizeMaxLength(maxLength, systemTypeId);
             var precision = reader["precision"] is DBNull ? (int?)null : Convert.ToInt32(reader["precision"]);
             var scale = reader["scale"] is DBNull ? (int?)null : Convert.ToInt32(reader["scale"]);
             var ordinal = reader["column_ordinal"] is DBNull ? 0 : Convert.ToInt32(reader["column_ordinal"]);
@@ -68,12 +79,12 @@ public sealed class SqlServerLiveQuerySchemaProvider : ILiveQuerySchemaProvider
             columns.Add(new ColumnDescriptor(
                 Name: name,
                 DataType: baseType,
-                MaxLength: maxLength,
+                MaxLength: descriptorLength,
                 Precision: precision,
                 Scale: scale,
                 IsNullable: isNullable,
                 CharUsed: null,
-                CharLength: maxLength,
+                CharLength: descriptorLength,
                 DataDefault: null,
                 ColumnId: ordinal));
         }
