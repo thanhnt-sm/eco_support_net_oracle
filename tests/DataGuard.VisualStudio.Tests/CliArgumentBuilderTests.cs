@@ -155,7 +155,7 @@ public class CliArgumentBuilderTests
     [Fact]
     public void Redact_CoversConnectionStringAndJwtForms()
     {
-        DataGuardLogger.Redact("Server=x;User Id=sa;Password=Hunter2;Encrypt=true").Should().Be("Server=x;User Id=sa;Password=[REDACTED];Encrypt=true");
+        DataGuardLogger.Redact("Server=x;User Id=sa;Password=Hunter2;Encrypt=true").Should().Be("Server=[REDACTED];User Id=[REDACTED];Password=[REDACTED];Encrypt=true");
         DataGuardLogger.Redact("Authorization: Bearer abc.def").Should().NotContain("abc.def");
 
         // JWT-shaped fixture assembled at runtime (three base64url segments) so no token literal exists in source.

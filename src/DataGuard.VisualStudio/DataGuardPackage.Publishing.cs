@@ -20,6 +20,7 @@ public sealed partial class DataGuardPackage
 
     private async Task HandleRunOutcomeAsync(CliRunContext context, CliRunOutcome outcome)
     {
+        this.CaptureSupportOutcome(outcome);
         var output = this.output!;
         if (outcome.Cancelled)
         {
@@ -46,6 +47,7 @@ public sealed partial class DataGuardPackage
         var verdict = PublishGate.Decide(outcome.Progress, outcome.ExitCode);
         if (verdict != PublishVerdict.Publish)
         {
+            this.MarkSupportDiscarded();
             this.LogRun(context, outcome.ExitCode, outcome.ElapsedMs, 0);
             await output.WriteAsync(DescribeDiscard(verdict));
             await output.SetStatusAsync(verdict == PublishVerdict.CliTooOld ? "DataGuard: CLI too old" : "DataGuard: Results discarded");
@@ -56,6 +58,7 @@ public sealed partial class DataGuardPackage
         var mismatch = SolutionLifetimeWatcher.DescribeSolutionMismatch(context.Command, context.SolutionDirectory, currentSolution?.Directory);
         if (mismatch != null)
         {
+            this.MarkSupportDiscarded();
             this.LogRun(context, outcome.ExitCode, outcome.ElapsedMs, 0);
             await output.WriteAsync(mismatch);
             await output.SetStatusAsync("DataGuard: Results discarded");
@@ -90,6 +93,27 @@ public sealed partial class DataGuardPackage
         {
             await output.WriteAsync("[DataGuard] " + loaded.Error + " Previous Error List results were kept.\r\n");
             return 0;
+        }
+
+        lock (this.supportSummaryLock)
+        {
+            var fileIds = new System.Collections.Generic.Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+            var captured = 0;
+            foreach (var diagnostic in loaded.Diagnostics)
+            {
+                if (captured++ > 200)
+                {
+                    break;
+                }
+
+                if (!fileIds.TryGetValue(diagnostic.Document, out var fileId))
+                {
+                    fileId = fileIds.Count + 1;
+                    fileIds.Add(diagnostic.Document, fileId);
+                }
+
+                this.supportSummary?.AddDiagnostic(fileId, diagnostic.RuleId, diagnostic.Level, diagnostic.Line, diagnostic.Column);
+            }
         }
 
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();

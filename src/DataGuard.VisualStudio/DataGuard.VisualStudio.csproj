@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <ProjectCapability Include="CreateVsixContainer" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 
   <ItemGroup>
