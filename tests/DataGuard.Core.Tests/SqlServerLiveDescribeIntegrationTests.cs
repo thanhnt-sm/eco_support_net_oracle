@@ -54,4 +54,25 @@ public class SqlServerLiveDescribeIntegrationTests : IAsyncLifetime
         column.DataType.Should().Be("int");
         column.ColumnId.Should().Be(1);
     }
+
+    [LiveDbFact(LiveDbTarget.SqlServer)]
+    public async Task DescribeResultSetAsync_NormalizesUnicodeLengthsAndMax()
+    {
+        Assert.NotNull(_container);
+        var provider = new SqlServerLiveQuerySchemaProvider(_container.GetConnectionString());
+        var result = await provider.DescribeResultSetAsync(
+            "SELECT CAST(NULL AS nvarchar(36)) AS UnicodeValue, CAST(NULL AS nchar(32)) AS FixedUnicode, " +
+            "CAST(NULL AS nvarchar(max)) AS UnicodeMax, CAST(NULL AS varchar(36)) AS AnsiValue, " +
+            "CAST(NULL AS varbinary(16)) AS BinaryValue, CAST(NULL AS varchar(max)) AS AnsiMax, " +
+            "CAST(NULL AS varbinary(max)) AS BinaryMax", CancellationToken.None);
+
+        result.Status.Should().Be(LiveSchemaStatus.Described);
+        result.Columns.Should().HaveCount(7);
+        int?[] expected = { 36, 32, null, 36, 16, null, null };
+        for (var index = 0; index < expected.Length; index++)
+        {
+            result.Columns[index].MaxLength.Should().Be(expected[index]);
+            result.Columns[index].CharLength.Should().Be(expected[index]);
+        }
+    }
 }
