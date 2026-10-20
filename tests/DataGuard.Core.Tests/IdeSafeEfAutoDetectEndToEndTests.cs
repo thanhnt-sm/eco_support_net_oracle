@@ -19,6 +19,41 @@ public class IdeSafeEfAutoDetectEndToEndTests
     private const string EfModelLine = "ide-safe: ef model " + SnapshotFileName + " (source parse)";
 
     [Fact]
+    public void Validate_ExtensionArguments_ConcatProducesLocatedSarifAndQuerySummary()
+    {
+        var ws = CreateEfWorkspace();
+        try
+        {
+            var repository = Path.Combine(ws, "OrderRepository.cs");
+            var code = File.ReadAllText(repository).Replace(
+                "\"SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS WHERE TOTAL_AMOUNT > 100\"",
+                "string.Concat(\"SELECT ORDER_ID, \", \"TOTAL_AMOUNT FROM ORDERS WHERE TOTAL_AMOUNT > 100\")",
+                StringComparison.Ordinal);
+            File.WriteAllText(repository, code);
+            var sarif = Path.Combine(ws, "out", "r.sarif");
+
+            var (exitCode, _, stderr) = RunCli(null, ws, "validate", "--provider", "sqlserver", "--format", "sarif",
+                "--output", sarif, "--project", ws, "--progress", "--ide-safe");
+
+            exitCode.Should().Be(1, stderr);
+            Lines(stderr)[0].Should().Be("ide-safe: active");
+            var shape = Results(sarif).Should().ContainSingle(result => result.RuleId == "DG004").Which;
+            shape.Message.Should().Contain("CustomerId");
+            shape.Locations.Should().ContainSingle();
+            shape.Locations[0].Uri.Should().EndWith("OrderRepository.cs");
+            shape.Locations[0].StartLine.Should().Be(31);
+            var summary = File.ReadAllText(Path.Combine(ws, "out", "summary.json"));
+            summary.Should().Contain("SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS WHERE TOTAL_AMOUNT");
+            summary.Should().NotContain("string.Concat");
+            stderr.Should().NotContain("no ground truth");
+        }
+        finally
+        {
+            Directory.Delete(ws, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Validate_IdeSafe_Project_AutoDetectsEfModel_WithLocations()
     {
         // The VS argv, unchanged: the snapshot under --project is the ground truth and every result has a position.

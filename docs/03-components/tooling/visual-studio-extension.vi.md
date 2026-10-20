@@ -89,3 +89,9 @@ VSIX chứa `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGuard.Con
 Đợt rà soát tài liệu này chỉ đối chiếu mã nguồn, không chạy editor Windows hoặc cài gói. Test hồi quy bao phủ Load → CreateTask → IVsTaskItem, biên tọa độ và cô lập consent. Chạy test Windows `net472`, đóng gói VSIX và nghiệm thu điều hướng thủ công tại 1:1, 42:12 là các bước riêng. Khi báo lỗi IDE, ghi phiên bản Visual Studio chính xác, nguồn đã lưu và cách tái hiện. Xem [bằng chứng bảo trì](../../../plans/261015-vs-maintenance/plan.md) để biết trạng thái chạy thực tế.
 
 Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; **Tools > Options > DataGuard**, command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.
+
+## Ghép SQL hằng
+
+Run Validation và validate-on-build dùng bộ trích xuất project của CLI. Với CLI được build tương ứng, `System.String.Concat` hằng được hỗ trợ sẽ có SQL và vị trí nguồn. Roslyn analyzer cũng dùng chung evaluator có giới hạn cho đối số trực tiếp của API raw SQL EF: hai đến bốn parameter string, hằng/null của compiler và lồng được hỗ trợ. Không chạy code ứng dụng. Diagnostic bao trọn biểu thức; không cung cấp quickfix SELECT-star để tránh sửa riêng một mảnh.
+
+Hỗ trợ lúc gõ chưa bao gồm Dapper Concat, luồng biến local, overload động/object/array/enumerable hoặc tính tương đương với generator. Không phân giải được SQL không phải bằng chứng validation thành công. Chưa có trạng thái Unknown mới trên UI. Độ phản hồi editor host và hành vi VSIX đã cài cần kiểm chứng trên Windows; test compiler/analyzer không thay thế kiểm chứng này.

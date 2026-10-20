@@ -269,6 +269,19 @@ public class CodeFixProviderTests
     }
 
     [Fact]
+    public async Task SelectStarUsage_ComposedExpression_DoesNotRewriteOneFragment()
+    {
+        var document = CreateDocument("class C { void M() { Query(string.Concat(\"SELECT * \", \"FROM Customers\")); } void Query(string sql) { } }");
+        var expression = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<InvocationExpressionSyntax>()
+            .Single(node => node.Expression.ToString() == "string.Concat");
+        var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, expression.GetLocation());
+
+        var actions = await GetActionsAsync(new DataGuardCodeFixProvider(), document, diagnostic);
+
+        actions.Should().BeEmpty("a composed-query diagnostic cannot safely rewrite a single child literal");
+    }
+
+    [Fact]
     public async Task SelectStarUsage_WithoutExplicitColumns_ReplacesWithPlaceholder()
     {
         var document = CreateDocument("class C { void M() { Query(\"SELECT * FROM Customers\"); } void Query(string sql) { } }");

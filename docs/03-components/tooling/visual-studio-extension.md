@@ -89,3 +89,9 @@ The VSIX includes `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGua
 This documentation review checked source only; it did not run a Windows editor or package installation. Regression tests cover Load → CreateTask → IVsTaskItem, coordinate bounds and consent isolation. Windows `net472` test execution, VSIX packaging and manual navigation at 1:1 and 42:12 remain distinct acceptance checks. Record the exact Visual Studio version, saved source and reproduction when reporting an IDE issue. See the [maintenance evidence](../../../plans/261015-vs-maintenance/plan.md) for actual execution status.
 
 Display-only Beta transition: the menu/Output pane is **StackAccord (Beta)**; **Tools > Options > DataGuard**, command IDs, CLI/config, diagnostics and file names remain unchanged. Verify identity/settings retention on the exact Windows artifact.
+
+## Constant SQL composition
+
+Run Validation and validate-on-build use CLI project extraction. With a matching rebuilt CLI, supported constant `System.String.Concat` calls are extracted with source locations. The Roslyn analyzer also uses the same bounded evaluator for direct EF raw-SQL arguments: two to four string parameters, compiler constants/null, and supported nesting. No application code is executed. Diagnostics cover the composed expression; SELECT-star quickfix is unavailable for it to prevent editing only one fragment.
+
+Typing support does not include Dapper Concat, local-variable flow, dynamic/object/array/enumerable overloads, or generator parity. Unresolved SQL is not evidence of successful validation. There is no new Unknown UI status. Windows editor-host responsiveness and installed VSIX behavior require Windows validation; compiler/analyzer tests do not substitute for it.

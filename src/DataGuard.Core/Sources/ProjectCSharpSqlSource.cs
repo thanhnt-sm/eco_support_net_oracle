@@ -24,7 +24,7 @@ namespace DataGuard.Core.Sources;
 public sealed partial class ProjectCSharpSqlSource : IContractSource
 {
     /// <summary>Longest SQL literal (chars) fed to rules; larger literals are skipped with a DG1291 note and an <see cref="AcquisitionDiagnosticKind.OversizedLiteral"/> diagnostic.</summary>
-    public const int MaxSqlLiteralLength = 256 * 1024;
+    public const int MaxSqlLiteralLength = DataGuard.SqlComposition.ConstantStringConcatResolver.MaximumTextLength;
 
     private readonly string _projectOrPath;
     private readonly ProgressEmitter? _progress;
