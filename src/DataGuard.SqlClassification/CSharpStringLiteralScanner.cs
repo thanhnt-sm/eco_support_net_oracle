@@ -76,7 +76,7 @@ internal static class CSharpStringLiteralScanner
             }
             else
             {
-                index++;
+                index = Math.Max(index + 1, next);
             }
         }
 
@@ -109,6 +109,11 @@ internal static class CSharpStringLiteralScanner
 
         if (Peek(source, position) != '"')
         {
+            // Keep the final dollar before another @: it can start an overlapping $@" literal.
+            // Otherwise none of the consumed prefix can start a literal; do not rescan the run.
+            next = Peek(source, position) == '@' && position > index && source[position - 1] == '$'
+                ? position - 1
+                : position;
             return false;
         }
 
@@ -342,7 +347,7 @@ internal static class CSharpStringLiteralScanner
             }
             else
             {
-                position++;
+                position = Math.Max(position + 1, next);
             }
         }
 
