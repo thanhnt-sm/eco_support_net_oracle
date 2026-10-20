@@ -45,4 +45,8 @@ Fixture fix committed locally as `84ad8a713b858d17d6015efc31e261a9fd7eb3d0` on `
 
 ## Authorized PR integration / Tích hợp PR được phép
 
-After local validation, the owner authorized pushing separate fixture and branding PRs and merging only when existing rules and checks permit. Branding fast-forwards to the exact fixture commit; its own commit contains only the display patch. Open the branding PR against the fixture branch while that PR is pending, then retarget to main after fixture integration. No duplicated/cherry-picked fixture commit, rule bypass or Marketplace publication. Earlier local-only statements above record the preparation stage.
+After local validation, the owner authorized pushing separate fixture and branding PRs and merging only when existing rules and checks permit. Branding fast-forwards to the exact fixture commit; its own commit contains only the display patch. PR #80 targets main because CI accepts main/develop while Marketplace packaging accepts main only. It depends on PR #79 and must merge after #79; the exact prerequisite commit is shared in ancestry, not duplicated. No duplicated/cherry-picked fixture commit, rule bypass or Marketplace publication. Earlier local-only statements above record the preparation stage.
+
+## PR review follow-up / Xử lý review PR
+
+At head `1a773ac73eeca704a71f050a13ca3e6e34a61e4a`, the sole parent is `84ad8a713b858d17d6015efc31e261a9fd7eb3d0`; the ancestry comment citing `bcb53c79` does not describe this head. Preserve this verified provenance. Valid review findings add the three consent dialog captions and README navigation to the display scope, with two failing regressions before correction. Consent decisions, default No buttons, IDs and diagnostic prefixes are unchanged. CI success does not replace installed Windows/UI acceptance.

@@ -115,7 +115,7 @@ public sealed partial class DataGuardPackage
         var answer = VsShellUtilities.ShowMessageBox(
             this,
             SolutionTrustGate.BuildLivePromptText(solution.Directory, variableName),
-            "DataGuard — allow database commands for this solution?",
+            "StackAccord (Beta) — allow database commands for this solution?",
             OLEMSGICON.OLEMSGICON_QUERY,
             OLEMSGBUTTON.OLEMSGBUTTON_YESNO,
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
@@ -147,7 +147,7 @@ public sealed partial class DataGuardPackage
         var answer = VsShellUtilities.ShowMessageBox(
             this,
             LiveDatabaseCommands.BuildConfirmationText(kind, host, live.VariableName, live.Provider, solution.Directory),
-            "DataGuard — connect to the database?",
+            "StackAccord (Beta) — connect to the database?",
             OLEMSGICON.OLEMSGICON_WARNING,
             OLEMSGBUTTON.OLEMSGBUTTON_YESNO,
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);

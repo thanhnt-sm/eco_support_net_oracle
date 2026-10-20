@@ -11,6 +11,36 @@ NAME = "StackAccord – .NET Database Contracts (Beta)"
 NS = {"v": "http://schemas.microsoft.com/developer/vsx-schema/2011"}
 
 class StackAccordDisplayTests(unittest.TestCase):
+    def test_consent_dialog_captions_use_the_display_name(self):
+        captions = {
+            "DataGuardPackage.Consent.cs": ("run validation for this solution file?",),
+            "DataGuardPackage.LiveCommands.cs": (
+                "allow database commands for this solution?",
+                "connect to the database?",
+            ),
+        }
+        for filename, prompts in captions.items():
+            text = (VS / filename).read_text(encoding="utf-8")
+            for prompt in prompts:
+                self.assertIn('"StackAccord (Beta) — ' + prompt + '"', text)
+            self.assertNotIn('"DataGuard — ', text)
+
+    def test_current_vs_documentation_uses_the_display_menu(self):
+        paths = ["README.md", "README.vi.md", "docs/USAGE.md",
+                 "docs/01-overview/quickstart.md"]
+        for stem in ("docs/03-components/tooling/visual-studio-extension",
+                     "docs/operations/support-summary", "docs/testing/vs-beta-acceptance",
+                     "docs/product/marketplace-copy"):
+            paths.extend((stem + ".md", stem + ".vi.md"))
+        for relative in paths:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIn("StackAccord (Beta)", text, relative)
+            for separator in (" > ", " → ", " -> "):
+                # VS Code commands and Tools > Options > DataGuard retain their names.
+                self.assertNotIn("Tools" + separator + "DataGuard", text, relative)
+            self.assertEqual(text, unicodedata.normalize("NFC", text), relative)
+            self.assertNotIn("\ufffd", text, relative)
+
     def test_navigation_uses_the_display_menu(self):
         for path in VS.glob("*.cs"):
             text = path.read_text(encoding="utf-8-sig")

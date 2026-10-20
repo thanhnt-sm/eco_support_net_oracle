@@ -63,7 +63,7 @@ public sealed partial class DataGuardPackage
         var answer = VsShellUtilities.ShowMessageBox(
             this,
             SolutionTrustGate.BuildPromptText(solution.Directory, configExists),
-            "DataGuard — run validation for this solution file?",
+            "StackAccord (Beta) — run validation for this solution file?",
             OLEMSGICON.OLEMSGICON_QUERY,
             OLEMSGBUTTON.OLEMSGBUTTON_YESNO,
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
