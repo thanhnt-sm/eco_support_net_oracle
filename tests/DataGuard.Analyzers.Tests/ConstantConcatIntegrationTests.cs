@@ -33,6 +33,34 @@ public class ConstantConcatIntegrationTests
     }
 
     [Theory]
+    [InlineData("string.Concat(\"SELECT \", \"* FROM Orders\")", 1)]
+    [InlineData("string.Concat(\"SELECT \", \"* FROM Orders\")", 2)]
+    [InlineData("string.Concat(\"SELECT * FROM Orders\", \"\")", 1)]
+    public void SharedResolver_CancelledDuringMapping_StopsBeforeNextFragment(string expression, int cancelAt)
+    {
+        var tree = CSharpSyntaxTree.ParseText("class C { string M() => " + expression + "; }");
+        var compilation = CSharpCompilation.Create("MidCancellation", new[] { tree },
+            new[] { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) });
+        var syntax = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().Single();
+        var operation = (IInvocationOperation)compilation.GetSemanticModel(tree).GetOperation(syntax)!;
+        using var cancellation = new CancellationTokenSource();
+        var callbacks = 0;
+
+        Action resolve = () => ConstantStringConcatResolver.Resolve(operation, cancellation.Token,
+            appendSource: (_, _) =>
+            {
+                callbacks++;
+                if (callbacks == cancelAt)
+                {
+                    cancellation.Cancel();
+                }
+            });
+
+        resolve.Should().Throw<OperationCanceledException>();
+        callbacks.Should().Be(cancelAt);
+    }
+
+    [Theory]
     [InlineData("string.Concat(\"SELECT \", \"* FROM Orders\")")]
     [InlineData("System.String.Concat(str1: \"* FROM Orders\", str0: \"SELECT \")")]
     [InlineData("string.Concat(\"SELECT \", string.Concat(\"*\", \" FROM Orders\"))")]

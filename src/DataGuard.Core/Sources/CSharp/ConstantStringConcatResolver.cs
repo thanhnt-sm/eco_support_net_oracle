@@ -1,7 +1,6 @@
 namespace DataGuard.SqlComposition;
 
 using System;
-using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Operations;
@@ -23,20 +22,32 @@ internal static class ConstantStringConcatResolver
             method.ContainingType.SpecialType != SpecialType.System_String ||
             method.DeclaringSyntaxReferences.Length != 0 ||
             method.Parameters.Length is < 2 or > 4 ||
-            method.Parameters.Any(parameter => parameter.Type.SpecialType != SpecialType.System_String) ||
-            invocation.Arguments.Length != method.Parameters.Length ||
-            invocation.Arguments.Any(argument => argument.Parameter is null))
+            invocation.Arguments.Length != method.Parameters.Length)
         {
             return null;
         }
 
-        // Parameter order, not source order, determines the result of named arguments.
-        var arguments = invocation.Arguments.OrderBy(argument => argument.Parameter!.Ordinal).ToArray();
-        var parts = new string[arguments.Length];
-        var length = 0;
-        for (var index = 0; index < arguments.Length; index++)
+        foreach (var parameter in method.Parameters)
         {
-            var value = arguments[index].Value;
+            if (parameter.Type.SpecialType != SpecialType.System_String)
+            {
+                return null;
+            }
+        }
+
+        // At most four arguments: a bounded scan avoids sorting/iterator allocations.
+        // Parameter order, not source order, determines the result of named arguments.
+        var parts = new string[invocation.Arguments.Length];
+        var length = 0;
+        for (var index = 0; index < parts.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var value = FindArgumentValue(invocation, index);
+            if (value is null)
+            {
+                return null;
+            }
+
             var constant = value.ConstantValue;
             var part = constant.HasValue && constant.Value is null or string
                 ? constant.Value as string ?? string.Empty
@@ -55,14 +66,15 @@ internal static class ConstantStringConcatResolver
         // No partial source map is published if any operand is unknown.
         if (appendSource is not null)
         {
-            for (var index = 0; index < arguments.Length; index++)
+            for (var index = 0; index < parts.Length; index++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (parts[index].Length == 0)
                 {
                     continue;
                 }
 
-                var value = arguments[index].Value;
+                var value = FindArgumentValue(invocation, index)!;
                 if (value is IInvocationOperation nested)
                 {
                     Resolve(nested, cancellationToken, depth + 1, appendSource);
@@ -74,6 +86,20 @@ internal static class ConstantStringConcatResolver
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return string.Concat(parts);
+    }
+
+    private static IOperation? FindArgumentValue(IInvocationOperation invocation, int ordinal)
+    {
+        foreach (var argument in invocation.Arguments)
+        {
+            if (argument.Parameter?.Ordinal == ordinal)
+            {
+                return argument.Value;
+            }
+        }
+
+        return null;
     }
 }

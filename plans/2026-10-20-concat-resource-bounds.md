@@ -1,0 +1,23 @@
+# Constant Concat resources / Tài nguyên Concat hằng
+
+Baseline: `429806c3aa7c6404f1c93eeb1d881e9bebbaf44b`, branch `fix/analyzer-constant-concat`, preserved unchanged. New local branch `perf/concat-resource-bounds` inherits it. Its parent is `bb7670fdc5e4fb49c0e095e387aa3dc3fada6c0c`; both are separate from the four preserved siblings `ad3eb30bad523643c348b4ecf5e81e3337be948c`, `2f6e315feb01c4a515576f30d9f2904e345d78ae`, `6f038cdfc86aed6cacb019d944e3e4676fc5054a`, `a4c9869ec557eafecdc7bcb22e8bc33480306f41`. Those five parent/sibling patches independently descend from main39a030e. All six commits remain preserved; test totals are not combined across them.
+
+P1: deterministic mid-resolution cancellation at source-map callback boundary; reject continuation after cancellation without sleeps or timing assertions. P2: measure same-feature evaluator/binding/analyzer allocations before selecting a small optimization. Preserve exact diagnostics, SQL text, source map and quickfix safety; unsupported SQL remains unsupported. No cache, retained compilation, runtime execution, DB or publication. Canonical coverage remains blocked; no /dev/shm retry.
+
+VI: So sánh cùng tính năng với429806c3, không so với main thiếu diagnostic. Chỉ sửa hotspot đã đo; đo allocation không đồng nghĩa RSS hoặc memory leak. Giữ nguyên sáu commit và phạm vi EF hiện tại. Test hủy giữa chừng phải deterministic; không bỏ validation để đạt số đẹp.
+
+## Measured change / Thay đổi đã đo
+
+Baseline isolated helper median bytes/1000 calls: flat2/named2=480040; fixed4=544040; nested=984040; nested callback=1448040. Replacing LINQ Any/OrderBy/ToArray with a scan over at most4 immutable arguments reduces these to104040/120040/200040/288040 respectively. Parts array, all validation, named order, depth/length limits and resolve-before-mapping remain. No pooling or cache. Nested callback re-resolution remains deliberately unchanged; real Core source-segment allocations were not profiled by the callback-only probe.
+
+Three deterministic cancellation regressions failed before production changes: callback cancels on first fragment, last fragment, and first fragment with trailing empty operand. They now throw before subsequent callback/return. Checks occur at operand/mapping iteration boundaries and before final concatenation. Already delivered callbacks cannot be rolled back; one string copy is not interrupted. Independent review passed14 targeted tests and found no blocker.
+
+Same-feature benchmark uses pinned Roslyn4.12,10/100/1000 calls,3 warmups and5 repeats, with flat/named/nested/fixed4 corpus. Exact diagnostic ID/severity/message/span and callback text/span digests match baseline. Additional equal comment-edit runs use ReplaceSyntaxTree. Parsing/compilation preparation excluded; fresh semantic binding measured separately. Timing is observational, not a hard gate. WeakReference NoInlining probe plus3 forced GC cycles reclaimed its compilation/model/operation in both versions; this does not prove absence of leaks, measure retained heap growth, or measure RSS. No installed editor-host responsiveness claim.
+
+VI: Ba test hủy giữa callback đỏ trước sửa và xanh sau sửa. Giảm allocation riêng evaluator không đồng nghĩa giảm tương ứng toàn analyzer; semantic binding và diagnostic pipeline vẫn có chi phí. Callback benchmark không thay thế đo tạo segment source map thực tế của Core. WeakReference chỉ xác nhận các đối tượng thử nghiệm được thu hồi ở lần chạy này.
+
+Total analyzer same-feature allocated bytes at10/100/1000 calls:200800→195216 /1253768→1204880 /11136208→10641680 (about4.44% reduction at1000). Comment edits at1000:11133728→10642304 (4.41%). Fresh semantic operations remain about8.286MB/1000; no semantic cache added. Diagnostic creation is included in whole-analyzer measurements, not isolated. Wall/CPU timing does NOT establish speedup:1000-call analyzer wall138.019→151.738ms,CPU184.732→288.024ms; edit wall459.418→812.503ms,CPU334.085→413.140ms. Shared-host contention makes latency attribution unresolved; do not claim this is an IDE latency improvement. Raw results and harness: `/workspace/.tmp/risk-maintenance/concat-resources/`.
+
+## Gates / Kiểm chứng
+
+Full Release DataGuard.sln build:0warnings/errors. CrossPlatform non-LiveDb tests:2356passed,5Windowsjunctionskips (Core2106,Analyzer112,CodeFix39,Golden61,Observability38). Node189passed. Format, EN/VI docs sync, actionlint, workflow policy and diff checks pass. Actual package consumer SDK9.0.100/Roslyn4.12 reports Concat DG017, no CS9057, no analyzer DLL runtime leakage. Windows assemblies compile but Windows/editorhost runtime checks remain unavailable. Canonical coverage was not retried or bypassed. Local-only commit uses mandatory hooks.
