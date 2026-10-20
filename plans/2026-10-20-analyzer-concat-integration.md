@@ -1,5 +1,8 @@
 # Analyzer constant Concat integration / Tích hợp Concat vào analyzer
 
+> Historical branch evidence / Bằng chứng của nhánh nguồn: test totals, ancestry and performance below describe the original slice, not the combined build. See [local integration baseline](2026-10-20-local-integration-baseline.md) for the integrated scope; do not add these test totals. Các số đo dưới đây không phải benchmark của HEAD tích hợp.
+
+
 ## Ancestry before changes / Quan hệ nhánh trước sửa
 
 All five preserved commits are independent children of main `39a030e1a99b75e92d8bf68f8bdc62428ac5923e`:

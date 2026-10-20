@@ -1,5 +1,8 @@
 # Constant Concat resources / Tài nguyên Concat hằng
 
+> Historical branch evidence / Bằng chứng của nhánh nguồn: test totals, ancestry and performance below describe the original slice, not the combined build. See [local integration baseline](2026-10-20-local-integration-baseline.md) for the integrated scope; do not add these test totals. Các số đo dưới đây không phải benchmark của HEAD tích hợp.
+
+
 Baseline: `429806c3aa7c6404f1c93eeb1d881e9bebbaf44b`, branch `fix/analyzer-constant-concat`, preserved unchanged. New local branch `perf/concat-resource-bounds` inherits it. Its parent is `bb7670fdc5e4fb49c0e095e387aa3dc3fada6c0c`; both are separate from the four preserved siblings `ad3eb30bad523643c348b4ecf5e81e3337be948c`, `2f6e315feb01c4a515576f30d9f2904e345d78ae`, `6f038cdfc86aed6cacb019d944e3e4676fc5054a`, `a4c9869ec557eafecdc7bcb22e8bc33480306f41`. Those five parent/sibling patches independently descend from main39a030e. All six commits remain preserved; test totals are not combined across them.
 
 P1: deterministic mid-resolution cancellation at source-map callback boundary; reject continuation after cancellation without sleeps or timing assertions. P2: measure same-feature evaluator/binding/analyzer allocations before selecting a small optimization. Preserve exact diagnostics, SQL text, source map and quickfix safety; unsupported SQL remains unsupported. No cache, retained compilation, runtime execution, DB or publication. Canonical coverage remains blocked; no /dev/shm retry.

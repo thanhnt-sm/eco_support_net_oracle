@@ -1,5 +1,8 @@
 # Classifier hardening / Củng cố bộ phân loại
 
+> Historical branch evidence / Bằng chứng của nhánh nguồn: test totals, ancestry and performance below describe the original slice, not the combined build. See [local integration baseline](2026-10-20-local-integration-baseline.md) for the integrated scope; do not add these test totals. Các số đo dưới đây không phải benchmark của HEAD tích hợp.
+
+
 Baseline: `39a030e1a99b75e92d8bf68f8bdc62428ac5923e`. Branch: `fix/classifier-prefix-and-identifiers`. Preserve independent local commits ad3eb30, 2f6e315 and 6f038cdf; no publication or Marketplace changes.
 
 ## Prioritized bounded plan / Kế hoạch giới hạn theo ưu tiên

@@ -1,5 +1,8 @@
 # Scorecard bounded recovery / Phục hồi Scorecard có giới hạn
 
+> Historical branch evidence / Bằng chứng của nhánh nguồn: test totals, ancestry and performance below describe the original slice, not the combined build. See [local integration baseline](2026-10-20-local-integration-baseline.md) for the integrated scope; do not add these test totals. Các số đo dưới đây không phải benchmark của HEAD tích hợp.
+
+
 Baseline: main `39a030e1a99b75e92d8bf68f8bdc62428ac5923e`; separate branch `fix/scorecard-bounded-recovery`. Runtime output testing branches 94d58d9 and 2f6e315 are preserved and excluded.
 
 Evidence: run 39420559904 / job 118622417175, 2026-10-20 12:18:38Z GitHub GraphQL internal error before report generation. Pinned upstream action `fa7117db83c52d787ae5a89f350999701505d78e/main.go` runs Scorecard before formatting and publishes after reports exist. README workflow restrictions permit only approved action families in the publishing job; no shell retry or job env/defaults. This proves a failed upstream request, not a general outage.

@@ -1,5 +1,8 @@
 # StackAccord Beta display preparation / Chuẩn bị tên hiển thị Beta
 
+> Historical branch evidence / Bằng chứng của nhánh nguồn: test totals, ancestry and performance below describe the original slice, not the combined build. See [local integration baseline](2026-10-20-local-integration-baseline.md) for the integrated scope; do not add these test totals. Các số đo dưới đây không phải benchmark của HEAD tích hợp.
+
+
 Original base: `12cf09c94be896596cb862abf9355f4aab35ecb5`; integration parent: `84ad8a713b858d17d6015efc31e261a9fd7eb3d0` (fixture fix, unchanged commit). Branch: `fix/stackaccord-beta-display`.
 
 This is source preparation, not publication or installed acceptance. Đây là chuẩn bị mã nguồn, chưa phải xuất bản hoặc nghiệm thu cài đặt. Existing nightly .63 predates this patch / nightly .63 chưa chứa patch này.

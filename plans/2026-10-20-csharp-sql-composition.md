@@ -1,5 +1,8 @@
 # C# SQL composition slice / Lát cắt ghép SQL từ C#
 
+> Historical branch evidence / Bằng chứng của nhánh nguồn: test totals, ancestry and performance below describe the original slice, not the combined build. See [local integration baseline](2026-10-20-local-integration-baseline.md) for the integrated scope; do not add these test totals. Các số đo dưới đây không phải benchmark của HEAD tích hợp.
+
+
 Baseline main: 39a030e1a99b75e92d8bf68f8bdc62428ac5923e. Preserve four independent local commits ad3eb30, 2f6e315, 6f038cdf, a4c9869. No database connections, sample queries, Marketplace or publication in this slice.
 
 ## Inventory and priority / Hiện trạng và ưu tiên
