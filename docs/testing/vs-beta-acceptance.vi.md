@@ -8,7 +8,7 @@
 
 Tái sử dụng `.github/workflows/marketplace-release.yml`, không tạo workflow publish trùng. Prepare mặc định `publish=false`, có gate, checksum/SBOM/provenance và artifact giữ 7 ngày. Nếu sau này được phép publish, chọn tag release số ổn định đã được duyệt (từ v0.4.0) khớp source. Validator từ chối `v0.4.0-beta.1`; hiện chưa có kênh beta private/prerelease riêng. Cần quyết định hình thức phân phối trước khi gọi đây là beta Marketplace.
 
-Tải đúng artifact, kiểm tra hash, publisher/ID/version VSIX, identity DLL/CLI, license/notices và provenance. Giữ nguyên bytes đã nghiệm thu. Technical identity DataGuard không đổi; StackAccord mới là đề xuất. Publish yêu cầu main vẫn đúng SHA của prepare, lần chạy đầu thành công và đúng artifact ID/hash đã chấp nhận. Main thay đổi thì prepare và nghiệm thu lại; không rebuild gói đã duyệt.
+Tải đúng artifact, kiểm tra hash, publisher/ID/version VSIX, identity DLL/CLI, license/notices và provenance. Giữ nguyên bytes đã nghiệm thu. Technical identity DataGuard không đổi; StackAccord là tên hiển thị của candidate; chưa chứng minh đã xuất bản hoặc nghiệm thu cài đặt. Publish yêu cầu main vẫn đúng SHA của prepare, lần chạy đầu thành công và đúng artifact ID/hash đã chấp nhận. Main thay đổi thì prepare và nghiệm thu lại; không rebuild gói đã duyệt.
 
 Sau nghiệm thu host và quyền publish rõ ràng, dùng workflow hiện có với target `visualstudio`, `publish=true`, tag/source/prepared-run ID/hash VS chính xác, readiness evidence và chuỗi `PUBLISH <tag> visualstudio`. Owner xác minh environment/auth hiện có; tên secret trong source không chứng minh quyền truy cập. Không đưa credential vào chat/log hoặc tạo token. Validator hiện chặn publish từ 2026-12-01 để review authentication. URL readiness hợp lệ chỉ chứng minh cú pháp. Luồng Marketplace cũ và publish qua release-helper vẫn pause.
 
@@ -25,3 +25,5 @@ Sau nghiệm thu host và quyền publish rõ ràng, dùng workflow hiện có v
 ## Blocker và backlog
 
 Chưa release khi thiếu nghiệm thu host/navigation, identity/license gói bất biến, quyết định phân phối, quyền listing/publisher hoặc readiness approval. Ghi unavailable nếu không có Windows/editor. Grammar parity đầy đủ và tính năng enterprise/agent tương lai là backlog trừ khi lỗi trái với tính năng đang quảng bá. VS Code có nghiệm thu riêng nếu chỉ phát hành VS. Checklist không khẳng định đang có công cụ computer-use.
+
+Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; **Tools > Options > DataGuard**, command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.

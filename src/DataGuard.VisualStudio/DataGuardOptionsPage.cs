@@ -86,7 +86,7 @@ public class DataGuardOptionsPage : DialogPage
     /// </summary>
     [Category("Live Database")]
     [DisplayName("Connection Environment Variable")]
-    [Description("Name of an environment variable (for example DATAGUARD_CONNECTION_STRING) whose value is the connection string used by Tools > DataGuard > Refresh Snapshot and Verify SQL Shapes Against Database. Visual Studio stores only the name; the CLI reads the value (--connection-env). Restart Visual Studio after changing environment variables.")]
+    [Description("Name of an environment variable (for example DATAGUARD_CONNECTION_STRING) whose value is the connection string used by Tools > StackAccord (Beta) > Refresh Snapshot and Verify SQL Shapes Against Database. Visual Studio stores only the name; the CLI reads the value (--connection-env). Restart Visual Studio after changing environment variables.")]
     public string ConnectionEnvironmentVariable { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the database provider for the live commands (sqlserver, oracle, mysql, postgresql).</summary>

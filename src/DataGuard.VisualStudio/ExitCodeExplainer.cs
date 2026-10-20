@@ -17,7 +17,7 @@ internal static class ExitCodeExplainer
     /// <summary>Explanation of a clean exit whose run compared no ground truth: the database contract was not checked.</summary>
     internal const string SyntacticOnlyExplanation =
         "[WARN] Ran syntactic rules only: no snapshot, EF model or database connection was loaded, so the database contract was NOT compared. " +
-        "Commit .dataguard-snapshot.json (Tools > DataGuard > Refresh Snapshot) or keep the EF ModelSnapshot.cs in the solution. See Error List for syntactic findings.";
+        "Commit .dataguard-snapshot.json (Tools > StackAccord (Beta) > Refresh Snapshot) or keep the EF ModelSnapshot.cs in the solution. See Error List for syntactic findings.";
 
     /// <summary>Result-block line for a run that compared no ground truth.</summary>
     internal const string GroundTruthNotLoadedText = "Ground truth: not loaded (syntactic rules only)";

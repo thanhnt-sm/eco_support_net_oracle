@@ -7,7 +7,7 @@
       <Menu guid="guidDataGuardCommandSet" id="DataGuardMenu" priority="0x0100" type="Menu">
         <Parent guid="guidDataGuardCommandSet" id="TopLevelMenuGroup" />
         <Strings>
-          <ButtonText>DataGuard</ButtonText>
+          <ButtonText>StackAccord (Beta)</ButtonText>
           <CommandName>DataGuard</CommandName>
         </Strings>
       </Menu>

@@ -7,7 +7,7 @@ namespace DataGuard.VisualStudio;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-/// <summary>Prints the rule catalog (Tools → DataGuard → Validation Rules &amp; Descriptions) to the Output pane.</summary>
+/// <summary>Prints the rule catalog (Tools → StackAccord (Beta) → Validation Rules &amp; Descriptions) to the Output pane.</summary>
 internal static class RuleCatalogPrinter
 {
     private const string Separator = "========================================================================\r\n";

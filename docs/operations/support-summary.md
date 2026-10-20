@@ -19,3 +19,5 @@ Sanitization flattens multiline Output text; evaluate banner readability during 
 Host-free regressions cover long secrets, bearer/connection/SQL/path/control input, size limits, rotation and summary allowlists. The production helper files are linked into Core.Tests; these execute the helper behavior but are not counted as production instrumentation in the canonical coverage union, and do not cover installed-editor UI. Windows preview/save/cancel, lifecycle and actual output-pane behavior require the [candidate checklist](../testing/vs-beta-acceptance.md). No percentage here claims whole-product correctness or coverage.
 
 The fixed public option text `'--ide-safe'` remains readable in CLI rejection messages. This does not exempt other quoted arguments, credential assignments or complete SQL statements from redaction.
+
+Display-only Beta transition: the menu/Output pane is **StackAccord (Beta)**; **Tools > Options > DataGuard**, command IDs, CLI/config, diagnostics and file names remain unchanged. Verify identity/settings retention on the exact Windows artifact.

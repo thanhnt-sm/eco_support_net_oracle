@@ -26,7 +26,7 @@ using Task = System.Threading.Tasks.Task;
 /// </summary>
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("DataGuard", "Database contract validation for .NET code and stored procedures.", ExtensionVersion.Fallback)]
+[InstalledProductRegistration("StackAccord – .NET Database Contracts (Beta)", "Beta evaluation of supported .NET/database contracts; provider and mode limits apply.", ExtensionVersion.Fallback)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
 [ProvideOptionPage(typeof(DataGuardOptionsPage), "DataGuard", "General", 0, 0, true)]
 [ProvideOptionPage(typeof(DataGuardRulesOptionsPage), "DataGuard", "Validation Rules", 0, 0, true)]

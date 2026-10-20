@@ -4,13 +4,14 @@ DataGuard chạy CLI đi kèm bên ngoài `devenv.exe` và đưa kết quả ki�
 
 ## Các lệnh và cách sử dụng
 
-Mở solution, lưu mã nguồn/cấu hình rồi chọn **Tools > DataGuard**:
+Mở solution, lưu mã nguồn/cấu hình rồi chọn **Tools > StackAccord (Beta)**:
 
 | Lệnh | Hành vi |
 |---|---|
 | Run Validation | Kiểm tra các file đã lưu với `.dataguard.yml` ở gốc solution; công bố kết quả SARIF hợp lệ. |
 | Cancel Validation | Hủy lệnh DataGuard đang chạy và yêu cầu kết thúc cây tiến trình CLI do extension sở hữu. |
 | Assess Workspace | Chạy `assess` ưu tiên cục bộ, không bật quyền truy vấn advisory từ xa. |
+| Export Support Summary | Xem trước summary theo danh sách cho phép, sau đó chủ động lưu cục bộ; không tự tải lên. |
 | View Diagnostic Logs | Mở vị trí log chẩn đoán. |
 | Validation Rules & Descriptions | Hiển thị danh mục rule. |
 | Forget Solution Consent | Xóa consent validation hiện tại và consent riêng cho lệnh live của file solution này. |
@@ -21,7 +22,7 @@ Run Validation truyền đường dẫn `.dataguard.yml` ở gốc solution cùn
 
 Các lệnh theo đợt đọc file trên đĩa. Lưu rồi chạy lại sau khi sửa; kết quả Error List cũ được giữ đến khi có kết quả thay thế hợp lệ hoặc đóng solution. Khi đã có lệnh chạy, yêu cầu thứ hai bị từ chối bằng thông báo “already running”, không xếp hàng. `Run Validation on Build` cần bật chủ động và bỏ qua solution chưa cấp consent.
 
-Đọc đồng thời **View > Output > DataGuard**, thanh trạng thái và Error List. Kết quả syntactic-only nghĩa là chưa tải snapshot, EF model hoặc dữ liệu chuẩn từ database; không có finding lúc đó chưa chứng minh tương thích database. Summary cho biết ground truth và contract chưa đánh giá khi có thông tin. Dùng schema snapshot đã commit hoặc nguồn EF ModelSnapshot được hỗ trợ để so sánh offline; luồng IDE-safe không tải assembly manual đã biên dịch.
+Đọc đồng thời **View > Output > StackAccord (Beta)**, thanh trạng thái và Error List. Kết quả syntactic-only nghĩa là chưa tải snapshot, EF model hoặc dữ liệu chuẩn từ database; không có finding lúc đó chưa chứng minh tương thích database. Summary cho biết ground truth và contract chưa đánh giá khi có thông tin. Dùng schema snapshot đã commit hoặc nguồn EF ModelSnapshot được hỗ trợ để so sánh offline; luồng IDE-safe không tải assembly manual đã biên dịch.
 
 ## Tìm CLI
 
@@ -86,3 +87,5 @@ VSIX chứa `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGuard.Con
 ## Giới hạn kiểm chứng
 
 Đợt rà soát tài liệu này chỉ đối chiếu mã nguồn, không chạy editor Windows hoặc cài gói. Test hồi quy bao phủ Load → CreateTask → IVsTaskItem, biên tọa độ và cô lập consent. Chạy test Windows `net472`, đóng gói VSIX và nghiệm thu điều hướng thủ công tại 1:1, 42:12 là các bước riêng. Khi báo lỗi IDE, ghi phiên bản Visual Studio chính xác, nguồn đã lưu và cách tái hiện. Xem [bằng chứng bảo trì](../../../plans/261015-vs-maintenance/plan.md) để biết trạng thái chạy thực tế.
+
+Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; **Tools > Options > DataGuard**, command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.

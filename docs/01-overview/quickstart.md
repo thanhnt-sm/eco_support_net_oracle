@@ -81,7 +81,7 @@ Supported settings include:
 
 Install an accepted Visual Studio VSIX on a host within its declared `[17.12,19.0)` range. It bundles a self-contained CLI; a separate PATH installation is not required. Declared compatibility is not installed-editor acceptance; the release runbook calls for testing Visual Studio 18.10.2.
 
-Save source/configuration files, then choose **Tools → DataGuard → Run Validation**. Read Output > DataGuard and the Error List together; syntactic-only results do not establish database compatibility. Double-click findings to navigate, and rerun after edits that move lines. `Refresh Snapshot` and `Verify SQL Shapes Against Database` are live commands with separate consent and host confirmation. `Forget Solution Consent` removes validation/live consent; `Cancel Validation` cancels the active command. Concurrent commands are rejected rather than queued.
+Save source/configuration files, then choose **Tools → StackAccord (Beta) → Run Validation**. Read Output > StackAccord (Beta) and the Error List together; syntactic-only results do not establish database compatibility. Double-click findings to navigate, and rerun after edits that move lines. `Refresh Snapshot` and `Verify SQL Shapes Against Database` are live commands with separate consent and host confirmation. `Forget Solution Consent` removes validation/live consent; `Cancel Validation` cancels the active command. Concurrent commands are rejected rather than queued.
 
 See the [Visual Studio guide](../03-components/tooling/visual-studio-extension.md) ([Tiếng Việt](../03-components/tooling/visual-studio-extension.vi.md)) for IDE-safe limits and exit codes.
 

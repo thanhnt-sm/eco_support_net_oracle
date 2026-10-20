@@ -4,13 +4,14 @@ DataGuard runs its bundled CLI outside `devenv.exe` and publishes batch findings
 
 ## Commands and everyday use
 
-Open a solution, save the source/configuration files, then use **Tools > DataGuard**:
+Open a solution, save the source/configuration files, then use **Tools > StackAccord (Beta)**:
 
 | Command | Behavior |
 |---|---|
 | Run Validation | Validate saved files using the solution-root `.dataguard.yml`; publish accepted SARIF findings. |
 | Cancel Validation | Cancel the active DataGuard command and request termination of its owned CLI process tree. |
 | Assess Workspace | Run local-first `assess`, without remote advisory consent. |
+| Export Support Summary | Preview an allowlisted summary, then explicitly save locally; no automatic upload. |
 | View Diagnostic Logs | Open the diagnostic log location. |
 | Validation Rules & Descriptions | Display the rule catalog. |
 | Forget Solution Consent | Remove current validation consent and the separate live-command consent for this solution file. |
@@ -21,7 +22,7 @@ Run Validation passes the solution-root `.dataguard.yml` path together with `--i
 
 Batch commands read files on disk. Save and rerun after edits; previous Error List results remain until accepted replacement results arrive or the solution closes. A second command while one is active is rejected with an “already running” message; it is not queued. `Run Validation on Build` is opt-in and skips solutions that have not granted consent.
 
-Inspect **View > Output > DataGuard**, the status bar and the Error List together. A syntactic-only result means no snapshot, EF model or database ground truth was loaded; zero findings then does not establish database compatibility. The summary reports ground truth and unevaluated contracts when available. Use a committed schema snapshot or supported EF ModelSnapshot source for offline comparison; compiled manual assemblies are not loaded by the IDE-safe path.
+Inspect **View > Output > StackAccord (Beta)**, the status bar and the Error List together. A syntactic-only result means no snapshot, EF model or database ground truth was loaded; zero findings then does not establish database compatibility. The summary reports ground truth and unevaluated contracts when available. Use a committed schema snapshot or supported EF ModelSnapshot source for offline comparison; compiled manual assemblies are not loaded by the IDE-safe path.
 
 ## CLI discovery
 
@@ -86,3 +87,5 @@ The VSIX includes `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGua
 ## Verification limits
 
 This documentation review checked source only; it did not run a Windows editor or package installation. Regression tests cover Load → CreateTask → IVsTaskItem, coordinate bounds and consent isolation. Windows `net472` test execution, VSIX packaging and manual navigation at 1:1 and 42:12 remain distinct acceptance checks. Record the exact Visual Studio version, saved source and reproduction when reporting an IDE issue. See the [maintenance evidence](../../../plans/261015-vs-maintenance/plan.md) for actual execution status.
+
+Display-only Beta transition: the menu/Output pane is **StackAccord (Beta)**; **Tools > Options > DataGuard**, command IDs, CLI/config, diagnostics and file names remain unchanged. Verify identity/settings retention on the exact Windows artifact.
