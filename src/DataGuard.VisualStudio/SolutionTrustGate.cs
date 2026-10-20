@@ -104,7 +104,7 @@ internal sealed class SolutionTrustGate
         sb.AppendLine("  • Refresh Snapshot writes " + Path.Combine(solutionDirectory, LiveDatabaseCommands.SnapshotFileName) + "; Verify SQL Shapes describes every read SQL query of the solution against that database;");
         sb.AppendLine("  • the solution's .dataguard.yml is never read for these commands; provider and schema come from Tools > Options > DataGuard.");
         sb.AppendLine();
-        sb.AppendLine("Each run still asks you to confirm the target host. Your choice is remembered for this solution file (Tools > DataGuard > Forget Solution Consent revokes it).");
+        sb.AppendLine("Each run still asks you to confirm the target host. Your choice is remembered for this solution file (Tools > StackAccord (Beta) > Forget Solution Consent revokes it).");
         sb.AppendLine();
         sb.Append("Allow DataGuard database commands for this solution?");
         return sb.ToString();
@@ -124,7 +124,7 @@ internal sealed class SolutionTrustGate
         sb.AppendLine("  • connection strings and write paths from the config or environment are ignored;");
         sb.AppendLine("  • results are written to a private temp folder and shown in the Error List.");
         sb.AppendLine();
-        sb.AppendLine("Only continue if you trust the source of this solution. Your choice is remembered for this solution file until its .dataguard.yml changes (Tools > DataGuard > Forget Solution Consent revokes it).");
+        sb.AppendLine("Only continue if you trust the source of this solution. Your choice is remembered for this solution file until its .dataguard.yml changes (Tools > StackAccord (Beta) > Forget Solution Consent revokes it).");
         sb.AppendLine();
         sb.Append("Run DataGuard for this solution?");
         return sb.ToString();

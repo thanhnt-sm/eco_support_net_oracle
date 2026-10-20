@@ -56,14 +56,14 @@ public sealed partial class DataGuardPackage
 
         if (fromBuild)
         {
-            await this.output!.WriteAsync("[DataGuard] Run Validation on Build skipped: this solution file (or its " + ConfigFileName + ") has not been approved yet. Run Tools > DataGuard > Run Validation once to approve it.\r\n");
+            await this.output!.WriteAsync("[DataGuard] Run Validation on Build skipped: this solution file (or its " + ConfigFileName + ") has not been approved yet. Run Tools > StackAccord (Beta) > Run Validation once to approve it.\r\n");
             return false;
         }
 
         var answer = VsShellUtilities.ShowMessageBox(
             this,
             SolutionTrustGate.BuildPromptText(solution.Directory, configExists),
-            "DataGuard — run validation for this solution file?",
+            "StackAccord (Beta) — run validation for this solution file?",
             OLEMSGICON.OLEMSGICON_QUERY,
             OLEMSGBUTTON.OLEMSGBUTTON_YESNO,
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
@@ -84,7 +84,7 @@ public sealed partial class DataGuardPackage
         return true;
     }
 
-    /// <summary>Tools > DataGuard > Forget Solution Consent: the next run for this solution file asks again.</summary>
+    /// <summary>Tools > StackAccord (Beta) > Forget Solution Consent: the next run for this solution file asks again.</summary>
     private async Task ForgetSolutionConsentAsync()
     {
         var output = this.output!;

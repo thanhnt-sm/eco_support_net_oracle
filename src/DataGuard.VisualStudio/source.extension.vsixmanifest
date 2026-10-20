@@ -2,8 +2,8 @@
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
     <Identity Id="DataGuard.VisualStudio" Version="0.4.0" Language="en-US" Publisher="thanhnt-sm" />
-    <DisplayName>DataGuard</DisplayName>
-    <Description xml:space="preserve">Database contract validation for .NET code, stored procedures, and raw SQL.</Description>
+    <DisplayName>StackAccord – .NET Database Contracts (Beta)</DisplayName>
+    <Description xml:space="preserve">Beta evaluation of supported .NET/database contracts with diagnostics and local support summaries. Provider and mode limits apply; unknown results require review.</Description>
     <MoreInfo>https://github.com/thanhnt-sm/eco_support_net_oracle</MoreInfo>
     <License>LICENSE.txt</License>
     <Tags>database;sql;stored-procedure;dapper;entity-framework;schema-drift;sarif;devsecops</Tags>

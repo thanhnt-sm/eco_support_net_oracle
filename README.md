@@ -166,7 +166,7 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 
 - **Roslyn analyzers** (`DataGuard.Analyzers`): DG001 diagnostics with quick fixes (MaxLength, UseOracle, SkipContractCheck, naming) in any C# IDE.
 - **VS Code extension** (`DataGuard.VSCode`): trusted-workspace CLI runner with private SARIF diagnostics, cancellation and bounded output.
-- **Visual Studio 2022 extension** (`DataGuard.VisualStudio`): Tools → DataGuard commands over the bundled CLI, always run in `--ide-safe` mode with per-solution consent (keyed by the `.dataguard.yml` hash); SARIF results land in the Error List with line/column navigation. Packaged and content-checked on Windows CI.
+- **Visual Studio extension** (`DataGuard.VisualStudio`): **Tools → StackAccord (Beta)** runs the bundled CLI. Validation/assessment use `--ide-safe` with per-solution consent; live database commands require separate consent and target-host confirmation. SARIF findings appear in the Error List. **Tools → Options → DataGuard** and technical IDs stay unchanged. Windows CI checks packaging; installed-editor acceptance remains separate. See the [Visual Studio guide](docs/03-components/tooling/visual-studio-extension.md).
 
 ## Documentation
 

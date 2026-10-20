@@ -109,7 +109,7 @@ internal sealed class OutputPaneWriter
         await this.ActivateAsync();
         await this.WriteAsync(
             Separator +
-            "DataGuard — " + title + "\r\n" +
+            "StackAccord (Beta) — " + title + "\r\n" +
             Separator +
             "What:   " + description + "\r\n" +
             "Scope:  " + solutionDirectory + "\r\n" +
@@ -145,7 +145,7 @@ internal sealed class OutputPaneWriter
         }
 
         var paneGuid = OutputPaneGuid;
-        outputWindow.CreatePane(ref paneGuid, "DataGuard", 1, 1);
+        outputWindow.CreatePane(ref paneGuid, "StackAccord (Beta)", 1, 1);
         return ErrorHandler.Succeeded(outputWindow.GetPane(ref paneGuid, out var pane)) ? pane : null;
     }
 }

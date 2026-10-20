@@ -51,7 +51,7 @@ public sealed partial class DataGuardPackage
         // Freeze the exact export before showing it. Later validation cannot change the approved text.
         using var dialog = new Form
         {
-            Text = "DataGuard — Preview Support Summary",
+            Text = "StackAccord (Beta) — Preview Support Summary",
             Width = 760,
             Height = 560,
             StartPosition = FormStartPosition.CenterScreen,
@@ -84,7 +84,7 @@ public sealed partial class DataGuardPackage
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
         {
-            MessageBox.Show("The support summary could not be saved. Choose a writable location and try again.", "DataGuard", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show("The support summary could not be saved. Choose a writable location and try again.", "StackAccord (Beta)", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 }

@@ -149,6 +149,33 @@ public class VsixAnalyzerPackagingTests
     }
 
     [Fact]
+    public void VsixManifest_WhenBuilt_PreservesIdentityWithBetaDisplayName()
+    {
+        var vsixPath = RequireVsixPath();
+        if (vsixPath == null)
+        {
+            return;
+        }
+
+        using var zip = ZipFile.OpenRead(vsixPath);
+        var entry = zip.GetEntry("extension.vsixmanifest");
+        entry.Should().NotBeNull();
+        using var stream = entry!.Open();
+        var metadata = XDocument.Load(stream).Root!.Element(VsixNamespace + "Metadata")!;
+        var identity = metadata.Element(VsixNamespace + "Identity")!;
+        ((string?)identity.Attribute("Id")).Should().Be("DataGuard.VisualStudio");
+        ((string?)identity.Attribute("Publisher")).Should().Be("thanhnt-sm");
+
+        // The release pipeline stamps the version; branding must not constrain it to the source version.
+        var name = metadata.Element(VsixNamespace + "DisplayName")!.Value;
+        name.Should().Be("StackAccord – .NET Database Contracts (Beta)");
+        name.Length.Should().BeLessThanOrEqualTo(50);
+        var description = metadata.Element(VsixNamespace + "Description")!.Value;
+        description.Should().Contain("Beta");
+        description.Length.Should().BeLessThanOrEqualTo(1000);
+    }
+
+    [Fact]
     public void VsixManifest_WhenBuilt_DeclaresAnalyzerAsset()
     {
         var vsixPath = RequireVsixPath();

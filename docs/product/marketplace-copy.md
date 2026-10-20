@@ -24,4 +24,6 @@ Provide the artifact version, host/provider/mode, expected and observed result, 
 
 ## Release editor notes — not listing text
 
-SA-CLM-001/002 support the overview, SA-CLM-003 bounds export and SA-CLM-004 bounds branding. No artifact is approved by this copy. Verify install links, capability matrix, license notices, version and host acceptance before publication. Preserve publisher `thanhnt-sm`, VSIX `DataGuard.VisualStudio`, VS Code `thanhnt-sm.dataguard-vscode` and current repository URL. Marketplace publication remains paused; technical display metadata was not edited.
+SA-CLM-001/002 support the overview, SA-CLM-003 bounds export and SA-CLM-004 bounds branding. No artifact is approved by this copy. Verify install links, capability matrix, license notices, version and host acceptance before publication. Preserve publisher `thanhnt-sm`, VSIX `DataGuard.VisualStudio`, VS Code `thanhnt-sm.dataguard-vscode` and current repository URL. Marketplace publication remains paused; Visual Studio display metadata now follows this draft in source; no new artifact or installed-host acceptance is implied.
+
+Visual Studio feedback: **Tools > StackAccord (Beta) > Export Support Summary** opens a bounded local text preview/save flow, not an automatic upload or raw-log bundle. Keep **Tools > Options > DataGuard** and all technical identities/settings paths. Beta is an evaluation label, not a separate private release channel.

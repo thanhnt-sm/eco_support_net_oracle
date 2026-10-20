@@ -14,7 +14,7 @@ using Microsoft.VisualStudio.Threading;
 using Task = System.Threading.Tasks.Task;
 
 /// <summary>
-/// Tools &gt; DataGuard &gt; Refresh Snapshot and Verify SQL Shapes Against Database: the two commands
+/// Tools &gt; StackAccord (Beta) &gt; Refresh Snapshot and Verify SQL Shapes Against Database: the two commands
 /// that connect to a database. They run without <c>--ide-safe</c> and without <c>--config</c>; the
 /// connection string is read by the CLI from the environment variable named in Tools &gt; Options.
 /// Each run needs the solution's live consent (separate from the validate consent) plus a modal that
@@ -115,7 +115,7 @@ public sealed partial class DataGuardPackage
         var answer = VsShellUtilities.ShowMessageBox(
             this,
             SolutionTrustGate.BuildLivePromptText(solution.Directory, variableName),
-            "DataGuard — allow database commands for this solution?",
+            "StackAccord (Beta) — allow database commands for this solution?",
             OLEMSGICON.OLEMSGICON_QUERY,
             OLEMSGBUTTON.OLEMSGBUTTON_YESNO,
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
@@ -147,7 +147,7 @@ public sealed partial class DataGuardPackage
         var answer = VsShellUtilities.ShowMessageBox(
             this,
             LiveDatabaseCommands.BuildConfirmationText(kind, host, live.VariableName, live.Provider, solution.Directory),
-            "DataGuard — connect to the database?",
+            "StackAccord (Beta) — connect to the database?",
             OLEMSGICON.OLEMSGICON_WARNING,
             OLEMSGBUTTON.OLEMSGBUTTON_YESNO,
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);

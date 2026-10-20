@@ -132,6 +132,10 @@ Rule adapter nào chạy tùy `--provider` (`src/DataGuard.Cli/ProviderRuleCatal
 
 <!-- rule-table:end -->
 
+## Hỗ trợ Visual Studio
+
+Extension `DataGuard.VisualStudio` dùng menu **Tools → StackAccord (Beta)** để chạy CLI đi kèm. Validation/assessment dùng `--ide-safe` với consent theo solution; lệnh database live cần consent riêng và xác nhận host đích. Kết quả SARIF hiển thị trong Error List. **Tools → Options → DataGuard** và các technical ID không đổi. CI Windows kiểm tra đóng gói; nghiệm thu cài đặt/UI vẫn là bước riêng. Xem [hướng dẫn Visual Studio](docs/03-components/tooling/visual-studio-extension.vi.md).
+
 ## Tài liệu
 
 - [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/01-overview/product-overview.vi.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/02-architecture/system-architecture.vi.md) · [Bảo mật](SECURITY.md)
