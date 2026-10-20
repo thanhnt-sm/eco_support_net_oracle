@@ -36,12 +36,14 @@ public class ConstantConcatIntegrationTests
     [InlineData("string.Concat(\"SELECT \", \"* FROM Orders\")", 1)]
     [InlineData("string.Concat(\"SELECT \", \"* FROM Orders\")", 2)]
     [InlineData("string.Concat(\"SELECT * FROM Orders\", \"\")", 1)]
+    [InlineData("string.Concat(\"SELECT \", string.Concat(\"* \", \"FROM Orders\"))", 2)]
+    [InlineData("string.Concat(string.Concat(\"SELECT \", \"* FROM Orders\"), \"\")", 2)]
     public void SharedResolver_CancelledDuringMapping_StopsBeforeNextFragment(string expression, int cancelAt)
     {
         var tree = CSharpSyntaxTree.ParseText("class C { string M() => " + expression + "; }");
         var compilation = CSharpCompilation.Create("MidCancellation", new[] { tree },
             new[] { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) });
-        var syntax = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().Single();
+        var syntax = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().First();
         var operation = (IInvocationOperation)compilation.GetSemanticModel(tree).GetOperation(syntax)!;
         using var cancellation = new CancellationTokenSource();
         var callbacks = 0;
@@ -58,6 +60,32 @@ public class ConstantConcatIntegrationTests
 
         resolve.Should().Throw<OperationCanceledException>();
         callbacks.Should().Be(cancelAt);
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("oversized")]
+    [InlineData("depth")]
+    public void SharedResolver_RejectedComposition_DoesNotPublishPartialMapping(string kind)
+    {
+        var expression = kind switch
+        {
+            "unknown" => "string.Concat(\"SELECT \", value)",
+            "oversized" => "string.Concat(\"SELECT \", \"" + new string('x', ConstantStringConcatResolver.MaximumTextLength) + "\")",
+            _ => Enumerable.Range(0, 12).Aggregate("\"SELECT * FROM Orders\"", (inner, _) => "string.Concat(\"\", " + inner + ")"),
+        };
+        var tree = CSharpSyntaxTree.ParseText("class C { string M(string value) => " + expression + "; }");
+        var compilation = CSharpCompilation.Create("Rejected", new[] { tree },
+            new[] { MetadataReference.CreateFromFile(typeof(object).Assembly.Location) });
+        var syntax = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>().First();
+        var operation = (IInvocationOperation)compilation.GetSemanticModel(tree).GetOperation(syntax)!;
+        var callbacks = 0;
+
+        var result = ConstantStringConcatResolver.Resolve(operation, CancellationToken.None,
+            appendSource: (_, _) => callbacks++);
+
+        result.Should().BeNull();
+        callbacks.Should().Be(0);
     }
 
     [Theory]
