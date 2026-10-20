@@ -68,3 +68,9 @@ The behavior above is grounded in `src/DataGuard.VSCode/package.json`, `src/exte
 From `src/DataGuard.VSCode`, use `npm ci`, `npm run compile`, `npm test` and `npm run test:coverage` for local compilation and automated tests. Mocked VS Code API/process tests and synthetic fixtures do not establish real editor-host, Windows process-tree, VSIX installation or live-database behavior. Run `npm run test:extension-host` separately with `VSCODE_EXECUTABLE_PATH` pointing to a local VS Code executable; the script fails if none is available.
 
 This documentation reconciliation inspected source only and did not run editor-host or platform tests. Existing execution records are in the [IDE behavior plan](../../../plans/261015-ide-behavior/plan.md) and [extension lifecycle plan](../../../plans/261016-extension-lifecycle/plan.md); they are historical evidence, not a new test result or a publication authorization.
+
+## Language-server protocol regression scope
+
+The full-text language server treats an empty `didChange.contentChanges` array as no content replacement and preserves queued diagnostics. It does not publish document versions or negotiate non-UTF-16 position encodings. Diagnostic line indexing accepts CR, LF and CRLF, with UTF-16 character offsets (including surrogate pairs); this does not expand the C# literal scanner's supported newline grammar.
+
+`LanguageServerLifecycleTests` exercises these behaviors through a real local subprocess using synthetic SQL, including mixed line endings, tabs and an emoji. It does not establish editor-host compatibility, race-free diagnostic publication or complete LSP conformance. See the [protocol regression plan](../../../plans/2026-10-20-lsp-protocol-regressions.md) for evidence and deferred findings.

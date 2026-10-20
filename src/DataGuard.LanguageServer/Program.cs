@@ -39,6 +39,13 @@ while (await ReadMessageAsync(Console.OpenStandardInput()) is { } message)
     {
         var textDocument = root.GetProperty("params").GetProperty("textDocument");
         var uri = new Uri(textDocument.GetProperty("uri").GetString()!);
+        if (method.GetString() == "textDocument/didChange" &&
+            root.GetProperty("params").GetProperty("contentChanges").GetArrayLength() == 0)
+        {
+            // No content was replaced; keep any pending diagnostic for the current text.
+            continue;
+        }
+
         var text = method.GetString() == "textDocument/didOpen"
             ? textDocument.GetProperty("text").GetString() ?? string.Empty
             : root.GetProperty("params").GetProperty("contentChanges").EnumerateArray().Last().GetProperty("text").GetString() ?? string.Empty;
@@ -126,7 +133,16 @@ static int[] ComputeLineStarts(string text)
     var starts = new List<int> { 0 };
     for (var index = 0; index < text.Length; index++)
     {
-        if (text[index] == '\n')
+        if (text[index] == '\r')
+        {
+            if (index + 1 < text.Length && text[index + 1] == '\n')
+            {
+                index++;
+            }
+
+            starts.Add(index + 1);
+        }
+        else if (text[index] == '\n')
         {
             starts.Add(index + 1);
         }

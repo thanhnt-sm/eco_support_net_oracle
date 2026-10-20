@@ -68,3 +68,9 @@ Các hành vi trên dựa vào `src/DataGuard.VSCode/package.json`, `src/extensi
 Từ `src/DataGuard.VSCode`, dùng `npm ci`, `npm run compile`, `npm test` và `npm run test:coverage` để biên dịch và chạy test tự động cục bộ. Test mock API VS Code/tiến trình và fixture tổng hợp không xác lập hành vi editor-host thật, cây tiến trình Windows, cài VSIX hoặc database live. Chạy riêng `npm run test:extension-host` với `VSCODE_EXECUTABLE_PATH` trỏ tới executable VS Code cục bộ; script báo lỗi nếu không có executable.
 
 Đợt đối chiếu tài liệu này chỉ đọc nguồn, không chạy test editor-host hoặc nền tảng. Bằng chứng thực thi trước nằm trong [plan hành vi IDE](../../../plans/261015-ide-behavior/plan.md) và [plan vòng đời extension](../../../plans/261016-extension-lifecycle/plan.md); đó là bằng chứng lịch sử, không phải kết quả test mới hoặc quyền phát hành.
+
+## Phạm vi regression giao thức language server
+
+Language server đồng bộ toàn văn coi mảng `didChange.contentChanges` rỗng là không thay nội dung và giữ diagnostic đang chờ. Server chưa gửi version của tài liệu trong diagnostic và chưa thương lượng encoding vị trí khác UTF-16. Chỉ mục dòng diagnostic xử lý CR, LF và CRLF; vị trí ký tự tính theo UTF-16, kể cả surrogate pair. Thay đổi này không mở rộng grammar xuống dòng của bộ quét literal C#.
+
+`LanguageServerLifecycleTests` kiểm tra qua process local thật với SQL tổng hợp, gồm xuống dòng hỗn hợp, tab và emoji. Các test không chứng minh tương thích editor host, loại bỏ mọi race khi publish diagnostic hoặc tuân thủ toàn bộ LSP. Xem [kế hoạch regression giao thức](../../../plans/2026-10-20-lsp-protocol-regressions.md) để biết bằng chứng và backlog.
