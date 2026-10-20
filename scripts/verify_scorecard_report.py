@@ -153,8 +153,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', required=True)
     parser.add_argument('--expected-sha', required=True)
+    parser.add_argument('--scan-outcome', required=True)
     parser.add_argument('--directory', required=True, type=Path)
     args = parser.parse_args()
+    if args.scan_outcome != 'success':
+        emit_output('valid=false\n')
+        print('Scorecard scan/publication did not succeed; no SHA is authorized.', file=sys.stderr)
+        return 1
     try:
         revision, runtime = validate(args.directory, args.repo)
     except (ValueError, OSError, UnicodeError, RecursionError):

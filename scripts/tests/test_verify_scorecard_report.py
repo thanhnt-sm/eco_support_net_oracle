@@ -30,14 +30,14 @@ class ScorecardReportTests(unittest.TestCase):
             (self.root / name).write_text(json.dumps(value))
         return self.invoke(expected)
 
-    def invoke(self, expected=SHA):
+    def invoke(self, expected=SHA, outcome="success"):
         before = {name: (self.root / name).read_bytes() for name in ['results.json', 'results.sarif'] if (self.root / name).exists()}
         output, summary = self.root / 'output', self.root / 'summary'
         output.write_text('')
         summary.write_text('')
         env = dict(os.environ, GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
         result = subprocess.run([sys.executable, str(SCRIPT), '--repo', REPO,
-                                 '--expected-sha', expected, '--directory', str(self.root)],
+                                 '--expected-sha', expected, '--scan-outcome', outcome, '--directory', str(self.root)],
                                 env=env, capture_output=True, text=True)
         self.assertEqual(before, {name: (self.root / name).read_bytes() for name in before})
         return result, output.read_text(), summary.read_text()
@@ -165,6 +165,15 @@ class ScorecardReportTests(unittest.TestCase):
         target = self.root / 'outside.json'
         (self.root / 'results.json').rename(target)
         (self.root / 'results.json').symlink_to(target)
+        self.assert_invalid(self.invoke())
+
+    def test_partial_publication_failure_does_not_authorize_valid_reports(self):
+        self.run_verifier()
+        for outcome in ['failure', 'cancelled', 'skipped', '']:
+            with self.subTest(outcome=outcome):
+                self.assert_invalid(self.invoke(outcome=outcome))
+
+    def test_claimed_success_without_any_report_fails_closed(self):
         self.assert_invalid(self.invoke())
 
 
