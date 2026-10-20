@@ -300,3 +300,32 @@ The local file sink and legacy/custom exporter are different trust boundaries. I
 `IncludeStackTraces` is retained for API compatibility, not an active redaction switch. `WithTelemetry()` explicitly enables collection when called without arguments; `TelemetryConfig.Enabled=false` remains the default for a directly constructed config. The pipeline records its validation summary, while other callers must invoke the corresponding recording methods; the flow diagram does not prove every CLI/rule path is instrumented. Metrics API compatibility does not mean an OpenTelemetry/OTLP exporter is installed or configured.
 
 Evidence: `TelemetryCollector.cs` constructor, `RecordEvent`, `FlushAsync` and `IsAllowedExportEndpoint`; `ObservabilityFileSink.cs`/`ObservabilityRecordFactory`; `PublicApi/PublicApiSurface.cs` (`WithTelemetry`, validation summary). This documentation audit did not exercise network export or an editor/host process.
+
+## Local graph execution trace (schema 1)
+
+The BCL EventSource `DataGuard-Validation` adds an independent, explicitly opted-in diagnostic stream to the common CLI/API `GraphValidationExecutor`. Existing telemetry defaults and file/export configuration are unchanged. No listener means the executor returns its original task without a tracing async wrapper; an Error-only listener does not enable these Informational events. There is a one-time provider initialization cost. This is not the netstandard Roslyn analyzer, net472 Visual Studio host, extraction, baseline filtering, or compiler/evaluator timing.
+
+Only declared events 1/2 contain the following allowlisted numeric fields; no SQL, source, contract/rule IDs, paths, hashes of content, row data, connection strings, exception messages or exception type names are emitted. EventSource infrastructure may have separate diagnostic event 0. IDs are monotonic process-local sequences, not secret-derived. Nested/concurrent requests have separate IDs; no ambient parent context is retained.
+
+| Event ID / version | Name | Fields |
+|---|---|---|
+| 1 / 1 | RequestBegin | requestId:int64, contracts:int32 (-1 unknown), concurrent:int32 (0/1) |
+| 2 / 1 | RequestEnd | requestId:int64, elapsedMs:double, outcome:int32, violations:int32, unevaluated:int32, dropped:int32, reasonFlags:int32 |
+
+Outcome: 0 complete, 1 incomplete/unevaluated, 2 caller cancellation, 3 propagated timeout, 4 other propagated failure. Contained rule failures remain incomplete, not thrown. Reason flags: 1 violation-output cap, 2 unevaluated contracts, 4 failed rule, 8 unavailable rule, 16 contained timeout (only known TimeoutException/RegexMatchTimeoutException category). Unknown counts are -1, not zero. These are graph summary reasons, not parser budget explanations; arbitrary reason strings are never copied. No cache metric is invented.
+
+Elapsed starts after Begin delivery and ends before outcome counting/End delivery. It covers graph execution and draining/sorting its results, excludes telemetry delivery and baseline filtering, and does not isolate evaluator cost. Outcome counting scans rule outcomes outside this interval. EventListener callbacks can execute synchronously: use a trusted fast listener; no guarantee of zero latency overhead or control over a listener's own IO. Listener errors and metadata getter errors are contained without replacing validation results/errors.
+
+Admission is bounded to 1,000 requests during 60 seconds after the first admitted request, per process lifetime, shared by all listeners. Reconnect does not reset it. At most 2,000 declared events; no product queue, timer, disk sink or network exporter. Admitted requests may finish after the admission window. A listener disconnect/capture cutoff may omit End; pairs are best-effort, not durable audit records. Restart the diagnostic child for another capture. Exhausted admission uses the unwrapped execution path.
+
+Example sanitized End: `{"requestId":7,"elapsedMs":2.4,"outcome":1,"violations":3,"unevaluated":1,"dropped":0,"reasonFlags":2}`.
+
+For an already-installed official dotnet-trace, capture only an explicitly selected local synthetic CLI child (replace the assembly/fixture paths with local synthetic inputs):
+
+```sh
+dotnet-trace collect --providers DataGuard-Validation:0xFFFFFFFFFFFFFFFF:4 --duration 00:00:30 --buffersize 16 --rundown false --output ./validation.nettrace -- dotnet ./DataGuard.Cli.dll validate --ide-safe --project ./synthetic-fixture --format json
+```
+
+The synthetic fixture directory must already exist and contain non-sensitive source. `--ide-safe` prevents executing project code or opening live database connections. Validation may exit nonzero for findings/unevaluated contracts; that is not a collector installation failure. Do not pass secrets on command lines: EventPipe process metadata may include arguments/assembly paths independently of our provider. The collector has a 30-second bound and 16-MB in-memory buffer; that buffer is not a hard output-file-size quota. Provider payload volume is bounded by fixed numeric schemas and 2,000 events, but the runtime/container metadata adds overhead. Disable by stopping collection/disabling the listener. Files stay local; there is no automatic upload. Runtime profiling providers are a separate, wider opt-in and may include more metadata.
+
+Use the provider-scoped all-keywords mask shown above, not `:0:4`: the .NET 9 EventPipe object-array write path can filter keyword-zero sessions differently from optimized overloads. Native capture was verified with dotnet-trace 9.0.661903 on .NET 9.0.21, including both event IDs and the concurrent field.
