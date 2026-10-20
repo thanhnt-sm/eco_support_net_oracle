@@ -688,3 +688,13 @@ When a selected provider includes a rule whose required analyzer context is unav
 | `DATAGUARD_AUDIT_KEY` | HMAC key (at least 16 bytes) for the audit hash chain; wins over `AuditKeyFile` |
 | `CI` | Detected for CI-specific behavior |
 | `GITHUB_ACTIONS` | Detected for GitHub Actions-specific behavior |
+
+## Explicit file reporting scope
+
+`validate --project <context> --scope-file Repo.cs --format text` opts into diagnostic presentation filtering. Default validation remains the entire configured context. The relative file is resolved against the project directory (the containing directory for `.csproj`/`.sln`). All discovered sources, DTOs, constants, ground truth and rules still participate. This does not reduce parsing/binding or implement incremental validation. Current project discovery is directory-based, not an authoritative MSBuild dependency closure.
+
+Only findings located in that file and findings without a usable path are emitted by the text diagnostic sink. Acquisition messages, Unknown/Unevaluated and unavailable-rule warnings remain global; exit status and progress summaries remain full-context. An error elsewhere can therefore yield exit 1 despite no selected-file error. This is not a privacy/redaction option: existing extraction/status output may mention other files.
+
+A version-1 `scopeReport` JSON line on stderr identifies the selected file, reporting/analysis boundaries, reported/full/hidden finding counts, full-context exit status, ground truth, an unevaluated boolean and unavailable-rule count. `dependencyCompleteness` is always `not-established`; do not interpret a local empty report as complete repository validation. Failed/canceled runs may end before this completion record. Do not merge a scoped report into a full baseline or replace entire LSP document diagnostics with it.
+
+This first slice supports text only, without `--verbose`. Missing/unmatched files, a file with no extracted contract location, single-file `--project`, and unsupported formats fail with exit 2. Class/method/span scopes and VS selection UI are not implemented. Existing full-scan formats/defaults are unchanged. Unsupported SQL/C# semantics and acquisition gaps remain limitations even in full mode.

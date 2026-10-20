@@ -35,6 +35,7 @@ internal static class ValidateCommand
         var skipRulesOption = options.SkipRulesOption;
         var progressOption = options.ProgressOption;
         var projectOption = options.ProjectOption;
+        var scopeFileOption = new Option<string>("--scope-file") { Description = "Report findings for one C# file relative to --project; full context still validated (text only)" };
         var ideSafeOption = options.IdeSafeOption;
         var failOnUnavailableOption = options.FailOnUnavailableOption;
         var allowSyntacticOnlyOption = options.AllowSyntacticOnlyOption;
@@ -46,7 +47,7 @@ internal static class ValidateCommand
 
         var validateCommand = new Command("validate", "Validate contracts against database")
         {
-            connectionOption, connectionEnvOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, allowAssemblyFromConfigOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption, pluginsDirOption,
+            scopeFileOption, connectionOption, connectionEnvOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, allowAssemblyFromConfigOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption, pluginsDirOption,
         };
 
         validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -86,6 +87,12 @@ internal static class ValidateCommand
                     Environment.ExitCode = 2;
                     return;
                 }
+            }
+
+            if (!ScopedReporting.TryResolve(result.GetValue(scopeFileOption), projectPath, format, verbose, out var scopeFile))
+            {
+                Environment.ExitCode = 2;
+                return;
             }
 
             if (!string.IsNullOrWhiteSpace(pluginsDirectory) && !Directory.Exists(pluginsDirectory))
@@ -450,11 +457,19 @@ internal static class ValidateCommand
                     new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
                 var validation = await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress, pluginRules);
                 var violations = validation.Violations;
+                if (scopeFile is not null && !contracts.Any(c => ScopedReporting.Matches(c.Location, scopeFile)))
+                {
+                    Console.Error.WriteLine("--scope-file matched no extracted contract location; no scoped report was produced.");
+                    Environment.ExitCode = 2;
+                    return;
+                }
+
+                var reportedViolations = ScopedReporting.Select(violations, scopeFile);
                 if (normalizedFormat == "text")
                 {
                     var emitter = new DiagnosticEmitter();
                     emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
-                    await emitter.EmitAsync(violations, ct);
+                    await emitter.EmitAsync(reportedViolations, ct);
                 }
                 else if (normalizedFormat == "sarif")
                 {
@@ -529,6 +544,27 @@ internal static class ValidateCommand
                 else
                 {
                     Environment.ExitCode = hasErrors ? 1 : 0;
+                }
+
+                if (scopeFile is not null)
+                {
+                    Console.Error.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        kind = "scopeReport",
+                        version = 1,
+                        file = Path.GetRelativePath(Directory.GetCurrentDirectory(), scopeFile),
+                        analysisBoundary = "full-configured-context",
+                        reportingBoundary = "selected-file-and-unlocated-findings",
+                        dependencyCompleteness = "not-established",
+                        exitCodeScope = "full-context",
+                        reportedFindings = reportedViolations.Count,
+                        fullContextFindings = violations.Count,
+                        hiddenLocatedFindings = violations.Count - reportedViolations.Count,
+                        hasUnevaluated,
+                        unavailableRules = unavailableOutcomes.Count,
+                        groundTruth = groundTruthKind,
+                        exitCode = Environment.ExitCode,
+                    }));
                 }
 
                 progress?.Emit(new ProgressEvent(

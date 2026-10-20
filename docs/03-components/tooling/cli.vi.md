@@ -688,3 +688,13 @@ Khi provider được chọn có rule cần analyzer context nhưng context chư
 | `DATAGUARD_AUDIT_KEY` | Khoá HMAC (tối thiểu 16 byte) cho audit hash chain; thắng `AuditKeyFile` |
 | `CI` | Được phát hiện cho hành vi đặc thù CI |
 | `GITHUB_ACTIONS` | Được phát hiện cho hành vi đặc thù GitHub Actions |
+
+## Scope báo cáo theo file, bật tường minh
+
+`validate --project <context> --scope-file Repo.cs --format text` chỉ lọc diagnostics hiển thị. Mặc định vẫn validate toàn bộ context được cấu hình. File tương đối tính từ thư mục project (thư mục chứa `.csproj`/`.sln`). Tất cả source được discover, DTO, constant, ground truth và rule vẫn tham gia; không giảm parse/bind và chưa phải incremental engine. Discovery hiện dựa thư mục, chưa phải dependency closure MSBuild đầy đủ.
+
+Text sink giữ findings ở file đã chọn và findings không có path dùng được. Acquisition/Unknown/Unevaluated và rule unavailable vẫn báo toàn cục; exit code và progress summary vẫn theo full context. Lỗi ở file khác có thể khiến exit 1 dù file chọn không có lỗi. Đây không phải option bảo mật/ẩn dữ liệu: output extraction/status cũ có thể nhắc file khác.
+
+Dòng JSON `scopeReport` version 1 trên stderr ghi file, boundary, số findings hiển thị/toàn bộ/ẩn, exit status toàn context, ground truth và trạng thái unevaluated/unavailable. `dependencyCompleteness` luôn là `not-established`; report rỗng không chứng nhận repo sạch. Run lỗi/hủy có thể kết thúc trước record này. Không đưa scoped report thay full baseline hoặc toàn bộ diagnostics của URI LSP.
+
+Phiên bản đầu chỉ hỗ trợ text, không `--verbose`. File không khớp/không có contract location, `--project` là một file C#, hoặc format chưa hỗ trợ đều exit 2. Chưa có scope class/method/span hay UI chọn vùng trong VS. Defaults/formats full scan giữ nguyên. Full mode cũng không khẳng định mọi logic SQL/C# đều được hỗ trợ.
