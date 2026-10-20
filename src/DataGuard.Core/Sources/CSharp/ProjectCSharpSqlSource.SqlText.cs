@@ -4,6 +4,7 @@ using DataGuard.Core.Abstractions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace DataGuard.Core.Sources;
 
@@ -238,12 +239,89 @@ public sealed partial class ProjectCSharpSqlSource
                 return ResolveConcatenation(binary, semanticModel, cancellationToken, depth, visited, holes, sourceMap);
             }
 
+            if (expression is InvocationExpressionSyntax &&
+                semanticModel.GetOperation(expression, cancellationToken) is IInvocationOperation invocation)
+            {
+                return ResolveConstantConcat(invocation, cancellationToken, depth, sourceMap);
+            }
+
             return null;
         }
         finally
         {
             visited.Remove(expression);
         }
+    }
+
+    /// <summary>Evaluates only known BCL string overloads, without executing application code or inferring local flow.</summary>
+    private static string? ResolveConstantConcat(
+        IInvocationOperation invocation,
+        CancellationToken cancellationToken,
+        int depth,
+        SqlSourceMapBuilder? sourceMap)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var method = invocation.TargetMethod;
+        if (depth > 10 || method.Name != "Concat" || !method.IsStatic ||
+            method.ContainingType.SpecialType != SpecialType.System_String ||
+            method.DeclaringSyntaxReferences.Length != 0 ||
+            method.Parameters.Length is < 2 or > 4 ||
+            method.Parameters.Any(parameter => parameter.Type.SpecialType != SpecialType.System_String) ||
+            invocation.Arguments.Length != method.Parameters.Length ||
+            invocation.Arguments.Any(argument => argument.Parameter is null))
+        {
+            return null;
+        }
+
+        // Named arguments can be written in a different order from the concatenated string.
+        var arguments = invocation.Arguments.OrderBy(argument => argument.Parameter!.Ordinal).ToArray();
+        var parts = new string[arguments.Length];
+        var length = 0;
+        for (var index = 0; index < arguments.Length; index++)
+        {
+            var value = arguments[index].Value;
+            var constant = value.ConstantValue;
+            var part = constant.HasValue && constant.Value is null or string
+                ? constant.Value as string ?? string.Empty
+                : value is IInvocationOperation nested
+                    ? ResolveConstantConcat(nested, cancellationToken, depth + 1, null)
+                    : null;
+            if (part is null || part.Length > MaxSqlLiteralLength - length)
+            {
+                return null;
+            }
+
+            parts[index] = part;
+            length += part.Length;
+        }
+
+        // Map only after every argument is known. Dynamic structure must not leave a plausible partial map.
+        if (sourceMap is not null)
+        {
+            for (var index = 0; index < arguments.Length; index++)
+            {
+                if (parts[index].Length == 0)
+                {
+                    continue;
+                }
+
+                var value = arguments[index].Value;
+                if (value is IInvocationOperation nested)
+                {
+                    ResolveConstantConcat(nested, cancellationToken, depth + 1, sourceMap);
+                }
+                else if (value.Syntax is LiteralExpressionSyntax literal && literal.Token.Value is string)
+                {
+                    sourceMap.AppendToken(literal.Token, literal.Token.Text.StartsWith("@\"", StringComparison.Ordinal) ? 2 : 1, 1);
+                }
+                else
+                {
+                    sourceMap.AppendMapped(parts[index], value.Syntax.GetLocation());
+                }
+            }
+        }
+
+        return string.Concat(parts);
     }
 
     private static string? ResolveIdentifierString(

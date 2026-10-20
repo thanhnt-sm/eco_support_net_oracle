@@ -74,8 +74,17 @@ Từ `src/DataGuard.VSCode`, dùng `npm ci`, `npm run compile`, `npm test` và `
 Language server đồng bộ toàn văn coi mảng `didChange.contentChanges` rỗng là không thay nội dung và giữ diagnostic đang chờ. Server chưa gửi version của tài liệu trong diagnostic và chưa thương lượng encoding vị trí khác UTF-16. Chỉ mục dòng diagnostic xử lý CR, LF và CRLF; vị trí ký tự tính theo UTF-16, kể cả surrogate pair. Thay đổi này không mở rộng grammar xuống dòng của bộ quét literal C#.
 
 `LanguageServerLifecycleTests` kiểm tra qua process local thật với SQL tổng hợp, gồm xuống dòng hỗn hợp, tab và emoji. Các test không chứng minh tương thích editor host, loại bỏ mọi race khi publish diagnostic hoặc tuân thủ toàn bộ LSP. Xem [kế hoạch regression giao thức](../../../plans/2026-10-20-lsp-protocol-regressions.md) để biết bằng chứng và backlog.
+
 ## Bộ phân loại với identifier escape và prefix lỗi
 
 Bộ phân loại cú pháp dùng chung giữ cặp ký tự đóng lặp bên trong identifier có ngoặc vuông, dấu nháy kép hoặc backtick; giải mã chúng trong tên hiển thị. Hành vi trim tên hiện tại được giữ vì cơ chế mask escape C# tạo khoảng trắng đệm; việc bảo toàn khoảng trắng có nghĩa ở đầu/cuối tên cần sửa source mapping riêng. Từ khóa nằm trong tên vẫn thuộc identifier. String SQL và comment không trở thành câu lệnh. Lexer không xác định thiết lập dialect/session và không chứng minh câu SQL hợp lệ.
 
 Bộ quét literal C# bỏ qua một lần prefix dollar không tạo được string, kể cả trong interpolation hole, đồng thời giữ offset của literal phía sau. Các dạng thường, verbatim, interpolated và raw vẫn được nhận diện; raw interpolation vẫn hỗ trợ nhiều dollar. Giới hạn này áp dụng cho đường quét prefix vừa sửa, không phải mọi đầu vào lỗi hoặc lồng nhau. Xem [kế hoạch củng cố classifier](../../../plans/2026-10-20-classifier-hardening.md) để biết regression và số thao tác đo được.
+
+## Ghép chuỗi C# hằng trong validation qua CLI
+
+Bộ trích xuất project của CLI phân giải overload `System.String.Concat` nhận hai đến bốn đối số string khi mọi đối số là hằng string/null của compiler hoặc `Concat` lồng được hỗ trợ. Đối số đặt tên được ghép theo thứ tự parameter; null thành chuỗi rỗng; source map SQL–C# được giữ. Ký tự literal liên tục ánh xạ chính xác; escape/raw literal và hằng đã fold có thể ánh xạ tới biểu thức chứa chúng. Có giới hạn độ sâu và SQL 256 KiB; không thực thi method của ứng dụng.
+
+Đây là cải tiến trích xuất khi chạy command validation, chưa bổ sung ghép chuỗi cho LSP lúc gõ hoặc resolver Roslyn riêng. Concat động, overload object/array/enumerable, Format và StringBuilder vẫn chưa phân giải. “Unknown” ở đây nghĩa là resolver không trả SQL; chưa có trạng thái Unknown mới trên UI. Không trích xuất được query hoặc không có diagnostic không đồng nghĩa đã kiểm chứng SQL. Placeholder của `+`/interpolation động hiện có chỉ là template một phần, không bảo đảm cấu trúc SQL.
+
+Query được hỗ trợ giữ metadata thuộc tính đích cho các kiểm tra offline hiện có. Ngữ nghĩa Dapper, mapped property của EF và truy cập cột reader ADO khác nhau; lát cắt này không biến mọi property DTO thành bắt buộc và không thêm kiểm chứng live. Theo dõi gán lại local, độ đầy đủ projection và liên kết reader vẫn là khoảng trống. Xem [kế hoạch ghép SQL](../../../plans/2026-10-20-csharp-sql-composition.md).
