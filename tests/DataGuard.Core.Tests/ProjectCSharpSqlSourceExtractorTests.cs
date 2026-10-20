@@ -15,6 +15,13 @@ public sealed class ProjectCSharpSqlSourceExtractorTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("dg-extractor").FullName;
 
+    public ProjectCSharpSqlSourceExtractorTests()
+    {
+        // Path assertions are relative to this fixture's repository, regardless of ancestor markers
+        // (including synthetic .git directories installed by a sandbox at temporary-root boundaries).
+        Directory.CreateDirectory(Path.Combine(_dir, ".git"));
+    }
+
     public void Dispose()
     {
         try
@@ -25,6 +32,48 @@ public sealed class ProjectCSharpSqlSourceExtractorTests : IDisposable
         {
             // best effort
         }
+    }
+
+    [Fact]
+    public async Task NestedScan_PreservesRepositoryRelativeDescriptorAndDiagnosticPaths()
+    {
+        var scanRoot = Directory.CreateDirectory(Path.Combine(_dir, "src")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "Repo.cs"), "public class Repo { public const string Sql = \"DELETE FROM Orders\"; }");
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "Broken.cs"), "public class Broken { public void M( { }");
+        var source = new ProjectCSharpSqlSource(scanRoot);
+
+        var contracts = (await source.ExtractContractsAsync()).OfType<RawSqlDescriptor>().ToList();
+
+        contracts.Should().ContainSingle().Which.Id.Should().StartWith("project-sql:src/Repo.cs:");
+        source.Diagnostics.Should().ContainSingle(d => d.Kind == AcquisitionDiagnosticKind.ParseFailed && d.Path == "src/Broken.cs");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NestedRepository_UsesNearestDirectoryOrFileMarker(bool useGitFile)
+    {
+        var nestedRoot = Directory.CreateDirectory(Path.Combine(_dir, "nested")).FullName;
+        var marker = Path.Combine(nestedRoot, ".git");
+        if (useGitFile)
+        {
+            var metadata = Directory.CreateDirectory(Path.Combine(_dir, ".git", "worktrees", "nested")).FullName;
+            await File.WriteAllTextAsync(marker, "gitdir: " + metadata + "\n");
+        }
+        else
+        {
+            Directory.CreateDirectory(marker);
+        }
+
+        var scanRoot = Directory.CreateDirectory(Path.Combine(nestedRoot, "src")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "Repo.cs"), "public class Repo { public const string Sql = \"DELETE FROM Orders\"; }");
+        await File.WriteAllTextAsync(Path.Combine(scanRoot, "Broken.cs"), "public class Broken { public void M( { }");
+        var source = new ProjectCSharpSqlSource(scanRoot);
+
+        var contracts = (await source.ExtractContractsAsync()).OfType<RawSqlDescriptor>().ToList();
+
+        contracts.Should().ContainSingle().Which.Id.Should().StartWith("project-sql:src/Repo.cs:");
+        source.Diagnostics.Should().ContainSingle(d => d.Kind == AcquisitionDiagnosticKind.ParseFailed && d.Path == "src/Broken.cs");
     }
 
     [Fact]
