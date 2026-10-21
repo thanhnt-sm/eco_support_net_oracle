@@ -116,15 +116,15 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.10",
-        "contentHash": "ngedi+19mHnszODbUrZLtpU6JeIXVbR/MxslGZPJIcC5YVZcJSZxasnde3+0iboQj9V9bKri7b8D+TXTrOW6Aw=="
+        "resolved": "4.0.102.12",
+        "contentHash": "/wJwMdRT5e9AbqRFfeazbyAbAZijYMDGlLDGAc07Ob2tPdeEUE0dC0zISIdtdWtCu0lV+oWf3qcsevpd7ejn9g=="
       },
       "AWSSDK.SecretsManager": {
         "type": "Transitive",
-        "resolved": "4.0.100.18",
-        "contentHash": "UkA/nt7Ag3lnfHwoOseQV13p+Tu9kt+hvZuZAJn8/QNqmJZnsvo9Q/msibe4oGeQKoZKwO9MJ/jRmE7OwGBaDA==",
+        "resolved": "4.0.100.20",
+        "contentHash": "HwRK5XFaDodhUdB5vcVJJ4o9Wp53tnbww0rr+7QhQ5Oj7L3YD4QBBFW1TeugxQ5PoQoCTNZ9wMOPyLRmz+gJ1A==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.10, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.12, 5.0.0)"
         }
       },
       "BouncyCastle.Cryptography": {
@@ -548,15 +548,16 @@
       },
       "Oracle.ManagedDataAccess.Core": {
         "type": "Transitive",
-        "resolved": "23.26.301",
-        "contentHash": "hhl6m5sam9vWNXt4Xad+bAcB+VBMBxya16/P+R3xRMKzNVl/6ssF6HuNZNeofD+5qDaTRqhWbKjdFn65rD5KYw==",
+        "resolved": "23.26.400",
+        "contentHash": "PWVJunbl2LVcdFBluW5R3678MvrTLlTrQBdXe9wR4YCauISa4zCceJ7fLHVFFiGog8/ZPxo2cY4adpVQCJf+YQ==",
         "dependencies": {
           "System.Collections.Immutable": "10.0.3",
           "System.Diagnostics.PerformanceCounter": "8.0.0",
           "System.DirectoryServices.Protocols": "8.0.2",
           "System.Formats.Asn1": "8.0.1",
           "System.Memory": "4.6.3",
-          "System.Security.Cryptography.Pkcs": "8.0.1"
+          "System.Security.Cryptography.Pkcs": "8.0.1",
+          "System.Text.Json": "10.0.9"
         }
       },
       "SharpZipLib": {
@@ -839,7 +840,7 @@
       "dataguard.cli": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.SecretsManager": "[4.0.100.18, )",
+          "AWSSDK.SecretsManager": "[4.0.100.20, )",
           "DataGuard.Analyzers": "[1.0.0, )",
           "DataGuard.Core": "[1.0.0, )",
           "DataGuard.MySql.Adapter": "[1.0.0, )",
@@ -883,7 +884,7 @@
         "type": "Project",
         "dependencies": {
           "DataGuard.Core": "[1.0.0, )",
-          "Oracle.ManagedDataAccess.Core": "[23.26.301, )",
+          "Oracle.ManagedDataAccess.Core": "[23.26.400, )",
           "System.Security.Cryptography.Pkcs": "[10.0.13, )"
         }
       },
