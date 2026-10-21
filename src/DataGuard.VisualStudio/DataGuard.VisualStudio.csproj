@@ -20,6 +20,15 @@
     <RuntimeIdentifiers />
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(BuildingForTesting)' == 'true'">
+    <!-- The full solution also builds the normal VSIX instance. Different global properties create
+         separate MSBuild instances, so generated resources and assemblies must not share paths.
+         Keep MSBuildProjectExtensionsPath unchanged: both instances use the same locked NuGet graph. -->
+    <IntermediateOutputPath>$(BaseIntermediateOutputPath)$(Configuration)\testing\</IntermediateOutputPath>
+    <BaseOutputPath Condition="'$(BaseOutputPath)' == ''">bin\</BaseOutputPath>
+    <OutputPath>$(BaseOutputPath)$(Configuration)\testing\</OutputPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" PrivateAssets="all" />
