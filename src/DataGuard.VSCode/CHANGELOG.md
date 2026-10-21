@@ -1,6 +1,6 @@
 # Change Log
 
-All notable changes to the DataGuard VS Code extension are documented here.
+All notable changes to the StackAccord VS Code extension are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
@@ -14,11 +14,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `markdown-it` 14.3.0 → 14.3.2 (GHSA-253c-mchw-3w2r). No runtime behaviour change.
 
 ### Changed
+- Display labels, commands, settings descriptions, dashboard and editor feedback now use StackAccord. Existing extension, command, setting, CLI and credential identities are retained for upgrades.
 - Version constants moved to 0.3.0 ahead of the v0.3.0 tag; the empty v0.2.3 GitHub release (workflow failed before publishing any asset) is superseded.
 - **CLI 0.3.0 or later is required for `validate` and `assess`.** Both commands now require the CLI's
   `ide-safe: active` handshake (first stderr line). Output from CLI 0.2.2 and older, which does not
   understand `--ide-safe`, is rejected instead of loaded as findings: the extension shows
-  `DataGuard CLI did not confirm IDE-safe mode; results were discarded` and
+  `StackAccord CLI did not confirm IDE-safe mode; results were discarded` and
   `Update the dataguard CLI (0.3.0 or later) or set dataguard.cliPath`. It never retries without the flag.
 - When a connection credential is stored in VS Code SecretStorage, `validate` passes
   `--allow-env-connection` so the CLI keeps that credential only; connection strings from
@@ -29,7 +30,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Verify SQL Shapes Against Database** asks for the same modal confirmation as **Refresh Snapshot**
   and **Create Baseline**, naming the masked target host before connecting.
 - `ide-safe:` and `baseline:` policy lines from the CLI (including
-  `baseline: <n> violations suppressed by <path>`) are echoed to the DataGuard output channel as `[WARN]`;
+  `baseline: <n> violations suppressed by <path>`) are echoed to the StackAccord output channel as `[WARN]`;
   the `ide-safe: active` acknowledgement itself is echoed as `[INFO]`.
 - The read-query count shown in the **Verify SQL Shapes Against Database** confirmation is now
   computed by a validated helper (`countReadQueries`) instead of a cast of the last scan's

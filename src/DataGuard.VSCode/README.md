@@ -1,6 +1,8 @@
-# DataGuard for VS Code
+# StackAccord for VS Code
 
-DataGuard detects **database contract drift** between .NET code, stored procedures, raw SQL, and the validated schema before it reaches integration testing or production. It is built for backend and full-stack teams that need provider-aware contract evidence without giving the editor direct database credentials.
+StackAccord detects **database contract drift** between .NET code, stored procedures, raw SQL, and the validated schema before it reaches integration testing or production. It is built for backend and full-stack teams that need provider-aware contract evidence without giving the editor direct database credentials.
+
+Existing installations upgrade under the same extension ID, `thanhnt-sm.dataguard-vscode`. The `dataguard` CLI command, `dataguard.*` command and setting IDs, `.dataguard.yml` configuration, and stored workspace credentials keep their existing identities. Display labels use StackAccord.
 
 ## What it does
 
@@ -25,17 +27,17 @@ An EF Core workspace needs no extra setup: when exactly one design-time `*ModelS
 
 | Command | Description |
 | --- | --- |
-| **DataGuard: Run Validation** | Validate the selected trusted workspace and populate Problems from SARIF. |
-| **DataGuard: Cancel Validation** | Terminate the active validation process tree for the selected workspace. |
-| **DataGuard: Configure Connection Credential** | Prompts for a connection string and stores it in encrypted VS Code SecretStorage for the selected workspace; an empty value removes it. |
-| **DataGuard: Assess Workspace** | Local, IDE-safe assessment of the workspace; findings go to Problems. |
-| **DataGuard: Refresh Snapshot** / **Create Baseline** / **Verify SQL Shapes Against Database** | Live-database commands; each asks for confirmation before connecting. |
+| **StackAccord: Run Validation** | Validate the selected trusted workspace and populate Problems from SARIF. |
+| **StackAccord: Cancel Validation** | Terminate the active validation process tree for the selected workspace. |
+| **StackAccord: Configure Connection Credential** | Prompts for a connection string and stores it in encrypted VS Code SecretStorage for the selected workspace; an empty value removes it. |
+| **StackAccord: Assess Workspace** | Local, IDE-safe assessment of the workspace; findings go to Problems. |
+| **StackAccord: Refresh Snapshot** / **Create Baseline** / **Verify SQL Shapes Against Database** | Live-database commands; each asks for confirmation before connecting. |
 
 ## Settings
 
 | Setting | Scope | Default | Description |
 | --- | --- | --- | --- |
-| `dataguard.enabled` | Workspace | `true` | Enables DataGuard commands. |
+| `dataguard.enabled` | Workspace | `true` | Enables StackAccord commands. |
 | `dataguard.configPath` | Workspace | `.dataguard.yml` | Relative path that must remain inside the trusted workspace. |
 | `dataguard.cliPath` | User machine | `dataguard` | CLI command/path. Do not set it from workspace configuration. |
 | `dataguard.timeoutSeconds` | Window | `60` | Validation limit, clamped to 5–900 seconds. |
@@ -45,10 +47,10 @@ An EF Core workspace needs no extra setup: when exactly one design-time `*ModelS
 - The extension invokes a fixed argument vector with `shell: false`.
 - It never stores connection strings, passwords, tokens, or SARIF output in workspace settings; connection credentials are encrypted by VS Code SecretStorage and passed only to the spawned CLI process through the `DATAGUARD_CONNECTION_STRING` environment variable.
 - IDE-safe mode applies to `validate` and `assess`. When a SecretStorage credential exists, `validate` also passes `--allow-env-connection`: the CLI keeps only that environment credential (never a `.dataguard.yml` connection string) and uses it **only to read the ground-truth catalog** (schema and stored-procedure definitions) while repository settings still cannot load code. `validate` never sends or describes repository SQL against your database; that happens only in **Verify SQL Shapes Against Database**, after you confirm. Without a stored credential the flag is never sent.
-- `validate`/`assess` results are discarded unless the CLI's first stderr line is `ide-safe: active`; the extension never retries without `--ide-safe`. The acknowledgement itself is echoed to the DataGuard output channel as `[INFO]`; every other `ide-safe:` and `baseline:` policy line from the CLI is echoed as `[WARN]`.
+- `validate`/`assess` results are discarded unless the CLI's first stderr line is `ide-safe: active`; the extension never retries without `--ide-safe`. The acknowledgement itself is echoed to the StackAccord output channel as `[INFO]`; every other `ide-safe:` and `baseline:` policy line from the CLI is echoed as `[WARN]`.
 - **Refresh Snapshot**, **Create Baseline** and **Verify SQL Shapes Against Database** are live-database commands: they use your credential (or the connection configured in `.dataguard.yml`/`DATAGUARD_CONNECTION_STRING`) and always ask for a modal confirmation that names the masked target host first.
 - Raw CLI output is never displayed. Generated SARIF is deleted after diagnostics load.
-- DataGuard is licensed under GPL-3.0-only ([LICENSE](LICENSE); releases up to v0.3.0 were MIT), with a commercial licence available. `ADDITIONAL-PERMISSIONS.md` and `THIRD-PARTY-NOTICES.md` ship with this extension and are not lawyer-reviewed. These controls help operate in regulated environments but are not a compliance certification.
+- StackAccord is licensed under GPL-3.0-only ([LICENSE](LICENSE); releases up to v0.3.0 were MIT), with a commercial licence available. `ADDITIONAL-PERMISSIONS.md` and `THIRD-PARTY-NOTICES.md` ship with this extension and are not lawyer-reviewed. These controls help operate in regulated environments but are not a compliance certification.
 
 ## Development
 

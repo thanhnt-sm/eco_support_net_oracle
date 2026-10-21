@@ -27,7 +27,7 @@ export class DataGuardQuickFixProvider implements vscode.CodeActionProvider {
         // Filter diagnostics originating from DataGuard
         const dataguardDiagnostics = context.diagnostics.filter((d) => {
             const code = String(typeof d.code === "object" ? d.code.value : d.code ?? "");
-            return code.startsWith("DG") || d.source === "DataGuard" || d.message.includes("DataGuard");
+            return code.startsWith("DG") || d.source === "StackAccord" || d.source === "DataGuard" || d.message.includes("DataGuard");
         });
 
         for (const diagnostic of dataguardDiagnostics) {
@@ -50,20 +50,20 @@ export class DataGuardQuickFixProvider implements vscode.CodeActionProvider {
 
         switch (ruleCode) {
             case "DG001":
-                title = "⚡ [DataGuard] Review parameter count against SQL procedure definition";
+                title = "⚡ [StackAccord] Review parameter count against SQL procedure definition";
                 break;
             case "DG002":
-                title = "⚡ [DataGuard] Review C# parameter types against database column types";
+                title = "⚡ [StackAccord] Review C# parameter types against database column types";
                 break;
             case "DG017":
-                title = "⚡ [DataGuard] Review SELECT * and choose schema-verified columns";
+                title = "⚡ [StackAccord] Review SELECT * and choose schema-verified columns";
                 break;
             case "DG018":
-                title = "⚡ [DataGuard] Review entity contract properties against schema snapshot";
+                title = "⚡ [StackAccord] Review entity contract properties against schema snapshot";
                 break;
             default:
                 if (ruleCode.startsWith("DG")) {
-                    title = `⚡ [DataGuard] Review contract drift (${ruleCode})`;
+                    title = `⚡ [StackAccord] Review contract drift (${ruleCode})`;
                 } else {
                     return undefined;
                 }
@@ -96,7 +96,7 @@ export class DataGuardQuickFixProvider implements vscode.CodeActionProvider {
         // claim a comment has repaired a contract. Keep this command informational.
         if (!ruleCode.startsWith("DG")) return false;
         await vscode.window.showInformationMessage(
-            `DataGuard: Review [${ruleCode}] against the schema or snapshot and edit manually. No automatic edit is available.`
+            `StackAccord: Review [${ruleCode}] against the schema or snapshot and edit manually. No automatic edit is available.`
         );
         return false;
     }

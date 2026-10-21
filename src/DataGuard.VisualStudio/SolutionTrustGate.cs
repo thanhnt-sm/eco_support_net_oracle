@@ -95,25 +95,25 @@ internal sealed class SolutionTrustGate
     internal static string BuildLivePromptText(string solutionDirectory, string variableName)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("DataGuard will run its command-line tool against a live database for this solution:");
+        sb.AppendLine("StackAccord will run its command-line tool against a live database for this solution:");
         sb.AppendLine();
         sb.AppendLine("    " + solutionDirectory);
         sb.AppendLine();
         sb.AppendLine("This is not IDE-safe mode:");
         sb.AppendLine("  • the CLI connects to the database named by the environment variable " + variableName + " with your own credential (Visual Studio never stores or logs its value);");
         sb.AppendLine("  • Refresh Snapshot writes " + Path.Combine(solutionDirectory, LiveDatabaseCommands.SnapshotFileName) + "; Verify SQL Shapes describes every read SQL query of the solution against that database;");
-        sb.AppendLine("  • the solution's .dataguard.yml is never read for these commands; provider and schema come from Tools > Options > DataGuard.");
+        sb.AppendLine("  • the solution's .dataguard.yml is never read for these commands; provider and schema come from Tools > Options > StackAccord.");
         sb.AppendLine();
         sb.AppendLine("Each run still asks you to confirm the target host. Your choice is remembered for this solution file (Tools > StackAccord (Beta) > Forget Solution Consent revokes it).");
         sb.AppendLine();
-        sb.Append("Allow DataGuard database commands for this solution?");
+        sb.Append("Allow StackAccord database commands for this solution?");
         return sb.ToString();
     }
 
     internal static string BuildPromptText(string solutionDirectory, bool configExists)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("DataGuard will run its command-line validator against the files of this solution:");
+        sb.AppendLine("StackAccord will run its command-line validator against the files of this solution:");
         sb.AppendLine();
         sb.AppendLine("    " + solutionDirectory);
         sb.AppendLine();
@@ -126,7 +126,7 @@ internal sealed class SolutionTrustGate
         sb.AppendLine();
         sb.AppendLine("Only continue if you trust the source of this solution. Your choice is remembered for this solution file until its .dataguard.yml changes (Tools > StackAccord (Beta) > Forget Solution Consent revokes it).");
         sb.AppendLine();
-        sb.Append("Run DataGuard for this solution?");
+        sb.Append("Run StackAccord for this solution?");
         return sb.ToString();
     }
 

@@ -114,7 +114,7 @@ public sealed class RulePluginManager : IDisposable
                     using var verifiedStream = new MemoryStream(admission.VerifiedAssemblyBytes, writable: false);
                     var assembly = alc.LoadFromStream(verifiedStream);
                     NativeLibrary.SetDllImportResolver(assembly, static (_, _, _) =>
-                        throw new DllNotFoundException("Native dependencies are not admitted for DataGuard plugins."));
+                        throw new DllNotFoundException("Native dependencies are not admitted for StackAccord plugins."));
                     config = config.WithAssembly(assembly);
                     _loadedAssemblies[assembly] = _admissions.Count - 1;
                 }
@@ -329,7 +329,7 @@ public sealed class RulePluginManager : IDisposable
         if (hostVersion is null || hostVersion == new Version(0, 0, 0, 0))
         {
             logger?.LogInformation(
-                "DataGuard host is unversioned; plugin rule {RuleId} (MinDataGuardVersion {MinVersion}) is treated as compatible.",
+                "StackAccord host is unversioned; plugin rule {RuleId} (MinDataGuardVersion {MinVersion}) is treated as compatible.",
                 metadata.RuleId,
                 metadata.MinDataGuardVersion);
             return true;
@@ -381,7 +381,7 @@ public sealed class RulePluginManager : IDisposable
 
         protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
         {
-            throw new DllNotFoundException("Native dependencies are not admitted for DataGuard plugins.");
+            throw new DllNotFoundException("Native dependencies are not admitted for StackAccord plugins.");
         }
     }
 

@@ -19,7 +19,7 @@ internal static class InitCommand
         initProviderOption.DefaultValueFactory = (_) => "sqlserver";
         var initWizardOption = new Option<bool>("--wizard");
         initWizardOption.Description = "Run the interactive setup wizard";
-        var initCommand = new Command("init", "Initialize DataGuard configuration")
+        var initCommand = new Command("init", "Initialize StackAccord configuration")
         {
             initOutputOption, initProviderOption, initWizardOption,
         };

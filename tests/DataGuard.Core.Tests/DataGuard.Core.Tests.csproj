@@ -55,6 +55,10 @@
     <Compile Include="../../src/DataGuard.VisualStudio/CliProcessRegistry.cs" Link="VisualStudio/CliProcessRegistry.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/ProcessTerminator.cs" Link="VisualStudio/ProcessTerminator.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/LiveDatabaseCommands.cs" Link="VisualStudio/LiveDatabaseCommands.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/SolutionTrustGate.cs" Link="VisualStudio/SolutionTrustGate.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/PathNormalization.cs" Link="VisualStudio/PathNormalization.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/LiveDatabaseCommandsTests.Prompts.cs" Link="VisualStudio/LiveDatabaseCommandsTests.Prompts.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/SolutionTrustGateTests.Prompts.cs" Link="VisualStudio/SolutionTrustGateTests.Prompts.cs" />
     <Compile Include="../DataGuard.VisualStudio.Tests/AcquisitionSummaryTests.cs" Link="VisualStudio/AcquisitionSummaryTests.cs" />
   </ItemGroup>
 </Project>

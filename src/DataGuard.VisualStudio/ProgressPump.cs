@@ -117,7 +117,7 @@ internal sealed class ProgressPump
             var batch = new List<string>(MaxBatchLines);
             if (this.dropped > 0)
             {
-                batch.Add("[DataGuard] " + this.dropped + " Output lines were dropped because the Output pane could not keep up.\r\n");
+                batch.Add("[StackAccord] " + this.dropped + " Output lines were dropped because the Output pane could not keep up.\r\n");
                 this.dropped = 0;
             }
 

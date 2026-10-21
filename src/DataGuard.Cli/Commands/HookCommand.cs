@@ -3,7 +3,7 @@ using DataGuard.Cli.Hooks;
 
 namespace DataGuard.Cli.Commands;
 
-/// <summary><c>hook install|status|uninstall</c>: manage DataGuard-managed pre-commit hooks.</summary>
+/// <summary><c>hook install|status|uninstall</c>: manage StackAccord-managed pre-commit hooks.</summary>
 internal static class HookCommand
 {
     public static Command Create()
@@ -12,9 +12,9 @@ internal static class HookCommand
         hookTypeOption.Description = "Hook integration: auto, native, husky, or lefthook";
         hookTypeOption.DefaultValueFactory = (_) => "auto";
         var hookForceOption = new Option<bool>("--force");
-        hookForceOption.Description = "Allow replacement only of a DataGuard-managed hook";
-        var hookCommand = new Command("hook", "Install, inspect, or remove DataGuard-managed pre-commit hooks");
-        var hookInstallCommand = new Command("install", "Install a DataGuard-managed pre-commit hook")
+        hookForceOption.Description = "Allow replacement only of a StackAccord-managed hook";
+        var hookCommand = new Command("hook", "Install, inspect, or remove StackAccord-managed pre-commit hooks");
+        var hookInstallCommand = new Command("install", "Install a StackAccord-managed pre-commit hook")
         {
             hookTypeOption, hookForceOption,
         };
@@ -41,7 +41,7 @@ internal static class HookCommand
         var hookStatusCommand = new Command("status", "Show detected pre-commit hook status");
         hookStatusCommand.SetAction((ParseResult _) => Console.WriteLine(PreCommitHookInstaller.GetStatus()));
 
-        var hookUninstallCommand = new Command("uninstall", "Remove only DataGuard-managed pre-commit hooks");
+        var hookUninstallCommand = new Command("uninstall", "Remove only StackAccord-managed pre-commit hooks");
         hookUninstallCommand.SetAction(async (ParseResult _) =>
         {
             var removal = await PreCommitHookInstaller.UninstallAsync();

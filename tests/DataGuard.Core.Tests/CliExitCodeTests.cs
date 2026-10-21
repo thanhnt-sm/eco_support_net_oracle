@@ -380,7 +380,7 @@ public class CliExitCodeTests
         var (exitCode, output) = RunCli("version");
 
         exitCode.Should().Be(0);
-        output.Should().Contain("DataGuard CLI version");
+        output.Should().Contain("StackAccord CLI version");
     }
 
     [Fact]
@@ -399,7 +399,7 @@ public class CliExitCodeTests
 
             var (statusExitCode, statusOutput) = RunCliInDirectory(dir, null, "hook", "status");
             statusExitCode.Should().Be(0);
-            statusOutput.Should().Contain("DataGuard-managed");
+            statusOutput.Should().Contain("StackAccord-managed");
 
             var (uninstallExitCode, uninstallOutput) = RunCliInDirectory(dir, null, "hook", "uninstall");
             uninstallExitCode.Should().Be(0);

@@ -111,7 +111,7 @@ public static class DataGuardLogger
                 var cliInPath = CliLocator.FindCliExecutable(null);
                 var header = string.Format(
                     "================================================================================\r\n" +
-                    "[{0:yyyy-MM-dd HH:mm:ss.fff} UTC] DataGuard Visual Studio Extension Initialized\r\n" +
+                    "[{0:yyyy-MM-dd HH:mm:ss.fff} UTC] StackAccord Visual Studio Extension Initialized\r\n" +
                     "Extension Version : {1}\r\n" +
                     "Host Process      : {2} (PID: {3})\r\n" +
                     "Visual Studio     : {4}\r\n" +
@@ -269,7 +269,7 @@ public static class DataGuardLogger
     }
 
     /// <summary>
-    /// Records the outcome of a Visual Studio initiated DataGuard operation.
+    /// Records the outcome of a Visual Studio initiated StackAccord operation.
     /// </summary>
     public static void LogValidationRun(
         string command,

@@ -1,7 +1,7 @@
 /**
  * DataGuard CodeLens provider — Step 1 revision per red-team plan.
  *
- * Shows violation-only annotations ("⚠ DataGuard: N findings") above lines
+ * Shows violation-only annotations ("⚠ StackAccord: N findings") above lines
  * that have DataGuard diagnostics. Does NOT show "✅ No Issues" (impossible
  * from DiagnosticCollection — F5 fix).
  *
@@ -79,7 +79,7 @@ export class DataGuardCodeLensProvider implements vscode.CodeLensProvider {
             const range = new vscode.Range(0, 0, 0, 0);
             lenses.push(
                 new vscode.CodeLens(range, {
-                    title: `⚠ DataGuard: ${totalCount} findings in this file (${sortedLines.length} locations)`,
+                    title: `⚠ StackAccord: ${totalCount} findings in this file (${sortedLines.length} locations)`,
                     command: "dataguard.openDashboard",
                 })
             );
@@ -94,8 +94,8 @@ export class DataGuardCodeLensProvider implements vscode.CodeLensProvider {
             const count = lineFindings.length;
             const range = new vscode.Range(lineNumber, 0, lineNumber, 0);
             const label = count === 1
-                ? `⚠ DataGuard: 1 finding — ${lineFindings[0].ruleId}`
-                : `⚠ DataGuard: ${count} findings`;
+                ? `⚠ StackAccord: 1 finding — ${lineFindings[0].ruleId}`
+                : `⚠ StackAccord: ${count} findings`;
 
             lenses.push(
                 new vscode.CodeLens(range, {

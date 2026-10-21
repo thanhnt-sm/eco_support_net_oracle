@@ -22,7 +22,7 @@ export function redactAndBoundSensitiveText(value: string, maximumLength = 16 * 
     const redacted = redactSensitiveText(value);
     return redacted.length <= maximumLength
         ? redacted
-        : `${redacted.slice(0, maximumLength)}\n[DataGuard] output truncated.`;
+        : `${redacted.slice(0, maximumLength)}\n[StackAccord] output truncated.`;
 }
 
 export interface ConnectionSecretStorage {

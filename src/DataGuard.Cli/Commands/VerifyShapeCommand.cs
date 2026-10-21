@@ -253,7 +253,7 @@ internal static class VerifyShapeCommand
                 else
                 {
                     var sb = new StringBuilder();
-                    sb.AppendLine($"=== DataGuard Verify-Shape Report ({provider}) ===");
+                    sb.AppendLine($"=== StackAccord Verify-Shape Report ({provider}) ===");
                     sb.AppendLine($"Queries evaluated: {results.Count}");
                     foreach (var item in results)
                     {

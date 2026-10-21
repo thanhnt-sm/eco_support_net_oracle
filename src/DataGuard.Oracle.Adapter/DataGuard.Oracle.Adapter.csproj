@@ -1,8 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord Oracle Adapter</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.Oracle.Adapter</PackageId>
-    <Description>Oracle adapter for DataGuard contract validation. Requires Oracle.ManagedDataAccess.Core (Oracle Distribution License).</Description>
+    <Description>Oracle adapter for StackAccord contract validation. Requires Oracle.ManagedDataAccess.Core (Oracle Distribution License).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;oracle</PackageTags>
   </PropertyGroup>
 

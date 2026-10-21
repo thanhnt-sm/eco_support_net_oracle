@@ -62,7 +62,7 @@ internal sealed class SupportSummary
     internal string Preview()
     {
         var result = new StringBuilder();
-        result.AppendLine("DataGuard support summary v1 — local export only; review before sharing.");
+        result.AppendLine("StackAccord support summary v1 — local export only; review before sharing.");
         result.AppendLine("Excludes logs, messages, paths, SQL, source, configuration and credentials.");
         result.AppendLine("Diagnostics describe only the last observed CLI outcome in this session; not all Error List items.");
         result.AppendLine("extension=" + Version(this.extensionVersion));

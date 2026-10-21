@@ -11,7 +11,7 @@ namespace DataGuard.VisualStudio.Tests;
 /// Consent is keyed by solution directory + .dataguard.yml content so a repository update that
 /// changes the config re-prompts; a solution without a config gets a distinct, stable key.
 /// </summary>
-public class SolutionTrustGateTests
+public partial class SolutionTrustGateTests
 {
     private sealed class MemoryConsentStore : ITrustConsentStore
     {
@@ -194,18 +194,6 @@ public class SolutionTrustGateTests
     public void BuildPromptText_SaysConsentIsPerSolutionFile()
     {
         SolutionTrustGate.BuildPromptText(@"D:\repo\solution", configExists: true).Should().Contain("this solution file");
-    }
-
-    [Fact]
-    public void BuildPromptText_NamesSolutionAndIdeSafeGuarantees()
-    {
-        var text = SolutionTrustGate.BuildPromptText(@"D:\repo\solution", configExists: true);
-
-        text.Should().Contain(@"D:\repo\solution");
-        text.Should().Contain("--ide-safe");
-        text.Should().Contain("no assemblies are loaded");
-        text.Should().Contain(".dataguard.yml");
-        text.Should().EndWith("Run DataGuard for this solution?");
     }
 
     [Fact]

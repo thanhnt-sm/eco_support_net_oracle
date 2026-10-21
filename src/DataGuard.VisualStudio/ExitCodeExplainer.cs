@@ -35,7 +35,7 @@ internal static class ExitCodeExplainer
         var hasSummary = progress.HasSummary;
         if (hasSummary && !sarifExists && (exitCode == 0 || exitCode == 1))
         {
-            return "[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)";
+            return "[ERROR] The CLI reported a summary but failed to write results (see [StackAccord CLI] lines)";
         }
 
         // The warning line precedes the Summary; a Summary plus SARIF proves the run finished, so the
@@ -83,7 +83,7 @@ internal static class ExitCodeExplainer
     {
         if (!progress.HasSummary)
         {
-            return "DataGuard: Result summary unavailable";
+            return "StackAccord: Result summary unavailable";
         }
 
         var counts = progress.ErrorCount + " errors, " + progress.WarningCount + " warnings";
@@ -93,8 +93,8 @@ internal static class ExitCodeExplainer
         }
 
         return progress.GroundTruthMissing
-            ? "DataGuard: syntactic only (" + counts + ")"
-            : "DataGuard: " + counts;
+            ? "StackAccord: syntactic only (" + counts + ")"
+            : "StackAccord: " + counts;
     }
 
     /// <summary>
@@ -129,13 +129,13 @@ internal static class ExitCodeExplainer
             case 1:
                 return hasSummary
                     ? "[WARN] Validation found errors. See Error List."
-                    : "[ERROR] The CLI failed before producing a validation summary. See the [DataGuard CLI] lines above.";
+                    : "[ERROR] The CLI failed before producing a validation summary. See the [StackAccord CLI] lines above.";
             case 2:
-                return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml and the [DataGuard CLI] lines above.";
+                return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml and the [StackAccord CLI] lines above.";
             case 3:
-                return "[WARN] Validation incomplete: a rule is unavailable for the configured provider or no contract source was found. See the [DataGuard CLI] lines above; previous Error List items were preserved.";
+                return "[WARN] Validation incomplete: a rule is unavailable for the configured provider or no contract source was found. See the [StackAccord CLI] lines above; previous Error List items were preserved.";
             case 4:
-                return "[ERROR] The CLI refused to write results to the output path (see [DataGuard CLI] lines above).";
+                return "[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above).";
             default:
                 return null;
         }
@@ -148,7 +148,7 @@ internal static class ExitCodeExplainer
             case 1:
                 return "[WARN] Assessment found findings. See Error List.";
             case 2:
-                return "[ERROR] Invalid arguments for assess. See the [DataGuard CLI] lines above.";
+                return "[ERROR] Invalid arguments for assess. See the [StackAccord CLI] lines above.";
             case 4:
                 return "[WARN] Assessment completed with tool errors (check config or permissions).";
             default:

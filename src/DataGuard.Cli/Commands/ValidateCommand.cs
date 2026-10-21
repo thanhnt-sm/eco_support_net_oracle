@@ -192,7 +192,7 @@ internal static class ValidateCommand
 
             if (normalizedFormat is not "text" && string.IsNullOrWhiteSpace(output))
             {
-                Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
+                Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; StackAccord never writes machine-readable output to stdout.");
                 Environment.ExitCode = 2;
                 return;
             }
@@ -303,7 +303,7 @@ internal static class ValidateCommand
 
                 if (verbose)
                 {
-                    Console.WriteLine("=== DataGuard Scan Report ===");
+                    Console.WriteLine("=== StackAccord Scan Report ===");
                     if (!string.IsNullOrWhiteSpace(projectPath))
                     {
                         Console.WriteLine($"Scanned C# project/directory: {projectPath}");

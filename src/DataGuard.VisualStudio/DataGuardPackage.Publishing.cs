@@ -16,7 +16,7 @@ using Task = System.Threading.Tasks.Task;
 public sealed partial class DataGuardPackage
 {
     private const string ReinstallGuidance =
-        "Reinstall the DataGuard extension (the bundled CLI is missing) or set Tools > Options > DataGuard > General > Custom CLI Executable Path to a dataguard.exe from GitHub Releases (verify its SHA-256).";
+        "Reinstall the StackAccord extension (the bundled CLI is missing) or set Tools > Options > StackAccord > General > Custom CLI Executable Path to a dataguard.exe from GitHub Releases (verify its SHA-256).";
 
     private async Task HandleRunOutcomeAsync(CliRunContext context, CliRunOutcome outcome)
     {
@@ -25,8 +25,8 @@ public sealed partial class DataGuardPackage
         if (outcome.Cancelled)
         {
             this.LogRun(context, outcome.ExitCode, outcome.ElapsedMs, 0);
-            await output.WriteAsync("[DataGuard] " + context.Command + " was stopped before completion. No diagnostics were produced; previous Error List results were kept.\r\n");
-            await output.SetStatusAsync("DataGuard: Cancelled");
+            await output.WriteAsync("[StackAccord] " + context.Command + " was stopped before completion. No diagnostics were produced; previous Error List results were kept.\r\n");
+            await output.SetStatusAsync("StackAccord: Cancelled");
             return;
         }
 
@@ -50,7 +50,7 @@ public sealed partial class DataGuardPackage
             this.MarkSupportDiscarded();
             this.LogRun(context, outcome.ExitCode, outcome.ElapsedMs, 0);
             await output.WriteAsync(DescribeDiscard(verdict));
-            await output.SetStatusAsync(verdict == PublishVerdict.CliTooOld ? "DataGuard: CLI too old" : "DataGuard: Results discarded");
+            await output.SetStatusAsync(verdict == PublishVerdict.CliTooOld ? "StackAccord: CLI too old" : "StackAccord: Results discarded");
             return;
         }
 
@@ -61,7 +61,7 @@ public sealed partial class DataGuardPackage
             this.MarkSupportDiscarded();
             this.LogRun(context, outcome.ExitCode, outcome.ElapsedMs, 0);
             await output.WriteAsync(mismatch);
-            await output.SetStatusAsync("DataGuard: Results discarded");
+            await output.SetStatusAsync("StackAccord: Results discarded");
             return;
         }
 
@@ -71,7 +71,7 @@ public sealed partial class DataGuardPackage
             : 0;
         if (!sarifExists)
         {
-            await output.WriteAsync("[DataGuard] " + context.Command + " produced no SARIF file; previous Error List results were kept.\r\n");
+            await output.WriteAsync("[StackAccord] " + context.Command + " produced no SARIF file; previous Error List results were kept.\r\n");
         }
 
         this.LogRun(context, outcome.TerminatedAtTimeout ? TimedOutExitCode : outcome.ExitCode, outcome.ElapsedMs, diagnosticCount);
@@ -91,7 +91,7 @@ public sealed partial class DataGuardPackage
         var loaded = SarifErrorListPublisher.Load(sarifJson, solutionDirectory);
         if (loaded.Error != null)
         {
-            await output.WriteAsync("[DataGuard] " + loaded.Error + " Previous Error List results were kept.\r\n");
+            await output.WriteAsync("[StackAccord] " + loaded.Error + " Previous Error List results were kept.\r\n");
             return 0;
         }
 
@@ -119,21 +119,21 @@ public sealed partial class DataGuardPackage
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         if (this.errorListPresenter == null)
         {
-            await output.WriteAsync("[DataGuard] Error List provider unavailable; " + loaded.Diagnostics.Count + " diagnostics were not displayed.\r\n");
+            await output.WriteAsync("[StackAccord] Error List provider unavailable; " + loaded.Diagnostics.Count + " diagnostics were not displayed.\r\n");
             return loaded.Diagnostics.Count;
         }
 
         // Publish clears DataGuard's previous items immediately before adding the new ones.
         var count = this.errorListPresenter.Publish(loaded);
-        await output.WriteAsync("[DataGuard] Loaded " + count + " diagnostics into Error List.\r\n");
+        await output.WriteAsync("[StackAccord] Loaded " + count + " diagnostics into Error List.\r\n");
         if (loaded.SkippedCount > 0)
         {
-            await output.WriteAsync("[DataGuard] " + loaded.SkippedCount + " SARIF results were skipped (malformed or outside the solution directory).\r\n");
+            await output.WriteAsync("[StackAccord] " + loaded.SkippedCount + " SARIF results were skipped (malformed or outside the solution directory).\r\n");
         }
 
         if (loaded.TruncatedCount > 0)
         {
-            await output.WriteAsync("[DataGuard] " + loaded.TruncatedCount + " more results were not shown; the Error List is capped at " + SarifErrorListPublisher.MaxErrorListTasks + " items per run. Run 'dataguard validate --format sarif' from the CLI for the full report.\r\n");
+            await output.WriteAsync("[StackAccord] " + loaded.TruncatedCount + " more results were not shown; the Error List is capped at " + SarifErrorListPublisher.MaxErrorListTasks + " items per run. Run 'dataguard validate --format sarif' from the CLI for the full report.\r\n");
         }
 
         return count;
@@ -143,10 +143,10 @@ public sealed partial class DataGuardPackage
     {
         var output = this.output!;
         var progress = outcome.Progress;
-        await output.WriteAsync("[DataGuard] " + command + " completed in " + outcome.ElapsedMs + " ms with exit code " + outcome.ExitCode + ".\r\n");
+        await output.WriteAsync("[StackAccord] " + command + " completed in " + outcome.ElapsedMs + " ms with exit code " + outcome.ExitCode + ".\r\n");
         if (progress.HasSummary || outcome.ExitCode != 0 || outcome.TerminatedAtTimeout)
         {
-            await output.WriteAsync("[DataGuard] " + ExitCodeExplainer.Explain(command, outcome, sarifExists) + "\r\n");
+            await output.WriteAsync("[StackAccord] " + ExitCodeExplainer.Explain(command, outcome, sarifExists) + "\r\n");
         }
 
         await output.WriteResultBlockAsync(progress);
@@ -162,19 +162,19 @@ public sealed partial class DataGuardPackage
     {
         if (verdict == PublishVerdict.CliTooOld)
         {
-            return "[DataGuard] The configured CLI does not support " + CliArgumentBuilder.IdeSafeOption + " (it is too old) and was not run in IDE-safe mode; its results were discarded. " + ReinstallGuidance + "\r\n";
+            return "[StackAccord] The configured CLI does not support " + CliArgumentBuilder.IdeSafeOption + " (it is too old) and was not run in IDE-safe mode; its results were discarded. " + ReinstallGuidance + "\r\n";
         }
 
-        return "[DataGuard] CLI did not confirm ide-safe mode; results discarded.\r\n";
+        return "[StackAccord] CLI did not confirm ide-safe mode; results discarded.\r\n";
     }
 
     private static string DescribeMissingCli(string? customCliPath)
     {
         if (!string.IsNullOrWhiteSpace(customCliPath))
         {
-            return "[DataGuard] Custom CLI path '" + customCliPath!.Trim() + "' was not found or is not an absolute path to an .exe. Check Tools > Options > DataGuard > General > Custom CLI Executable Path.\r\n";
+            return "[StackAccord] Custom CLI path '" + customCliPath!.Trim() + "' was not found or is not an absolute path to an .exe. Check Tools > Options > StackAccord > General > Custom CLI Executable Path.\r\n";
         }
 
-        return "[DataGuard] CLI executable was not found. " + ReinstallGuidance + "\r\n";
+        return "[StackAccord] CLI executable was not found. " + ReinstallGuidance + "\r\n";
     }
 }

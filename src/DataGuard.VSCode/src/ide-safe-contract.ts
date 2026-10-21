@@ -21,7 +21,7 @@ const OLD_CLI_REJECTION = /^Unrecognized command or argument '--(?:ide-safe|allo
 
 const POLICY_LINE_REGEX = /^(?:Warning:|UNEVALUATED:|ACQUISITION:|Rule \S+ not evaluated:)/;
 
-const ACK_FAILURE_MESSAGE = "DataGuard CLI did not confirm IDE-safe mode; results were discarded";
+const ACK_FAILURE_MESSAGE = "StackAccord CLI did not confirm IDE-safe mode; results were discarded";
 
 /** Exact starts of the CLI lines that say no ground truth was loaded (only syntactic rules ran). */
 export const GROUND_TRUTH_MISSING_PREFIXES = [
@@ -32,7 +32,7 @@ export const GROUND_TRUTH_MISSING_PREFIXES = [
 /** Explanation of a clean exit whose run compared no ground truth: the database contract was not checked. */
 export const SYNTACTIC_ONLY_EXPLANATION =
     "[WARN] Ran syntactic rules only: no snapshot, EF model or database connection was loaded, so the database contract was NOT compared. " +
-    "Commit .dataguard-snapshot.json (Tools > DataGuard > Refresh Snapshot) or keep the EF ModelSnapshot.cs in the solution. See Error List for syntactic findings.";
+    "Commit .dataguard-snapshot.json (Tools > StackAccord > Refresh Snapshot) or keep the EF ModelSnapshot.cs in the solution. See Error List for syntactic findings.";
 
 /** Result-block line for a run that compared no ground truth. */
 export const GROUND_TRUTH_NOT_LOADED_TEXT = "Ground truth: not loaded (syntactic rules only)";
@@ -194,7 +194,7 @@ export function explainCliExit(
 ): string {
     const hasSummary = progress.hasSummary;
     if (hasSummary && !sarifExists && (exitCode === 0 || exitCode === 1)) {
-        return "[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)";
+        return "[ERROR] The CLI reported a summary but failed to write results (see [StackAccord CLI] lines)";
     }
 
     const syntacticOnly = hasSummary && sarifExists && progress.groundTruthMissing && command === "validate";
@@ -230,15 +230,15 @@ export function explainCliExit(
 /** Status-bar text with rule and acquisition counts, prefixed with "syntactic only" when no ground truth was compared. */
 export function describeCliStatus(progress: CliProgressSummary): string {
     if (!progress.hasSummary) {
-        return "DataGuard: Result summary unavailable";
+        return "StackAccord: Result summary unavailable";
     }
     let counts = `${progress.errorCount} errors, ${progress.warningCount} warnings`;
     if ((progress.acquisitionDiagnosticCount ?? 0) > 0) {
         counts += `; acquisition diagnostics ${progress.acquisitionDiagnosticCount}`;
     }
     return progress.groundTruthMissing
-        ? `DataGuard: syntactic only (${counts})`
-        : `DataGuard: ${counts}`;
+        ? `StackAccord: syntactic only (${counts})`
+        : `StackAccord: ${counts}`;
 }
 
 /** Result-block line naming the ground truth the CLI compared, or GROUND_TRUTH_NOT_LOADED_TEXT when missing. */
@@ -261,13 +261,13 @@ function explainValidate(exitCode: number, hasSummary: boolean): string | undefi
         case 1:
             return hasSummary
                 ? "[WARN] Validation found errors. See Error List."
-                : "[ERROR] The CLI failed before producing a validation summary. See the [DataGuard CLI] lines above.";
+                : "[ERROR] The CLI failed before producing a validation summary. See the [StackAccord CLI] lines above.";
         case 2:
-            return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml and the [DataGuard CLI] lines above.";
+            return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml and the [StackAccord CLI] lines above.";
         case 3:
-            return "[WARN] Validation incomplete: a rule is unavailable for the configured provider or no contract source was found. See the [DataGuard CLI] lines above; previous Error List items were preserved.";
+            return "[WARN] Validation incomplete: a rule is unavailable for the configured provider or no contract source was found. See the [StackAccord CLI] lines above; previous Error List items were preserved.";
         case 4:
-            return "[ERROR] The CLI refused to write results to the output path (see [DataGuard CLI] lines above).";
+            return "[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above).";
         default:
             return undefined;
     }
@@ -278,7 +278,7 @@ function explainAssess(exitCode: number): string | undefined {
         case 1:
             return "[WARN] Assessment found findings. See Error List.";
         case 2:
-            return "[ERROR] Invalid arguments for assess. See the [DataGuard CLI] lines above.";
+            return "[ERROR] Invalid arguments for assess. See the [StackAccord CLI] lines above.";
         case 4:
             return "[WARN] Assessment completed with tool errors (check config or permissions).";
         default:
@@ -289,13 +289,13 @@ function explainAssess(exitCode: number): string | undefined {
 function explainOtherCommand(command: string, exitCode: number): string | undefined {
     switch (exitCode) {
         case 1:
-            return `[ERROR] DataGuard ${command} failed before completing. See the [DataGuard CLI] lines above.`;
+            return `[ERROR] StackAccord ${command} failed before completing. See the [StackAccord CLI] lines above.`;
         case 2:
-            return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml and the [DataGuard CLI] lines above.";
+            return "[ERROR] Invalid arguments or configuration. Check .dataguard.yml and the [StackAccord CLI] lines above.";
         case 3:
-            return "[WARN] Validation incomplete: a rule is unavailable for the configured provider or no contract source was found. See the [DataGuard CLI] lines above; previous Error List items were preserved.";
+            return "[WARN] Validation incomplete: a rule is unavailable for the configured provider or no contract source was found. See the [StackAccord CLI] lines above; previous Error List items were preserved.";
         case 4:
-            return "[ERROR] The CLI refused to write results to the output path (see [DataGuard CLI] lines above).";
+            return "[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above).";
         default:
             return undefined;
     }

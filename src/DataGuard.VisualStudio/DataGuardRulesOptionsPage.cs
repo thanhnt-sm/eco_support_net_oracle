@@ -11,8 +11,8 @@ using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Shell;
 
 /// <summary>
-/// Options dialog page under Tools -&gt; Options -&gt; DataGuard -&gt; Validation Rules.
-/// Displays clear descriptions of all DataGuard contract, schema, dialect, and security
+/// Options dialog page under Tools -&gt; Options -&gt; StackAccord -&gt; Validation Rules.
+/// Displays clear descriptions of all StackAccord contract, schema, dialect, and security
 /// validation rules, and allows enabling/disabling each rule (enabled by default).
 /// </summary>
 [ComVisible(true)]
@@ -120,7 +120,7 @@ public class DataGuardRulesOptionsPage : DialogPage
     /// <summary>Gets or sets a value indicating whether DG001 (Track Unvalidated SQL Calls) is enabled.</summary>
     [Category("5. IDE & Code Tracking")]
     [DisplayName("DG001: Track Unvalidated SQL Calls")]
-    [Description("Identifies and highlights SQL or stored procedure execution calls in C# code that have not yet been evaluated by DataGuard.")]
+    [Description("Identifies and highlights SQL or stored procedure execution calls in C# code that have not yet been evaluated by StackAccord.")]
     public bool EnableUnvalidatedSqlCall { get; set; } = true;
 
     /// <summary>
@@ -281,7 +281,7 @@ public class DataGuardRulesOptionsPage : DialogPage
     {
         return new List<RuleDescriptor>
         {
-            new ("DG001", "Track Unvalidated SQL Calls", "IDE & Code Tracking", "Identifies SQL/SP calls in C# code not yet validated by DataGuard.", this.EnableUnvalidatedSqlCall),
+            new ("DG001", "Track Unvalidated SQL Calls", "IDE & Code Tracking", "Identifies SQL/SP calls in C# code not yet validated by StackAccord.", this.EnableUnvalidatedSqlCall),
             new ("DG002, DG101", "Parameter Count & Type Match", "Contract & Schema Alignment", "Validates parameter count and data types between C# calls and DB SP/queries.", this.EnableParameterMismatch),
             new ("DG003", "Parameter Direction (In/Out/Return)", "Contract & Schema Alignment", "Validates parameter directions (Input, Output, InputOutput, ReturnValue).", this.EnableParameterDirection),
             new ("DG004", "Result Set Column Shape", "Contract & Schema Alignment", "Matches result set columns returned by SQL queries/SP against C# entity/DTO properties.", this.EnableColumnShape),
@@ -299,7 +299,7 @@ public class DataGuardRulesOptionsPage : DialogPage
     }
 
     /// <summary>
-    /// Metadata descriptor for a DataGuard validation rule.
+    /// Metadata descriptor for a StackAccord validation rule.
     /// </summary>
     public sealed class RuleDescriptor
     {

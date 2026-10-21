@@ -137,7 +137,7 @@ internal sealed class ErrorListPresenter
                 {
                     if (this.writeOutput != null)
                     {
-                        await this.writeOutput($"[DataGuard] Cannot navigate: file not found '{task.Document}'.\r\n");
+                        await this.writeOutput($"[StackAccord] Cannot navigate: file not found '{task.Document}'.\r\n");
                     }
 
                     return;
@@ -168,7 +168,7 @@ internal sealed class ErrorListPresenter
                     {
                         if (this.writeOutput != null)
                         {
-                            await this.writeOutput($"[DataGuard] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
+                            await this.writeOutput($"[StackAccord] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
                         }
                     }
                 }

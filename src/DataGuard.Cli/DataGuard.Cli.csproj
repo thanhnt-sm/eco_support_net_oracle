@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord Cli</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net9.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <PackageId>DataGuard.Cli</PackageId>
-    <Description>DataGuard CLI tool for contract validation.</Description>
+    <Description>StackAccord CLI tool for contract validation.</Description>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dataguard</ToolCommandName>
     <PackageOutputPath>./nupkg</PackageOutputPath>
