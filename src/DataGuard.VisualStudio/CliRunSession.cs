@@ -96,7 +96,7 @@ internal sealed class CliRunSession
         }
         catch (InvalidOperationException)
         {
-            await this.writeOutput("[DataGuard] Warning: Process output streams could not be completely drained upon cancellation.\r\n");
+            await this.writeOutput("[StackAccord] Warning: Process output streams could not be completely drained upon cancellation.\r\n");
             shouldSuppress = wasCancelled;
         }
 
@@ -118,13 +118,13 @@ internal sealed class CliRunSession
         switch (command)
         {
             case "validate":
-                return "DataGuard: Validating...";
+                return "StackAccord: Validating...";
             case "snapshot refresh":
-                return "DataGuard: Refreshing snapshot...";
+                return "StackAccord: Refreshing snapshot...";
             case "verify-shape":
-                return "DataGuard: Verifying shapes...";
+                return "StackAccord: Verifying shapes...";
             default:
-                return "DataGuard: Assessing...";
+                return "StackAccord: Assessing...";
         }
     }
 

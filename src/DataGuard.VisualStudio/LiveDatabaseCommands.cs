@@ -48,7 +48,7 @@ internal static class LiveDatabaseCommands
         var action = kind == LiveCommandKind.RefreshSnapshot
             ? "refresh the schema snapshot into " + Path.Combine(solutionDirectory, SnapshotFileName)
             : "describe every read SQL query under " + solutionDirectory;
-        return "DataGuard will connect to " + host + " (environment variable " + variableName + ", provider " + provider + ") to " + action + ". Continue?";
+        return "StackAccord will connect to " + host + " (environment variable " + variableName + ", provider " + provider + ") to " + action + ". Continue?";
     }
 }
 
@@ -56,7 +56,7 @@ internal static class LiveDatabaseCommands
 internal readonly struct LiveDatabaseOptions
 {
     internal const string MissingVariableMessage =
-        "Set Tools > Options > DataGuard > General > Connection Environment Variable to the name of an environment variable holding the connection string (the value is read by the CLI only).";
+        "Set Tools > Options > StackAccord > General > Connection Environment Variable to the name of an environment variable holding the connection string (the value is read by the CLI only).";
 
     internal const string DefaultProvider = "sqlserver";
 
@@ -428,7 +428,7 @@ internal static class LiveCommandOutcome
                         : "[ERROR] CLI exited 0 but no snapshot was written in the solution directory",
                 };
             case 1:
-                return new[] { "[ERROR] Snapshot refresh failed: unreachable server, permissions or acquisition error (see [WARN]/[DataGuard CLI] lines)" };
+                return new[] { "[ERROR] Snapshot refresh failed: unreachable server, permissions or acquisition error (see [WARN]/[StackAccord CLI] lines)" };
             case 2:
                 return new[] { ArgumentsOrCredentialProblem(variableName) };
             case 3:
@@ -465,9 +465,9 @@ internal static class LiveCommandOutcome
             case 2:
                 return new[] { ArgumentsOrCredentialProblem(variableName) };
             case 3:
-                return new[] { "[ERROR] Verify shapes incomplete: contract acquisition did not complete (see [WARN]/[DataGuard CLI] lines)" };
+                return new[] { "[ERROR] Verify shapes incomplete: contract acquisition did not complete (see [WARN]/[StackAccord CLI] lines)" };
             case 4:
-                return new[] { "[ERROR] The CLI refused to write results to the output path (see [DataGuard CLI] lines above)." };
+                return new[] { "[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above)." };
             default:
                 return new[] { "[ERROR] Unexpected exit code " + exitCode + "." };
         }

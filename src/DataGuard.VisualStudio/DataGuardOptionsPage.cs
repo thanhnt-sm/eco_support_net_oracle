@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Shell;
 
 /// <summary>
-/// Options dialog page for DataGuard extension under Tools -&gt; Options -&gt; DataGuard -&gt; General.
+/// Options dialog page for StackAccord extension under Tools -&gt; Options -&gt; StackAccord -&gt; General.
 /// Allows enabling/disabling detailed diagnostics and configuring custom log and CLI paths.
 /// </summary>
 [ComVisible(true)]
@@ -49,7 +49,7 @@ public class DataGuardOptionsPage : DialogPage
     /// </summary>
     [Category("Automation")]
     [DisplayName("Run Validation on Build")]
-    [Description("Automatically trigger the DataGuard 'validate' command when a solution build or rebuild finishes successfully.")]
+    [Description("Automatically trigger the StackAccord 'validate' command when a solution build or rebuild finishes successfully.")]
     public bool RunValidationOnBuild { get; set; } = false;
 
     /// <summary>

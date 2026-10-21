@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord Analyzers</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.Analyzers</PackageId>
-    <Description>Roslyn analyzers and quick fixes for DataGuard contract validation (IDE light layer).</Description>
+    <Description>Roslyn analyzers and quick fixes for StackAccord contract validation (IDE light layer).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;analyzers;roslyn</PackageTags>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>

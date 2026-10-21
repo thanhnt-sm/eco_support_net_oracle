@@ -1,8 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord SqlServer Adapter</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.SqlServer.Adapter</PackageId>
-    <Description>SQL Server adapter for DataGuard contract validation: catalog reader, live result-set describer, CLR type table and T-SQL (ScriptDOM) parsing. Requires Microsoft.Data.SqlClient (MIT License).</Description>
+    <Description>SQL Server adapter for StackAccord contract validation: catalog reader, live result-set describer, CLR type table and T-SQL (ScriptDOM) parsing. Requires Microsoft.Data.SqlClient (MIT License).</Description>
     <PackageProjectUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</PackageProjectUrl>
     <RepositoryUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</RepositoryUrl>
     <PackageTags>efcore;stored-procedure;contract-validation;sql-server</PackageTags>

@@ -161,7 +161,7 @@ export class DataGuardSqlQueriesTreeProvider implements vscode.TreeDataProvider<
         if (!this.currentReport || !Array.isArray(this.currentReport.queries) || this.currentReport.queries.length === 0) {
             return Promise.resolve([
                 new SqlQueryTreeItem(
-                    "No discovered SQL queries. Run DataGuard Scan to discover queries.",
+                    "No discovered SQL queries. Run StackAccord Scan to discover queries.",
                     vscode.TreeItemCollapsibleState.None,
                     "empty"
                 )

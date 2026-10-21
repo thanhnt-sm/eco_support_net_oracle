@@ -48,9 +48,9 @@ public class ProcessTerminatorClassificationTests
     public void DescribeTimeout_Characterization_NamesEachOutcome()
     {
         CliRunTimeoutHandler.DescribeTimeout("validate", 7, ProcessStopOutcome.Terminated)
-            .Should().Be("[DataGuard] validate timed out after 7 seconds and its process tree was terminated.\r\n");
+            .Should().Be("[StackAccord] validate timed out after 7 seconds and its process tree was terminated.\r\n");
         CliRunTimeoutHandler.DescribeTimeout("assess", 9, ProcessStopOutcome.AlreadyExited)
-            .Should().Be("[DataGuard] assess exceeded 9 seconds but completed before termination was requested.\r\n");
+            .Should().Be("[StackAccord] assess exceeded 9 seconds but completed before termination was requested.\r\n");
         CliRunTimeoutHandler.DescribeTimeout("validate", 7, ProcessStopOutcome.Failed)
             .Should().Contain("could not be terminated. Stop it manually.");
     }

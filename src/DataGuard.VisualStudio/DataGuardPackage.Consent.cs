@@ -56,7 +56,7 @@ public sealed partial class DataGuardPackage
 
         if (fromBuild)
         {
-            await this.output!.WriteAsync("[DataGuard] Run Validation on Build skipped: this solution file (or its " + ConfigFileName + ") has not been approved yet. Run Tools > StackAccord (Beta) > Run Validation once to approve it.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Run Validation on Build skipped: this solution file (or its " + ConfigFileName + ") has not been approved yet. Run Tools > StackAccord (Beta) > Run Validation once to approve it.\r\n");
             return false;
         }
 
@@ -69,14 +69,14 @@ public sealed partial class DataGuardPackage
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
         if (answer != (int)VSConstants.MessageBoxResult.IDYES)
         {
-            await this.output!.WriteAsync("[DataGuard] Run declined; nothing was executed for this solution.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Run declined; nothing was executed for this solution.\r\n");
             return false;
         }
 
         // A Cancel issued while the prompt was open aborts the run and must not record consent.
         if (!this.processRegistry.ShouldStartAfterConsent())
         {
-            await this.output!.WriteAsync("[DataGuard] Cancel was requested while waiting for consent; the run was not started and consent was not recorded.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Cancel was requested while waiting for consent; the run was not started and consent was not recorded.\r\n");
             return false;
         }
 
@@ -91,7 +91,7 @@ public sealed partial class DataGuardPackage
         var solution = await this.ReadSolutionInfoAsync();
         if (solution == null)
         {
-            await output.WriteAsync("[DataGuard] Open a solution before forgetting its consent.\r\n");
+            await output.WriteAsync("[StackAccord] Open a solution before forgetting its consent.\r\n");
             return;
         }
 
@@ -102,7 +102,7 @@ public sealed partial class DataGuardPackage
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         var removed = this.trustGate!.ForgetSolutionConsent(consentKey, liveConsentKey);
         await output.WriteAsync(removed
-            ? "[DataGuard] Consent for this solution file was forgotten; the next run will ask again.\r\n"
-            : "[DataGuard] No stored consent was found for this solution file with its current " + ConfigFileName + ".\r\n");
+            ? "[StackAccord] Consent for this solution file was forgotten; the next run will ask again.\r\n"
+            : "[StackAccord] No stored consent was found for this solution file with its current " + ConfigFileName + ".\r\n");
     }
 }

@@ -108,7 +108,7 @@ async Task PublishDebouncedAsync(Uri uri, string text, string version, Cancellat
                 range = new { start = Position(lineStarts, item.Start), end = Position(lineStarts, item.Start + item.Length) },
                 severity = item.IsSelectStar ? 2 : 3,
                 code = item.IsSelectStar ? "DG017" : "DGSQL001",
-                source = "DataGuard",
+                source = "StackAccord",
                 message = item.DetailMessage ?? $"SQL {item.Kind} statement requires offline contract validation.",
             });
         await WriteAsync(new { jsonrpc = "2.0", method = "textDocument/publishDiagnostics", @params = new { uri = uri.AbsoluteUri, diagnostics } });

@@ -11,7 +11,7 @@ internal static class ConfigCommands
     {
         var configOption = options.ConfigOption;
 
-        var configCommand = new Command("config", "Manage DataGuard configuration");
+        var configCommand = new Command("config", "Manage StackAccord configuration");
         var configShowCommand = new Command("show", "Show current configuration")
         {
             configOption,

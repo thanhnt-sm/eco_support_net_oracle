@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord Build</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net9.0</TargetFramework>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageId>DataGuard.Build</PackageId>
-    <Description>Offline-only DataGuard MSBuild manifest validation task.</Description>
+    <Description>Offline-only StackAccord MSBuild manifest validation task.</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" PrivateAssets="all" />

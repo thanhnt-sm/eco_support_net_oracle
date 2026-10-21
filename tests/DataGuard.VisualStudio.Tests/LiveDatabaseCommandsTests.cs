@@ -120,10 +120,10 @@ public class LiveDatabaseCommandsTests
     {
         LiveDatabaseCommands.CommandName(LiveCommandKind.RefreshSnapshot).Should().Be("snapshot refresh");
         LiveDatabaseCommands.CommandName(LiveCommandKind.VerifyShape).Should().Be("verify-shape");
-        CliRunSession.DescribeRunningStatus("snapshot refresh").Should().Be("DataGuard: Refreshing snapshot...");
-        CliRunSession.DescribeRunningStatus("verify-shape").Should().Be("DataGuard: Verifying shapes...");
-        CliRunSession.DescribeRunningStatus("validate").Should().Be("DataGuard: Validating...");
-        CliRunSession.DescribeRunningStatus("assess").Should().Be("DataGuard: Assessing...");
+        CliRunSession.DescribeRunningStatus("snapshot refresh").Should().Be("StackAccord: Refreshing snapshot...");
+        CliRunSession.DescribeRunningStatus("verify-shape").Should().Be("StackAccord: Verifying shapes...");
+        CliRunSession.DescribeRunningStatus("validate").Should().Be("StackAccord: Validating...");
+        CliRunSession.DescribeRunningStatus("assess").Should().Be("StackAccord: Assessing...");
     }
 
     // ---- consent ----
@@ -179,7 +179,7 @@ public class LiveDatabaseCommandsTests
         var result = await reader.ReadAsync(streamReader);
 
         result.SnapshotWrittenPath.Should().Be(".dataguard-snapshot.json");
-        written.ToString().Should().Contain("[DataGuard CLI] snapshot: wrote .dataguard-snapshot.json");
+        written.ToString().Should().Contain("[StackAccord CLI] snapshot: wrote .dataguard-snapshot.json");
     }
 
     // ---- outcomes ----
@@ -201,7 +201,7 @@ public class LiveDatabaseCommandsTests
     }
 
     [Theory]
-    [InlineData(1, "[ERROR] Snapshot refresh failed: unreachable server, permissions or acquisition error (see [WARN]/[DataGuard CLI] lines)")]
+    [InlineData(1, "[ERROR] Snapshot refresh failed: unreachable server, permissions or acquisition error (see [WARN]/[StackAccord CLI] lines)")]
     [InlineData(2, "[ERROR] Arguments or credential problem: variable MyDb is unset/empty or the provider is unsupported")]
     [InlineData(3, "[ERROR] No database connection resolved")]
     [InlineData(4, "[ERROR] The CLI refused the snapshot path")]
@@ -214,8 +214,8 @@ public class LiveDatabaseCommandsTests
 
     [Theory]
     [InlineData(2, "[ERROR] Arguments or credential problem: variable MyDb is unset/empty or the provider is unsupported")]
-    [InlineData(3, "[ERROR] Verify shapes incomplete: contract acquisition did not complete (see [WARN]/[DataGuard CLI] lines)")]
-    [InlineData(4, "[ERROR] The CLI refused to write results to the output path (see [DataGuard CLI] lines above).")]
+    [InlineData(3, "[ERROR] Verify shapes incomplete: contract acquisition did not complete (see [WARN]/[StackAccord CLI] lines)")]
+    [InlineData(4, "[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above).")]
     [InlineData(1, "[ERROR] verify-shape failed (see lines above)")]
     public void Describe_VerifyShapeExitCodes_WithoutSummary(int exitCode, string expected)
     {

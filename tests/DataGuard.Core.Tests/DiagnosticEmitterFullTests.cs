@@ -346,7 +346,7 @@ public class DiagnosticEmitterFullTests : IDisposable
         var driver = run.GetProperty("tool").GetProperty("driver");
         driver.GetProperty("name").GetString().Should().Be("DataGuard");
         driver.GetProperty("version").GetString().Should().Be("0.1.0-alpha.1");
-        driver.GetProperty("informationUri").GetString().Should().Be("https://github.com/DataGuard/DataGuard");
+        driver.GetProperty("informationUri").GetString().Should().Be("https://github.com/thanhnt-sm/eco_support_net_oracle");
 
         var rule = driver.GetProperty("rules").EnumerateArray().Single();
         rule.GetProperty("id").GetString().Should().Be("DG200");

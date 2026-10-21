@@ -654,7 +654,7 @@ public static class InteractiveConfigBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(configPath);
         ArgumentNullException.ThrowIfNull(console);
         var engine = new AutoDetectionEngine(projectRoot);
-        console.WriteLine("🔧 DataGuard Interactive Setup Wizard");
+        console.WriteLine("🔧 StackAccord Interactive Setup Wizard");
         console.WriteLine("=====================================");
         console.WriteLine("");
 

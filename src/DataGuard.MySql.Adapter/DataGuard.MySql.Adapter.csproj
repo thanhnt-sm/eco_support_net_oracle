@@ -1,8 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord MySql Adapter</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.MySql.Adapter</PackageId>
-    <Description>MySQL adapter for DataGuard contract validation. Requires MySqlConnector (MIT License).</Description>
+    <Description>MySQL adapter for StackAccord contract validation. Requires MySqlConnector (MIT License).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;mysql</PackageTags>
   </PropertyGroup>
 

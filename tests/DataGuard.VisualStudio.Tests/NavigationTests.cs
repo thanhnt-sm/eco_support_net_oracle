@@ -136,7 +136,7 @@ public class NavigationTests
         // Documented integration test (ErrorListPresenter.CreateTask):
         // When an ErrorTask with a non-existent Document path has its Navigate event raised,
         // it checks File.Exists(task.Document). When false, it must write
-        // "[DataGuard] Cannot navigate: file not found '{task.Document}'.\r\n"
+        // "[StackAccord] Cannot navigate: file not found '{task.Document}'.\r\n"
         // to the DataGuard output pane; when true it calls ErrorListProvider.Navigate(task, LOGVIEWID_Code),
         // which opens the document and positions the caret at task.Line/task.Column.
     }

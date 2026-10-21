@@ -1,8 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord SqlClassification</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>netstandard2.0</TargetFramework>
     <!-- Ships inside the DataGuard.Analyzers package (analyzers/dotnet/cs), not as its own package. -->
     <IsPackable>false</IsPackable>
-    <Description>Local, dependency-free SQL source classification for DataGuard tooling.</Description>
+    <Description>Local, dependency-free SQL source classification for StackAccord tooling.</Description>
   </PropertyGroup>
 </Project>

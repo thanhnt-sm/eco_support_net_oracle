@@ -89,7 +89,7 @@ public static class AssessmentEngine
         var ymlEnumeration = BoundedAssessmentEnumerator.EnumerateFilesWithStatus(root, ".dataguard.yml");
         if (ymlEnumeration.Truncated)
         {
-            errors.Add(new ToolError { Code = "DG1007", Path = request.WorkspaceRoot, Message = "DataGuard config discovery reached its safety cap; results are partial" });
+            errors.Add(new ToolError { Code = "DG1007", Path = request.WorkspaceRoot, Message = "StackAccord config discovery reached its safety cap; results are partial" });
         }
 
         foreach (var yml in ymlEnumeration.Files)

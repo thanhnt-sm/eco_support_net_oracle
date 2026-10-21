@@ -69,7 +69,7 @@ test("CodeLens groups and sorts actual findings, emits changes, then clears", ()
     p.setFindings([f({ startLine: 8 }), f(), f({ id: "f2" })]); p.refresh();
     const result = p.provideCodeLenses(doc, token);
     assert.equal(changes, 2); assert.deepEqual(result.map((v: any) => v.range.start.line), [1, 7]);
-    assert.match(result[0].command.title, /2 findings/); assert.match(result[1].command.title, /1 finding.*DG017/);
+    assert.match(result[0].command.title, /StackAccord: 2 findings/); assert.match(result[1].command.title, /StackAccord: 1 finding.*DG017/);
     assert.equal(result[0].command.command, "dataguard.openDashboard");
     assert.match(result[0].command.tooltip, /Select explicit columns/);
     p.clear(); assert.equal(changes, 3); assert.deepEqual(p.provideCodeLenses(doc, token), []);
@@ -113,6 +113,7 @@ test("Hover combines findings with untrusted text/code and suppresses DG010 quic
         f({ quickFixAvailable: true, quickFixTitle: "Review" })]);
     const md = p.provideHover(doc, new Position(1, 1), token).contents as MarkdownString;
     assert.equal(md.isTrusted, false); assert.equal(md.supportHtml, false);
+    assert.ok(md.parts.some(x => x.kind === "markdown" && x.text.includes("StackAccord")));
     assert.ok(md.parts.some(x => x.kind === "text" && x.text === "[x](command:evil)"));
     assert.ok(md.parts.some(x => x.kind === "sql" && x.text === "SYSDATE"));
     assert.ok(md.parts.some(x => x.kind === "sql" && x.text === "(+)"));
@@ -168,7 +169,7 @@ test("Quick fixes accept structured diagnostic codes but remain manual review ac
     const actions = p.provideCodeActions(doc, new Range(1, 0, 1, 8), { diagnostics }, token);
     assert.equal(actions.length, 5);
     actions.forEach((a: any, i: number) => {
-        assert.equal(a.isPreferred, false); assert.match(a.title, /Review/);
+        assert.equal(a.isPreferred, false); assert.match(a.title, /\[StackAccord\] Review/);
         assert.deepEqual(a.diagnostics, [diagnostics[i]]);
         assert.equal(a.command.arguments[2], diagnostics[i].code.value);
     });

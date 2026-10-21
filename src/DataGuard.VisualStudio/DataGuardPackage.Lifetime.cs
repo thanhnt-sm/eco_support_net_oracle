@@ -27,7 +27,7 @@ public sealed partial class DataGuardPackage
             this.JoinableTaskFactory.RunAsync(async () =>
             {
                 await this.processRegistry.StopAndMarkCancelledAsync(process, ProcessTerminator.StopProcess);
-                await this.output!.WriteAsync("[DataGuard] The solution is closing; the running DataGuard command was stopped.\r\n");
+                await this.output!.WriteAsync("[StackAccord] The solution is closing; the running StackAccord command was stopped.\r\n");
             }).FileAndForget("DataGuard/SolutionClosing");
         }
 
@@ -46,7 +46,7 @@ public sealed partial class DataGuardPackage
         var processToStop = this.processRegistry.Active;
         if (processToStop == null && this.processRegistry.RequestCancelPending())
         {
-            await this.output!.WriteAsync("[DataGuard] A run is waiting for consent; it will not start.\r\n");
+            await this.output!.WriteAsync("[StackAccord] A run is waiting for consent; it will not start.\r\n");
             return;
         }
 
@@ -59,14 +59,14 @@ public sealed partial class DataGuardPackage
         switch (outcome)
         {
             case ProcessStopOutcome.Terminated:
-                await this.output!.WriteAsync("[DataGuard] DataGuard command cancelled by user. No further diagnostics will be produced.\r\n");
-                await this.output.SetStatusAsync("DataGuard: Cancelled");
+                await this.output!.WriteAsync("[StackAccord] StackAccord command cancelled by user. No further diagnostics will be produced.\r\n");
+                await this.output.SetStatusAsync("StackAccord: Cancelled");
                 break;
             case ProcessStopOutcome.AlreadyExited:
-                await this.output!.WriteAsync("[DataGuard] The command already completed; processing diagnostics.\r\n");
+                await this.output!.WriteAsync("[StackAccord] The command already completed; processing diagnostics.\r\n");
                 break;
             default:
-                await this.output!.WriteAsync("[DataGuard] Cancellation requested, but the process tree could not be terminated. Stop it manually.\r\n");
+                await this.output!.WriteAsync("[StackAccord] Cancellation requested, but the process tree could not be terminated. Stop it manually.\r\n");
                 break;
         }
     }

@@ -22,7 +22,7 @@ public sealed class AcquisitionSummaryTests
         Assert.Contains("3 contract(s) could not be evaluated", explanation);
         Assert.DoesNotContain("[OK]", explanation);
         Assert.DoesNotContain("No issues found", explanation);
-        Assert.Equal("DataGuard: 0 errors, " + warningCount + " warnings; acquisition diagnostics 2", ExitCodeExplainer.DescribeStatus(outcome.Progress));
+        Assert.Equal("StackAccord: 0 errors, " + warningCount + " warnings; acquisition diagnostics 2", ExitCodeExplainer.DescribeStatus(outcome.Progress));
     }
 
     [Theory]
@@ -34,7 +34,7 @@ public sealed class AcquisitionSummaryTests
         outcome.Progress.AcquisitionDiagnosticCount = count;
 
         Assert.Equal("[OK] No issues found.", ExitCodeExplainer.Explain("validate", outcome, sarifExists: true));
-        Assert.Equal("DataGuard: 0 errors, 0 warnings", ExitCodeExplainer.DescribeStatus(outcome.Progress));
+        Assert.Equal("StackAccord: 0 errors, 0 warnings", ExitCodeExplainer.DescribeStatus(outcome.Progress));
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class AcquisitionSummaryTests
         outcome.Progress.GroundTruthMissing = true;
 
         Assert.StartsWith("[WARN] Ran syntactic rules only", ExitCodeExplainer.Explain("validate", outcome, sarifExists: true));
-        Assert.Equal("DataGuard: syntactic only (0 errors, 0 warnings; acquisition diagnostics 2)", ExitCodeExplainer.DescribeStatus(outcome.Progress));
+        Assert.Equal("StackAccord: syntactic only (0 errors, 0 warnings; acquisition diagnostics 2)", ExitCodeExplainer.DescribeStatus(outcome.Progress));
     }
 
     [Theory]
@@ -74,7 +74,7 @@ public sealed class AcquisitionSummaryTests
         outcome.ExitCode = 1;
         outcome.Progress.HasSummary = false;
         Assert.StartsWith("[ERROR] The CLI failed before producing a validation summary.", ExitCodeExplainer.Explain("validate", outcome, sarifExists: false));
-        Assert.Equal("DataGuard: Result summary unavailable", ExitCodeExplainer.DescribeStatus(outcome.Progress));
+        Assert.Equal("StackAccord: Result summary unavailable", ExitCodeExplainer.DescribeStatus(outcome.Progress));
     }
 
     private static CliRunOutcome CreateOutcome() => new()

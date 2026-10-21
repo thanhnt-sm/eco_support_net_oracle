@@ -1,8 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord Core</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.Core</PackageId>
-    <Company>DataGuard</Company>
+    <Company>StackAccord</Company>
     <Description>Core contract validation engine for Entity ↔ Stored Procedure/Raw SQL, built on EF Core, Roslyn, security, and configuration dependencies. Database drivers and dialect parsers live in the DataGuard.*.Adapter packages.</Description>
     <PackageProjectUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</PackageProjectUrl>
     <RepositoryUrl>https://github.com/thanhnt-sm/eco_support_net_oracle</RepositoryUrl>

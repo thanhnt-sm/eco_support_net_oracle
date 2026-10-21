@@ -16,7 +16,7 @@ internal static class RuleCatalogPrinter
     public static async Task PrintAsync(IReadOnlyList<DataGuardRulesOptionsPage.RuleDescriptor> rules, OutputPaneWriter output)
     {
         await output.ActivateAsync();
-        await output.WriteAsync(Separator + "DataGuard Validation Rules — Current Configuration\r\n" + Separator);
+        await output.WriteAsync(Separator + "StackAccord Validation Rules — Current Configuration\r\n" + Separator);
 
         var grouped = new Dictionary<string, List<DataGuardRulesOptionsPage.RuleDescriptor>>();
         var order = new List<string>();
@@ -45,7 +45,7 @@ internal static class RuleCatalogPrinter
         await output.WriteAsync(
             "\r\n" + Separator +
             "[ENABLED] = enabled    [DISABLED] = disabled\r\n" +
-            "To change rules: Tools -> Options -> DataGuard -> Validation Rules.\r\n" +
+            "To change rules: Tools -> Options -> StackAccord -> Validation Rules.\r\n" +
             Separator);
     }
 }

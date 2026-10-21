@@ -63,7 +63,7 @@ internal static class ProgressLineParser
     {
         if (discardedLine)
         {
-            return new ParsedProgress("[DataGuard CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null);
+            return new ParsedProgress("[StackAccord CLI] stderr line exceeded the safe display limit and was discarded.\r\n", null, null);
         }
 
         if (TryFormatProgress(text, out var formatted, out var eventErrors, out var eventWarnings, out var inventoryEntry, out var summary))
@@ -76,13 +76,13 @@ internal static class ProgressLineParser
         {
             if (IsPolicyLine(text))
             {
-                return new ParsedProgress("[DataGuard] [WARN] " + DataGuardLogger.Redact(text) + "\r\n", null, null);
+                return new ParsedProgress("[StackAccord] [WARN] " + DataGuardLogger.Redact(text) + "\r\n", null, null);
             }
 
             var diagnostic = IsJsonPayload(text)
                 ? "[structured diagnostic redacted]"
                 : DataGuardLogger.Redact(text);
-            return new ParsedProgress("[DataGuard CLI] " + diagnostic + "\r\n", null, null);
+            return new ParsedProgress("[StackAccord CLI] " + diagnostic + "\r\n", null, null);
         }
 
         return new ParsedProgress(null, null, null);
@@ -183,7 +183,7 @@ internal static class ProgressLineParser
                 }
 
                 var kind = kindNode.GetString();
-                var phase = DataGuardLogger.Redact(phaseNode.GetString() ?? "DataGuard operation");
+                var phase = DataGuardLogger.Redact(phaseNode.GetString() ?? "StackAccord operation");
                 var detail = root.TryGetProperty("Detail", out var detailNode) && detailNode.ValueKind == JsonValueKind.String
                     ? DataGuardLogger.Redact(detailNode.GetString() ?? string.Empty)
                     : string.Empty;
@@ -196,10 +196,10 @@ internal static class ProgressLineParser
                 switch (kind)
                 {
                     case "PhaseStarted":
-                        formatted = "[DataGuard] ▶ " + phase + (string.IsNullOrEmpty(detail) ? string.Empty : " — " + detail);
+                        formatted = "[StackAccord] ▶ " + phase + (string.IsNullOrEmpty(detail) ? string.Empty : " — " + detail);
                         return true;
                     case "PhaseCompleted":
-                        formatted = "[DataGuard] ✔ " + phase + (contracts.HasValue ? ": " + contracts.Value + " contracts" : string.Empty);
+                        formatted = "[StackAccord] ✔ " + phase + (contracts.HasValue ? ": " + contracts.Value + " contracts" : string.Empty);
                         return true;
                     case "ContractDiscovered":
                         formatted = null;
@@ -215,13 +215,13 @@ internal static class ProgressLineParser
                         }
 
                         var ruleLabel = string.IsNullOrEmpty(ruleTitle) ? ruleId : $"{ruleId} ({ruleTitle})";
-                        formatted = "[DataGuard]   " + ruleLabel +
+                        formatted = "[StackAccord]   " + ruleLabel +
                             (contracts.HasValue ? ": " + contracts.Value + " contracts checked" : string.Empty) +
                             " → " + violations.Value + " violations";
                         return true;
                     case "BaselineApplied":
                         var suppressed = GetProgressCount(data, "SuppressedCount") ?? 0;
-                        formatted = "[DataGuard] [WARN] baseline: " + suppressed + " violations suppressed by " + (string.IsNullOrEmpty(detail) ? "the baseline file" : detail);
+                        formatted = "[StackAccord] [WARN] baseline: " + suppressed + " violations suppressed by " + (string.IsNullOrEmpty(detail) ? "the baseline file" : detail);
                         return true;
                     case "Summary":
                         errorCount = GetProgressCount(data, "ErrorCount");
@@ -241,7 +241,7 @@ internal static class ProgressLineParser
                             GetProgressCount(data, "UnavailableRuleCount"),
                             GetProgressCount(data, "AcquisitionDiagnosticCount"),
                             groundTruth == null ? null : DataGuardLogger.Redact(groundTruth));
-                        formatted = "[DataGuard] ✔ " + phase + $": {errorCount.Value} errors, {warningCount.Value} warnings" + FormatSummarySegments(summary);
+                        formatted = "[StackAccord] ✔ " + phase + $": {errorCount.Value} errors, {warningCount.Value} warnings" + FormatSummarySegments(summary);
                         return true;
                     default:
                         return false;

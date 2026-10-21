@@ -58,7 +58,7 @@ public static class ConfigurationYamlWriter
     {
         ArgumentNullException.ThrowIfNull(config);
         var yaml = new SerializerBuilder().WithIndentedSequences().Build().Serialize(config);
-        var output = new StringBuilder("# DataGuard configuration. See docs/guides/configuration.md (and configuration.vi.md).\n"
+        var output = new StringBuilder("# StackAccord configuration. See docs/guides/configuration.md (and configuration.vi.md).\n"
             + "# Oracle/PostgreSQL/MySQL raw SQL grammar is unavailable: unevaluated is not a syntax-validation pass.\n");
         using var reader = new StringReader(yaml);
         while (reader.ReadLine() is { } line)

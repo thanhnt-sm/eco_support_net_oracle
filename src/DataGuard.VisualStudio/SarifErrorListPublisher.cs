@@ -168,8 +168,8 @@ internal static class SarifErrorListPublisher
                 && messageNode.ValueKind == JsonValueKind.Object
                 && messageNode.TryGetProperty("text", out var textNode)
                 && textNode.ValueKind == JsonValueKind.String
-                ? DataGuardLogger.Redact(textNode.GetString() ?? "DataGuard contract violation")
-                : "DataGuard contract violation";
+                ? DataGuardLogger.Redact(textNode.GetString() ?? "StackAccord contract violation")
+                : "StackAccord contract violation";
             var level = element.TryGetProperty("level", out var levelNode) && levelNode.ValueKind == JsonValueKind.String ? levelNode.GetString() : null;
 
             return new SarifDiagnostic

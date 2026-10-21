@@ -91,7 +91,7 @@ internal static class ScanCommand
                 else
                 {
                     var sb = new StringBuilder();
-                    sb.AppendLine("=== DataGuard Scan Report ===");
+                    sb.AppendLine("=== StackAccord Scan Report ===");
                     sb.AppendLine($"Scanned C# project/directory: {project}");
                     sb.AppendLine($"Files scanned: {summary.FilesScanned}");
                     sb.AppendLine($"Connections found: {summary.ConnectionsFound}");

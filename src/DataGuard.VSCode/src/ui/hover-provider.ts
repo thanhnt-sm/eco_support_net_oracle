@@ -65,7 +65,7 @@ export class DataGuardHoverProvider implements vscode.HoverProvider {
         const severityIcon = finding.severity === "error" ? "$(error)" : "$(warning)";
 
         // Title: severity icon + rule ID (static structure — safe for appendMarkdown)
-        md.appendMarkdown(`**${severityIcon} DataGuard `);
+        md.appendMarkdown(`**${severityIcon} StackAccord `);
         md.appendText(finding.ruleId);
         md.appendMarkdown("**\n\n");
 
