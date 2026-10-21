@@ -144,14 +144,14 @@ public sealed partial class ProjectCSharpSqlSource
             return candidates;
         }
 
-        /// <summary>Unreferenced SQL constants/static readonly fields whose text no call site has used.</summary>
+        /// <summary>Unreferenced SQL const fields whose text no call site has used.</summary>
         public IReadOnlyList<SqlCandidate> ScanUnreferencedConstants()
         {
             var candidates = new List<SqlCandidate>();
             foreach (var field in _root.DescendantNodes().OfType<FieldDeclarationSyntax>())
             {
                 _ct.ThrowIfCancellationRequested();
-                if (!field.Modifiers.Any(m => m.IsKind(SyntaxKind.ConstKeyword) || m.IsKind(SyntaxKind.ReadOnlyKeyword)))
+                if (!field.Modifiers.Any(m => m.IsKind(SyntaxKind.ConstKeyword)))
                 {
                     continue;
                 }
@@ -193,9 +193,9 @@ public sealed partial class ProjectCSharpSqlSource
         private string? ResolveSql(ExpressionSyntax expression, Location location, List<SqlHole>? holes, bool sqlSlot = false)
         {
             var result = ResolveArgument(expression, location, holes);
-            if (result.UnstableLocal && (sqlSlot || result.SqlEvidence))
+            if (result.IsRejected && (sqlSlot || result.SqlEvidence))
             {
-                ReportUnstable(expression);
+                ReportRejected(expression, result.Rejection);
             }
             else if (sqlSlot && result.Text is null && !result.Oversized)
             {
@@ -321,7 +321,7 @@ public sealed partial class ProjectCSharpSqlSource
                     // commandType: CommandType.StoredProcedure (named or positional): the first string argument is the
                     // procedure name, which is intentionally not statement-shaped.
                     string? name = null;
-                    var unstable = false;
+                    var rejection = SqlValueRejection.None;
                     var sqlEvidence = false;
                     var oversized = false;
                     for (var i = 0; i < args.Count; i++)
@@ -337,7 +337,7 @@ public sealed partial class ProjectCSharpSqlSource
                         }
 
                         var result = ResolveArgument(args[i].Expression, invocation.GetLocation(), null);
-                        unstable |= result.UnstableLocal;
+                        rejection = MergeRejection(rejection, result.Rejection);
                         sqlEvidence |= result.SqlEvidence;
                         oversized |= result.Oversized;
                         if (name is null && !string.IsNullOrWhiteSpace(result.Text))
@@ -347,9 +347,9 @@ public sealed partial class ProjectCSharpSqlSource
                         }
                     }
 
-                    if (unstable && (sqlRoleIndex >= 0 || sqlEvidence || name is not null))
+                    if (rejection != SqlValueRejection.None && (sqlRoleIndex >= 0 || sqlEvidence || name is not null))
                     {
-                        ReportUnstable(invocation);
+                        ReportRejected(invocation, rejection);
                         continue;
                     }
 
@@ -370,7 +370,7 @@ public sealed partial class ProjectCSharpSqlSource
                 {
                     var isEf = IsEfSqlMethod(methodName);
                     sqlText = string.Empty;
-                    var unstable = false;
+                    var rejection = SqlValueRejection.None;
                     var sqlEvidence = false;
                     var oversized = false;
                     for (var i = 0; i < args.Count; i++)
@@ -382,7 +382,7 @@ public sealed partial class ProjectCSharpSqlSource
 
                         var argHoles = new List<SqlHole>();
                         var result = ResolveArgument(args[i].Expression, invocation.GetLocation(), argHoles);
-                        unstable |= result.UnstableLocal;
+                        rejection = MergeRejection(rejection, result.Rejection);
                         sqlEvidence |= result.SqlEvidence;
                         oversized |= result.Oversized;
                         if (sqlArgIndex < 0 && !string.IsNullOrWhiteSpace(result.Text) && (isEf || IsSqlString(result.Text)))
@@ -393,9 +393,9 @@ public sealed partial class ProjectCSharpSqlSource
                         }
                     }
 
-                    if (unstable && (sqlRoleIndex >= 0 || sqlEvidence || sqlArgIndex >= 0))
+                    if (rejection != SqlValueRejection.None && (sqlRoleIndex >= 0 || sqlEvidence || sqlArgIndex >= 0))
                     {
-                        ReportUnstable(invocation);
+                        ReportRejected(invocation, rejection);
                         continue;
                     }
 
@@ -462,7 +462,7 @@ public sealed partial class ProjectCSharpSqlSource
             }
         }
 
-        private void ReportUnstable(SyntaxNode node)
+        private void ReportRejected(SyntaxNode node, SqlValueRejection rejection)
         {
             if (HasSkipContractCheck(node, _model, _ct))
             {
@@ -470,8 +470,19 @@ public sealed partial class ProjectCSharpSqlSource
                 return;
             }
 
-            _run.ReportUnstableSql(node.GetLocation());
+            if (rejection == SqlValueRejection.UnstableLocal)
+            {
+                _run.ReportUnstableSql(node.GetLocation());
+            }
+            else
+            {
+                _run.ReportUnknownMemberSql(node.GetLocation());
+            }
         }
+
+        private static SqlValueRejection MergeRejection(SqlValueRejection current, SqlValueRejection incoming) =>
+            current == SqlValueRejection.UnstableLocal || incoming == SqlValueRejection.UnstableLocal
+                ? SqlValueRejection.UnstableLocal : current != SqlValueRejection.None ? current : incoming;
 
         private void ReportUnresolved(SyntaxNode node)
         {
@@ -517,7 +528,7 @@ public sealed partial class ProjectCSharpSqlSource
                 }
 
                 var holes = new List<SqlHole>();
-                var sqlText = ResolveSql(assignment.Right, assignment.GetLocation(), holes);
+                var sqlText = ResolveSql(assignment.Right, assignment.GetLocation(), holes, sqlSlot: IsKnownCommandTextAssignment(assignment, _model, _ct));
                 if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
                 {
                     continue;
@@ -578,7 +589,7 @@ public sealed partial class ProjectCSharpSqlSource
                     continue;
                 }
 
-                var procedureName = ResolveSql(chosen.Value, chosen.Node.GetLocation(), null)?.Trim();
+                var procedureName = ResolveSql(chosen.Value, chosen.Node.GetLocation(), null, sqlSlot: IsKnownCommandTextAssignment(assignment, _model, _ct) || IsKnownCommandTypeAssignment(assignment, _model, _ct))?.Trim();
                 if (string.IsNullOrWhiteSpace(procedureName) || !IsProcedureName(procedureName))
                 {
                     continue;
@@ -616,14 +627,27 @@ public sealed partial class ProjectCSharpSqlSource
             {
                 _ct.ThrowIfCancellationRequested();
                 var typeName = GetCreatedTypeName(creation, _model, _ct);
-                if (typeName is null || !typeName.EndsWith("Command", StringComparison.OrdinalIgnoreCase) ||
-                    creation.ArgumentList is not { Arguments.Count: > 0 } argumentList)
+                if (creation.ArgumentList is not { Arguments.Count: > 0 } ||
+                    !(typeName?.EndsWith("Command", StringComparison.OrdinalIgnoreCase) == true ||
+                      IsCommandTextCarrier(_model.GetTypeInfo(creation, _ct).Type)))
+                {
+                    continue;
+                }
+
+                var selection = FindCommandSqlArgument(creation, _model, _ct);
+                if (selection.Unsupported)
+                {
+                    ReportUnresolved(creation);
+                    continue;
+                }
+
+                if (selection.Argument is not { } sqlArgument)
                 {
                     continue;
                 }
 
                 var holes = new List<SqlHole>();
-                var sqlText = ResolveSql(argumentList.Arguments[0].Expression, creation.GetLocation(), holes);
+                var sqlText = ResolveSql(sqlArgument.Expression, creation.GetLocation(), holes, sqlSlot: selection.KnownSlot);
                 if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
                 {
                     continue;
@@ -788,15 +812,20 @@ public sealed partial class ProjectCSharpSqlSource
             foreach (var creation in creations)
             {
                 var typeName = GetCreatedTypeName(creation, _model, _ct);
-                if (typeName is null || !typeName.EndsWith("Command", StringComparison.OrdinalIgnoreCase))
+                if (!(typeName?.EndsWith("Command", StringComparison.OrdinalIgnoreCase) == true ||
+                      IsCommandTextCarrier(_model.GetTypeInfo(creation, _ct).Type)))
                 {
                     continue;
                 }
 
                 var hint = InferProviderHint(typeName);
-                if (creation.ArgumentList is { Arguments.Count: > 0 } ctorArgs)
+                if (creation.ArgumentList is { Arguments.Count: > 0 })
                 {
-                    sources.Add((creation.SpanStart, creation, ctorArgs.Arguments[0].Expression, hint));
+                    var selection = FindCommandSqlArgument(creation, _model, _ct);
+                    if (selection.Argument is { } sqlArgument)
+                    {
+                        sources.Add((creation.SpanStart, creation, sqlArgument.Expression, hint));
+                    }
                 }
 
                 if (creation.Initializer is { } initializer)

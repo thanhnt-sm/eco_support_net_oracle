@@ -257,10 +257,10 @@ public static class SqlQueries
         var source = new ProjectCSharpSqlSource(_tempDirectory);
         var contracts = await source.ExtractContractsAsync();
 
-        contracts.Should().HaveCount(2);
+        contracts.Should().ContainSingle();
         var sqls = contracts.OfType<RawSqlDescriptor>().Select(s => s.SqlText).ToList();
         sqls.Should().Contain("SELECT CUSTOMER_ID, FULL_NAME FROM CUSTOMERS");
-        sqls.Should().Contain("DELETE FROM USERS WHERE STATUS = 'INACTIVE'");
+        sqls.Should().NotContain("DELETE FROM USERS WHERE STATUS = 'INACTIVE'", "a readonly initializer is not a proved executable value");
     }
 
     [Fact]

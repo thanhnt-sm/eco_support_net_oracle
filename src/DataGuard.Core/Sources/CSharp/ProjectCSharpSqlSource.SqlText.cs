@@ -182,21 +182,31 @@ public sealed partial class ProjectCSharpSqlSource
     {
         var state = new StringResolutionState(stability ?? new LocalValueStability());
         var text = TryResolveStringCore(expression, model, cancellationToken, 0, null, holes, state, sourceMap);
-        if (state.UnstableLocal)
+        if (state.Rejection != SqlValueRejection.None)
         {
             holes?.Clear();
-            return new(null, true, state.SqlEvidence);
+            return new(null, state.Rejection, state.SqlEvidence);
         }
 
-        return new(text, false, false);
+        return new(text, SqlValueRejection.None, false);
     }
 
-    private readonly record struct SqlStringResolution(string? Text, bool UnstableLocal, bool SqlEvidence, bool Oversized = false);
+    private enum SqlValueRejection
+    {
+        None,
+        UnstableLocal,
+        UnknownMember,
+    }
+
+    private readonly record struct SqlStringResolution(string? Text, SqlValueRejection Rejection, bool SqlEvidence, bool Oversized = false)
+    {
+        public bool IsRejected => Rejection != SqlValueRejection.None;
+    }
 
     private sealed class StringResolutionState(LocalValueStability stability)
     {
         public LocalValueStability Stability { get; } = stability;
-        public bool UnstableLocal { get; set; }
+        public SqlValueRejection Rejection { get; set; }
         public bool SqlEvidence { get; set; }
     }
 
@@ -211,7 +221,7 @@ public sealed partial class ProjectCSharpSqlSource
         SqlSourceMapBuilder? sourceMap = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (state.UnstableLocal || depth > 10)
+        if (state.Rejection != SqlValueRejection.None || depth > 10)
         {
             return null;
         }
@@ -254,10 +264,36 @@ public sealed partial class ProjectCSharpSqlSource
                 }
             }
 
+            // Qualified access never grants permission to evaluate a receiver or follow a member initializer.
+            if (expression is MemberAccessExpressionSyntax or MemberBindingExpressionSyntax)
+            {
+                RejectUnprovedMember(expression, semanticModel, cancellationToken, state);
+                return null;
+            }
+
+            if (expression is ConditionalAccessExpressionSyntax conditional)
+            {
+                RejectUnprovedMember(conditional.WhenNotNull, semanticModel, cancellationToken, state);
+                return null;
+            }
+
             // Unwrap parenthesized expressions first (e.g. "A" + ("B" + "C"))
             if (expression is ParenthesizedExpressionSyntax parenthesized)
             {
                 return TryResolveStringCore(parenthesized.Expression, semanticModel, cancellationToken, depth + 1, visited, holes, state, sourceMap);
+            }
+
+            if (expression is PostfixUnaryExpressionSyntax suppression && suppression.IsKind(SyntaxKind.SuppressNullableWarningExpression))
+            {
+                return TryResolveStringCore(suppression.Operand, semanticModel, cancellationToken, depth + 1, visited, holes, state, sourceMap);
+            }
+
+            // Probe built-in casts for rejection only. No cast, user conversion or application code is evaluated.
+            if (expression is CastExpressionSyntax cast &&
+                semanticModel.GetOperation(cast, cancellationToken) is IConversionOperation { OperatorMethod: null })
+            {
+                TryResolveStringCore(cast.Expression, semanticModel, cancellationToken, depth + 1, visited, null, state);
+                return null;
             }
 
             // 5. Binary add expression ("SELECT ... " + "FROM ...") - iteratively flattened to prevent StackOverflowException
@@ -276,10 +312,7 @@ public sealed partial class ProjectCSharpSqlSource
                     // Preserve unsupported Concat semantics, but do not hide an unstable operand's rejection.
                     foreach (var argument in invocation.Arguments)
                     {
-                        if (argument.Value.Syntax is ExpressionSyntax operand)
-                        {
-                            TryResolveStringCore(operand, semanticModel, cancellationToken, depth + 1, visited, null, state);
-                        }
+                        ProbeConcatOperand(argument.Value, semanticModel, cancellationToken, depth, visited, state);
                     }
                 }
 
@@ -329,10 +362,26 @@ public sealed partial class ProjectCSharpSqlSource
         SqlSourceMapBuilder? sourceMap = null)
     {
         var symbol = semanticModel.GetSymbolInfo(identifier, cancellationToken).Symbol;
+        if (symbol is IFieldSymbol { IsConst: false, Type.SpecialType: SpecialType.System_String })
+        {
+            RejectUnprovedMember(identifier, semanticModel, cancellationToken, state);
+            return null;
+        }
+
+        if (symbol is IPropertySymbol { Type.SpecialType: SpecialType.System_String } property)
+        {
+            if (TryResolveConstantProperty(property, semanticModel, cancellationToken, sourceMap, out var propertyText))
+            {
+                return propertyText;
+            }
+
+            RejectUnprovedMember(identifier, semanticModel, cancellationToken, state);
+            return null;
+        }
         if (symbol is ILocalSymbol { IsConst: false } local &&
             !state.Stability.IsStable(local, semanticModel, cancellationToken))
         {
-            state.UnstableLocal = true;
+            state.Rejection = SqlValueRejection.UnstableLocal;
 
             // Only an evidence flag crosses the rejection boundary; no rejected SQL is published or logged.
             foreach (var syntaxRef in local.DeclaringSyntaxReferences)
@@ -347,7 +396,7 @@ public sealed partial class ProjectCSharpSqlSource
             return null;
         }
 
-        if (symbol is ILocalSymbol or IFieldSymbol or IPropertySymbol)
+        if (symbol is ILocalSymbol or IFieldSymbol { IsConst: true })
         {
             foreach (var syntaxRef in symbol.DeclaringSyntaxReferences)
             {
@@ -355,7 +404,6 @@ public sealed partial class ProjectCSharpSqlSource
                 ExpressionSyntax? initExpr = syntax switch
                 {
                     VariableDeclaratorSyntax decl => decl.Initializer?.Value,
-                    PropertyDeclarationSyntax prop => prop.Initializer?.Value ?? prop.ExpressionBody?.Expression,
                     _ => null,
                 };
 
@@ -381,11 +429,6 @@ public sealed partial class ProjectCSharpSqlSource
                     {
                         return resolved;
                     }
-                }
-                else if (initExpr is LiteralExpressionSyntax lit && (lit.Token.Value is string || lit.IsKind(SyntaxKind.StringLiteralExpression)))
-                {
-                    sourceMap?.AppendMapped(lit.Token.ValueText, lit.GetLocation());
-                    return lit.Token.ValueText;
                 }
             }
         }
@@ -429,7 +472,7 @@ public sealed partial class ProjectCSharpSqlSource
         foreach (var part in parts)
         {
             var resolvedPart = TryResolveStringCore(part, semanticModel, cancellationToken, depth + 1, visited, holes, state, sourceMap);
-            if (state.UnstableLocal)
+            if (state.Rejection != SqlValueRejection.None)
             {
                 return null;
             }
@@ -505,7 +548,7 @@ public sealed partial class ProjectCSharpSqlSource
             {
                 TryResolveStringCore(interpolation.Expression, semanticModel, cancellationToken, depth + 1, visited, null, state);
             }
-            if (state.UnstableLocal)
+            if (state.Rejection != SqlValueRejection.None)
             {
                 return null;
             }

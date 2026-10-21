@@ -2,6 +2,8 @@
 
 Base: 3536e431f60f1506a827135a63a130500f0dc6f7, preserving the full-context file-reporting and Core trace chain. Implementation branch: fix/sql-local-stability. Local patch only; no publication. Derived P1 from the supported-source correctness objective and a reproduced stale initializer at a real Query call-site; not a new SQL API feature.
 
+Preservation checkpoint: committed locally as `439a55f2246b0a62fa87821a7ef32cefd2952e05`, parent `3536e431f60f1506a827135a63a130500f0dc6f7`. The implementation/verification ledger below records that slice before commit. IDE completion and member safety now have a separate [follow-up integration ledger](2026-10-21-incomplete-correctness-integration.md); those changes must not be attributed to the already committed local-stability revision.
+
 ## Defect and decision
 
 `var sql = "SELECT Id FROM Orders"; sql = input; c.Query<Order>(sql);` previously emitted the old initializer and its source map. Resolver failure then silently skipped a candidate. The bounded fix proves that a local has one initializer and no write/reference escape anywhere in its declaring executable scope. All writes, including later/captured/conditional writes, reject that proof. It does not choose replacement assignment values, perform general CFG/dataflow, or execute application code.

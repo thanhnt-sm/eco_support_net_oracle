@@ -126,7 +126,7 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
             run.EmitAll(scan.ScanCallSites());
         }
 
-        // Unreferenced SQL constants/static readonly fields (global second pass after all call sites are known).
+        // Unreferenced SQL constants (global second pass after all call sites are known).
         foreach (var tree in syntaxTrees)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -137,13 +137,16 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
         return run.Descriptors;
     }
 
-    private void AddDiagnostic(AcquisitionDiagnosticKind kind, string path, string message)
+    private bool AddDiagnostic(AcquisitionDiagnosticKind kind, string path, string message)
     {
         var diagnostic = new AcquisitionDiagnostic(kind, path, message);
         if (!_diagnostics.Contains(diagnostic))
         {
             _diagnostics.Add(diagnostic);
+            return true;
         }
+
+        return false;
     }
 
     /// <summary>
@@ -285,10 +288,12 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
 
         public void ReportSkipped(Location location)
         {
-            _owner.SkippedContractCount++;
             var lineSpan = location.GetLineSpan();
-            _owner.AddDiagnostic(AcquisitionDiagnosticKind.SkippedByAttribute, RelativePath(RepoRoot, lineSpan.Path),
-                $"SQL call site at line {lineSpan.StartLinePosition.Line + 1} skipped by [SkipContractCheck] (span {location.SourceSpan.Start})");
+            if (_owner.AddDiagnostic(AcquisitionDiagnosticKind.SkippedByAttribute, RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL call site at line {lineSpan.StartLinePosition.Line + 1} skipped by [SkipContractCheck] (span {location.SourceSpan.Start})"))
+            {
+                _owner.SkippedContractCount++;
+            }
         }
 
         public void ReportUnresolvedSql(Location location)
@@ -296,6 +301,13 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
             var lineSpan = location.GetLineSpan();
             _owner.AddDiagnostic(AcquisitionDiagnosticKind.UnresolvedSqlValue, RelativePath(RepoRoot, lineSpan.Path),
                 $"SQL argument at line {lineSpan.StartLinePosition.Line + 1} (span {location.SourceSpan.Start}) cannot be resolved by the supported source model; extraction is incomplete");
+        }
+
+        public void ReportUnknownMemberSql(Location location)
+        {
+            var lineSpan = location.GetLineSpan();
+            _owner.AddDiagnostic(AcquisitionDiagnosticKind.UnresolvedSqlValue, RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL value at line {lineSpan.StartLinePosition.Line + 1} (span {location.SourceSpan.Start}) depends on a field or property whose runtime value is not proved constant; extraction is incomplete");
         }
 
         /// <summary>

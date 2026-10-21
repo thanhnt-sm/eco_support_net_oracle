@@ -6,8 +6,10 @@ namespace DataGuard.Core.Tests;
 
 public sealed class IdeAcquisitionSummaryProcessTests
 {
-    [Fact]
-    public void IdeSafeSummary_WithLoadedEfGroundTruthAndSourceGap_ProducesWarningCompletion()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IdeSafeSummary_WithLoadedEfGroundTruthAndSourceGap_ProducesWarningCompletion(bool memberGap)
     {
         var directory = Directory.CreateTempSubdirectory("dg-ide-acquisition-summary-").FullName;
         try
@@ -17,14 +19,13 @@ public sealed class IdeAcquisitionSummaryProcessTests
                 public class Connection { public void Query<T>(string sql) {} }
                 public class Repo
                 {
+                    string memberSql = "SELECT Id, Name FROM Customers";
                     public void Load(Connection connection, string input)
                     {
-                        var sql = "SELECT Id, Name FROM Customers";
-                        sql = input;
-                        connection.Query<Customer>(sql);
+                        BODY
                     }
                 }
-                """);
+                """.Replace("BODY", memberGap ? "connection.Query<Customer>(memberSql);" : "var sql = \"SELECT Id, Name FROM Customers\"; sql = input; connection.Query<Customer>(sql);", StringComparison.Ordinal));
             var snapshot = Path.Combine(directory, "AppModelSnapshot.cs");
             File.WriteAllText(snapshot, """
                 class Snapshot
