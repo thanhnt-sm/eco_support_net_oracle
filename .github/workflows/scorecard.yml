@@ -54,10 +54,12 @@ jobs:
 
   analysis:
     name: Scorecard analysis
+    timeout-minutes: 20
     needs: readiness
     if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
     outputs:
-      artifact_id: ${{ steps.report.outputs.artifact-id }}
+      artifact_id: ${{ steps.scan.outcome == 'success' && steps.report.outputs.artifact-id || steps.retry_report.outputs.artifact-id }}
+      scan_outcome: ${{ steps.scan.outcome == 'success' && steps.scan.outcome || steps.retry.outcome }}
     runs-on: ubuntu-latest
     permissions:
       # Needed for GitHub OIDC token if publish_results is true.
@@ -78,7 +80,10 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Run analysis
+      # Native bounded retry: no shell or unapproved retry action in this OIDC job.
+      - name: Run analysis (attempt 1 of 2)
+        id: scan
+        continue-on-error: true
         uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
         with:
           results_file: results.sarif
@@ -91,17 +96,50 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: scorecard-report-${{ github.run_id }}-${{ github.run_attempt }}
+          name: scorecard-report-${{ github.run_id }}-${{ github.run_attempt }}-scan-1
           path: |
             results.json
             results.sarif
-          if-no-files-found: error
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Checkout removes untracked reports only AFTER originals have been retained.
+      # success() prevents retry from hiding a failed evidence upload or checkout.
+      - name: Clean workspace for the final attempt
+        id: retry_checkout
+        if: ${{ success() && steps.scan.outcome == 'failure' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          clean: true
+
+      - name: Run analysis (attempt 2 of 2)
+        id: retry
+        if: ${{ success() && steps.scan.outcome == 'failure' }}
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Retain final attempt reports
+        id: retry_report
+        if: ${{ !cancelled() && steps.retry.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scorecard-report-${{ github.run_id }}-${{ github.run_attempt }}-scan-2
+          path: |
+            results.json
+            results.sarif
+          if-no-files-found: ignore
           retention-days: 7
 
   verify-report:
     name: Verify actual scanned revision
     needs: [readiness, analysis]
-    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.analysis.outputs.artifact_id != '' }}
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -116,7 +154,8 @@ jobs:
           repository: ${{ github.repository }}
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: ${{ needs.analysis.outputs.artifact_id != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.analysis.outputs.artifact_id }}
           path: ${{ runner.temp }}/scorecard-report
@@ -125,16 +164,17 @@ jobs:
       - name: Validate metadata without rewriting reports
         id: metadata
         env:
+          SCAN_OUTCOME: ${{ needs.analysis.outputs.scan_outcome }}
           EXPECTED_SHA: ${{ needs.readiness.outputs.sample_sha }}
         run: >-
           python3 scripts/verify_scorecard_report.py
-          --repo "$GITHUB_REPOSITORY" --expected-sha "$EXPECTED_SHA"
+          --repo "$GITHUB_REPOSITORY" --expected-sha "$EXPECTED_SHA" --scan-outcome "$SCAN_OUTCOME"
           --directory "$RUNNER_TEMP/scorecard-report"
 
   upload-sarif:
     name: Upload report at actual scanned revision
     needs: [analysis, verify-report]
-    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.analysis.result == 'success' && needs.verify-report.outputs.valid == 'true' }}
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.analysis.result == 'success' && needs.verify-report.result == 'success' && needs.verify-report.outputs.valid == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

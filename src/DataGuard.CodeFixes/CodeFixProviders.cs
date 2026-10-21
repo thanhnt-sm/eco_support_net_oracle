@@ -89,8 +89,9 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var diagnosticSpan = diagnostic.Location.SourceSpan;
         var literal = FindStringLiteral(root, diagnosticSpan);
 
-        if (literal == null)
+        if (literal == null || !literal.Span.Contains(diagnosticSpan))
         {
+            // A diagnostic over composed SQL cannot safely rewrite one contained literal.
             return;
         }
 

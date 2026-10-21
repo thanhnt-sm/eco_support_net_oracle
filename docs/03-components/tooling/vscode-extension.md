@@ -30,6 +30,8 @@ Batch commands read saved files. A newer command replaces the active run after w
 
 Read **Output > DataGuard**, Problems and the status tooltip together. The status bar uses idle/running/warning/error icons; clicking it runs validation. A syntactic-only result means no database ground truth was compared. Zero findings does not prove schema compatibility, and unsupported or unevaluated contracts must remain visible in the summary. `--ide-safe` implies allowance for unevaluated contracts at the CLI exit-code layer; do not infer completeness from exit code zero.
 
+When a completed validation summary reports a positive `AcquisitionDiagnosticCount`, the completion explanation warns that source acquisition left gaps, even with loaded ground truth and zero rule errors or warnings. The status text adds `acquisition diagnostics N` separately from rule counts; consult the `ACQUISITION` output lines. A zero or absent count keeps the existing behavior, including intentional skips already excluded by the CLI. Cancellation, timeout and error explanations retain precedence. Visual Studio uses the same completion and status policy. See the [acquisition summary regression plan](../../../plans/2026-10-21-ide-acquisition-summary.md) for verification boundaries.
+
 ## Configuration and credential boundaries
 
 | Setting | Default and scope |
@@ -68,3 +70,23 @@ The behavior above is grounded in `src/DataGuard.VSCode/package.json`, `src/exte
 From `src/DataGuard.VSCode`, use `npm ci`, `npm run compile`, `npm test` and `npm run test:coverage` for local compilation and automated tests. Mocked VS Code API/process tests and synthetic fixtures do not establish real editor-host, Windows process-tree, VSIX installation or live-database behavior. Run `npm run test:extension-host` separately with `VSCODE_EXECUTABLE_PATH` pointing to a local VS Code executable; the script fails if none is available.
 
 This documentation reconciliation inspected source only and did not run editor-host or platform tests. Existing execution records are in the [IDE behavior plan](../../../plans/261015-ide-behavior/plan.md) and [extension lifecycle plan](../../../plans/261016-extension-lifecycle/plan.md); they are historical evidence, not a new test result or a publication authorization.
+
+## Language-server protocol regression scope
+
+The full-text language server treats an empty `didChange.contentChanges` array as no content replacement and preserves queued diagnostics. It does not publish document versions or negotiate non-UTF-16 position encodings. Diagnostic line indexing accepts CR, LF and CRLF, with UTF-16 character offsets (including surrogate pairs); this does not expand the C# literal scanner's supported newline grammar.
+
+`LanguageServerLifecycleTests` exercises these behaviors through a real local subprocess using synthetic SQL, including mixed line endings, tabs and an emoji. It does not establish editor-host compatibility, race-free diagnostic publication or complete LSP conformance. See the [protocol regression plan](../../../plans/2026-10-20-lsp-protocol-regressions.md) for evidence and deferred findings.
+
+## Classifier handling of escaped identifiers and malformed prefixes
+
+The shared syntax classifier keeps doubled closing delimiters inside bracket, double-quoted and backtick identifiers, decodes them for displayed names. Existing trimming of quoted names remains because C# escape masking introduces padding; preserving significant leading/trailing identifier whitespace needs a separate source-mapping change. Quoted keyword text therefore remains part of the identifier. SQL strings and comments remain excluded from statement detection. This lexer does not resolve dialect/session settings or establish that a statement is valid SQL.
+
+The C# literal scanner skips an unsuccessful dollar prefix once, including inside interpolation holes, while preserving later literal offsets. It still recognizes regular, verbatim, interpolated and raw literals; multiple dollars remain supported for raw interpolation. This bounds the repaired prefix-retry path, not every possible malformed/nested input. See the [classifier hardening plan](../../../plans/2026-10-20-classifier-hardening.md) for regression and operation-count evidence.
+
+## Constant C# composition in CLI-backed validation
+
+Project extraction used by the CLI now resolves metadata-bound `System.String.Concat` overloads with two to four string arguments when every argument is a compiler string/null constant or another supported `Concat`. It respects named-argument parameter order, treats null as empty, and retains SQL-to-C# source locations. Plain literal characters map exactly; escaped/raw literals and folded constants can map to their containing expression. Resolution is bounded by depth and the 256 KiB SQL text limit; no application methods are executed.
+
+Command validation uses Core extraction. The separately packaged Roslyn analyzer now shares the constant-Concat evaluator for direct EF raw-SQL arguments, including SELECT-star and existing column-shape diagnostics. It reports the whole composed expression; the SELECT-star codefix is withheld because rewriting a single fragment would be unsafe. This typing slice does not cover Dapper Concat, local-variable dataflow, generator diagnostics, or the lightweight VS Code LSP. The LSP remains literal-based. Dynamic Concat arguments, object/array/enumerable overloads, Format and StringBuilder remain unresolved. Here “Unknown” means the resolver returns no SQL; there is not yet a new Unknown status in the extension UI. No extracted query or no diagnostic does not mean SQL was validated. Existing dynamic `+`/interpolation placeholders are partial templates, not guaranteed SQL structure.
+
+Supported extracted queries retain target-property metadata for existing offline checks. Dapper property completeness, EF mapped-property requirements and explicit ADO reader-column use have different semantics; this slice does not make every DTO property mandatory or add live verification. Reassignment-aware local flow, projection confidence and reader-consumption analysis remain gaps. See the [composition plan](../../../plans/2026-10-20-csharp-sql-composition.md).

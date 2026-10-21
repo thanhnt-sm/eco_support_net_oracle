@@ -205,6 +205,11 @@ export function explainCliExit(
         return appendUnevaluated("[WARN] Validation found errors. See Error List. Ground truth was not loaded (syntactic only).", progress);
     }
 
+    // Acquisition gaps are separate from rule findings, even when ground truth was loaded.
+    if (exitCode === 0 && hasSummary && (progress.acquisitionDiagnosticCount ?? 0) > 0) {
+        return appendUnevaluated(`[WARN] Validation incomplete: ${progress.acquisitionDiagnosticCount} source acquisition diagnostic(s) (see ACQUISITION lines).`, progress);
+    }
+
     if (exitCode === 0 && hasSummary && progress.warningCount > 0) {
         return appendUnevaluated("[WARN] Validation completed with warnings. See Error List.", progress);
     }
@@ -222,12 +227,15 @@ export function explainCliExit(
     return appendUnevaluated(explanation ?? `Unexpected exit code ${exitCode ?? "unknown"}.`, progress);
 }
 
-/** Status-bar text after a run: the counts, prefixed with "syntactic only" when no ground truth was compared. */
+/** Status-bar text with rule and acquisition counts, prefixed with "syntactic only" when no ground truth was compared. */
 export function describeCliStatus(progress: CliProgressSummary): string {
     if (!progress.hasSummary) {
         return "DataGuard: Result summary unavailable";
     }
-    const counts = `${progress.errorCount} errors, ${progress.warningCount} warnings`;
+    let counts = `${progress.errorCount} errors, ${progress.warningCount} warnings`;
+    if ((progress.acquisitionDiagnosticCount ?? 0) > 0) {
+        counts += `; acquisition diagnostics ${progress.acquisitionDiagnosticCount}`;
+    }
     return progress.groundTruthMissing
         ? `DataGuard: syntactic only (${counts})`
         : `DataGuard: ${counts}`;

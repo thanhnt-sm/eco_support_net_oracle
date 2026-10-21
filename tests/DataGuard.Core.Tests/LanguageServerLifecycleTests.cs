@@ -144,6 +144,101 @@ public sealed class LanguageServerLifecycleTests
         }
     }
 
+    [Theory]
+    [InlineData("\r", 1)]
+    [InlineData("\n", 1)]
+    [InlineData("\r\n", 1)]
+    [InlineData("\r\n\r\n", 2)]
+    [InlineData("\n\r", 2)]
+    [InlineData("\r\n\n\r", 3)]
+    public async Task DocumentOpen_LineEndingsAndUtf16_ProduceExactTokenRange(string lineEndings, int line)
+    {
+        using var process = StartServer();
+        try
+        {
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "initialize",
+                @params = new { capabilities = new { } },
+            });
+            using var initialized = await ReadJsonRpcAsync(process.StandardOutput.BaseStream);
+            var text = "/*first*/" + lineEndings + "\t/*😀*/ SELECT * FROM Items";
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                @params = new { textDocument = new { uri = "file:///synthetic.sql", text, version = 1 } },
+            });
+            using var reply = await ReadJsonRpcAsync(process.StandardOutput.BaseStream);
+            var diagnostic = reply.RootElement.GetProperty("params").GetProperty("diagnostics").EnumerateArray().Single();
+            diagnostic.GetProperty("code").GetString().Should().Be("DG017");
+            var range = diagnostic.GetProperty("range");
+            range.GetProperty("start").GetProperty("line").GetInt32().Should().Be(line);
+            range.GetProperty("end").GetProperty("line").GetInt32().Should().Be(line);
+
+            // Tab is one UTF-16 unit and the supplementary emoji is two; SELECT is six.
+            range.GetProperty("start").GetProperty("character").GetInt32().Should().Be(8);
+            range.GetProperty("end").GetProperty("character").GetInt32().Should().Be(14);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DocumentChange_EmptyChanges_PreservesPendingDiagnosticAndSession()
+    {
+        using var process = StartServer();
+        try
+        {
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "initialize",
+                @params = new { capabilities = new { } },
+            });
+            using var initialized = await ReadJsonRpcAsync(process.StandardOutput.BaseStream);
+            const string uri = "file:///synthetic.sql";
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                @params = new { textDocument = new { uri, text = "SELECT * FROM Items", version = 1 } },
+            });
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didChange",
+                @params = new { textDocument = new { uri, version = 2 }, contentChanges = Array.Empty<object>() },
+            });
+            using var reply = await ReadJsonRpcAsync(process.StandardOutput.BaseStream);
+            var diagnostic = reply.RootElement.GetProperty("params").GetProperty("diagnostics").EnumerateArray().Single();
+            diagnostic.GetProperty("code").GetString().Should().Be("DG017");
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new { jsonrpc = "2.0", id = 7, method = "shutdown" });
+            using var shutdownReply = await ReadJsonRpcAsync(process.StandardOutput.BaseStream);
+            shutdownReply.RootElement.GetProperty("id").GetInt32().Should().Be(7);
+            shutdownReply.RootElement.GetProperty("result").ValueKind.Should().Be(JsonValueKind.Null);
+            await SendJsonRpcAsync(process.StandardInput.BaseStream, new { jsonrpc = "2.0", method = "exit" });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync(timeout.Token);
+            process.ExitCode.Should().Be(0);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+    }
+
     private static Process StartServer()
     {
         File.Exists(LanguageServerDllPath).Should().BeTrue($"LanguageServer DLL must exist at {LanguageServerDllPath}");

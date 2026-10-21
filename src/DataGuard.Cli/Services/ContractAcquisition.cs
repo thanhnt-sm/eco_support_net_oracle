@@ -50,6 +50,11 @@ internal static class ContractAcquisition
                 return new(ContractAcquisitionStatus.Incomplete, contracts, "snapshot contains no persisted schema", sourceDiagnostics);
             }
 
+            if (sourceDiagnostics.Any(d => d.Kind != AcquisitionDiagnosticKind.SkippedByAttribute))
+            {
+                return new(ContractAcquisitionStatus.Incomplete, contracts, "source acquisition is incomplete", sourceDiagnostics);
+            }
+
             return ContractAcquisitionResult.Complete(contracts, sourceDiagnostics);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

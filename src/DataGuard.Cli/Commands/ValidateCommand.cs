@@ -35,6 +35,7 @@ internal static class ValidateCommand
         var skipRulesOption = options.SkipRulesOption;
         var progressOption = options.ProgressOption;
         var projectOption = options.ProjectOption;
+        var scopeFileOption = new Option<string>("--scope-file") { Description = "Report findings for one C# file relative to --project; full context still validated (text only)" };
         var ideSafeOption = options.IdeSafeOption;
         var failOnUnavailableOption = options.FailOnUnavailableOption;
         var allowSyntacticOnlyOption = options.AllowSyntacticOnlyOption;
@@ -46,7 +47,7 @@ internal static class ValidateCommand
 
         var validateCommand = new Command("validate", "Validate contracts against database")
         {
-            connectionOption, connectionEnvOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, allowAssemblyFromConfigOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption, pluginsDirOption,
+            scopeFileOption, connectionOption, connectionEnvOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, allowAssemblyFromConfigOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption, pluginsDirOption,
         };
 
         validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -86,6 +87,12 @@ internal static class ValidateCommand
                     Environment.ExitCode = 2;
                     return;
                 }
+            }
+
+            if (!ScopedReporting.TryResolve(result.GetValue(scopeFileOption), projectPath, format, verbose, out var scopeFile))
+            {
+                Environment.ExitCode = 2;
+                return;
             }
 
             if (!string.IsNullOrWhiteSpace(pluginsDirectory) && !Directory.Exists(pluginsDirectory))
@@ -337,17 +344,26 @@ internal static class ValidateCommand
                     Console.WriteLine();
                 }
 
-                if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0)
+                if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0 && acquisitionDiagnostics.Count == 0)
                 {
                     Console.Error.WriteLine($"UNEVALUATED: contract acquisition {acquisition.Status.ToString().ToLowerInvariant()}: {acquisition.Message}");
                     Environment.ExitCode = 3;
                     return;
                 }
 
+                // Print source gaps even when no query could be extracted or an export format returns early.
+                // Repository-controlled paths are escaped before entering the line-oriented host protocol.
+                var workspaceRoot = Directory.GetCurrentDirectory();
+                foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
+                {
+                    Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(RelativizeToWorkspace(workspaceRoot, diagnostic.Path))}: {EscapeControlCharacters(diagnostic.Message)}");
+                }
+
                 if (normalizedFormat == "contracts")
                 {
                     await ContractExportWriter.WriteJsonAsync(output!, provider, contracts, ct);
                     Console.WriteLine($"Contracts exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -355,6 +371,7 @@ internal static class ValidateCommand
                 {
                     await ContractExportWriter.WriteYamlAsync(output!, provider, contracts, ct);
                     Console.WriteLine($"Contracts exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -362,6 +379,7 @@ internal static class ValidateCommand
                 {
                     await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>(), ct);
                     Console.WriteLine($"TypeScript DTOs exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -450,11 +468,19 @@ internal static class ValidateCommand
                     new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
                 var validation = await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress, pluginRules);
                 var violations = validation.Violations;
+                if (scopeFile is not null && !contracts.Any(c => ScopedReporting.Matches(c.Location, scopeFile)))
+                {
+                    Console.Error.WriteLine("--scope-file matched no extracted contract location; no scoped report was produced.");
+                    Environment.ExitCode = 2;
+                    return;
+                }
+
+                var reportedViolations = ScopedReporting.Select(violations, scopeFile);
                 if (normalizedFormat == "text")
                 {
                     var emitter = new DiagnosticEmitter();
                     emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
-                    await emitter.EmitAsync(violations, ct);
+                    await emitter.EmitAsync(reportedViolations, ct);
                 }
                 else if (normalizedFormat == "sarif")
                 {
@@ -505,16 +531,6 @@ internal static class ValidateCommand
 
                 WriteUnevaluated(unevaluated, string.Empty);
 
-                // An oversized literal was already reported once by the extractor ("[WARN] DG1291 ..."); it still makes
-                // the result incomplete below, but is not printed a second time.
-                // Paths are repository-controlled file names: relative to the workspace and control-character escaped so a
-                // file name cannot forge a line start for a host that parses stderr line by line.
-                var workspaceRoot = Directory.GetCurrentDirectory();
-                foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
-                {
-                    Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(RelativizeToWorkspace(workspaceRoot, diagnostic.Path))}: {EscapeControlCharacters(diagnostic.Message)}");
-                }
-
                 if (verbose)
                 {
                     Console.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings, {unavailableOutcomes.Count} rules not evaluated, {unevaluated.Count} contracts not evaluated)");
@@ -529,6 +545,27 @@ internal static class ValidateCommand
                 else
                 {
                     Environment.ExitCode = hasErrors ? 1 : 0;
+                }
+
+                if (scopeFile is not null)
+                {
+                    Console.Error.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        kind = "scopeReport",
+                        version = 1,
+                        file = Path.GetRelativePath(Directory.GetCurrentDirectory(), scopeFile),
+                        analysisBoundary = "full-configured-context",
+                        reportingBoundary = "selected-file-and-unlocated-findings",
+                        dependencyCompleteness = "not-established",
+                        exitCodeScope = "full-context",
+                        reportedFindings = reportedViolations.Count,
+                        fullContextFindings = violations.Count,
+                        hiddenLocatedFindings = violations.Count - reportedViolations.Count,
+                        hasUnevaluated,
+                        unavailableRules = unavailableOutcomes.Count,
+                        groundTruth = groundTruthKind,
+                        exitCode = Environment.ExitCode,
+                    }));
                 }
 
                 progress?.Emit(new ProgressEvent(

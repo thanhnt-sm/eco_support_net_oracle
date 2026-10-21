@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using System.Diagnostics;
+using DataGuard.Core.Telemetry;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules;
 
@@ -337,7 +339,22 @@ public static class GraphValidationExecutor
     /// Runs every rule of <paramref name="graph"/> in execution order, one contract at a time. A rule that throws is
     /// recorded as <see cref="RuleExecutionState.Failed"/> (the result is incomplete); cancellation propagates.
     /// </summary>
-    public static async Task<ValidationExecutionResult> ValidateSequentialAsync(
+    public static Task<ValidationExecutionResult> ValidateSequentialAsync(
+        RuleDependencyGraph graph,
+        IReadOnlyList<ContractDescriptor> contracts,
+        int maxViolationQueueSize,
+        CancellationToken cancellationToken = default)
+    {
+        var trace = ValidationTrace.Log;
+        var id = trace.TryBegin(contracts, false);
+        if (id == 0)
+        {
+            return ValidateSequentialCoreAsync(graph, contracts, maxViolationQueueSize, cancellationToken);
+        }
+        return ValidateTracedAsync(graph, contracts, false, 1, maxViolationQueueSize, cancellationToken, id);
+    }
+
+    private static async Task<ValidationExecutionResult> ValidateSequentialCoreAsync(
         RuleDependencyGraph graph,
         IReadOnlyList<ContractDescriptor> contracts,
         int maxViolationQueueSize,
@@ -399,7 +416,66 @@ public static class GraphValidationExecutor
     }
 
     /// <summary>Runs <paramref name="graph"/> level by level with bounded concurrency inside each level.</summary>
-    public static async Task<ValidationExecutionResult> ValidateAsync(
+    public static Task<ValidationExecutionResult> ValidateAsync(
+        RuleDependencyGraph graph,
+        IReadOnlyList<ContractDescriptor> contracts,
+        int maxDegreeOfParallelism,
+        int maxViolationQueueSize,
+        CancellationToken cancellationToken = default)
+    {
+        var trace = ValidationTrace.Log;
+        var id = trace.TryBegin(contracts, true);
+        if (id == 0)
+        {
+            return ValidateConcurrentCoreAsync(graph, contracts, maxDegreeOfParallelism, maxViolationQueueSize, cancellationToken);
+        }
+        return ValidateTracedAsync(graph, contracts, true, maxDegreeOfParallelism, maxViolationQueueSize, cancellationToken, id);
+    }
+
+    private static async Task<ValidationExecutionResult> ValidateTracedAsync(
+        RuleDependencyGraph graph, IReadOnlyList<ContractDescriptor> contracts, bool concurrent,
+        int maxDegreeOfParallelism, int maxViolationQueueSize, CancellationToken cancellationToken, long id)
+    {
+        var trace = ValidationTrace.Log;
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            var result = concurrent
+                ? await ValidateConcurrentCoreAsync(graph, contracts!, maxDegreeOfParallelism, maxViolationQueueSize, cancellationToken).ConfigureAwait(false)
+                : await ValidateSequentialCoreAsync(graph, contracts!, maxViolationQueueSize, cancellationToken).ConfigureAwait(false);
+            if (id != 0)
+            {
+                trace.End(id, started, result.IsIncomplete || result.UnevaluatedContracts.Count > 0 ? 1 : 0, result);
+            }
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (id != 0)
+            {
+                trace.End(id, started, 2);
+            }
+            throw;
+        }
+        catch (TimeoutException)
+        {
+            if (id != 0)
+            {
+                trace.End(id, started, 3);
+            }
+            throw;
+        }
+        catch (Exception)
+        {
+            if (id != 0)
+            {
+                trace.End(id, started, 4);
+            }
+            throw;
+        }
+    }
+
+    private static async Task<ValidationExecutionResult> ValidateConcurrentCoreAsync(
         RuleDependencyGraph graph,
         IReadOnlyList<ContractDescriptor> contracts,
         int maxDegreeOfParallelism,

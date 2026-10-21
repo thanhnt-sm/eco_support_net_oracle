@@ -8,6 +8,93 @@ public sealed class SqlClassifierTests
 {
     private static readonly Uri Document = new("file:///tmp/query.sql");
 
+    [Theory]
+    [InlineData("[Orders]]DELETE FROM Fake]", "Orders]DELETE FROM Fake")]
+    [InlineData("[a]]]]b]", "a]]b")]
+    [InlineData("[sales]]region].[Orders]]archive]", "sales]region.Orders]archive")]
+    [InlineData("[a[b]", "a[b")]
+    [InlineData("[Orders]]--DELETE /* FROM */ Fake]", "Orders]--DELETE /* FROM */ Fake")]
+    [InlineData("\"Orders\"\"DELETE FROM Fake\"", "Orders\"DELETE FROM Fake")]
+    [InlineData("`Orders``DELETE FROM Fake`", "Orders`DELETE FROM Fake")]
+    public void Classify_EscapedIdentifiers_StaySingleTokensWithExactNames(string identifier, string expected)
+    {
+        var sql = "SELECT * FROM " + identifier + " WHERE Note = 'DELETE FROM Hidden' /* UPDATE Hidden */";
+
+        var select = SqlClassifier.Classify(sql, Document, "1").Should().ContainSingle().Which;
+
+        select.Kind.Should().Be("SELECT");
+        select.Table.Should().Be(expected);
+        select.Start.Should().Be(0);
+        select.Length.Should().Be(6);
+        select.IsSelectStar.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Classify_EscapedIdentifier_DoesNotSwallowFollowingStatement(bool csharp)
+    {
+        const string sql = "SELECT * FROM [Orders]]archive]; DELETE FROM [Old]]Orders]";
+        var source = csharp ? "var sql = \"" + sql + "\";" : sql;
+        var result = csharp
+            ? SqlClassifier.ClassifyCSharp(source, Document, "1")
+            : SqlClassifier.Classify(source, Document, "1");
+
+        result.Select(item => item.Kind).Should().Equal("SELECT", "DELETE");
+        result.Select(item => item.Table).Should().Equal("Orders]archive", "Old]Orders");
+        result[1].Start.Should().Be(source.IndexOf("DELETE", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("\"SELECT * FROM Orders\"")]
+    [InlineData("@\"SELECT * FROM Orders\"")]
+    [InlineData("$\"SELECT * FROM Orders WHERE Id = {id}\"")]
+    [InlineData("$@\"SELECT * FROM Orders WHERE Id = {id}\"")]
+    [InlineData("@$\"SELECT * FROM Orders WHERE Id = {id}\"")]
+    [InlineData("\"\"\"SELECT * FROM Orders\"\"\"")]
+    [InlineData("$$\"\"\"SELECT * FROM Orders WHERE Id = {{id}}\"\"\"")]
+    public void ClassifyCSharp_MalformedDollarPrefix_PreservesLaterLiteralAndOffset(string literal)
+    {
+        var source = new string('$', 8192) + "@$; /* SELECT * FROM Hidden */ var sql = " + literal + ";";
+
+        var select = SqlClassifier.ClassifyCSharp(source, Document, "1").Should().ContainSingle().Which;
+
+        select.Table.Should().Be("Orders");
+        select.Start.Should().Be(source.IndexOf("SELECT * FROM Orders", StringComparison.Ordinal));
+        select.Length.Should().Be(6);
+    }
+
+    [Theory]
+    [InlineData("$\"SELECT * FROM Orders WHERE Id = {", "}\"")]
+    [InlineData("$@\"SELECT * FROM Orders WHERE Id = {", "}\"")]
+    [InlineData("$$\"\"\"SELECT * FROM Orders WHERE Id = {{", "}}\"\"\"")]
+    public void ClassifyCSharp_MalformedDollarPrefixInHole_PreservesLaterLiteral(string opening, string closing)
+    {
+        var source = "var a = " + opening + new string('$', 8192) + "; \"DELETE FROM Hidden\"" + closing +
+            "; var b = \"SELECT * FROM Later\";";
+
+        var result = SqlClassifier.ClassifyCSharp(source, Document, "1");
+
+        result.Select(item => item.Table).Should().Equal("Orders", "Later");
+        foreach (var item in result)
+        {
+            source.Substring(item.Start, item.Length).Should().Be("SELECT");
+        }
+    }
+
+    [Theory]
+    [InlineData("@$@\"SELECT {DELETE FROM Hidden} FROM Orders\"")]
+    [InlineData("$@$$$@\"SELECT {DELETE FROM Hidden} FROM Orders\"")]
+    public void ClassifyCSharp_OverlappingMalformedPrefix_PreservesInterpolationMasking(string source)
+    {
+        var select = SqlClassifier.ClassifyCSharp(source, Document, "1").Should().ContainSingle().Which;
+
+        select.Kind.Should().Be("SELECT");
+        select.Table.Should().Be("Orders");
+        select.Start.Should().Be(source.IndexOf("SELECT", StringComparison.Ordinal));
+        select.IsSelectStar.Should().BeFalse();
+    }
+
     [Fact]
     public void ClassifyCSharp_RecognizesKeywordsWithWordBoundariesAndStableOffsets()
     {

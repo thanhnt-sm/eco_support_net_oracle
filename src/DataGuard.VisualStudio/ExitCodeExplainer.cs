@@ -51,6 +51,14 @@ internal static class ExitCodeExplainer
             return AppendUnevaluated("[WARN] Validation found errors. See Error List. Ground truth was not loaded (syntactic only).", progress);
         }
 
+        // Acquisition gaps are separate from rule findings, even when ground truth was loaded.
+        if (exitCode == 0 && hasSummary && progress.AcquisitionDiagnosticCount > 0)
+        {
+            var acquisitionWarning = "[WARN] Validation incomplete: " + progress.AcquisitionDiagnosticCount.Value +
+                " source acquisition diagnostic(s) (see ACQUISITION lines).";
+            return AppendUnevaluated(acquisitionWarning, progress);
+        }
+
         if (exitCode == 0 && hasSummary && progress.WarningCount > 0)
         {
             return AppendUnevaluated("[WARN] Validation completed with warnings. See Error List.", progress);
@@ -70,7 +78,7 @@ internal static class ExitCodeExplainer
         return AppendUnevaluated(explanation ?? "Unexpected exit code " + exitCode + ".", progress);
     }
 
-    /// <summary>Status-bar text after a run: the counts, prefixed with "syntactic only" when no ground truth was compared.</summary>
+    /// <summary>Status-bar text with rule and acquisition counts, prefixed with "syntactic only" when no ground truth was compared.</summary>
     internal static string DescribeStatus(ProgressReadResult progress)
     {
         if (!progress.HasSummary)
@@ -79,6 +87,11 @@ internal static class ExitCodeExplainer
         }
 
         var counts = progress.ErrorCount + " errors, " + progress.WarningCount + " warnings";
+        if (progress.AcquisitionDiagnosticCount > 0)
+        {
+            counts += "; acquisition diagnostics " + progress.AcquisitionDiagnosticCount.Value;
+        }
+
         return progress.GroundTruthMissing
             ? "DataGuard: syntactic only (" + counts + ")"
             : "DataGuard: " + counts;

@@ -9,26 +9,28 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
-using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Threading;
 using Task = System.Threading.Tasks.Task;
 
-/// <summary>Writes to the "DataGuard" Output pane and the status bar; mirrors every line to the log file.</summary>
+/// <summary>Writes to the "StackAccord (Beta)" Output pane and the status bar; mirrors every line to the log file.</summary>
 internal sealed class OutputPaneWriter
 {
     private const string Separator = "========================================================================\r\n";
     private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
 
-    private readonly AsyncPackage package;
+    private readonly JoinableTaskFactory joinableTaskFactory;
+    private readonly Func<Type, Task<object?>> getServiceAsync;
 
-    public OutputPaneWriter(AsyncPackage package)
+    public OutputPaneWriter(JoinableTaskFactory joinableTaskFactory, Func<Type, Task<object?>> getServiceAsync)
     {
-        this.package = package ?? throw new ArgumentNullException(nameof(package));
+        this.joinableTaskFactory = joinableTaskFactory ?? throw new ArgumentNullException(nameof(joinableTaskFactory));
+        this.getServiceAsync = getServiceAsync ?? throw new ArgumentNullException(nameof(getServiceAsync));
     }
 
     public async Task ActivateAsync()
     {
-        await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
+        await this.joinableTaskFactory.SwitchToMainThreadAsync();
         var pane = await this.GetPaneAsync();
         pane?.Activate();
     }
@@ -37,7 +39,7 @@ internal sealed class OutputPaneWriter
     {
         text = DataGuardLogger.Redact(text) + "\r\n";
         DataGuardLogger.LogInfo(text.TrimEnd('\r', '\n'));
-        await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
+        await this.joinableTaskFactory.SwitchToMainThreadAsync();
         var pane = await this.GetPaneAsync();
         pane?.OutputStringThreadSafe(text);
     }
@@ -52,7 +54,7 @@ internal sealed class OutputPaneWriter
 
         lines = lines.Select(line => DataGuardLogger.Redact(line) + "\r\n").ToArray();
         DataGuardLogger.LogInfoBatch(lines.Select(line => line.TrimEnd('\r', '\n')));
-        await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
+        await this.joinableTaskFactory.SwitchToMainThreadAsync();
         var pane = await this.GetPaneAsync();
         pane?.OutputStringThreadSafe(string.Concat(lines));
     }
@@ -61,8 +63,8 @@ internal sealed class OutputPaneWriter
     {
         try
         {
-            await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var statusBar = await this.package.GetServiceAsync(typeof(SVsStatusbar)) as IVsStatusbar;
+            await this.joinableTaskFactory.SwitchToMainThreadAsync();
+            var statusBar = await this.getServiceAsync(typeof(SVsStatusbar)) as IVsStatusbar;
             statusBar?.SetText(DataGuardLogger.Redact(text));
         }
         catch
@@ -137,8 +139,8 @@ internal sealed class OutputPaneWriter
 
     private async Task<IVsOutputWindowPane?> GetPaneAsync()
     {
-        await this.package.JoinableTaskFactory.SwitchToMainThreadAsync();
-        var outputWindow = await this.package.GetServiceAsync(typeof(SVsOutputWindow)) as IVsOutputWindow;
+        await this.joinableTaskFactory.SwitchToMainThreadAsync();
+        var outputWindow = await this.getServiceAsync(typeof(SVsOutputWindow)) as IVsOutputWindow;
         if (outputWindow == null)
         {
             return null;

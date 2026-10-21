@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using DataGuard.Core.Abstractions;
+using DataGuard.SqlComposition;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace DataGuard.Core.Sources;
 
@@ -158,7 +160,7 @@ public sealed partial class ProjectCSharpSqlSource
         SemanticModel semanticModel,
         CancellationToken cancellationToken = default)
     {
-        return TryResolveStringCore(expression, semanticModel, cancellationToken, 0, null, null);
+        return ResolveSqlValue(expression, semanticModel, null, cancellationToken).Text;
     }
 
     /// <summary>
@@ -171,7 +173,41 @@ public sealed partial class ProjectCSharpSqlSource
         List<SqlHole>? holes,
         CancellationToken cancellationToken)
     {
-        return TryResolveStringCore(expression, semanticModel, cancellationToken, 0, null, holes);
+        return ResolveSqlValue(expression, semanticModel, holes, cancellationToken).Text;
+    }
+
+    private static SqlStringResolution ResolveSqlValue(
+        ExpressionSyntax expression, SemanticModel model, List<SqlHole>? holes, CancellationToken cancellationToken,
+        LocalValueStability? stability = null, SqlSourceMapBuilder? sourceMap = null)
+    {
+        var state = new StringResolutionState(stability ?? new LocalValueStability());
+        var text = TryResolveStringCore(expression, model, cancellationToken, 0, null, holes, state, sourceMap);
+        if (state.Rejection != SqlValueRejection.None)
+        {
+            holes?.Clear();
+            return new(null, state.Rejection, state.SqlEvidence);
+        }
+
+        return new(text, SqlValueRejection.None, false);
+    }
+
+    private enum SqlValueRejection
+    {
+        None,
+        UnstableLocal,
+        UnknownMember,
+    }
+
+    private readonly record struct SqlStringResolution(string? Text, SqlValueRejection Rejection, bool SqlEvidence, bool Oversized = false)
+    {
+        public bool IsRejected => Rejection != SqlValueRejection.None;
+    }
+
+    private sealed class StringResolutionState(LocalValueStability stability)
+    {
+        public LocalValueStability Stability { get; } = stability;
+        public SqlValueRejection Rejection { get; set; }
+        public bool SqlEvidence { get; set; }
     }
 
     private static string? TryResolveStringCore(
@@ -181,9 +217,11 @@ public sealed partial class ProjectCSharpSqlSource
         int depth,
         HashSet<SyntaxNode>? visited,
         List<SqlHole>? holes,
+        StringResolutionState state,
         SqlSourceMapBuilder? sourceMap = null)
     {
-        if (depth > 10)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (state.Rejection != SqlValueRejection.None || depth > 10)
         {
             return null;
         }
@@ -213,29 +251,72 @@ public sealed partial class ProjectCSharpSqlSource
             // 3. Interpolated string syntax
             if (expression is InterpolatedStringExpressionSyntax interpolated)
             {
-                return ConvertInterpolatedStringToSql(interpolated, semanticModel, cancellationToken, holes, sourceMap);
+                return ConvertInterpolatedStringToSql(interpolated, semanticModel, cancellationToken, depth, visited, holes, state, sourceMap);
             }
 
             // 4. Identifier reference (e.g. var sql = "..."; Query<T>(sql);)
             if (expression is IdentifierNameSyntax identifier)
             {
-                var resolved = ResolveIdentifierString(identifier, semanticModel, cancellationToken, depth, visited, holes, sourceMap);
+                var resolved = ResolveIdentifierString(identifier, semanticModel, cancellationToken, depth, visited, holes, state, sourceMap);
                 if (resolved != null)
                 {
                     return resolved;
                 }
             }
 
+            // Qualified access never grants permission to evaluate a receiver or follow a member initializer.
+            if (expression is MemberAccessExpressionSyntax or MemberBindingExpressionSyntax)
+            {
+                RejectUnprovedMember(expression, semanticModel, cancellationToken, state);
+                return null;
+            }
+
+            if (expression is ConditionalAccessExpressionSyntax conditional)
+            {
+                RejectUnprovedMember(conditional.WhenNotNull, semanticModel, cancellationToken, state);
+                return null;
+            }
+
             // Unwrap parenthesized expressions first (e.g. "A" + ("B" + "C"))
             if (expression is ParenthesizedExpressionSyntax parenthesized)
             {
-                return TryResolveStringCore(parenthesized.Expression, semanticModel, cancellationToken, depth + 1, visited, holes, sourceMap);
+                return TryResolveStringCore(parenthesized.Expression, semanticModel, cancellationToken, depth + 1, visited, holes, state, sourceMap);
+            }
+
+            if (expression is PostfixUnaryExpressionSyntax suppression && suppression.IsKind(SyntaxKind.SuppressNullableWarningExpression))
+            {
+                return TryResolveStringCore(suppression.Operand, semanticModel, cancellationToken, depth + 1, visited, holes, state, sourceMap);
+            }
+
+            // Probe built-in casts for rejection only. No cast, user conversion or application code is evaluated.
+            if (expression is CastExpressionSyntax cast &&
+                semanticModel.GetOperation(cast, cancellationToken) is IConversionOperation { OperatorMethod: null })
+            {
+                TryResolveStringCore(cast.Expression, semanticModel, cancellationToken, depth + 1, visited, null, state);
+                return null;
             }
 
             // 5. Binary add expression ("SELECT ... " + "FROM ...") - iteratively flattened to prevent StackOverflowException
             if (expression is BinaryExpressionSyntax binary && binary.IsKind(SyntaxKind.AddExpression))
             {
-                return ResolveConcatenation(binary, semanticModel, cancellationToken, depth, visited, holes, sourceMap);
+                return ResolveConcatenation(binary, semanticModel, cancellationToken, depth, visited, holes, state, sourceMap);
+            }
+
+            if (expression is InvocationExpressionSyntax &&
+                semanticModel.GetOperation(expression, cancellationToken) is IInvocationOperation invocation)
+            {
+                var resolved = ResolveConstantConcat(invocation, cancellationToken, depth, sourceMap);
+                if (resolved is null && invocation.TargetMethod.ContainingType.SpecialType == SpecialType.System_String &&
+                    invocation.TargetMethod.Name == "Concat")
+                {
+                    // Preserve unsupported Concat semantics, but do not hide an unstable operand's rejection.
+                    foreach (var argument in invocation.Arguments)
+                    {
+                        ProbeConcatOperand(argument.Value, semanticModel, cancellationToken, depth, visited, state);
+                    }
+                }
+
+                return resolved;
             }
 
             return null;
@@ -246,6 +327,30 @@ public sealed partial class ProjectCSharpSqlSource
         }
     }
 
+    private static string? ResolveConstantConcat(
+        IInvocationOperation invocation,
+        CancellationToken cancellationToken,
+        int depth,
+        SqlSourceMapBuilder? sourceMap)
+    {
+        if (sourceMap is null)
+        {
+            return ConstantStringConcatResolver.Resolve(invocation, cancellationToken, depth);
+        }
+
+        return ConstantStringConcatResolver.Resolve(invocation, cancellationToken, depth, (part, value) =>
+        {
+            if (value.Syntax is LiteralExpressionSyntax literal && literal.Token.Value is string)
+            {
+                sourceMap.AppendToken(literal.Token, literal.Token.Text.StartsWith("@\"", StringComparison.Ordinal) ? 2 : 1, 1);
+            }
+            else
+            {
+                sourceMap.AppendMapped(part, value.Syntax.GetLocation());
+            }
+        });
+    }
+
     private static string? ResolveIdentifierString(
         IdentifierNameSyntax identifier,
         SemanticModel semanticModel,
@@ -253,10 +358,45 @@ public sealed partial class ProjectCSharpSqlSource
         int depth,
         HashSet<SyntaxNode> visited,
         List<SqlHole>? holes,
+        StringResolutionState state,
         SqlSourceMapBuilder? sourceMap = null)
     {
         var symbol = semanticModel.GetSymbolInfo(identifier, cancellationToken).Symbol;
-        if (symbol is ILocalSymbol or IFieldSymbol or IPropertySymbol)
+        if (symbol is IFieldSymbol { IsConst: false, Type.SpecialType: SpecialType.System_String })
+        {
+            RejectUnprovedMember(identifier, semanticModel, cancellationToken, state);
+            return null;
+        }
+
+        if (symbol is IPropertySymbol { Type.SpecialType: SpecialType.System_String } property)
+        {
+            if (TryResolveConstantProperty(property, semanticModel, cancellationToken, sourceMap, out var propertyText))
+            {
+                return propertyText;
+            }
+
+            RejectUnprovedMember(identifier, semanticModel, cancellationToken, state);
+            return null;
+        }
+        if (symbol is ILocalSymbol { IsConst: false } local &&
+            !state.Stability.IsStable(local, semanticModel, cancellationToken))
+        {
+            state.Rejection = SqlValueRejection.UnstableLocal;
+
+            // Only an evidence flag crosses the rejection boundary; no rejected SQL is published or logged.
+            foreach (var syntaxRef in local.DeclaringSyntaxReferences)
+            {
+                if (syntaxRef.GetSyntax(cancellationToken) is VariableDeclaratorSyntax { Initializer.Value: { } value })
+                {
+                    var constant = semanticModel.GetConstantValue(value, cancellationToken);
+                    state.SqlEvidence |= constant.HasValue && constant.Value is string text && IsSqlString(text);
+                }
+            }
+
+            return null;
+        }
+
+        if (symbol is ILocalSymbol or IFieldSymbol { IsConst: true })
         {
             foreach (var syntaxRef in symbol.DeclaringSyntaxReferences)
             {
@@ -264,7 +404,6 @@ public sealed partial class ProjectCSharpSqlSource
                 ExpressionSyntax? initExpr = syntax switch
                 {
                     VariableDeclaratorSyntax decl => decl.Initializer?.Value,
-                    PropertyDeclarationSyntax prop => prop.Initializer?.Value ?? prop.ExpressionBody?.Expression,
                     _ => null,
                 };
 
@@ -285,29 +424,7 @@ public sealed partial class ProjectCSharpSqlSource
 
                 if (targetModel != null)
                 {
-                    var resolved = TryResolveStringCore(initExpr, targetModel, cancellationToken, depth + 1, visited, holes, sourceMap);
-                    if (!string.IsNullOrEmpty(resolved))
-                    {
-                        return resolved;
-                    }
-                }
-                else if (initExpr is LiteralExpressionSyntax lit && (lit.Token.Value is string || lit.IsKind(SyntaxKind.StringLiteralExpression)))
-                {
-                    sourceMap?.AppendMapped(lit.Token.ValueText, lit.GetLocation());
-                    return lit.Token.ValueText;
-                }
-            }
-        }
-
-        // Syntactic fallback: look up enclosing method or type
-        var enclosing = identifier.Ancestors().FirstOrDefault(a => a is MethodDeclarationSyntax or TypeDeclarationSyntax);
-        if (enclosing != null)
-        {
-            foreach (var decl in enclosing.DescendantNodes().OfType<VariableDeclaratorSyntax>())
-            {
-                if (decl.Identifier.ValueText == identifier.Identifier.ValueText && decl.Initializer != null)
-                {
-                    var resolved = TryResolveStringCore(decl.Initializer.Value, semanticModel, cancellationToken, depth + 1, visited, holes, sourceMap);
+                    var resolved = TryResolveStringCore(initExpr, targetModel, cancellationToken, depth + 1, visited, holes, state, sourceMap);
                     if (!string.IsNullOrEmpty(resolved))
                     {
                         return resolved;
@@ -316,6 +433,7 @@ public sealed partial class ProjectCSharpSqlSource
             }
         }
 
+        // A missing/ambiguous semantic symbol is not permission to choose a same-name initializer.
         return null;
     }
 
@@ -326,6 +444,7 @@ public sealed partial class ProjectCSharpSqlSource
         int depth,
         HashSet<SyntaxNode> visited,
         List<SqlHole>? holes,
+        StringResolutionState state,
         SqlSourceMapBuilder? sourceMap = null)
     {
         var parts = new List<ExpressionSyntax>();
@@ -333,6 +452,7 @@ public sealed partial class ProjectCSharpSqlSource
         stack.Push(binary);
         while (stack.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var current = stack.Pop();
             if (current is BinaryExpressionSyntax b && b.IsKind(SyntaxKind.AddExpression))
             {
@@ -351,7 +471,12 @@ public sealed partial class ProjectCSharpSqlSource
         var pendingHoles = new List<SqlHole>();
         foreach (var part in parts)
         {
-            var resolvedPart = TryResolveStringCore(part, semanticModel, cancellationToken, depth + 1, visited, holes, sourceMap);
+            var resolvedPart = TryResolveStringCore(part, semanticModel, cancellationToken, depth + 1, visited, holes, state, sourceMap);
+            if (state.Rejection != SqlValueRejection.None)
+            {
+                return null;
+            }
+
             if (resolvedPart != null)
             {
                 resolvedTextParts++;
@@ -381,17 +506,21 @@ public sealed partial class ProjectCSharpSqlSource
         return sb.ToString();
     }
 
-    private static string ConvertInterpolatedStringToSql(
+    private static string? ConvertInterpolatedStringToSql(
         InterpolatedStringExpressionSyntax interpolated,
         SemanticModel semanticModel,
         CancellationToken cancellationToken,
+        int depth,
+        HashSet<SyntaxNode> visited,
         List<SqlHole>? holes,
+        StringResolutionState state,
         SqlSourceMapBuilder? sourceMap = null)
     {
         var sb = new StringBuilder();
         var localHoles = 0;
         foreach (var content in interpolated.Contents)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (content is InterpolatedStringTextSyntax textSyntax)
             {
                 sb.Append(textSyntax.TextToken.ValueText);
@@ -412,6 +541,16 @@ public sealed partial class ProjectCSharpSqlSource
                 sb.Append(constString);
                 sourceMap?.AppendMapped(constString, interpolation.Expression.GetLocation());
                 continue;
+            }
+
+            // A rejected initializer must not be resurrected as an apparently valid interpolation hole.
+            if (semanticModel.GetTypeInfo(interpolation.Expression, cancellationToken).Type?.SpecialType == SpecialType.System_String)
+            {
+                TryResolveStringCore(interpolation.Expression, semanticModel, cancellationToken, depth + 1, visited, null, state);
+            }
+            if (state.Rejection != SqlValueRejection.None)
+            {
+                return null;
             }
 
             var hole = CreateHole(interpolation.Expression, semanticModel, (holes?.Count ?? 0) + localHoles);

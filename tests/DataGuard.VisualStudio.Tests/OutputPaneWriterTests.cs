@@ -1,0 +1,172 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using DataGuard.VisualStudio;
+using FluentAssertions;
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Threading;
+using Moq;
+using Xunit;
+
+namespace DataGuard.VisualStudio.Tests;
+
+// No VS UI thread is present: exercise output/service behavior, not thread affinity.
+public class OutputPaneWriterTests
+{
+    [Theory]
+    [InlineData("validate", "Run Validation", "Rules:  7 enabled, 2 disabled")]
+    [InlineData("assess", "Assess Workspace", "Assesses workspace")]
+    public void OfflineBanner_UsesBrandedPaneAndPreservesSafeMode(string command, string title, string detail)
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+
+        context.Factory.Run(() => fixture.Writer.WriteCommandBannerAsync(command, @"C:\synthetic", "synthetic.yml", 7, 2));
+
+        fixture.VerifyPane();
+        fixture.Text.Should().ContainSingle();
+        fixture.Text[0].Should().Contain("StackAccord (Beta) — " + title)
+            .And.Contain("ide-safe (no assembly loading, no database or network access)")
+            .And.Contain("Config: synthetic.yml")
+            .And.Contain(detail);
+        if (command == "assess")
+        {
+            fixture.Text[0].Should().NotContain("Rules:");
+        }
+    }
+
+    [Theory]
+    [InlineData(0, "Refresh Snapshot")]
+    [InlineData(1, "Verify SQL Shapes Against Database")]
+    public void LiveBanner_DoesNotClaimOfflineSafety(int kind, string title)
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+
+        context.Factory.Run(() => fixture.Writer.WriteLiveCommandBannerAsync((LiveCommandKind)kind, @"C:\synthetic", "SYNTHETIC_DB"));
+
+        fixture.VerifyPane();
+        fixture.Text.Should().ContainSingle();
+        fixture.Text[0].Should().Contain("StackAccord (Beta) — " + title)
+            .And.Contain("Config: (not read)")
+            .And.Contain("Mode:   live database (not ide-safe; reads environment variable SYNTHETIC_DB; .dataguard.yml is not read)")
+            .And.Contain("the Error List is not changed")
+            .And.NotContain("ide-safe (no assembly loading");
+    }
+
+    [Fact]
+    public void WriteAsync_RedactsBeforeCallingOutputService()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+
+        context.Factory.Run(() => fixture.Writer.WriteAsync("Password=SYNTHETIC_SECRET;User Id=SYNTHETIC_USER;"));
+
+        fixture.Text.Should().ContainSingle();
+        fixture.Text[0].Should().NotContain("SYNTHETIC_SECRET").And.NotContain("SYNTHETIC_USER");
+    }
+
+    [Fact]
+    public void Banner_WhenOutputServiceIsAbsent_CompletesWithoutPane()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var requested = new List<Type>();
+        var writer = new OutputPaneWriter(context.Factory, type =>
+        {
+            requested.Add(type);
+            return Task.FromResult<object?>(null);
+        });
+
+        context.Factory.Run(() => writer.WriteCommandBannerAsync("validate", "synthetic", "synthetic.yml", 1, 0));
+
+        requested.Should().NotBeEmpty().And.OnlyContain(type => type == typeof(SVsOutputWindow));
+    }
+
+    [Fact]
+    public void WriteAsync_WhenGetPaneFails_DoesNotWriteToReturnedPane()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context, VSConstants.E_FAIL);
+
+        context.Factory.Run(() => fixture.Writer.WriteAsync("synthetic"));
+
+        fixture.Text.Should().BeEmpty();
+        fixture.Pane.Verify(p => p.OutputStringThreadSafe(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void WriteLinesAsync_RedactsBatchAndIgnoresEmptyBatch()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+
+        context.Factory.Run(() => fixture.Writer.WriteLinesAsync(Array.Empty<string>()));
+        fixture.Text.Should().BeEmpty();
+        context.Factory.Run(() => fixture.Writer.WriteLinesAsync(new[] { "first", "Password=SYNTHETIC_SECRET;" }));
+
+        fixture.Text.Should().ContainSingle();
+        fixture.Text[0].Should().StartWith("first\r\n").And.NotContain("SYNTHETIC_SECRET");
+        fixture.Pane.Verify(p => p.OutputStringThreadSafe(It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public void SetStatusAsync_RedactsAndToleratesUnavailableStatusService()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var status = new Mock<IVsStatusbar>(MockBehavior.Strict);
+        string? displayed = null;
+        status.Setup(s => s.SetText(It.IsAny<string>())).Callback<string>(text => displayed = text).Returns(VSConstants.S_OK);
+        var writer = new OutputPaneWriter(context.Factory, type =>
+        {
+            type.Should().Be(typeof(SVsStatusbar));
+            return Task.FromResult<object?>(status.Object);
+        });
+
+        context.Factory.Run(() => writer.SetStatusAsync("Password=SYNTHETIC_SECRET;"));
+        displayed.Should().NotBeNull().And.NotContain("SYNTHETIC_SECRET");
+        status.Verify(s => s.SetText(It.IsAny<string>()), Times.Once);
+
+        var unavailable = new OutputPaneWriter(context.Factory, _ => Task.FromResult<object?>(null));
+        context.Factory.Run(() => unavailable.SetStatusAsync("synthetic"));
+        var failing = new OutputPaneWriter(context.Factory, _ => Task.FromException<object?>(new InvalidOperationException("synthetic service failure")));
+        context.Factory.Run(() => failing.SetStatusAsync("synthetic"));
+    }
+
+    private sealed class PaneFixture
+    {
+        private static readonly Guid PaneId = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
+        private readonly Mock<IVsOutputWindow> window = new(MockBehavior.Strict);
+
+        public PaneFixture(JoinableTaskContext context, int getPaneResult = VSConstants.S_OK)
+        {
+            this.Pane.Setup(p => p.Activate()).Returns(VSConstants.S_OK);
+            this.Pane.Setup(p => p.OutputStringThreadSafe(It.IsAny<string>()))
+                .Callback<string>(this.Text.Add).Returns(VSConstants.S_OK);
+            this.window.Setup(w => w.CreatePane(ref It.Ref<Guid>.IsAny, "StackAccord (Beta)", 1, 1))
+                .Returns(VSConstants.S_OK);
+            var pane = this.Pane.Object;
+            this.window.Setup(w => w.GetPane(ref It.Ref<Guid>.IsAny, out pane)).Returns(getPaneResult);
+            this.Writer = new OutputPaneWriter(context.Factory, type =>
+            {
+                type.Should().Be(typeof(SVsOutputWindow));
+                return Task.FromResult<object?>(this.window.Object);
+            });
+        }
+
+        public Mock<IVsOutputWindowPane> Pane { get; } = new(MockBehavior.Strict);
+
+        public List<string> Text { get; } = new();
+
+        public OutputPaneWriter Writer { get; }
+
+        public void VerifyPane()
+        {
+            var expectedId = PaneId;
+            this.window.Verify(w => w.CreatePane(ref expectedId, "StackAccord (Beta)", 1, 1), Times.AtLeastOnce);
+            var pane = this.Pane.Object;
+            this.window.Verify(w => w.GetPane(ref expectedId, out pane), Times.AtLeastOnce);
+            this.Pane.Verify(p => p.Activate(), Times.Once);
+        }
+    }
+}

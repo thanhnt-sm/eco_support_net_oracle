@@ -32,6 +32,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- One evaluator source, compiled against the IDE's pinned Roslyn. No Core runtime dependency. -->
+    <Compile Include="../DataGuard.Core/Sources/CSharp/ConstantStringConcatResolver.cs" Link="Shared/ConstantStringConcatResolver.cs" />
     <ProjectReference Include="..\DataGuard.Contracts\DataGuard.Contracts.csproj" />
     <!-- SqlClassification is IsPackable=false and is embedded in analyzers/dotnet/cs via the None items
          below; PrivateAssets keeps it out of the nuspec so the package does not depend on an unpublished id. -->

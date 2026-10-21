@@ -24,7 +24,7 @@ namespace DataGuard.Core.Sources;
 public sealed partial class ProjectCSharpSqlSource : IContractSource
 {
     /// <summary>Longest SQL literal (chars) fed to rules; larger literals are skipped with a DG1291 note and an <see cref="AcquisitionDiagnosticKind.OversizedLiteral"/> diagnostic.</summary>
-    public const int MaxSqlLiteralLength = 256 * 1024;
+    public const int MaxSqlLiteralLength = DataGuard.SqlComposition.ConstantStringConcatResolver.MaximumTextLength;
 
     private readonly string _projectOrPath;
     private readonly ProgressEmitter? _progress;
@@ -126,7 +126,7 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
             run.EmitAll(scan.ScanCallSites());
         }
 
-        // Unreferenced SQL constants/static readonly fields (global second pass after all call sites are known).
+        // Unreferenced SQL constants (global second pass after all call sites are known).
         foreach (var tree in syntaxTrees)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -137,13 +137,16 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
         return run.Descriptors;
     }
 
-    private void AddDiagnostic(AcquisitionDiagnosticKind kind, string path, string message)
+    private bool AddDiagnostic(AcquisitionDiagnosticKind kind, string path, string message)
     {
         var diagnostic = new AcquisitionDiagnostic(kind, path, message);
         if (!_diagnostics.Contains(diagnostic))
         {
             _diagnostics.Add(diagnostic);
+            return true;
         }
+
+        return false;
     }
 
     /// <summary>
@@ -234,6 +237,8 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
     /// <summary>Per-run state: descriptors, deduplication sets and diagnostics.</summary>
     private sealed class ExtractionRun
     {
+        public LocalValueStability LocalValues { get; } = new();
+
         private readonly ProjectCSharpSqlSource _owner;
         private readonly HashSet<string> _seenSql = new(StringComparer.Ordinal);
         private readonly List<ContractDescriptor> _descriptors = new();
@@ -269,6 +274,40 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
                 AcquisitionDiagnosticKind.OversizedLiteral,
                 RelativePath(RepoRoot, lineSpan.Path),
                 $"SQL literal at line {line} is {length} chars (cap {MaxSqlLiteralLength}); skipped");
+        }
+
+        public void ReportUnstableSql(Location location)
+        {
+            var lineSpan = location.GetLineSpan();
+            var line = lineSpan.StartLinePosition.Line + 1;
+            _owner.AddDiagnostic(
+                AcquisitionDiagnosticKind.UnstableSqlValue,
+                RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL value at line {line} (span {location.SourceSpan.Start}) is unresolved because a local may be reassigned or escape by reference; extraction is incomplete");
+        }
+
+        public void ReportSkipped(Location location)
+        {
+            var lineSpan = location.GetLineSpan();
+            if (_owner.AddDiagnostic(AcquisitionDiagnosticKind.SkippedByAttribute, RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL call site at line {lineSpan.StartLinePosition.Line + 1} skipped by [SkipContractCheck] (span {location.SourceSpan.Start})"))
+            {
+                _owner.SkippedContractCount++;
+            }
+        }
+
+        public void ReportUnresolvedSql(Location location)
+        {
+            var lineSpan = location.GetLineSpan();
+            _owner.AddDiagnostic(AcquisitionDiagnosticKind.UnresolvedSqlValue, RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL argument at line {lineSpan.StartLinePosition.Line + 1} (span {location.SourceSpan.Start}) cannot be resolved by the supported source model; extraction is incomplete");
+        }
+
+        public void ReportUnknownMemberSql(Location location)
+        {
+            var lineSpan = location.GetLineSpan();
+            _owner.AddDiagnostic(AcquisitionDiagnosticKind.UnresolvedSqlValue, RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL value at line {lineSpan.StartLinePosition.Line + 1} (span {location.SourceSpan.Start}) depends on a field or property whose runtime value is not proved constant; extraction is incomplete");
         }
 
         /// <summary>
@@ -381,7 +420,7 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
                 ProcedureSchema = procedureSchema,
                 ProcedurePackage = procedurePackage,
                 ArgumentsKnown = candidate.ArgumentsKnown,
-                SourceMap = BuildSourceMap(candidate.SqlExpression, candidate.Model, sqlText, CancellationToken),
+                SourceMap = BuildSourceMap(candidate.SqlExpression, candidate.Model, sqlText, CancellationToken, LocalValues),
             };
 
             SeenSqlTexts.Add(sqlText.Trim());

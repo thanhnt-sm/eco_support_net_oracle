@@ -1,5 +1,8 @@
 # StackAccord Beta display preparation / Chuẩn bị tên hiển thị Beta
 
+> Historical branch evidence / Bằng chứng của nhánh nguồn: test totals, ancestry and performance below describe the original slice, not the combined build. See [local integration baseline](2026-10-20-local-integration-baseline.md) for the integrated scope; do not add these test totals. Các số đo dưới đây không phải benchmark của HEAD tích hợp.
+
+
 Original base: `12cf09c94be896596cb862abf9355f4aab35ecb5`; integration parent: `84ad8a713b858d17d6015efc31e261a9fd7eb3d0` (fixture fix, unchanged commit). Branch: `fix/stackaccord-beta-display`.
 
 This is source preparation, not publication or installed acceptance. Đây là chuẩn bị mã nguồn, chưa phải xuất bản hoặc nghiệm thu cài đặt. Existing nightly .63 predates this patch / nightly .63 chưa chứa patch này.
@@ -50,3 +53,9 @@ After local validation, the owner authorized pushing separate fixture and brandi
 ## PR review follow-up / Xử lý review PR
 
 At head `1a773ac73eeca704a71f050a13ca3e6e34a61e4a`, the sole parent is `84ad8a713b858d17d6015efc31e261a9fd7eb3d0`; the ancestry comment citing `bcb53c79` does not describe this head. Preserve this verified provenance. Valid review findings add the three consent dialog captions and README navigation to the display scope, with two failing regressions before correction. Consent decisions, default No buttons, IDs and diagnostic prefixes are unchanged. CI success does not replace installed Windows/UI acceptance.
+
+## Runtime regression follow-up / Kiểm thử runtime
+
+At `2305a8e`, Codecov patch coverage was 2/10 = 20%, with eight missed lines across package consent, live consent, support UI and OutputPaneWriter. The target is 80%, currently informational; green checks do not establish that target. Add production-assembly OutputPaneWriter tests using the existing Windows net472 job, explicit JTF and output service doubles. The package passes the same JTF/service method as before. Verify banner semantics, stable GUID/display name, redaction, missing service and failed GetPane; do not extract strings or change exclusions to improve the metric. Record the new exact-head report separately because constructor/service-boundary changes alter the denominator. Consent and support modal execution still requires its own VS service/UI harness; do not equate this subset with installed-host acceptance.
+
+VI: Bổ sung test runtime OutputPaneWriter trong assembly production trên Windows, giữ nguyên JTF/dịch vụ ở caller và hành vi production. Kiểm tra banner, GUID/tên pane, redaction, dịch vụ vắng mặt và lỗi GetPane. Không đổi exclusions hay tách chuỗi để tăng coverage. Mẫu số thay đổi phải đo lại trên đúng HEAD; consent/support modal và nghiệm thu host thật vẫn riêng biệt.

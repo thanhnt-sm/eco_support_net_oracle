@@ -141,6 +141,20 @@ public class Repo
 }
 EOF
 
+# Exercise the source-shared evaluator under the actual supported compiler line.
+# The EF-shaped stub avoids database/provider dependencies and is never executed.
+cat > "$WORK/consumer/ConcatRepo.cs" <<'EOF'
+public class DatabaseFacade
+{
+    public int ExecuteSqlRaw(string sql) => 0;
+}
+public class ConcatRepo
+{
+    public int Load(DatabaseFacade database)
+        => database.ExecuteSqlRaw(string.Concat("SELECT ", "* FROM Orders"));
+}
+EOF
+
 export NUGET_PACKAGES
 NUGET_PACKAGES=$(native_path "$WORK/gp")
 if CONSUMER_SDK_ACTUAL=$(cd "$WORK/consumer" && dotnet --version 2>&1); then
@@ -162,6 +176,8 @@ reported() { if grep -q "$1" "$WORK/build.log"; then echo present; else echo abs
 check "CS9057 (analyzer newer than the compiler) lines" "$(grep -c 'CS9057' "$WORK/build.log" || true)" 0
 check "DG017 (SELECT *) reported by the consumer build" "$(reported 'warning DG017')" present
 check "DG001 (unvalidated SQL call) reported by the consumer build" "$(reported 'warning DG001')" present
+check "DG017 on constant Concat under Roslyn 4.12" \
+  "$(if grep -qE 'ConcatRepo.cs.*warning DG017' "$WORK/build.log"; then echo present; else echo absent; fi)" present
 
 OUT_DIR=$(ls -d "$WORK"/consumer/bin/Debug/*/ 2>/dev/null | head -n 1 || true)
 if [ -z "$OUT_DIR" ]; then

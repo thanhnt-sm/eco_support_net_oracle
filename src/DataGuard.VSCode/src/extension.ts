@@ -1050,7 +1050,7 @@ function setStatus(state: "idle" | "running" | "warning" | "error", detailToolti
     const values = {
         idle: ["$(shield) DataGuard", "Run DataGuard contract validation"],
         running: ["$(sync~spin) DataGuard", "DataGuard validation is running"],
-        warning: ["$(warning) DataGuard", "DataGuard found contract violations or was cancelled"],
+        warning: ["$(warning) DataGuard", "DataGuard validation needs attention"],
         error: ["$(error) DataGuard", "DataGuard validation failed"],
     } as const;
     statusBarItem.text = values[state][0];

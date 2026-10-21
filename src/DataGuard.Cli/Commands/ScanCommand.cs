@@ -53,6 +53,15 @@ internal static class ScanCommand
                 var config = new DataGuardConfiguration { GroundTruthMode = GroundTruthMode.Full };
                 var acquisition = await AcquireContractsAsync(config, provider, ct, project, progress);
                 var contracts = acquisition.Contracts.ToList();
+                foreach (var diagnostic in acquisition.Diagnostics.Where(d => d.Kind is not (AcquisitionDiagnosticKind.SkippedByAttribute or AcquisitionDiagnosticKind.OversizedLiteral)))
+                {
+                    Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(diagnostic.Path)}: {EscapeControlCharacters(diagnostic.Message)}");
+                }
+
+                if (acquisition.Status != ContractAcquisitionStatus.Complete)
+                {
+                    Console.Error.WriteLine($"UNEVALUATED: contract acquisition {acquisition.Status.ToString().ToLowerInvariant()}; the scan is incomplete.");
+                }
 
                 var connections = ConnectionDiscovery.DiscoverConnections(project);
                 var sqlContracts = contracts.OfType<RawSqlDescriptor>().ToList();
@@ -134,7 +143,7 @@ internal static class ScanCommand
                     }
                 }
 
-                Environment.ExitCode = 0;
+                Environment.ExitCode = acquisition.Status == ContractAcquisitionStatus.Complete ? 0 : 3;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
