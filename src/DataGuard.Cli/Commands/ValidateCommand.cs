@@ -344,17 +344,26 @@ internal static class ValidateCommand
                     Console.WriteLine();
                 }
 
-                if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0)
+                if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0 && acquisitionDiagnostics.Count == 0)
                 {
                     Console.Error.WriteLine($"UNEVALUATED: contract acquisition {acquisition.Status.ToString().ToLowerInvariant()}: {acquisition.Message}");
                     Environment.ExitCode = 3;
                     return;
                 }
 
+                // Print source gaps even when no query could be extracted or an export format returns early.
+                // Repository-controlled paths are escaped before entering the line-oriented host protocol.
+                var workspaceRoot = Directory.GetCurrentDirectory();
+                foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
+                {
+                    Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(RelativizeToWorkspace(workspaceRoot, diagnostic.Path))}: {EscapeControlCharacters(diagnostic.Message)}");
+                }
+
                 if (normalizedFormat == "contracts")
                 {
                     await ContractExportWriter.WriteJsonAsync(output!, provider, contracts, ct);
                     Console.WriteLine($"Contracts exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -362,6 +371,7 @@ internal static class ValidateCommand
                 {
                     await ContractExportWriter.WriteYamlAsync(output!, provider, contracts, ct);
                     Console.WriteLine($"Contracts exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -369,6 +379,7 @@ internal static class ValidateCommand
                 {
                     await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>(), ct);
                     Console.WriteLine($"TypeScript DTOs exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -519,16 +530,6 @@ internal static class ValidateCommand
                 }
 
                 WriteUnevaluated(unevaluated, string.Empty);
-
-                // An oversized literal was already reported once by the extractor ("[WARN] DG1291 ..."); it still makes
-                // the result incomplete below, but is not printed a second time.
-                // Paths are repository-controlled file names: relative to the workspace and control-character escaped so a
-                // file name cannot forge a line start for a host that parses stderr line by line.
-                var workspaceRoot = Directory.GetCurrentDirectory();
-                foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
-                {
-                    Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(RelativizeToWorkspace(workspaceRoot, diagnostic.Path))}: {EscapeControlCharacters(diagnostic.Message)}");
-                }
 
                 if (verbose)
                 {

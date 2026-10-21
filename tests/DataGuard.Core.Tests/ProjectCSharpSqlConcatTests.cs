@@ -131,7 +131,9 @@ public sealed class ProjectCSharpSqlConcatTests
             var source = new ProjectCSharpSqlSource(directory.FullName);
 
             (await source.ExtractContractsAsync()).OfType<RawSqlDescriptor>().Should().BeEmpty();
-            source.Diagnostics.Should().BeEmpty();
+            source.Diagnostics.Should().ContainSingle().Which.Kind.Should().Be(
+                AcquisitionDiagnosticKind.UnresolvedSqlValue,
+                "a recognized SQL slot with unsupported composition is incomplete, not a validated empty scan");
         }
         finally
         {

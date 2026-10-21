@@ -10,7 +10,7 @@ namespace DataGuard.Core.Sources;
 public sealed partial class ProjectCSharpSqlSource
 {
     private static IReadOnlyList<SqlSourceSegment> BuildSourceMap(
-        ExpressionSyntax? expression, SemanticModel model, string sql, CancellationToken cancellationToken)
+        ExpressionSyntax? expression, SemanticModel model, string sql, CancellationToken cancellationToken, LocalValueStability stability)
     {
         if (expression is null)
         {
@@ -18,7 +18,7 @@ public sealed partial class ProjectCSharpSqlSource
         }
 
         var map = new SqlSourceMapBuilder();
-        var resolved = TryResolveStringCore(expression, model, cancellationToken, 0, null, new List<SqlHole>(), map);
+        var resolved = ResolveSqlValue(expression, model, new List<SqlHole>(), cancellationToken, stability, map).Text;
 
         // Constant folding or unsupported resolution must never produce a plausible but incorrect token location.
         return resolved == sql && map.Text.ToString() == sql ? map.Segments : Array.Empty<SqlSourceSegment>();

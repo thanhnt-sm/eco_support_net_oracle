@@ -234,6 +234,8 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
     /// <summary>Per-run state: descriptors, deduplication sets and diagnostics.</summary>
     private sealed class ExtractionRun
     {
+        public LocalValueStability LocalValues { get; } = new();
+
         private readonly ProjectCSharpSqlSource _owner;
         private readonly HashSet<string> _seenSql = new(StringComparer.Ordinal);
         private readonly List<ContractDescriptor> _descriptors = new();
@@ -269,6 +271,31 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
                 AcquisitionDiagnosticKind.OversizedLiteral,
                 RelativePath(RepoRoot, lineSpan.Path),
                 $"SQL literal at line {line} is {length} chars (cap {MaxSqlLiteralLength}); skipped");
+        }
+
+        public void ReportUnstableSql(Location location)
+        {
+            var lineSpan = location.GetLineSpan();
+            var line = lineSpan.StartLinePosition.Line + 1;
+            _owner.AddDiagnostic(
+                AcquisitionDiagnosticKind.UnstableSqlValue,
+                RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL value at line {line} (span {location.SourceSpan.Start}) is unresolved because a local may be reassigned or escape by reference; extraction is incomplete");
+        }
+
+        public void ReportSkipped(Location location)
+        {
+            _owner.SkippedContractCount++;
+            var lineSpan = location.GetLineSpan();
+            _owner.AddDiagnostic(AcquisitionDiagnosticKind.SkippedByAttribute, RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL call site at line {lineSpan.StartLinePosition.Line + 1} skipped by [SkipContractCheck] (span {location.SourceSpan.Start})");
+        }
+
+        public void ReportUnresolvedSql(Location location)
+        {
+            var lineSpan = location.GetLineSpan();
+            _owner.AddDiagnostic(AcquisitionDiagnosticKind.UnresolvedSqlValue, RelativePath(RepoRoot, lineSpan.Path),
+                $"SQL argument at line {lineSpan.StartLinePosition.Line + 1} (span {location.SourceSpan.Start}) cannot be resolved by the supported source model; extraction is incomplete");
         }
 
         /// <summary>
@@ -381,7 +408,7 @@ public sealed partial class ProjectCSharpSqlSource : IContractSource
                 ProcedureSchema = procedureSchema,
                 ProcedurePackage = procedurePackage,
                 ArgumentsKnown = candidate.ArgumentsKnown,
-                SourceMap = BuildSourceMap(candidate.SqlExpression, candidate.Model, sqlText, CancellationToken),
+                SourceMap = BuildSourceMap(candidate.SqlExpression, candidate.Model, sqlText, CancellationToken, LocalValues),
             };
 
             SeenSqlTexts.Add(sqlText.Trim());

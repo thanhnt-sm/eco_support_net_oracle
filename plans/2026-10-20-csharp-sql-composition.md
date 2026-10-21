@@ -42,6 +42,8 @@ Source mapping tests check named arguments whose source order differs from SQL o
 
 ## Ordered follow-up roadmap / Lộ trình tiếp theo
 
+Local Core follow-up: [conservative local value correctness](2026-10-21-local-sql-value-stability.md) records the separate candidate based on scoped-reporting3536e431. It rejects unstable initializers and surfaces acquisition gaps; it does not establish analyzer/LSP parity or general reaching-value analysis. Original branch test totals above remain historical.
+
 1. P1 local flow: stop stale initializer use after reassignment/alias escape. Red cases must cover unconditional reassignment, branches, loops, captured mutation and unrelated variable names. Preserve exact constants; report Unknown when flow cannot establish a value.
 2. P1 projection/consumer confidence: distinguish Exact/Partial/Unknown projection names; expression aliases, wildcards, CTEs and duplicate columns need explicit tests. Separate EF mapped entities, Dapper optional properties/custom constructors and explicit ADO name/ordinal reads. False-positive tests must keep valid partial Dapper projections clean; false-negative tests must find a definitely missing GetOrdinal/name read or required EF mapped column.
 3. P2 bounded composition: safe Format semantics (escaping, alignment, culture) and StringBuilder append/alias/mutation tracking. No arbitrary code execution. Preserve maps across transformations; unknown structural fragments remain unknown.

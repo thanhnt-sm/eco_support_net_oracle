@@ -2,6 +2,7 @@ using DataGuard.Core.Abstractions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace DataGuard.Core.Sources;
 
@@ -189,17 +190,90 @@ public sealed partial class ProjectCSharpSqlSource
         }
 
         /// <summary>Resolves SQL text; a literal over the size cap is reported once and treated as absent.</summary>
-        private string? ResolveSql(ExpressionSyntax expression, Location location, List<SqlHole>? holes)
+        private string? ResolveSql(ExpressionSyntax expression, Location location, List<SqlHole>? holes, bool sqlSlot = false)
         {
-            var text = TryResolveSql(expression, _model, holes, _ct);
-            if (text is not null && text.Length > MaxSqlLiteralLength)
+            var result = ResolveArgument(expression, location, holes);
+            if (result.UnstableLocal && (sqlSlot || result.SqlEvidence))
             {
-                _run.ReportOversized(location, text.Length);
-                return null;
+                ReportUnstable(expression);
+            }
+            else if (sqlSlot && result.Text is null && !result.Oversized)
+            {
+                ReportUnresolved(expression);
             }
 
-            return text;
+            return result.Text;
         }
+
+        private SqlStringResolution ResolveArgument(ExpressionSyntax expression, Location location, List<SqlHole>? holes)
+        {
+            var result = ResolveSqlValue(expression, _model, holes, _ct, _run.LocalValues);
+            if (result.Text is { Length: > MaxSqlLiteralLength } text)
+            {
+                _run.ReportOversized(location, text.Length);
+                return result with { Text = null, Oversized = true };
+            }
+
+            return result;
+        }
+
+        private readonly record struct SqlArgumentSelection(int Index, bool Unsupported = false);
+
+        private SqlArgumentSelection FindSqlArgument(InvocationExpressionSyntax invocation)
+        {
+            // This refines the existing method-name discovery heuristic; it does not prove arbitrary API identity.
+            if (_model.GetOperation(invocation, _ct) is IInvocationOperation operation)
+            {
+                var parameters = operation.TargetMethod.Parameters.Where(p => IsSqlParameter(p.Name) && (p.Type.SpecialType == SpecialType.System_String || p.Type.ToDisplayString() == "System.FormattableString")).ToArray();
+                if (parameters.Length > 1)
+                {
+                    return new(-1, true);
+                }
+
+                if (parameters.Length == 1)
+                {
+                    foreach (var argument in operation.Arguments)
+                    {
+                        if (argument.ArgumentKind != ArgumentKind.Explicit || !SymbolEqualityComparer.Default.Equals(argument.Parameter, parameters[0]))
+                        {
+                            continue;
+                        }
+
+                        for (var i = 0; i < invocation.ArgumentList.Arguments.Count; i++)
+                        {
+                            if (invocation.ArgumentList.Arguments[i].Span.Contains(argument.Syntax.Span))
+                            {
+                                return new(i);
+                            }
+                        }
+                    }
+
+                    // A known implicit/default slot cannot fall through to an unrelated explicit string.
+                    return new(-1, true);
+                }
+
+                return new(-1);
+            }
+
+            // Named SQL slots remain identifiable with absent references. Multiple roles are unsupported.
+            var named = -1;
+            for (var i = 0; i < invocation.ArgumentList.Arguments.Count; i++)
+            {
+                if (invocation.ArgumentList.Arguments[i].NameColon?.Name.Identifier.ValueText is { } name && IsSqlParameter(name))
+                {
+                    if (named >= 0)
+                    {
+                        return new(-1, true);
+                    }
+
+                    named = i;
+                }
+            }
+
+            return new(named);
+        }
+
+        private static bool IsSqlParameter(string name) => name is "sql" or "commandText" or "query";
 
         private string? ProviderHintOf(ExpressionSyntax? receiver)
         {
@@ -229,6 +303,14 @@ public sealed partial class ProjectCSharpSqlSource
                 }
 
                 var args = invocation.ArgumentList.Arguments;
+                var selection = FindSqlArgument(invocation);
+                if (selection.Unsupported)
+                {
+                    ReportUnresolved(invocation);
+                    continue;
+                }
+
+                var sqlRoleIndex = selection.Index;
                 var isStoredProcedure = args.Any(IsStoredProcedureCommandTypeArgument);
                 var holes = new List<SqlHole>();
                 string sqlText;
@@ -239,23 +321,45 @@ public sealed partial class ProjectCSharpSqlSource
                     // commandType: CommandType.StoredProcedure (named or positional): the first string argument is the
                     // procedure name, which is intentionally not statement-shaped.
                     string? name = null;
+                    var unstable = false;
+                    var sqlEvidence = false;
+                    var oversized = false;
                     for (var i = 0; i < args.Count; i++)
                     {
+                        if (sqlRoleIndex >= 0 && sqlRoleIndex != i)
+                        {
+                            continue;
+                        }
+
                         if (args[i].NameColon?.Name.Identifier.ValueText == "commandType" || IsStoredProcedureCommandTypeArgument(args[i]))
                         {
                             continue;
                         }
 
-                        name = ResolveSql(args[i].Expression, invocation.GetLocation(), null);
-                        if (!string.IsNullOrWhiteSpace(name))
+                        var result = ResolveArgument(args[i].Expression, invocation.GetLocation(), null);
+                        unstable |= result.UnstableLocal;
+                        sqlEvidence |= result.SqlEvidence;
+                        oversized |= result.Oversized;
+                        if (name is null && !string.IsNullOrWhiteSpace(result.Text))
                         {
+                            name = result.Text;
                             sqlArgIndex = i;
-                            break;
                         }
+                    }
+
+                    if (unstable && (sqlRoleIndex >= 0 || sqlEvidence || name is not null))
+                    {
+                        ReportUnstable(invocation);
+                        continue;
                     }
 
                     if (name is null || !IsProcedureName(name))
                     {
+                        if (sqlRoleIndex >= 0 && name is null && !oversized)
+                        {
+                            ReportUnresolved(invocation);
+                        }
+
                         continue;
                     }
 
@@ -266,21 +370,42 @@ public sealed partial class ProjectCSharpSqlSource
                 {
                     var isEf = IsEfSqlMethod(methodName);
                     sqlText = string.Empty;
+                    var unstable = false;
+                    var sqlEvidence = false;
+                    var oversized = false;
                     for (var i = 0; i < args.Count; i++)
                     {
-                        var argHoles = new List<SqlHole>();
-                        var resolved = ResolveSql(args[i].Expression, invocation.GetLocation(), argHoles);
-                        if (!string.IsNullOrWhiteSpace(resolved) && (isEf || IsSqlString(resolved)))
+                        if (sqlRoleIndex >= 0 && sqlRoleIndex != i)
                         {
-                            sqlText = resolved;
+                            continue;
+                        }
+
+                        var argHoles = new List<SqlHole>();
+                        var result = ResolveArgument(args[i].Expression, invocation.GetLocation(), argHoles);
+                        unstable |= result.UnstableLocal;
+                        sqlEvidence |= result.SqlEvidence;
+                        oversized |= result.Oversized;
+                        if (sqlArgIndex < 0 && !string.IsNullOrWhiteSpace(result.Text) && (isEf || IsSqlString(result.Text)))
+                        {
+                            sqlText = result.Text;
                             sqlArgIndex = i;
                             holes = argHoles;
-                            break;
                         }
+                    }
+
+                    if (unstable && (sqlRoleIndex >= 0 || sqlEvidence || sqlArgIndex >= 0))
+                    {
+                        ReportUnstable(invocation);
+                        continue;
                     }
 
                     if (string.IsNullOrWhiteSpace(sqlText))
                     {
+                        if (sqlRoleIndex >= 0 && !oversized)
+                        {
+                            ReportUnresolved(invocation);
+                        }
+
                         continue;
                     }
                 }
@@ -335,6 +460,28 @@ public sealed partial class ProjectCSharpSqlSource
                     ArgumentsKnown = argumentsKnown,
                 });
             }
+        }
+
+        private void ReportUnstable(SyntaxNode node)
+        {
+            if (HasSkipContractCheck(node, _model, _ct))
+            {
+                _run.ReportSkipped(node.GetLocation());
+                return;
+            }
+
+            _run.ReportUnstableSql(node.GetLocation());
+        }
+
+        private void ReportUnresolved(SyntaxNode node)
+        {
+            if (HasSkipContractCheck(node, _model, _ct))
+            {
+                _run.ReportSkipped(node.GetLocation());
+                return;
+            }
+
+            _run.ReportUnresolvedSql(node.GetLocation());
         }
 
         // null/default or an anonymous object without members: Dapper sends no parameters, and that is visible.
