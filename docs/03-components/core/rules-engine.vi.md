@@ -66,6 +66,12 @@ public abstract class ContractRuleBase : IContractRule
 
 Lớp cơ sở cũng cung cấp helper tĩnh `CreateViolation` để tạo violation nhất quán.
 
+`ContractRuleBase` triển khai `IContractEvaluationStatusReporter`. Rule thiếu ground truth gọi `MarkUnevaluated`; đây là kết quả chưa đánh giá, không phải finding hoặc pass. `LiveSqlShapeValidationRule` dùng mã `DG020` và làm sạch thông báo driver. Executor drain các bản ghi khi trả kết quả đã hoàn tất.
+
+Executor graph tuần tự và engine concurrent chi tiết tạo collection trạng thái riêng cho từng instance base rule trong mỗi lượt gọi. Cancellation vẫn được truyền ra; dispose xóa trạng thái và source location chưa trả về của lượt bị hủy. Vì vậy, dùng lại graph hoặc `ValidationPipeline` không đưa các trạng thái bị hủy đó vào kết quả sau. Các lượt lồng nhau hoặc chồng thời gian có collection riêng; kết quả thành công vẫn sở hữu location đã trả về. Child work sống lâu hơn collection đã đóng không thể ghi sang lượt sau hoặc queue của direct caller. Việc bỏ reference cho phép GC thu hồi managed memory; validation không ép GC chạy.
+
+Gọi trực tiếp rule ngoài scope engine vẫn giữ contract công khai `ValidateAsync` / `DrainUnevaluatedContracts`. Engine vẫn drain qua interface `IContractEvaluationStatusReporter`, kể cả explicit implementation trên lớp kế thừa. Custom reporter không dùng `MarkUnevaluated` phải tự quản lý queue khi hủy hoặc chạy đồng thời. Thay đổi này không bảo đảm mọi mutable state của custom rule an toàn khi chạy chồng, và không đổi cleanup producer của `StreamAsync` khi consumer dừng sớm. Phạm vi source mặc định, rule, concurrency và các ngưỡng bảo vệ tài nguyên không đổi. Xem [kế hoạch regression ownership](../../../plans/2026-10-21-run-owned-unevaluated-statuses.md) để biết bằng chứng và giới hạn.
+
 ## Các Rules Tích Hợp
 
 ### DG101 — ParameterCountRule

@@ -199,6 +199,7 @@ public sealed class ConcurrentValidationEngine
         CancellationToken cancellationToken,
         Action<string, int>? executionCompleted)
     {
+        using var statuses = new RuleEvaluationStatusScope(rules);
         var results = new List<ContractViolation>();
         var ruleViolations = rules.ToDictionary(rule => rule.RuleId, _ => new List<ContractViolation>(), StringComparer.Ordinal);
         var ruleFailures = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -363,6 +364,7 @@ public static class GraphValidationExecutor
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(contracts);
         var rules = graph.GetExecutionOrder();
+        using var statuses = new RuleEvaluationStatusScope(rules);
         var violations = new List<ContractViolation>();
         var remaining = ConcurrentValidationEngine.NormalizeMaxViolationQueueSize(maxViolationQueueSize);
         var dropped = 0;
