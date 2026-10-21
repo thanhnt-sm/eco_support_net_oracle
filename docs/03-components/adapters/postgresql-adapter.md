@@ -144,6 +144,8 @@ Columns match on the EF column name, then the property name, then snake_case (`C
 
 Each construct is reported once. The dedicated patterns (`TOP n`, `EXEC schema.proc`, `LIMIT offset, count`, `NVL(`, `DECODE(`, `ISNULL(`, `GETDATE()`, `IDENTITY(`) run first and carry a `suggestion`; a keyword they already reported is skipped by the keyword lists. PostgreSQL's own syntax is not reported: plain `LIMIT n`, `GENERATED ... AS IDENTITY`, and `COALESCE` (ANSI SQL, never listed as Oracle-specific in any dialect checker).
 
+PG002 no longer treats native PostgreSQL `replace`, `format`, `to_char`, `to_date`, `to_number`, `regexp_replace`, `CUBE`, `ROLLUP` or `GROUPING SETS` as foreign merely by name. `REPLACE INTO`, `GETDATE` and `NVL` remain findings. This remains a lexical heuristic: literals/comments, identifier context and version-specific syntax require further work; absence of PG002 does not validate PostgreSQL grammar.
+
 ### PG003 — Entity Length Exceeds PostgreSQL Column Length
 
 | Property | Value |
