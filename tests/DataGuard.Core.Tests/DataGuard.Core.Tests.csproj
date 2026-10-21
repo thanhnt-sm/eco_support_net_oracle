@@ -46,5 +46,15 @@
     <Compile Include="../../src/DataGuard.VisualStudio/BoundedLogFile.cs" Link="VisualStudio/BoundedLogFile.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/LogPrivacyPolicy.cs" Link="VisualStudio/LogPrivacyPolicy.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/SupportSummary.cs" Link="VisualStudio/SupportSummary.cs" />
+    <!-- Exercise the real IDE completion formatter and its pure model dependencies on non-Windows CI. -->
+    <AdditionalFiles Include="../../src/DataGuard.VisualStudio/stylecop.json" Link="stylecop.json" />
+    <Compile Include="../../src/DataGuard.VisualStudio/ExitCodeExplainer.cs" Link="VisualStudio/ExitCodeExplainer.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/ProgressReadModels.cs" Link="VisualStudio/ProgressReadModels.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/CliRunModels.cs" Link="VisualStudio/CliRunModels.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/RuleInventory.cs" Link="VisualStudio/RuleInventory.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/CliProcessRegistry.cs" Link="VisualStudio/CliProcessRegistry.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/ProcessTerminator.cs" Link="VisualStudio/ProcessTerminator.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/LiveDatabaseCommands.cs" Link="VisualStudio/LiveDatabaseCommands.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/AcquisitionSummaryTests.cs" Link="VisualStudio/AcquisitionSummaryTests.cs" />
   </ItemGroup>
 </Project>

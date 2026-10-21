@@ -30,6 +30,8 @@ Lệnh theo đợt đọc file đã lưu. Lệnh mới thay lượt đang chạy
 
 Đọc **Output > DataGuard**, Problems và tooltip trạng thái cùng nhau. Thanh trạng thái dùng icon idle/running/warning/error; nhấp vào sẽ chạy validation. Kết quả syntactic-only nghĩa là chưa đối chiếu dữ liệu chuẩn database. Không có finding chưa chứng minh tương thích schema; contract không hỗ trợ hoặc chưa đánh giá phải được đọc trong summary. `--ide-safe` ngầm cho phép contract chưa đánh giá ở lớp exit code CLI; mã thoát 0 không chứng minh kiểm tra đầy đủ.
 
+Khi summary validation đã hoàn tất có `AcquisitionDiagnosticCount` lớn hơn 0, thông báo kết thúc cảnh báo việc thu thập nguồn còn thiếu, kể cả khi đã tải ground truth và không có lỗi hoặc cảnh báo từ rule. Trạng thái thêm `acquisition diagnostics N` riêng với số lượng finding; xem các dòng `ACQUISITION` trong output. Giá trị 0 hoặc trường vắng mặt giữ hành vi hiện tại, bao gồm lượt bỏ qua có chủ đích mà CLI đã loại khỏi số đếm. Thông báo hủy, timeout và lỗi vẫn được ưu tiên. Visual Studio dùng cùng chính sách thông báo kết thúc và trạng thái. Xem [kế hoạch regression acquisition summary](../../../plans/2026-10-21-ide-acquisition-summary.md) về phạm vi kiểm chứng.
+
 ## Cấu hình và ranh giới credential
 
 | Thiết lập | Mặc định và phạm vi |

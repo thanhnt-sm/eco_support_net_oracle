@@ -195,6 +195,53 @@ test("explainCliExit distinguishes exit codes 0/1/2/3/4 and GroundTruthMissing/U
     );
 });
 
+test("acquisition gaps with loaded ground truth warn independently of rule counts", () => {
+    for (const warningCount of [0, 2]) {
+        const summary = createCliProgressSummary();
+        recordProgressLine(JSON.stringify({
+            Kind: "Summary", Phase: "Validation complete",
+            Data: { ErrorCount: 0, WarningCount: warningCount, AcquisitionDiagnosticCount: 2, UnevaluatedContractCount: 3, GroundTruth: "schema+entities" },
+        }), summary);
+        const explanation = explainCliExit("validate", 0, summary, true);
+        assert.ok(explanation.startsWith("[WARN] Validation incomplete: 2 source acquisition diagnostic(s)"));
+        assert.ok(explanation.includes("(see ACQUISITION lines)."));
+        assert.ok(explanation.includes("3 contract(s) could not be evaluated"));
+        assert.ok(!explanation.includes("[OK]"));
+        assert.ok(!explanation.includes("No issues found"));
+        assert.equal(describeCliStatus(summary), `DataGuard: 0 errors, ${warningCount} warnings; acquisition diagnostics 2`);
+    }
+});
+
+test("zero or absent acquisition count preserves clean and skipped-only results", () => {
+    for (const acquisitionDiagnosticCount of [undefined, 0]) {
+        const summary = { ...createCliProgressSummary(), hasSummary: true, acquisitionDiagnosticCount };
+        assert.equal(explainCliExit("validate", 0, summary, true), "[OK] No issues found.");
+        assert.equal(describeCliStatus(summary), "DataGuard: 0 errors, 0 warnings");
+    }
+});
+
+test("acquisition gaps preserve syntactic-only, cancellation, and error precedence", () => {
+    const summary = { ...createCliProgressSummary(), hasSummary: true, acquisitionDiagnosticCount: 2 };
+    const syntacticOnly = { ...summary, groundTruthMissing: true };
+    assert.ok(explainCliExit("validate", 0, syntacticOnly, true).startsWith("[WARN] Ran syntactic rules only"));
+    assert.equal(describeCliStatus(syntacticOnly), "DataGuard: syntactic only (0 errors, 0 warnings; acquisition diagnostics 2)");
+    for (const exitCode of [0, 1]) {
+        assert.ok(explainCliExit("validate", exitCode, summary, false).startsWith("[ERROR] The CLI reported a summary but failed to write results"));
+    }
+    for (const [exitCode, expected] of [
+        [1, "[WARN] Validation found errors."],
+        [2, "[ERROR] Invalid arguments or configuration."],
+        [3, "[WARN] Validation incomplete:"],
+        [4, "[ERROR] The CLI refused to write results"],
+        [130, "[CANCELLED] Cancelled by user."],
+    ] as const) {
+        assert.ok(explainCliExit("validate", exitCode, summary, true).startsWith(expected));
+    }
+    const missingSummary = { ...summary, hasSummary: false };
+    assert.ok(explainCliExit("validate", 1, missingSummary, false).startsWith("[ERROR] The CLI failed before producing a validation summary."));
+    assert.equal(describeCliStatus(missingSummary), "DataGuard: Result summary unavailable");
+});
+
 test("buildChildEnvironment strips DATAGUARD_CONNECTION_STRING and connectionEnv under --ide-safe without --allow-env-connection", () => {
     const baseEnv: NodeJS.ProcessEnv = {
         PATH: "/usr/bin",

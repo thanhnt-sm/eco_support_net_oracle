@@ -30,6 +30,8 @@ Batch commands read saved files. A newer command replaces the active run after w
 
 Read **Output > DataGuard**, Problems and the status tooltip together. The status bar uses idle/running/warning/error icons; clicking it runs validation. A syntactic-only result means no database ground truth was compared. Zero findings does not prove schema compatibility, and unsupported or unevaluated contracts must remain visible in the summary. `--ide-safe` implies allowance for unevaluated contracts at the CLI exit-code layer; do not infer completeness from exit code zero.
 
+When a completed validation summary reports a positive `AcquisitionDiagnosticCount`, the completion explanation warns that source acquisition left gaps, even with loaded ground truth and zero rule errors or warnings. The status text adds `acquisition diagnostics N` separately from rule counts; consult the `ACQUISITION` output lines. A zero or absent count keeps the existing behavior, including intentional skips already excluded by the CLI. Cancellation, timeout and error explanations retain precedence. Visual Studio uses the same completion and status policy. See the [acquisition summary regression plan](../../../plans/2026-10-21-ide-acquisition-summary.md) for verification boundaries.
+
 ## Configuration and credential boundaries
 
 | Setting | Default and scope |
