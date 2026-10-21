@@ -1,6 +1,6 @@
 # Visual Studio 2022 Extension
 
-DataGuard runs its bundled CLI outside `devenv.exe` and publishes batch findings to the Error List. Bundled Roslyn analyzers provide in-editor diagnostics separately. Visual Studio 2022 **17.12 or later** is required by the Roslyn 4.12 analyzer; the VSIX manifest accepts `[17.12,19.0)` on Windows amd64. This is not a Visual Studio for Mac extension.
+StackAccord runs its bundled CLI outside `devenv.exe` and publishes batch findings to the Error List. Bundled Roslyn analyzers provide in-editor diagnostics separately. Visual Studio 2022 **17.12 or later** is required by the Roslyn 4.12 analyzer; the VSIX manifest accepts `[17.12,19.0)` on Windows amd64. This is not a Visual Studio for Mac extension.
 
 ## Commands and everyday use
 
@@ -9,7 +9,7 @@ Open a solution, save the source/configuration files, then use **Tools > StackAc
 | Command | Behavior |
 |---|---|
 | Run Validation | Validate saved files using the solution-root `.dataguard.yml`; publish accepted SARIF findings. |
-| Cancel Validation | Cancel the active DataGuard command and request termination of its owned CLI process tree. |
+| Cancel Validation | Cancel the active StackAccord command and request termination of its owned CLI process tree. |
 | Assess Workspace | Run local-first `assess`, without remote advisory consent. |
 | Export Support Summary | Preview an allowlisted summary, then explicitly save locally; no automatic upload. |
 | View Diagnostic Logs | Open the diagnostic log location. |

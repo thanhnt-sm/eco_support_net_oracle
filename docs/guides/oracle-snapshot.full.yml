@@ -1,4 +1,4 @@
-# DataGuard configuration. See docs/guides/configuration.md (and configuration.vi.md).
+# StackAccord configuration. See docs/guides/configuration.md (and configuration.vi.md).
 # Oracle/PostgreSQL/MySQL raw SQL grammar is unavailable: unevaluated is not a syntax-validation pass.
 ConnectionString:  # Leave empty. Supply optional live credentials via a named environment variable; never commit secrets.
 GroundTruthMode: Snapshot # Schema source: Snapshot, Full or Manual. Snapshot alone does not prohibit live access; use --offline.

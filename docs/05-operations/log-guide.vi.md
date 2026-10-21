@@ -4,7 +4,7 @@
 
 ### 1. Console Output (Mặc định)
 
-DataGuard xuất kết quả validation ra stdout theo mặc định.
+StackAccord xuất kết quả validation ra stdout theo mặc định.
 
 ```bash
 # Output chuẩn

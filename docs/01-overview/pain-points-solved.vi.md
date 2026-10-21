@@ -2,7 +2,7 @@
 
 [English](pain-points-solved.md) · [Năng lực](feature-showcase.vi.md)
 
-Đối chiếu nguồn ngày 2026-10-18 tại `ca68a3159425495f771da866188df75a8237ab4b`. Đây là tình huống đánh giá, không phải số liệu sự cố khách hàng hoặc cam kết ngăn mọi lỗi. Giữ định danh DataGuard và tạm dừng Marketplace. Mã nguồn được đọc, chưa chạy database/editor trong đợt này.
+Đối chiếu nguồn ngày 2026-10-18 tại `ca68a3159425495f771da866188df75a8237ab4b`. Đây là tình huống đánh giá, không phải số liệu sự cố khách hàng hoặc cam kết ngăn mọi lỗi. Giữ định danh StackAccord và tạm dừng Marketplace. Mã nguồn được đọc, chưa chạy database/editor trong đợt này.
 
 | Vấn đề | Hành vi có trong nguồn | Giới hạn cần kiểm tra |
 |---|---|---|

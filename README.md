@@ -1,6 +1,6 @@
-> **Product direction (2026-10-18):** [StackAccord](docs/product/strategy.md) is the proposed brand; existing technical identities remain unchanged. The [roadmap](docs/product/roadmap.md) and [Marketplace draft](docs/product/marketplace-copy.md) distinguish implementation, validation, release and plans. Review scope and unresolved verification are recorded in the [documentation inventory](docs/product/documentation-inventory.md); historical numbers are not current release evidence. Publication remains paused.
+> **Product identity:** [StackAccord](docs/product/strategy.md) is the product name. [DataGuard technical identifiers](docs/product/branding.md) remain stable for upgrades and compatibility. The [roadmap](docs/product/roadmap.md) and [Marketplace draft](docs/product/marketplace-copy.md) distinguish implementation, validation, release and plans. Review scope and unresolved verification are recorded in the [documentation inventory](docs/product/documentation-inventory.md); historical numbers are not current release evidence. Publication remains paused.
 
-# DataGuard — Contract Validation for Entity ↔ Stored Procedure / Raw SQL
+# StackAccord — Contract Validation for Entity ↔ Stored Procedure / Raw SQL
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
@@ -9,9 +9,9 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
 
-**DataGuard** detects drift between your .NET entities and the SQL they depend on — stored procedure parameters, result-set shapes, nullability, length semantics, and dialect mismatches — at design time and in CI.
+**StackAccord** detects drift between your .NET entities and the SQL they depend on — stored procedure parameters, result-set shapes, nullability, length semantics, and dialect mismatches — at design time and in CI.
 
-> **Why it exists:** EF Core has tracked the gap for stored-procedure contract validation since [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) and declined to build it. DataGuard ports the *model contracts* pattern that **dbt** proved out for data engineering (preflight column/parameter checks at compile time, since Core v1.5, 2023) to the .NET stored-procedure world.
+> **Why it exists:** EF Core has tracked the gap for stored-procedure contract validation since [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) and declined to build it. StackAccord ports the *model contracts* pattern that **dbt** proved out for data engineering (preflight column/parameter checks at compile time, since Core v1.5, 2023) to the .NET stored-procedure world.
 
 ## Quickstart
 
@@ -213,21 +213,21 @@ Continuous line, branch, and test-analytics telemetry is published to [Codecov](
 
 ## Dual licence & FAQ
 
-From **v0.4.0** DataGuard is offered under two licences:
+From **v0.4.0** StackAccord is offered under two licences:
 
 1. **GNU GPL version 3 only** (`GPL-3.0-only`, see [`LICENSE`](LICENSE)), plus an additional permission for
    the database drivers and IDE hosts it runs with ([`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md)).
-2. **A commercial licence** for companies that want to embed DataGuard in a closed-source product they distribute.
+2. **A commercial licence** for companies that want to embed StackAccord in a closed-source product they distribute.
    Contact `<contact email placeholder>`. Terms are agreed per licensee; there is no public price list or form.
 
 > **Legal status:** the additional-permission text and the commercial-licence terms have **not been reviewed by a
 > lawyer**. Nothing here is legal advice. If a licensing question matters to you, ask your own counsel.
 
-**Does GPL-3.0 stop companies from using DataGuard commercially?** No. GPL-3.0 allows commercial use, copying and
+**Does GPL-3.0 stop companies from using StackAccord commercially?** No. GPL-3.0 allows commercial use, copying and
 modification. Running `dataguard validate` in your CI, or using the analyzers while you build your own product, needs
 no commercial licence by itself.
 
-**When does the copyleft apply?** When you *distribute* a work based on DataGuard, for example by shipping DataGuard
+**When does the copyleft apply?** When you *distribute* a work based on StackAccord, for example by shipping StackAccord
 code or binaries inside your product. You then have to offer that work under GPL-3.0, or take the commercial licence
 instead. Using a tool internally does not distribute it.
 
@@ -237,10 +237,10 @@ and including v0.3.0 were published under the MIT licence and **stay MIT permane
 **Which parts are not GPL?**
 
 - `DataGuard.Contracts` is licensed under the MIT licence on purpose. It ends up inside your application and is read by
-  DataGuard through reflection, so it must not pull your code into the GPL.
+  StackAccord through reflection, so it must not pull your code into the GPL.
 - `Oracle.ManagedDataAccess.Core` and `Microsoft.Data.SqlClient.SNI.runtime` ship with the CLI, RID archives, container
   image and IDE extensions under their own vendor terms. Their licence texts are in
-  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), which travels with every DataGuard download.
+  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), which travels with every StackAccord download.
 
 **What does the analyzer package leave in my output?** `DataGuard.Analyzers` is a build-time development dependency:
 its analyzer assemblies load inside the compiler from `analyzers/dotnet/cs`, and the package has no `lib/` assets, so

@@ -1,6 +1,6 @@
 # StackAccord — Tổng quan sản phẩm
 
-**Phát hiện sớm sai lệch giữa mã nguồn và cơ sở dữ liệu.** StackAccord là hướng thương hiệu cho công cụ DataGuard hiện tại; chưa đổi package, CLI, extension ID hoặc repository. Bản nháp beta chưa được xuất bản. [English](product-overview.md).
+**Phát hiện sớm sai lệch giữa mã nguồn và cơ sở dữ liệu.** StackAccord là tên sản phẩm đã chọn. [Tên kỹ thuật DataGuard](../product/branding.vi.md) của package, CLI, extension và repository được giữ để tương thích. Bản nháp beta chưa được xuất bản. [English](product-overview.md).
 
 ## Giá trị hiện tại
 

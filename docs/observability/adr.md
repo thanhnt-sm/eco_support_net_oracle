@@ -58,7 +58,7 @@ Status: Accepted. Queue sizing follows peak rate × payload × outage duration �
 
 ## ADR-014 — Local text archive is the product primary
 
-Status: Accepted. DataGuard is a CLI/library with no required backend or Docker runtime. Existing
+Status: Accepted. StackAccord is a CLI/library with no required backend or Docker runtime. Existing
 automatic `TelemetryCollector` calls feed `FileObservabilitySink`, which writes an allowlisted
 OpenTelemetry-mapped NDJSON envelope under a UTC-day archive path. This text envelope is not OTLP
 wire data and is not an audit ledger. Rollback is `FileSinkEnabled=false` or the existing injected

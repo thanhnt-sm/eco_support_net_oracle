@@ -1,6 +1,6 @@
 # Tham chiếu CLI
 
-CLI DataGuard (`dataguard`) là giao diện chính để xác thực contract, quản lý schema, và đánh giá môi trường. Xây dựng với `System.CommandLine`, cung cấp 13 lệnh với mẫu tùy chọn nhất quán.
+CLI StackAccord (`dataguard`) là giao diện chính để xác thực contract, quản lý schema, và đánh giá môi trường. Xây dựng với `System.CommandLine`, cung cấp 13 lệnh với mẫu tùy chọn nhất quán.
 
 ## Cây lệnh
 
@@ -111,7 +111,7 @@ Các giá trị `Kind` hỗ trợ: `PhaseStarted`, `PhaseCompleted`, `ContractDi
 - **Xử lý lỗi luồng & Bảo vệ tràn bộ đệm (Stream Error Handling & Buffer Overflow Protection)**: Bộ phát tiến trình cô lập các thao tác ghi luồng output bên trong cổng đồng bộ hóa và bảo vệ chống lại các lỗi đường ống hỏng (broken pipe) / unhandled stream error. Các consumer hạ nguồn (như tiện ích IDE) thực thi giới hạn bộ đệm dòng nghiêm ngặt (`MAX_PROGRESS_BUFFER = 1 MiB`) kèm cơ chế reset an toàn khi gặp luồng dữ liệu liên tục không có ngắt dòng. Nếu consumer đóng `stderr` sớm hoặc luồng xả buffer gặp lỗi (gặp ngoại lệ `IOException` hoặc `ObjectDisposedException`), bộ phát tiến trình sử dụng cờ luồng khả biến an toàn đa luồng (`volatile bool enabled`) để vô hiệu hóa an toàn các thao tác ghi sự kiện tiếp theo mà không ném lỗi hay làm gián đoạn pipeline xác thực cốt lõi.
 #### Tệp tổng kết quét bổ trợ (`summary.json`)
 
-Khi xuất output dạng SARIF (`--format sarif --output <path>`), DataGuard sẽ tự động tạo tệp đồng hành `summary.json` trong cùng thư mục bằng thao tác ghi nguyên tử qua `WriteTextAtomicallyAsync` và xác thực đường dẫn đích qua `IsSafeWritablePath`:
+Khi xuất output dạng SARIF (`--format sarif --output <path>`), StackAccord sẽ tự động tạo tệp đồng hành `summary.json` trong cùng thư mục bằng thao tác ghi nguyên tử qua `WriteTextAtomicallyAsync` và xác thực đường dẫn đích qua `IsSafeWritablePath`:
 
 ```json
 {
@@ -324,7 +324,7 @@ Query: SELECT Title FROM Books
 Chạy lệnh `dataguard scan --verbose` sẽ in báo cáo chẩn đoán dễ đọc trực tiếp ra `stdout`:
 
 ```text
-=== DataGuard Scan Report ===
+=== StackAccord Scan Report ===
 Scanned C# project/directory: src/OrderService
 Files scanned: 5
 Connections found: 1

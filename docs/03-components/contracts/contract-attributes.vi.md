@@ -1,6 +1,6 @@
 # Contract Attributes
 
-Assembly `DataGuard.Contracts` cung cấp các attribute cho chế độ manual ground-truth và kiểm soát xác thực. Các attribute này nằm trong assembly `netstandard2.0` để có thể được tham chiếu từ bất kỳ project .NET nào mà không cần kéo theo toàn bộ engine DataGuard.
+Assembly `DataGuard.Contracts` cung cấp các attribute cho chế độ manual ground-truth và kiểm soát xác thực. Các attribute này nằm trong assembly `netstandard2.0` để có thể được tham chiếu từ bất kỳ project .NET nào mà không cần kéo theo toàn bộ engine StackAccord.
 
 ## Kiến trúc
 
@@ -23,7 +23,7 @@ graph TB
         RAW[Raw SQL Methods]
     end
 
-    subgraph "DataGuard Engine"
+    subgraph "StackAccord Engine"
         MS[ManualContractSource]
         IDE[Analyzer Quick-Fixes]
         CLI[CLI --offline]
@@ -84,7 +84,7 @@ tên ngắn. Các attribute này là additive; `ExpectedColumn` và
 
 ## SkipContractCheckAttribute
 
-Miễn trừ method hoặc class khỏi xác thực contract DataGuard. Được sử dụng cho SQL động, truy vấn phức tạp, hoặc các trường hợp xác thực tự động không áp dụng được.
+Miễn trừ method hoặc class khỏi xác thực contract StackAccord. Được sử dụng cho SQL động, truy vấn phức tạp, hoặc các trường hợp xác thực tự động không áp dụng được.
 
 ### Định nghĩa
 

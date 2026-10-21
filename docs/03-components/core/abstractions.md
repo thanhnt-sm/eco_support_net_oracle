@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/Abstractions/Contracts.cs`
 
-The core abstractions layer defines the domain model that every DataGuard component depends on. These types form the lingua franca between contract sources, validation rules, and reporting sinks.
+The core abstractions layer defines the domain model that every StackAccord component depends on. These types form the lingua franca between contract sources, validation rules, and reporting sinks.
 
 ## Design Principles
 

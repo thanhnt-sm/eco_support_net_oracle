@@ -23,7 +23,7 @@ stateDiagram-v2
 
 This is a conceptual branch map, not a list of enum states. Command handlers have distinct options and error handling. `init`, `validate`, `baseline` and `snapshot` are independently invocable commands, not a mandatory state machine that automatically merges or deploys code.
 
-Các bước merge/deploy thuộc quy trình của repository/owner, không phải tác dụng tự động của DataGuard.
+Các bước merge/deploy thuộc quy trình của repository/owner, không phải tác dụng tự động của StackAccord.
 
 ## Validation States / Trạng Thái Xác Thực
 

@@ -1,6 +1,6 @@
 # Bộ Adapter Oracle
 
-Bộ Adapter Oracle là adapter giàu tính năng nhất của DataGuard, cung cấp tích hợp sâu với Oracle Database để xác thực contract giữa các entity Entity Framework Core và stored procedure, package, raw SQL của Oracle.
+Bộ Adapter Oracle là adapter giàu tính năng nhất của StackAccord, cung cấp tích hợp sâu với Oracle Database để xác thực contract giữa các entity Entity Framework Core và stored procedure, package, raw SQL của Oracle.
 
 ## Kiến trúc
 

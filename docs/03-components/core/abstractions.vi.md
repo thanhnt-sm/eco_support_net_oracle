@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/Abstractions/Contracts.cs`
 
-Lớp abstractions cốt lõi định nghĩa domain model mà mọi thành phần DataGuard đều phụ thuộc. Các kiểu này hình thành ngôn ngữ chung giữa các contract sources, rules kiểm tra, và reporting sinks.
+Lớp abstractions cốt lõi định nghĩa domain model mà mọi thành phần StackAccord đều phụ thuộc. Các kiểu này hình thành ngôn ngữ chung giữa các contract sources, rules kiểm tra, và reporting sinks.
 
 ## Nguyên Tắc Thiết Kế
 

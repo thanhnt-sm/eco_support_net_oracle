@@ -6,7 +6,7 @@
 
 ```mermaid
 timeline
-    title DataGuard Evolution
+    title StackAccord Evolution
     section v0.1.x (Hiện tại)
         Core validation engine : 16+ rules : 4 DB adapters
         CLI tool : Roslyn analyzers : IDE extensions

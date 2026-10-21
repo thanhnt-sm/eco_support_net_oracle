@@ -1,6 +1,6 @@
-# DataGuard — Source and Artifact Quickstart
+# StackAccord — Source and Artifact Quickstart
 
-Start with a reviewed source build or an inspected artifact. Public NuGet, container and Marketplace availability is not established by this guide. Technical commands and package IDs remain DataGuard; [StackAccord](../product/strategy.md) is the proposed brand.
+Start with a reviewed source build or an inspected artifact. Public NuGet, container and Marketplace availability is not established by this guide. StackAccord is the product name; [DataGuard technical identifiers](../product/branding.md) remain stable for commands, configuration and packages.
 
 ## 1. Build or install
 
@@ -66,7 +66,7 @@ Build or select an accepted VS Code VSIX using the [extension build guide](../05
 code --install-extension /path/to/accepted-vscode-package.vsix
 ```
 
-Replace the path, open a trusted .NET workspace, and inspect DataGuard output and Problems after activation/validation. Do not assume a public Marketplace listing or automatic full database validation. The manifest and locked language client both require VS Code `^1.91.0`; use a compatible editor for acceptance. Source metadata alignment does not establish installed-editor acceptance.
+Replace the path, open a trusted .NET workspace, and inspect StackAccord output and Problems after activation/validation. Do not assume a public Marketplace listing or automatic full database validation. The manifest and locked language client both require VS Code `^1.91.0`; use a compatible editor for acceptance. Source metadata alignment does not establish installed-editor acceptance.
 
 Supported settings include:
 
@@ -108,4 +108,4 @@ Configure required status checks if the owner wants validation to gate merges. N
 - [Manual automation](../marketplace-automation.md): preparation and publication are distinct operations.
 - [Product roadmap](../product/roadmap.md): planned capabilities are separate from implemented and validated behavior.
 
-**Tiếng Việt:** Build CLI từ source hoặc dùng artifact đã kiểm tra theo [hướng dẫn cài đặt](../05-operations/installation-guide.vi.md). `init` tạo cấu hình, không tạo snapshot. Chỉ refresh snapshot với database được cho phép; `--connection-env` nhận tên biến, không cần đưa mật khẩu vào đối số. Validate offline cần snapshot/contract phù hợp; không có finding không đồng nghĩa đã xác minh mọi SQL. Cài VSIX local theo [hướng dẫn build](../05-operations/extension-build-guide.vi.md), kiểm thử editor thật và giữ nguyên ID DataGuard. CI cần cung cấp CLI/snapshot đã duyệt và giữ exit code; không tự tạo branch protection, hook hoặc quyền công bố.
+**Tiếng Việt:** Build CLI từ source hoặc dùng artifact đã kiểm tra theo [hướng dẫn cài đặt](../05-operations/installation-guide.vi.md). `init` tạo cấu hình, không tạo snapshot. Chỉ refresh snapshot với database được cho phép; `--connection-env` nhận tên biến, không cần đưa mật khẩu vào đối số. Validate offline cần snapshot/contract phù hợp; không có finding không đồng nghĩa đã xác minh mọi SQL. Cài VSIX local theo [hướng dẫn build](../05-operations/extension-build-guide.vi.md), kiểm thử editor thật và giữ nguyên tên kỹ thuật DataGuard. CI cần cung cấp CLI/snapshot đã duyệt và giữ exit code; không tự tạo branch protection, hook hoặc quyền công bố.

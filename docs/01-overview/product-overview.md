@@ -1,6 +1,6 @@
 # StackAccord — Product overview
 
-**Find code–database mismatches earlier.** StackAccord is the brand direction for the existing DataGuard tooling; package, CLI, extension and repository identities have not changed. The beta listing is unpublished. [Tiếng Việt](product-overview.vi.md).
+**Find code–database mismatches earlier.** StackAccord is the product name. The [DataGuard technical identifiers](../product/branding.md) for packages, CLI, extensions and repository remain stable for compatibility. The beta listing is unpublished. [Tiếng Việt](product-overview.vi.md).
 
 ## Current value
 

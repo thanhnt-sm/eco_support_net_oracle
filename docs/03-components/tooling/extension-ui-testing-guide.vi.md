@@ -1,29 +1,25 @@
-# Hướng Dẫn Tương Tác & Kiểm Thử Giao Diện DataGuard Extension (VS Code & Visual Studio)
+# Hướng Dẫn Tương Tác & Kiểm Thử Giao Diện StackAccord Extension (VS Code & Visual Studio)
 
 Tài liệu này tổng hợp chi tiết toàn bộ các điểm chạm giao diện người dùng (UI), hệ thống thông báo (Notifications), luồng xử lý kết quả, và các kịch bản kiểm thử mẫu từng bước cho cả hai tiện ích mở rộng: **Visual Studio Extension** và **VS Code Extension**.
 
 ---
 
+> Tên thương hiệu hiển thị là StackAccord; menu/Output của Visual Studio dùng StackAccord (Beta). Giữ ID, namespace settings và tên kỹ thuật DataGuard để tương thích. Đây là hướng dẫn nghiệm thu; chưa xác nhận UI đã cài trên Windows/macOS/Linux.
+
 ## 1. Bản Đồ Giao Diện Người Dùng (UI Map)
 
-DataGuard Extension được thiết kế theo kiến trúc **Two-Tier (Lớp Kép)**:
+StackAccord Extension được thiết kế theo kiến trúc **Two-Tier (Lớp Kép)**:
 - **Lớp Real-Time Editor (Roslyn / LSP)**: Tự động phân tích câu lệnh SQL ngay khi lập trình viên gõ phím, gạch chân cảnh báo trực tiếp trong file mã nguồn.
 - **Lớp Deep Validation (External CLI)**: Khi người dùng bấm chạy lệnh xác thực, extension gọi tiến trình ngầm và nạp kết quả chuẩn SARIF vào các bảng quản lý lỗi chuẩn của IDE.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│                             DATAGUARD EXTENSION UI MAP                                   │
-├─────────────────────────────────────────┬────────────────────────────────────────────────┤
-│       Visual Studio (2022 / 2026)       │             Visual Studio Code                 │
-├─────────────────────────────────────────┼────────────────────────────────────────────────┤
-│ 1. Menu Bar: Menu "DataGuard"           │ 1. Status Bar Item: [$(shield) DataGuard]     │
-│ 2. Options Dialog: Tools -> Options     │ 2. Command Palette: Ctrl+Shift+P -> DataGuard │
-│ 3. Error List: Bảng lỗi và cảnh báo     │ 3. Problems Panel: Ctrl+Shift+M               │
-│ 4. Output Pane: Show output: DataGuard  │ 4. Output Channel: Kênh "DataGuard"            │
-│ 5. Editor: Gạch chân vàng/đỏ trực tiếp  │ 5. Editor: Gạch chân vàng/đỏ trực tiếp         │
-│ 6. Log Viewer: Mở log tự động           │ 6. Modal Dialogs & Popup Notifications         │
-└─────────────────────────────────────────┴────────────────────────────────────────────────┘
-```
+| Visual Studio (2022 / 2026) | Visual Studio Code |
+|---|---|
+| Menu **Tools → StackAccord (Beta)** | Status bar **StackAccord** |
+| Settings **Tools → Options → DataGuard** | Command Palette: tìm **StackAccord** |
+| **Error List** | **Problems** (`Ctrl+Shift+M`) |
+| Output pane **StackAccord (Beta)** | Output channel **StackAccord** |
+| Diagnostic trong editor; **View Diagnostic Logs** | Diagnostic trong editor; hộp thoại xác nhận và thông báo |
+
 
 ---
 
@@ -32,25 +28,25 @@ DataGuard Extension được thiết kế theo kiến trúc **Two-Tier (Lớp K�
 ### A. Trên Visual Studio
 | Điểm chạm | Vị trí / Phím tắt | Cách tương tác & Chức năng |
 |---|---|---|
-| **Top Menu Bar** | Menu `DataGuard` (cạnh Tools/Window) | • **Run Validation** (`Ctrl+Alt+D, V`): Quét toàn bộ Solution.<br>• **Cancel Validation** (`Ctrl+Alt+D, C`): Dừng tác vụ đang chạy.<br>• **Assess Workspace**: Đánh giá cấu trúc dự án offline.<br>• **View Diagnostic Logs...**: Mở file log chẩn đoán trong editor. |
+| **Top Menu Bar** | Menu `StackAccord (Beta)` (trong Tools) | • **Run Validation** (`Ctrl+Alt+D, V`): Quét toàn bộ Solution.<br>• **Cancel Validation** (`Ctrl+Alt+D, C`): Dừng tác vụ đang chạy.<br>• **Assess Workspace**: Đánh giá cấu trúc dự án offline.<br>• **View Diagnostic Logs...**: Mở file log chẩn đoán trong editor. |
 | **Options Page** | `Tools` $\rightarrow$ `Options` $\rightarrow$ `DataGuard` $\rightarrow$ `General` | Giao diện cấu hình:<br>• `Enable Detailed Logging` (Checkbox bật/tắt log).<br>• `Log Directory` (Thư mục lưu log, mặc định `%APPDATA%\DataGuard\logs`).<br>• `Custom CLI Executable Path` (Đường dẫn file `dataguard.exe`).<br>• `Run Validation on Build` (Tự động chạy xác thực khi build solution hoàn tất).<br>• `Validation Timeout (seconds)` (Timeout cho validate, mặc định 300s, 5–900s).<br>• `Assessment Timeout (seconds)` (Timeout cho assess, mặc định 60s, 5–900s). |
 | **Error List** | `View` $\rightarrow$ `Error List` (`Ctrl+\, E`) | Hiển thị toàn bộ vi phạm hợp đồng (DG017, DG004, DG002...). **Click đúp vào dòng lỗi để nhảy đến vị trí code vi phạm**. |
-| **Output Window** | `View` $\rightarrow$ `Output` (`Ctrl+Alt+O`) | Chọn `Show output from: DataGuard`. Hiển thị tiến trình, thời gian chạy và số lượng lỗi được tải vào Error List. |
+| **Output Window** | `View` $\rightarrow$ `Output` (`Ctrl+Alt+O`) | Chọn `Show output from: StackAccord (Beta)`. Hiển thị tiến trình, thời gian chạy và số lượng lỗi được tải vào Error List. |
 | **In-Editor Squigglies** | Trực tiếp trong file `.cs` | Gạch chân cảnh báo màu vàng (Warning) hoặc màu đỏ (Error) khi câu query Dapper/EF Core vi phạm hợp đồng. |
 
 ### B. Trên Visual Studio Code
 | Điểm chạm | Vị trí / Phím tắt | Cách tương tác & Chức năng |
 |---|---|---|
-| **Status Bar Item** | Góc dưới cùng bên trái thanh Status Bar | Biểu tượng chiếc khiên `$(shield) DataGuard`:<br>• **Click chuột vào chữ DataGuard**: Kích hoạt chạy `Run Validation`.<br>• `$(sync~spin) DataGuard`: Hiển thị xoay vòng khi đang chạy.<br>• `$(warning) DataGuard`: Báo có lỗi vi phạm hoặc tác vụ bị huỷ.<br>• `$(error) DataGuard`: Báo lỗi hệ thống hoặc timeout. |
-| **Command Palette** | `Ctrl+Shift+P` (hoặc `Cmd+Shift+P`) | Gõ `DataGuard`: <br>• `DataGuard: Run Validation`<br>• `DataGuard: Cancel Validation`<br>• `DataGuard: Open Drift Dashboard`<br>• `DataGuard: Refresh Findings`<br>• `DataGuard: Clear Findings`<br>• `DataGuard: Assess Workspace`<br>• `DataGuard: Refresh Snapshot`<br>• `DataGuard: Create Baseline` |
-| **Activity Bar & TreeView** | Icon chiếc khiên trên thanh Activity Bar trái | Tab **DataGuard** mở khung **Contract Drift Findings**:<br>• Phân nhóm theo Severity (Error/Warning/Info), Rule, hoặc File.<br>• Click vào từng finding để mở file và trỏ đúng dòng/cột.<br>• Nút inline **Quick-Fix** áp dụng giải pháp ngay lập tức. |
+| **Status Bar Item** | Góc dưới cùng bên trái thanh Status Bar | Biểu tượng chiếc khiên `$(shield) StackAccord`:<br>• **Click chuột vào chữ StackAccord**: Kích hoạt chạy `Run Validation`.<br>• `$(sync~spin) StackAccord`: Hiển thị xoay vòng khi đang chạy.<br>• `$(warning) StackAccord`: Báo có lỗi vi phạm hoặc tác vụ bị huỷ.<br>• `$(error) StackAccord`: Báo lỗi hệ thống hoặc timeout. |
+| **Command Palette** | `Ctrl+Shift+P` (hoặc `Cmd+Shift+P`) | Gõ `StackAccord`: <br>• `StackAccord: Run Validation`<br>• `StackAccord: Cancel Validation`<br>• `StackAccord: Open Drift Dashboard`<br>• `StackAccord: Refresh Findings`<br>• `StackAccord: Clear Findings`<br>• `StackAccord: Assess Workspace`<br>• `StackAccord: Refresh Snapshot`<br>• `StackAccord: Create Baseline` |
+| **Activity Bar & TreeView** | Icon chiếc khiên trên thanh Activity Bar trái | Tab **StackAccord** mở khung **Contract Drift Findings**:<br>• Phân nhóm theo Severity (Error/Warning/Info), Rule, hoặc File.<br>• Click vào từng finding để mở file và trỏ đúng dòng/cột.<br>• Nút inline **Quick-Fix** áp dụng giải pháp ngay lập tức. |
 | **Drift Dashboard (Webview)** | Nút Dashboard trên TreeView hoặc lệnh `Open Drift Dashboard` | Bảng điều khiển tương tác chuẩn **ui-ux-pro-max** (Dark OLED, Fira Code font, WCAG > 4.5:1):<br>• Lọc thời gian thực theo từ khoá, mã lỗi, hoặc mức độ nghiêm trọng.<br>• Ảo hoá danh sách (Virtualized List) cuộn mượt mà 60fps với 15.000+ cảnh báo.<br>• Nút hành động CTA màu cam `#F97316` hỗ trợ Quick-Fix trực tiếp. |
 | **Quick-Fix Overlay** | `Ctrl+.` hoặc nút `⚡ Quick-Fix` | Đề xuất giải pháp tự động căn chỉnh tham số và chuyển đổi `SELECT *` thành danh sách cột tường minh. |
 | **Problems Panel** | `View` $\rightarrow$ `Problems` (`Ctrl+Shift+M`) | Liệt kê lỗi vi phạm theo file/dòng/cột, kèm mã lỗi (DG017, DG004, DG001...). Click vào để mở file đến đúng vị trí. |
-| **Output Channel** | `View` $\rightarrow$ `Output` (`Ctrl+Shift+U`) | Chọn kênh `DataGuard` từ dropdown bên phải để xem log chi tiết. Dữ liệu nhạy cảm (mật khẩu, connection string) tự động được che giấu (`[REDACTED]` / `***`). |
+| **Output Channel** | `View` $\rightarrow$ `Output` (`Ctrl+Shift+U`) | Chọn kênh `StackAccord` từ dropdown bên phải để xem log chi tiết. Dữ liệu nhạy cảm (mật khẩu, connection string) tự động được che giấu (`[REDACTED]` / `***`). |
 | **QuickPick Dialog** | Xuất hiện tự động | Khi mở thư mục có nhiều project con (multi-root workspace), extension tự bật danh sách để người dùng bấm chọn project cần kiểm tra. |
 | **Modal Warning Dialog**| Xuất hiện khi chạy Snapshot/Baseline | Bật hộp thoại cảnh báo bắt buộc bấm **Continue** để xác nhận thao tác kết nối DB làm mới dữ liệu. |
-| **Settings UI** | `File` $\rightarrow$ `Preferences` $\rightarrow$ `Settings` (`Ctrl+,`) | Tìm `DataGuard` để chỉnh cấu hình: `enabled`, `provider`, `configPath`, `timeoutSeconds`, `cliPath`. |
+| **Settings UI** | `File` $\rightarrow$ `Preferences` $\rightarrow$ `Settings` (`Ctrl+,`) | Tìm `dataguard` (namespace settings giữ nguyên) để chỉnh cấu hình: `enabled`, `provider`, `configPath`, `timeoutSeconds`, `cliPath`. |
 
 ---
 
@@ -114,16 +110,16 @@ namespace TestDemo
 **Mục tiêu**: Kiểm thử luồng tương tác kích hoạt quét toàn diện, hiển thị thông báo và đồng bộ bảng lỗi.
 
 1. **Thao tác**:
-   - **Visual Studio**: Bấm menu `DataGuard` $\rightarrow$ chọn **Run Validation** (hoặc nhấn `Ctrl+Alt+D, V`).
-   - **VS Code**: Nhìn xuống góc dưới cùng bên trái, click chuột vào biểu tượng chiếc khiên **`DataGuard`** (hoặc nhấn `Ctrl+Shift+P` gõ `DataGuard: Run Validation`).
+   - **Visual Studio**: Bấm menu `StackAccord (Beta)` $\rightarrow$ chọn **Run Validation** (hoặc nhấn `Ctrl+Alt+D, V`).
+   - **VS Code**: Nhìn xuống góc dưới cùng bên trái, click chuột vào biểu tượng chiếc khiên **`StackAccord`** (hoặc nhấn `Ctrl+Shift+P` gõ `StackAccord: Run Validation`).
 2. **Hiện tượng quan sát được trên giao diện**:
    - **VS Code**:
-     - Biểu tượng Status Bar chuyển sang icon xoay `$(sync~spin) DataGuard` với tooltip `"DataGuard validation is running"`.
-     - Kênh Output `DataGuard` tự động mở ra ghi nhận: `[DataGuard] Validation started...`
-     - Khi chạy xong, popup thông báo góc dưới phải xuất hiện: *"DataGuard validate found findings. See Problems or the DataGuard output channel."*
+     - Biểu tượng Status Bar chuyển sang icon xoay `$(sync~spin) StackAccord` với tooltip `"StackAccord validation is running"`.
+     - Kênh Output `StackAccord` tự động mở ra ghi nhận: `[StackAccord] Validation started...`
+     - Khi chạy xong, popup thông báo góc dưới phải xuất hiện: *"StackAccord validate found findings. See Problems or the StackAccord output channel."*
      - Bấm `Ctrl+Shift+M` (Problems panel): Toàn bộ danh sách các câu truy vấn sai lệch xuất hiện đầy đủ cùng đường dẫn file và số dòng.
    - **Visual Studio**:
-     - Cửa sổ Output (kênh `DataGuard`) ghi nhận: `[DataGuard] validate started...` và sau đó báo: `[DataGuard] Loaded X diagnostics into Error List.`
+     - Cửa sổ Output (kênh `StackAccord (Beta)`) ghi nhận: `[StackAccord] validate started...` và sau đó báo: `[StackAccord] Loaded X diagnostics into Error List.`
      - Cửa sổ `Error List` (`Ctrl+\, E`) tự động hiển thị các dòng lỗi/cảnh báo màu đỏ/vàng. Click đúp chuột vào từng dòng lỗi sẽ lập tức mở đúng file và trỏ tới đúng câu SQL có vấn đề.
 
 ---
@@ -133,11 +129,11 @@ namespace TestDemo
 
 1. Kích hoạt chạy xác thực (`Run Validation`).
 2. Trong khi tiến trình đang chạy, lập tức chọn:
-   - **Visual Studio**: Menu `DataGuard` $\rightarrow$ chọn **Cancel Validation** (`Ctrl+Alt+D, C`).
-   - **VS Code**: `Ctrl+Shift+P` $\rightarrow$ chọn **DataGuard: Cancel Validation**.
+   - **Visual Studio**: Menu `StackAccord (Beta)` $\rightarrow$ chọn **Cancel Validation** (`Ctrl+Alt+D, C`).
+   - **VS Code**: `Ctrl+Shift+P` $\rightarrow$ chọn **StackAccord: Cancel Validation**.
 3. **Hiện tượng quan sát được**:
-   - Output Window ghi nhận: `[DataGuard] Cancellation requested; the process tree was terminated.` (hoặc `[DataGuard] validate cancelled.`).
-   - Status Bar trên VS Code chuyển sang trạng thái cảnh báo `$(warning) DataGuard`.
+   - Output Window ghi nhận: `[StackAccord] Cancellation requested; the process tree was terminated.` (hoặc `[StackAccord] validate cancelled.`).
+   - Status Bar trên VS Code chuyển sang trạng thái cảnh báo `$(warning) StackAccord`.
    - Tiến trình ngầm bị ngắt hoàn toàn, không gây treo IDE hay chiếm dụng tài nguyên CPU.
 
 ---
@@ -146,7 +142,7 @@ namespace TestDemo
 **Mục tiêu**: Kiểm tra việc ghi nhận log và cơ chế bảo vệ thông tin mật.
 
 1. **Trên Visual Studio**:
-   - Bấm menu `DataGuard` $\rightarrow$ chọn **View Diagnostic Logs...**
+   - Bấm menu `StackAccord (Beta)` $\rightarrow$ chọn **View Diagnostic Logs...**
    - Visual Studio sẽ tự động mở file log `%APPDATA%\DataGuard\logs\dataguard_vs_YYYYMMDD.log` dưới dạng tài liệu văn bản.
    - Bạn có thể xem toàn bộ lịch sử khởi động gói extension, các lệnh đã chạy, mã lỗi và thời gian thực thi (ms).
 2. **Cơ chế bảo mật (Sensitive Data Redaction)**:
@@ -160,7 +156,7 @@ namespace TestDemo
 
 1. **Thao tác**:
    - Chuyển đổi VS Code sang giao diện **Dark+ / OLED Dark** hoặc **Light**.
-   - Mở **DataGuard Contract Drift Dashboard** (`DataGuard: Open Drift Dashboard`).
+   - Mở **StackAccord Contract Drift Dashboard** (`StackAccord: Open Drift Dashboard`).
 2. **Tiêu chuẩn kiểm tra (Đo lường tự động qua `out/ui/design-tokens.test.js`)**:
    - Chữ chính `#F8FAFC` trên nền tối `#0F172A`: Tỷ lệ tương phản đạt **17.06:1** (Vượt chuẩn WCAG AAA $\ge 7.0:1$).
    - Chữ chính trên nền thẻ `#1E293B`: Tỷ lệ tương phản đạt **13.98:1** (Chuẩn WCAG AAA).
@@ -208,13 +204,13 @@ namespace TestDemo
    - Nhấp vào nút **`⚡ Quick-Fix`** màu cam `#F97316` trên Dashboard hoặc TreeView.
    - Hoặc di chuyển con trỏ tới dòng vi phạm (ví dụ `DG017` SELECT *) trong editor và nhấn `Ctrl+.`.
 2. **Kết quả quan sát được**:
-   - Menu Quick-Fix mở ra với tiêu đề: `⚡ [DataGuard] Replace SELECT * with explicit column list projection`.
+   - Menu Quick-Fix mở ra với tiêu đề: `⚡ [StackAccord] Replace SELECT * with explicit column list projection`.
    - Khi bấm chọn, câu lệnh được tự động thay thế bằng danh sách cột cụ thể hoặc chèn ghi chú căn chỉnh hợp đồng chuẩn xác.
 ---
 
 ## 4. Xác Thực Phiên Bản Cài Đặt (Version Check)
 
-Các bản cài đặt được đóng gói chuẩn phiên bản **0.3.0** tại thư mục `artifacts/`:
+Ví dụ artifact **0.3.0** bên dưới là bản ghi lịch sử, không phải bằng chứng có sẵn bản cài hiện tại. Metadata nguồn hiện là 0.4.0; hãy build/kiểm tra đúng artifact theo [hướng dẫn cài đặt](../../05-operations/installation-guide.vi.md) và ghi lại phiên bản/hash thực tế:
 
 - **Visual Studio VSIX**: `artifacts/visualstudio/dataguard-visualstudio-0.3.0.vsix`
   - Định danh Manifest: `<Identity Id="DataGuard.VisualStudio" Version="0.3.0" Language="en-US" Publisher="thanhnt-sm" />`

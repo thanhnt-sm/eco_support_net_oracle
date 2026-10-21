@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/Telemetry/TelemetryCollector.cs`
 
-Hệ thống telemetry của DataGuard là **opt-in, chỉ local** theo mặc định. Nó sử dụng
+Hệ thống telemetry của StackAccord là **opt-in, chỉ local** theo mặc định. Nó sử dụng
 `System.Diagnostics.Metrics` (tiêu chuẩn .NET 9) và tự động ghi envelope observability bounded,
 allowlist vào file archive NDJSON theo ngày UTC khi được bật. Legacy NDJSON HTTP exporter chỉ còn là
 compatibility path explicit; `RemoteExportEnabled` mặc định `false` và không gọi endpoint ngầm.
@@ -12,7 +12,7 @@ Xem [`local-file-observability.md`](../../observability/local-file-observability
 
 ```mermaid
 flowchart TB
-    subgraph DataGuard Pipeline
+    subgraph StackAccord Pipeline
         VP[ValidationPipeline]
         RR[Rule Execution]
         BS[Baseline Operations]

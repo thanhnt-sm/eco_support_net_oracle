@@ -2,7 +2,7 @@
 
 > Detailed component responsibilities, interface contracts, and dependency graph.
 
-This document describes every project in the DataGuard solution, its public API surface, the interfaces that bind them together, and the data flow between components.
+This document describes every project in the StackAccord solution, its public API surface, the interfaces that bind them together, and the data flow between components.
 
 ---
 
@@ -253,7 +253,7 @@ Note: everything lives in `src/DataGuard.SqlServer.Adapter/` (namespace `DataGua
 |----------|-------|
 | **Target** | `net472` (VSIX) |
 | **Dependencies** | `Microsoft.VisualStudio.SDK` 17.14, VSSDK.BuildTools |
-| **Role** | Visual Studio 2022 extension: menu commands surfacing DataGuard validation inside the IDE |
+| **Role** | Visual Studio 2022 extension: menu commands surfacing StackAccord validation inside the IDE |
 
 ---
 
@@ -263,7 +263,7 @@ Note: everything lives in `src/DataGuard.SqlServer.Adapter/` (namespace `DataGua
 |----------|-------|
 | **Target** | TypeScript → Node.js extension host |
 | **Engines** | VS Code ≥ 1.91 |
-| **Role** | VS Code extension: surfaces DataGuard diagnostics (SARIF-backed) as problems, decorations, and commands |
+| **Role** | VS Code extension: surfaces StackAccord diagnostics (SARIF-backed) as problems, decorations, and commands |
 
 ---
 

@@ -1,5 +1,7 @@
 # Third-party notices
 
+> **Product name:** StackAccord is the current product name for the DataGuard project. This note does not amend any licence terms or permissions. Existing technical identifiers, copyright and authorship notices, and historical release names remain unchanged.
+
 > **Not reviewed by a lawyer.** The summaries below are the DataGuard owner's reading of the licence texts
 > and are not legal advice. The licence texts themselves are reproduced verbatim.
 
@@ -11,9 +13,9 @@ DataGuard is Copyright (c) 2026 Than Nguyen and DataGuard contributors.
 - Releases up to and including **v0.3.0**: MIT licence, permanently (text: `docs/legal/MIT-v0.1.0-v0.3.0.txt`
   in https://github.com/thanhnt-sm/eco_support_net_oracle).
 
-DataGuard's command-line tool, RID archives, container image, NuGet tool package and IDE extensions bundle
+StackAccord's command-line tool, RID archives, container image, NuGet tool package and IDE extensions bundle
 the two components below. They are **separately licensed**: the GPL does not apply to them, and their terms
-travel with every copy of DataGuard that includes them.
+travel with every copy of StackAccord that includes them.
 
 ## 1. Oracle.ManagedDataAccess.Core 23.26.301 (Oracle Data Provider for .NET, managed driver)
 
@@ -85,7 +87,7 @@ Last updated:  28 June 2022
 Licence: Microsoft Software License Terms, "MICROSOFT.DATA.SQLCLIENT.SNI LIBRARY". Full text below, copied
 from the `LICENSE.txt` inside the NuGet package.
 
-DataGuard distributes this library as unmodified object code ("Distributable Code"). Points to note
+StackAccord distributes this library as unmodified object code ("Distributable Code"). Points to note
 (`LICENSE.txt` section 3.a, lines 12-23 of the package):
 
 - it may only be used as part of an application, not as a standalone distribution;
@@ -150,4 +152,4 @@ Other components are used under permissive licences (MIT, Apache-2.0, the Postgr
 allow redistribution alongside GPL-3.0-only code. They are checked on every CI run against the allow-list in
 `scripts/allowed-licences.txt` (`scripts/check-nuget-licences.py`), and each release ships SBOMs listing
 them. Visual Studio and Visual Studio Code are the hosts that run the extensions; they are not redistributed
-by DataGuard.
+by StackAccord.

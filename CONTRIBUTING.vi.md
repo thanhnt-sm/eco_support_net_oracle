@@ -1,8 +1,8 @@
 [English](CONTRIBUTING.md) | [Tiếng Việt](CONTRIBUTING.vi.md)
 
-# Hướng Dẫn Đóng Góp Cho DataGuard
+# Hướng Dẫn Đóng Góp Cho StackAccord
 
-Cảm ơn bạn đã quan tâm đến việc đóng góp cho **DataGuard**! DataGuard là contract validation engine cho .NET — phát hiện drift giữa entity và SQL mà code phụ thuộc (tham số stored procedure, result-set shape, nullability, length semantics, dialect mismatch) ngay tại thời điểm thiết kế và trong CI.
+Cảm ơn bạn đã quan tâm đến việc đóng góp cho **StackAccord**! StackAccord là contract validation engine cho .NET — phát hiện drift giữa entity và SQL mà code phụ thuộc (tham số stored procedure, result-set shape, nullability, length semantics, dialect mismatch) ngay tại thời điểm thiết kế và trong CI.
 
 ---
 

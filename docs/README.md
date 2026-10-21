@@ -1,13 +1,15 @@
-# DataGuard Documentation Hub
+# StackAccord Documentation Hub
 
-> **DataGuard** — Contract validation for .NET Entity ↔ Stored Procedure / Raw SQL.
+[Branding and compatibility identifiers](product/branding.md)
+
+> **StackAccord** — Contract validation for .NET Entity ↔ Stored Procedure / Raw SQL.
 
 ## Documentation Map
 
 | Section | Description | Link |
 |---------|-------------|------|
 | **Directory Tree** | Dated directory overview; exhaustive review status is in the documentation inventory | [EN](00-directory-tree/directory-tree.md) · [VI](00-directory-tree/directory-tree.vi.md) |
-| **Product Overview** | What DataGuard is, why it exists | [EN](01-overview/product-overview.md) · [VI](01-overview/product-overview.vi.md) |
+| **Product Overview** | What StackAccord is, why it exists | [EN](01-overview/product-overview.md) · [VI](01-overview/product-overview.vi.md) |
 | **Feature Showcase** | Scoped source capabilities and limitations | [EN](01-overview/feature-showcase.md) · [VI](01-overview/feature-showcase.vi.md) |
 | **Pain Points Solved** | .NET/C# developer problems solved | [EN](01-overview/pain-points-solved.md) · [VI](01-overview/pain-points-solved.vi.md) |
 | **Quickstart** | Source/verified-artifact getting started | [EN](01-overview/quickstart.md) |

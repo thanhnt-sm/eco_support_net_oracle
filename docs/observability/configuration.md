@@ -2,7 +2,7 @@
 
 The optional service package binds `Observability` configuration. Environment variables use the
 standard double underscore mapping, for example `Observability__Enabled=true` and
-`Observability__ServiceName=payments`. DataGuard itself is a CLI/library: its primary path is the
+`Observability__ServiceName=payments`. StackAccord itself is a CLI/library: its primary path is the
 core `FileObservabilitySink` described in [local-file-observability.md](local-file-observability.md).
 The OTel/OTLP settings below apply only to a separately hosted compatibility adapter.
 

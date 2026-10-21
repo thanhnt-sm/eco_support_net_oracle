@@ -42,7 +42,7 @@ public sealed class TransferService(IBusinessOperationObserver observer)
 ```
 
 The following is an optional gateway tail-sampling adapter for a different hosted service; it is
-not part of the DataGuard CLI/library runtime. For a gateway tail-sampling deployment, the host may explicitly opt into a complete candidate
+not part of the StackAccord CLI/library runtime. For a gateway tail-sampling deployment, the host may explicitly opt into a complete candidate
 set (after capacity review):
 
 ```csharp

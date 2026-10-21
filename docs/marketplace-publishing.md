@@ -1,6 +1,6 @@
-> **Product direction (2026-10-18):** [StackAccord](product/strategy.md) is the proposed brand; existing technical identities remain unchanged. The [roadmap](product/roadmap.md) and [Marketplace draft](product/marketplace-copy.md) distinguish implementation, validation, release and plans. The instructions below were reconciled against source in SA-DOC-015; they are not publication evidence. The legacy Marketplace workflow remains paused; the separate manual route requires readiness gates.
+> **Product identity:** [StackAccord](product/strategy.md) is the product name; [DataGuard technical identifiers](product/branding.md) remain stable for compatibility. The [roadmap](product/roadmap.md) and [Marketplace draft](product/marketplace-copy.md) distinguish implementation, validation, release and plans. The instructions below were reconciled against source in SA-DOC-015; they are not publication evidence. The legacy Marketplace workflow remains paused; the separate manual route requires readiness gates.
 
-# DataGuard Marketplace publishing
+# StackAccord Marketplace publishing
 
 [Tiếng Việt](marketplace-publishing.vi.md) · [Other release channels](operations/release_guide.md)
 

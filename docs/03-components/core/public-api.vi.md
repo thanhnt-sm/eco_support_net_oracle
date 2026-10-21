@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/PublicApi/PublicApiSurface.cs`
 
-Public API surface cung cấp điểm vào ổn định, có phiên bản cho việc sử dụng DataGuard theo chương trình. Nó bao gồm facade `DataGuardApi` chính, `ValidationPipeline` fluent, các kiểu kết quả, phát hiện drift, và factory thân thiện DI.
+Public API surface cung cấp điểm vào ổn định, có phiên bản cho việc sử dụng StackAccord theo chương trình. Nó bao gồm facade `DataGuardApi` chính, `ValidationPipeline` fluent, các kiểu kết quả, phát hiện drift, và factory thân thiện DI.
 
 ## Luồng Sử Dụng API
 
@@ -226,7 +226,7 @@ Mặc định là `Missing`; các đường chạy đã đánh giá sẽ gán t�
 
 ## DataGuardFactory
 
-Factory thân thiện DI để tạo các thành phần DataGuard.
+Factory thân thiện DI để tạo các thành phần StackAccord.
 
 ```csharp
 public static class DataGuardFactory

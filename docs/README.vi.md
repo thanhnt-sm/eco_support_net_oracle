@@ -1,13 +1,15 @@
-# Trung Tâm Tài Liệu DataGuard
+# Trung Tâm Tài Liệu StackAccord
 
-> **DataGuard** — Xác thực contract giữa .NET Entity ↔ Stored Procedure / Raw SQL.
+[Thương hiệu và tên kỹ thuật tương thích](product/branding.vi.md)
+
+> **StackAccord** — Xác thực contract giữa .NET Entity ↔ Stored Procedure / Raw SQL.
 
 ## Bản Đồ Tài Liệu
 
 | Phần | Mô tả | Liên kết |
 |------|-------|----------|
 | **Cây Thư Mục** | Bảng kê toàn bộ workspace với mô tả | [EN](00-directory-tree/directory-tree.md) · [VI](00-directory-tree/directory-tree.vi.md) |
-| **Tổng Quan Sản Phẩm** | DataGuard là gì, tại sao tồn tại | [EN](01-overview/product-overview.md) · [VI](01-overview/product-overview.vi.md) |
+| **Tổng Quan Sản Phẩm** | StackAccord là gì, tại sao tồn tại | [EN](01-overview/product-overview.md) · [VI](01-overview/product-overview.vi.md) |
 | **Showcase Tính Năng** | Tất cả tính năng và khả năng | [EN](01-overview/feature-showcase.md) · [VI](01-overview/feature-showcase.vi.md) |
 | **Pain Points Được Giải Quyết** | Vấn đề lập trình viên .NET/C# được giải quyết | [EN](01-overview/pain-points-solved.md) · [VI](01-overview/pain-points-solved.vi.md) |
 | **Bắt Đầu Nhanh** | Hướng dẫn 5 phút | [EN](01-overview/quickstart.md) |

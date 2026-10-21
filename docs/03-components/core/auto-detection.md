@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/AutoDetection/AutoDetectionEngine.cs`
 
-The auto-detection engine scans a .NET project to suggest a DataGuard configuration: database provider, ORMs, connection string, naming convention and the EF Core context name. Its CLI caller is the `dataguard init --wizard` setup wizard (`InteractiveConfigBuilder`); plain `dataguard init` writes fixed defaults and does not scan.
+The auto-detection engine scans a .NET project to suggest a StackAccord configuration: database provider, ORMs, connection string, naming convention and the EF Core context name. Its CLI caller is the `dataguard init --wizard` setup wizard (`InteractiveConfigBuilder`); plain `dataguard init` writes fixed defaults and does not scan.
 
 ## Auto-Detection Flow
 

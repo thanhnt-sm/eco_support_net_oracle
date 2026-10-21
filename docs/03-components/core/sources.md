@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/Sources/EfModelSource.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`; SQL Server sources in `src/DataGuard.SqlServer.Adapter/SqlServerParsers.cs` (namespace `DataGuard.SqlServer.Adapter`; Core references no database driver since red-team A1/R33)
 
-Contract sources are the data collection layer of DataGuard. They extract `ContractDescriptor` instances from various origins: EF Core models, database metadata, raw SQL text, and manual attribute annotations.
+Contract sources are the data collection layer of StackAccord. They extract `ContractDescriptor` instances from various origins: EF Core models, database metadata, raw SQL text, and manual attribute annotations.
 
 ## Source Extraction Flow
 

@@ -55,6 +55,6 @@ Với HashiCorp Vault, đặt `VAULT_ADDR` đáng tin cậy trong môi trường
 
 ## Tùy chọn Visual Studio là luồng riêng
 
-**Live Provider = oracle** chỉ áp dụng cho Refresh Snapshot và Verify SQL Shapes Against Database. Run Validation truyền `.dataguard.yml` của solution cùng `--ide-safe`, không truyền `--provider`, nên dùng DefaultProvider trong YAML. Tên biến môi trường live để trống sẽ chặn lệnh live, không chọn phương ngữ validate. Live Schema cũng riêng. **Custom CLI Path** có ưu tiên hơn CLI kèm VSIX; cài VSIX mới không chứng minh validate đã chạy CLI mới. Kiểm tra executable được ghi trong DataGuard output và phiên bản của nó; không cần giá trị credential.
+**Live Provider = oracle** chỉ áp dụng cho Refresh Snapshot và Verify SQL Shapes Against Database. Run Validation truyền `.dataguard.yml` của solution cùng `--ide-safe`, không truyền `--provider`, nên dùng DefaultProvider trong YAML. Tên biến môi trường live để trống sẽ chặn lệnh live, không chọn phương ngữ validate. Live Schema cũng riêng. **Custom CLI Path** có ưu tiên hơn CLI kèm VSIX; cài VSIX mới không chứng minh validate đã chạy CLI mới. Kiểm tra executable được ghi trong StackAccord output và phiên bản của nó; không cần giá trị credential.
 
 Phạm vi kiểm thử giả lập và bằng chứng tương thích credential: [kế hoạch đối chiếu cục bộ](../../plans/2026-10-16-credential-reconciliation.md).

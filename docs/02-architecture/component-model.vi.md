@@ -2,7 +2,7 @@
 
 > Trách nhiệm thành phần chi tiết, contracts interface và đồ thị phụ thuộc.
 
-Tài liệu này mô tả mọi dự án trong solution DataGuard, bề mặt API công khai, các interface kết nối chúng và luồng dữ liệu giữa các thành phần.
+Tài liệu này mô tả mọi dự án trong solution StackAccord, bề mặt API công khai, các interface kết nối chúng và luồng dữ liệu giữa các thành phần.
 
 ---
 

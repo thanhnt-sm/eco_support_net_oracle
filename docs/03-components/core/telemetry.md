@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/Telemetry/TelemetryCollector.cs`
 
-DataGuard's telemetry system is **opt-in, local-only** by default. It uses
+StackAccord's telemetry system is **opt-in, local-only** by default. It uses
 `System.Diagnostics.Metrics` (the .NET 9 standard) and automatically writes a bounded,
 allowlisted observability envelope to UTC-day NDJSON archive files when enabled. The legacy
 NDJSON HTTP exporter is retained only as an explicit compatibility path; `RemoteExportEnabled`
@@ -13,7 +13,7 @@ defaults to `false` and no endpoint is contacted implicitly. See
 
 ```mermaid
 flowchart TB
-    subgraph DataGuard Pipeline
+    subgraph StackAccord Pipeline
         VP[ValidationPipeline]
         RR[Rule Execution]
         BS[Baseline Operations]

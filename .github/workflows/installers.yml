@@ -1,6 +1,6 @@
 name: Build Installers
 
-# Builds the installable DataGuard artifacts (CLI zip per RID, VS Code VSIX, Visual Studio VSIX)
+# Builds the installable StackAccord artifacts (CLI zip per RID, VS Code VSIX, Visual Studio VSIX)
 # on every push to main and on demand, and publishes them to a rolling `nightly` GitHub
 # pre-release so the owner can download them without cutting a versioned `v*` release.
 # Versioned releases stay in release.yml; this workflow never touches `v*` tags.
@@ -435,7 +435,7 @@ jobs:
           if [[ "$PLAIN_SEMVER" == "true" ]]; then
             manifest_note="The Visual Studio VSIX manifest and the VS Code package version are set to \`$VERSION\`."
           else
-            manifest_note="The Visual Studio VSIX manifest keeps the committed version (VSIX manifests reject prerelease strings), so Visual Studio shows the same version as the last tagged build: uninstall the existing DataGuard extension before installing a nightly. The VS Code package version is \`$VERSION\`."
+            manifest_note="The Visual Studio VSIX manifest keeps the committed version (VSIX manifests reject prerelease strings), so Visual Studio shows the same version as the last tagged build: uninstall the existing StackAccord extension before installing a nightly. The VS Code package version is \`$VERSION\`."
           fi
           cat > body.md <<EOF
           # Nightly build $VERSION
@@ -444,13 +444,16 @@ jobs:
           Artifacts are cryptographically signed with Sigstore cosign (keyless) and include in-toto SLSA build provenance attestations.
           It is rebuilt on every push to \`main\`; the \`nightly\` tag always points at the latest build.
           For a versioned release use the \`v*\` releases instead.
+
+          StackAccord retains its DataGuard technical identifiers and artifact filenames for upgrade/configuration compatibility.
+          See the [branding compatibility policy](https://github.com/thanhnt-sm/eco_support_net_oracle/blob/main/docs/product/branding.md).
           ## Files
 
           | File | What it is |
           | --- | --- |
-          | \`dataguard-$VERSION-win-x64.zip\` | DataGuard CLI for Windows x64 (framework-dependent, needs the .NET 9 runtime) |
-          | \`dataguard-$VERSION-linux-x64.zip\` | DataGuard CLI for Linux x64 (framework-dependent, needs the .NET 9 runtime) |
-          | \`dataguard-$VERSION-osx-arm64.zip\` | DataGuard CLI for macOS Apple Silicon (framework-dependent, needs the .NET 9 runtime) |
+          | \`dataguard-$VERSION-win-x64.zip\` | StackAccord CLI for Windows x64 (framework-dependent, needs the .NET 9 runtime) |
+          | \`dataguard-$VERSION-linux-x64.zip\` | StackAccord CLI for Linux x64 (framework-dependent, needs the .NET 9 runtime) |
+          | \`dataguard-$VERSION-osx-arm64.zip\` | StackAccord CLI for macOS Apple Silicon (framework-dependent, needs the .NET 9 runtime) |
           | \`dataguard-vscode-$VERSION.vsix\` | VS Code extension (includes the language server) |
           | \`DataGuard.VisualStudio-$VERSION.vsix\` | Visual Studio 2022 extension (bundles \`cli\\dataguard.exe\` and the Roslyn analyzers) |
           | \`*.sha256\` | SHA-256 checksum of the file with the same name |

@@ -1,6 +1,6 @@
 # SQL Server Adapter
 
-The SQL Server Adapter is DataGuard's primary adapter, providing contract validation between .NET entities and SQL Server stored procedures, raw SQL, and ScriptDOM-based SQL parsing.
+The SQL Server Adapter is StackAccord's primary adapter, providing contract validation between .NET entities and SQL Server stored procedures, raw SQL, and ScriptDOM-based SQL parsing.
 
 ## Architecture
 
@@ -80,7 +80,7 @@ Implements `IContractSource` to extract stored procedure contracts from SQL Serv
 
 ```mermaid
 sequenceDiagram
-    participant CLI as DataGuard CLI
+    participant CLI as StackAccord CLI
     participant Parser as SqlServerStoredProcedureParser
     participant DB as SQL Server
 
@@ -229,7 +229,7 @@ Unlike Oracle, SQL Server does not have CHAR vs BYTE length semantics. The catal
 
 ### Direction Mapping
 
-SQL Server's `OUTPUT` keyword maps to `ParameterDirection.InputOutput` in DataGuard's model. There is no pure `Output` direction in SQL Server — `OUTPUT` parameters can also receive input values.
+SQL Server's `OUTPUT` keyword maps to `ParameterDirection.InputOutput` in StackAccord's model. There is no pure `Output` direction in SQL Server — `OUTPUT` parameters can also receive input values.
 
 ### MAX Types
 

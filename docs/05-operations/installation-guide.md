@@ -2,7 +2,7 @@
 
 [Tiếng Việt](installation-guide.vi.md)
 
-Use a source build or an inspected build artifact. This guide does not establish that a DataGuard package is available on NuGet, GHCR or either Marketplace. Technical IDs remain DataGuard while [StackAccord](../product/strategy.md) is the proposed brand.
+Use a source build or an inspected build artifact. This guide does not establish that a StackAccord package is available on NuGet, GHCR or either Marketplace. StackAccord is the product name; [DataGuard technical identifiers](../product/branding.md) remain stable for compatibility.
 
 ## Prerequisites
 

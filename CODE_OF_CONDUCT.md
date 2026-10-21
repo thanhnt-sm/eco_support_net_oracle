@@ -3,7 +3,7 @@
 ## Our pledge
 
 We as members, contributors, and leaders pledge to make participation in the
-DataGuard community a harassment-free experience for everyone, regardless of
+StackAccord community a harassment-free experience for everyone, regardless of
 age, body size, visible or invisible disability, ethnicity, sex
 characteristics, gender identity and expression, level of experience,
 education, socio-economic status, nationality, personal appearance, race,

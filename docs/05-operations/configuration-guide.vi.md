@@ -2,7 +2,7 @@
 
 ## File Cấu Hình: `.dataguard.yml`
 
-DataGuard sử dụng file cấu hình YAML (mặc định: `.dataguard.yml` trong thư mục gốc project).
+StackAccord sử dụng file cấu hình YAML (mặc định: `.dataguard.yml` trong thư mục gốc project).
 
 ### Tạo Cấu Hình Mặc Định
 

@@ -1,8 +1,8 @@
 > Tổng quan thư mục có thể thiếu/cũ; xem [kiểm kê review](../product/documentation-inventory.md) cho phạm vi hiện hành.
 
-# Cấu Trúc Thư Mục Workspace DataGuard
+# Cấu Trúc Thư Mục Workspace StackAccord
 
-> Cây thư mục đầy đủ của dự án DataGuard với mô tả từng file và thư mục.
+> Cây thư mục đầy đủ của dự án StackAccord với mô tả từng file và thư mục.
 
 ## Sơ Đồ Phân Cấp Thư Mục
 
@@ -268,7 +268,7 @@ Giao diện dòng lệnh với 9 lệnh.
 | `docs/SOLUTION.md` | Tài liệu kiến trúc giải pháp | Tài liệu | Markdown |
 | `docs/assess.md` | Tài liệu lệnh assess | Tài liệu | Markdown |
 | `docs/cli.md` | Tài liệu tham chiếu CLI | Tài liệu | Markdown |
-| `docs/mcp.md` | Tài liệu EcoSupport MCP lịch sử; không phải MCP DataGuard hiện hành | Tài liệu | Markdown |
+| `docs/mcp.md` | Tài liệu EcoSupport MCP lịch sử; không phải MCP StackAccord hiện hành | Tài liệu | Markdown |
 | `docs/contributing.md` | Hướng dẫn đóng góp | Tài liệu | Markdown |
 | `docs/enterprise-banking-profile.md` | Profile use case ngân hàng doanh nghiệp | Tài liệu | Markdown |
 
@@ -279,7 +279,7 @@ Giao diện dòng lệnh với 9 lệnh.
 | `scripts/verify_docs_sync.sh` | Xác minh đồng bộ tài liệu song ngữ (EN/VI) | Vận hành | Bash |
 | `scripts/preflight_agent_check.sh` | Kiểm tra trước khi AI agent thực hiện tác vụ | Vận hành | Bash |
 | `scripts/anti_garbage_guard.sh` | Ngăn commit rác/chất lượng thấp từ AI agent | Vận hành | Bash |
-| `scripts/demo_scan.sh` | Script demo chạy quét DataGuard đầy đủ | Vận hành | Bash |
+| `scripts/demo_scan.sh` | Script demo chạy quét StackAccord đầy đủ | Vận hành | Bash |
 | `scripts/git_conflict_resolver.sh` | Trình giải quyết xung đột merge Git tự động | Vận hành | Bash |
 | `scripts/git_sync.sh` | Script đồng bộ Git và quản lý nhánh | Vận hành | Bash |
 
@@ -313,7 +313,7 @@ Giao diện dòng lệnh với 9 lệnh.
 
 | Đường Dẫn | Mục Đích | Lớp | Ngôn Ngữ |
 |-----------|----------|-----|----------|
-| `samples/DataGuard.Sample/` | Dự án mẫu minh họa cách sử dụng DataGuard | Ví dụ | C# |
+| `samples/DataGuard.Sample/` | Dự án mẫu minh họa cách sử dụng StackAccord | Ví dụ | C# |
 | `tools/benchmarks/DataGuard.Benchmarks/` | Benchmark BenchmarkDotNet cho hot path offline (CI chạy dry) | Kiểm thử | C# |
 | `tools/benchmarks/DataGuard.Observability.Benchmarks/` | Benchmark BenchmarkDotNet đo overhead wrapper observability | Kiểm thử | C# |
 | `BenchmarkDotNet.Artifacts/` | Kết quả và nhật ký thực thi benchmark | Kiểm thử | Đa dạng |

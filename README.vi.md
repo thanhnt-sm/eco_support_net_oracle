@@ -1,4 +1,4 @@
-> **Định hướng sản phẩm (2026-10-18):** [StackAccord](docs/product/strategy.vi.md) là thương hiệu dự kiến; tên kỹ thuật hiện tại vẫn giữ nguyên. [Lộ trình](docs/product/roadmap.vi.md) và [bản nháp Marketplace](docs/product/marketplace-copy.vi.md) phân biệt hiện có/đã kiểm chứng/đã phát hành/kế hoạch. Phạm vi review và phần chưa xác minh được ghi trong [kiểm kê tài liệu](docs/product/documentation-inventory.md); không dùng số liệu lịch sử làm bằng chứng phát hành. Vẫn tạm dừng xuất bản.
+> **Thương hiệu sản phẩm:** [StackAccord](docs/product/strategy.vi.md) là tên sản phẩm đã chọn. [Tên kỹ thuật DataGuard](docs/product/branding.vi.md) được giữ để tương thích và nâng cấp. [Lộ trình](docs/product/roadmap.vi.md) và [bản nháp Marketplace](docs/product/marketplace-copy.vi.md) phân biệt hiện có/đã kiểm chứng/đã phát hành/kế hoạch. Phạm vi review và phần chưa xác minh được ghi trong [kiểm kê tài liệu](docs/product/documentation-inventory.md); không dùng số liệu lịch sử làm bằng chứng phát hành. Vẫn tạm dừng xuất bản.
 
 <div align="center">
   <p>
@@ -6,7 +6,7 @@
   </p>
 </div>
 
-# DataGuard — Kiểm tra hợp đồng (Contract) giữa Entity ↔ Stored Procedure / Raw SQL
+# StackAccord — Kiểm tra hợp đồng (Contract) giữa Entity ↔ Stored Procedure / Raw SQL
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
 [![Build](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml)
@@ -14,9 +14,9 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
 
-**DataGuard** phát hiện lệch lạc (drift) giữa entity .NET và SQL mà chúng phụ thuộc — tham số stored procedure, hình dạng result set, nullability, ngữ nghĩa độ dài (CHAR/BYTE), lệch dialect — ngay tại thời điểm thiết kế và trong CI.
+**StackAccord** phát hiện lệch lạc (drift) giữa entity .NET và SQL mà chúng phụ thuộc — tham số stored procedure, hình dạng result set, nullability, ngữ nghĩa độ dài (CHAR/BYTE), lệch dialect — ngay tại thời điểm thiết kế và trong CI.
 
-> **Vì sao tồn tại:** EF Core đã ghi nhận khoảng trống kiểm tra contract cho stored procedure từ [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) và từ chối xây dựng. DataGuard đưa mẫu *model contracts* mà **dbt** đã chứng minh cho data engineering (preflight kiểm tra cột/tham số lúc compile, từ Core v1.5, 2023) vào thế giới stored-procedure/.NET.
+> **Vì sao tồn tại:** EF Core đã ghi nhận khoảng trống kiểm tra contract cho stored procedure từ [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) và từ chối xây dựng. StackAccord đưa mẫu *model contracts* mà **dbt** đã chứng minh cho data engineering (preflight kiểm tra cột/tham số lúc compile, từ Core v1.5, 2023) vào thế giới stored-procedure/.NET.
 
 ## Bắt đầu nhanh
 
@@ -181,21 +181,21 @@ Dữ liệu độ phủ dòng lệnh (line), nhánh (branch) và phân tích ki�
 
 ## Giấy phép kép & FAQ
 
-Từ **v0.4.0**, DataGuard được phát hành theo hai giấy phép:
+Từ **v0.4.0**, StackAccord được phát hành theo hai giấy phép:
 
 1. **GNU GPL phiên bản 3 (chỉ v3)** (`GPL-3.0-only`, xem [`LICENSE`](LICENSE)), kèm một quyền bổ sung (additional
-   permission) cho driver cơ sở dữ liệu và IDE host mà DataGuard chạy cùng ([`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md)).
-2. **Giấy phép thương mại** cho doanh nghiệp muốn nhúng DataGuard vào sản phẩm mã đóng mà họ phân phối. Liên hệ
+   permission) cho driver cơ sở dữ liệu và IDE host mà StackAccord chạy cùng ([`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md)).
+2. **Giấy phép thương mại** cho doanh nghiệp muốn nhúng StackAccord vào sản phẩm mã đóng mà họ phân phối. Liên hệ
    `<contact email placeholder>`. Điều khoản được thỏa thuận riêng với từng bên được cấp phép; không có bảng giá hay biểu mẫu công khai.
 
 > **Tình trạng pháp lý:** văn bản quyền bổ sung và điều khoản thương mại **chưa được luật sư xem xét**. Nội dung ở đây
 > không phải tư vấn pháp lý. Nếu vấn đề giấy phép quan trọng với bạn, hãy hỏi luật sư của bạn.
 
-**GPL-3.0 có cấm doanh nghiệp dùng DataGuard thương mại không?** Không. GPL-3.0 cho phép dùng thương mại, sao chép và
+**GPL-3.0 có cấm doanh nghiệp dùng StackAccord thương mại không?** Không. GPL-3.0 cho phép dùng thương mại, sao chép và
 sửa đổi. Chạy `dataguard validate` trong CI hoặc dùng analyzer khi build sản phẩm của bạn tự nó không đòi hỏi giấy phép thương mại.
 
-**Copyleft áp dụng khi nào?** Khi bạn *phân phối* một tác phẩm dựa trên DataGuard, ví dụ đóng mã hoặc binary của
-DataGuard vào sản phẩm. Khi đó bạn phải cung cấp tác phẩm đó theo GPL-3.0, hoặc mua giấy phép thương mại. Dùng một công cụ
+**Copyleft áp dụng khi nào?** Khi bạn *phân phối* một tác phẩm dựa trên StackAccord, ví dụ đóng mã hoặc binary của
+StackAccord vào sản phẩm. Khi đó bạn phải cung cấp tác phẩm đó theo GPL-3.0, hoặc mua giấy phép thương mại. Dùng một công cụ
 nội bộ không phải là phân phối.
 
 **Có thể làm repository không cho sao chép được không?** Không. Repository công khai và điều khoản GitHub cho phép fork.
@@ -203,11 +203,11 @@ Các bản đến hết v0.3.0 đã phát hành theo giấy phép MIT và **gi�
 
 **Phần nào không thuộc GPL?**
 
-- `DataGuard.Contracts` được cấp phép theo giấy phép MIT có chủ đích. Gói này nằm trong ứng dụng của bạn và được DataGuard đọc
+- `DataGuard.Contracts` được cấp phép theo giấy phép MIT có chủ đích. Gói này nằm trong ứng dụng của bạn và được StackAccord đọc
   bằng reflection nên không được kéo mã của bạn vào GPL.
 - `Oracle.ManagedDataAccess.Core` và `Microsoft.Data.SqlClient.SNI.runtime` đi kèm CLI, file zip theo RID, container image
   và extension IDE theo điều khoản riêng của nhà cung cấp. Văn bản giấy phép nằm ở
-  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), đi kèm mọi bản tải DataGuard.
+  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), đi kèm mọi bản tải StackAccord.
 
 **Gói analyzer để lại gì trong output của tôi?** `DataGuard.Analyzers` là development dependency chỉ chạy lúc build: assembly
 analyzer nạp trong compiler từ `analyzers/dotnet/cs` và gói không có `lib/`, nên `DataGuard.Analyzers.dll` và

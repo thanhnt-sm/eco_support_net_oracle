@@ -7,7 +7,7 @@
 
 ## Triết Lý Kiểm Thử
 
-DataGuard tuân theo phương pháp kiểm thử **contract-first, dựa trên bằng chứng**:
+StackAccord tuân theo phương pháp kiểm thử **contract-first, dựa trên bằng chứng**:
 
 1. **Mỗi rule có tests**: Mỗi rule DG/MY/PG có unit tests bao gồm happy path, edge cases, và điều kiện lỗi
 2. **Golden corpus**: Các cặp SQL/entity đã biết đúng/sai để kiểm thử hồi quy

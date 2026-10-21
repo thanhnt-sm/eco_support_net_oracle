@@ -1,11 +1,11 @@
 # Architecture specification
 
-This is a compatibility-first reference slice for the discovered DataGuard `net9.0`
-repository. DataGuard is a CLI/library and is not a Docker workload, so the product runtime uses
+This is a compatibility-first reference slice for the discovered StackAccord `net9.0`
+repository. StackAccord is a CLI/library and is not a Docker workload, so the product runtime uses
 `DataGuard.Core.Telemetry.FileObservabilitySink` as its primary sink: bounded automatic records,
 UTF-8 NDJSON and UTC-day archives. It is fail-open: bounded queues, asynchronous local writes and
 measured drops. The OTel SDK/Collector/LGTM/Kubernetes diagrams below describe an optional host
-adapter only; they are not started by the DataGuard CLI/library.
+adapter only; they are not started by the StackAccord CLI/library.
 
 ## Product runtime override
 

@@ -169,7 +169,7 @@ jobs:
         run: |
           dotnet tool install --tool-path "$RUNNER_TEMP/sbom-tool" Microsoft.Sbom.DotNetTool --version 4.1.5
           mkdir -p "$RUNNER_TEMP/release/sbom"
-          "$RUNNER_TEMP/sbom-tool/sbom-tool" generate -b "$RUNNER_TEMP/release" -bc "$GITHUB_WORKSPACE/source/src/DataGuard.VSCode" -pn "DataGuard VS Code Extension" -pv "$VERSION" -ps "thanhnt-sm" -m "$RUNNER_TEMP/release/sbom"
+          "$RUNNER_TEMP/sbom-tool/sbom-tool" generate -b "$RUNNER_TEMP/release" -bc "$GITHUB_WORKSPACE/source/src/DataGuard.VSCode" -pn "StackAccord VS Code Extension" -pv "$VERSION" -ps "thanhnt-sm" -m "$RUNNER_TEMP/release/sbom"
         env:
           VERSION: ${{ needs.validate.outputs.version }}
       - name: Attest package and source/run manifest
@@ -245,7 +245,7 @@ jobs:
           dotnet tool install --tool-path "$env:RUNNER_TEMP/sbom-tool" Microsoft.Sbom.DotNetTool --version 4.1.5
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/release/sbom" | Out-Null
-          & "$env:RUNNER_TEMP/sbom-tool/sbom-tool.exe" generate -b "$env:RUNNER_TEMP/release" -bc "$env:GITHUB_WORKSPACE/source/src/DataGuard.VisualStudio" -pn 'DataGuard Visual Studio Extension' -pv $env:VERSION -ps 'thanhnt-sm' -m "$env:RUNNER_TEMP/release/sbom"
+          & "$env:RUNNER_TEMP/sbom-tool/sbom-tool.exe" generate -b "$env:RUNNER_TEMP/release" -bc "$env:GITHUB_WORKSPACE/source/src/DataGuard.VisualStudio" -pn 'StackAccord Visual Studio Extension' -pv $env:VERSION -ps 'thanhnt-sm' -m "$env:RUNNER_TEMP/release/sbom"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Attest package and source/run manifest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8

@@ -1,6 +1,6 @@
 # Bộ Adapter SQL Server
 
-Bộ Adapter SQL Server là adapter chính của DataGuard, cung cấp xác thực contract giữa các entity .NET và stored procedure SQL Server, raw SQL, và phân tích SQL dựa trên ScriptDOM.
+Bộ Adapter SQL Server là adapter chính của StackAccord, cung cấp xác thực contract giữa các entity .NET và stored procedure SQL Server, raw SQL, và phân tích SQL dựa trên ScriptDOM.
 
 ## Kiến trúc
 
@@ -80,7 +80,7 @@ Triển khai `IContractSource` để trích xuất contract stored procedure t�
 
 ```mermaid
 sequenceDiagram
-    participant CLI as DataGuard CLI
+    participant CLI as StackAccord CLI
     participant Parser as SqlServerStoredProcedureParser
     participant DB as SQL Server
 
@@ -226,7 +226,7 @@ Không giống Oracle, SQL Server không có ngữ nghĩa độ dài CHAR vs BYT
 
 ### Ánh xạ direction
 
-Từ khóa `OUTPUT` của SQL Server ánh xạ thành `ParameterDirection.InputOutput` trong mô hình DataGuard. Không có direction `Output` thuần túy trong SQL Server — tham số `OUTPUT` cũng có thể nhận giá trị đầu vào.
+Từ khóa `OUTPUT` của SQL Server ánh xạ thành `ParameterDirection.InputOutput` trong mô hình StackAccord. Không có direction `Output` thuần túy trong SQL Server — tham số `OUTPUT` cũng có thể nhận giá trị đầu vào.
 
 ### Kiểu MAX
 
