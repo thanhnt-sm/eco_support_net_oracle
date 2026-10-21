@@ -66,7 +66,7 @@ public sealed class ValidationPipeline : IDisposable
     internal ValidationPipeline(DataGuardConfiguration config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
-        _baseRules = BuiltInRuleDependencies.CreateDefaultRules();
+        _baseRules = BuiltInRuleDependencies.CreateDefaultRules(config.NamingConvention);
         _ruleGraph = BuiltInRuleDependencies.Create(_baseRules);
         _telemetry = config.EnableTelemetry
             ? new TelemetryCollector(new TelemetryConfig(Enabled: true)

@@ -358,14 +358,17 @@ public static class BuiltInRuleDependencies
 
     /// <summary>Creates the provider-neutral core rules (unconfigured, connectionless) in registration order.</summary>
     /// <returns>A fresh instance of every core rule.</returns>
-    public static IReadOnlyList<IContractRule> CreateDefaultRules() => new IContractRule[]
+    public static IReadOnlyList<IContractRule> CreateDefaultRules() => CreateDefaultRules(DataGuard.Core.Models.NamingConvention.SnakeCaseToPascalCase);
+
+    /// <summary>Creates core rules using the configured naming comparison.</summary>
+    public static IReadOnlyList<IContractRule> CreateDefaultRules(DataGuard.Core.Models.NamingConvention namingConvention) => new IContractRule[]
     {
         new ParameterCountRule(),
         new ParameterTypeMatchRule(),
         new ParameterDirectionRule(),
         new ColumnShapeMatchRule(),
         new NullableMismatchRule(),
-        new NamingConventionRule(),
+        new NamingConventionRule(namingConvention),
 
         // Phantom identifiers (schema ground truth): DG015 table, DG016 column; DG019 parse status.
         new PhantomTableRule(),
@@ -377,7 +380,7 @@ public static class BuiltInRuleDependencies
         new LiveSqlShapeValidationRule(),
     };
 
-    /// <summary>Creates the default graph: <see cref="CreateDefaultRules"/> composed with <see cref="Edges"/>.</summary>
+    /// <summary>Creates the default graph: <see cref="CreateDefaultRules()"/> composed with <see cref="Edges"/>.</summary>
     /// <returns>A new graph.</returns>
     public static RuleDependencyGraph CreateDefault() => Create(CreateDefaultRules());
 

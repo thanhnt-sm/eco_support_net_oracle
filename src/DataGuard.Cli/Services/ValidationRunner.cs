@@ -145,7 +145,8 @@ internal static class ValidationRunner
             progress,
             config.StrictProcedureContracts,
             config.DefaultSchema,
-            config.DefaultPackage);
+            config.DefaultPackage,
+            config.NamingConvention);
     }
 
     // Violation-set hash (16-hex SHA-256 prefix over ordinal-sorted RuleId:Message) for baselines and the legacy snapshot
