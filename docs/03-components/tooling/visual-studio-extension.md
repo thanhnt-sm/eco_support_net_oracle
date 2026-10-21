@@ -28,7 +28,7 @@ Inspect **View > Output > StackAccord (Beta)**, the status bar and the Error Lis
 
 The VSIX includes a self-contained `cli\dataguard.exe`; installing a separate CLI on PATH is not required. `CliLocator` searches in this order:
 
-1. **Tools > Options > DataGuard > General > Custom CLI Executable Path**: an explicit fully qualified executable path. An invalid explicit setting fails discovery instead of silently falling back.
+1. **Tools > Options > StackAccord > General > Custom CLI Executable Path**: an explicit fully qualified executable path. An invalid explicit setting fails discovery instead of silently falling back.
 2. The bundled `cli\dataguard.exe`.
 3. `DATAGUARD_CLI_PATH`.
 4. `%USERPROFILE%\.dotnet\tools`, then standard Program Files and LocalAppData installation directories.
@@ -42,7 +42,7 @@ Restart Visual Studio after environment changes. If the bundled executable is mi
 
 IDE-safe is a CLI policy, not an OS sandbox. It suppresses configured assembly/plugin loading and selected connection, secret-manager and output settings. The current `IdeSafePolicy` also disables both Oracle REF CURSOR describe switches (`DescribeRefCursors` and `UseRefCursorDescribe`), including when an environment credential is retained. Older audit notes about these switches remaining enabled are historical, not the current implementation. The handshake confirms policy selection; it does not establish complete process or network isolation.
 
-**Refresh Snapshot** and **Verify SQL Shapes Against Database** are explicitly live commands. Set **Connection Environment Variable**, **Live Provider** and optional **Live Schema** under **Tools > Options > DataGuard > General**. The extension persists the variable name, not the credential, and shows the extracted target host for confirmation **every run**. These commands use `--connection-env`, omit `--config`, `--ide-safe` and `--connection`, and do not read the solution's `.dataguard.yml`.
+**Refresh Snapshot** and **Verify SQL Shapes Against Database** are explicitly live commands. Set **Connection Environment Variable**, **Live Provider** and optional **Live Schema** under **Tools > Options > StackAccord > General**. The extension persists the variable name, not the credential, and shows the extracted target host for confirmation **every run**. These commands use `--connection-env`, omit `--config`, `--ide-safe` and `--connection`, and do not read the solution's `.dataguard.yml`.
 
 Live consent is keyed by solution directory and solution file, independently of configuration content. **Forget Solution Consent** removes both the current validation key and live key without short-circuiting; it is safe to repeat and leaves other solution files' consent intact. It does not cancel an active run. Use **Cancel Validation** for cancellation.
 
@@ -88,7 +88,7 @@ The VSIX includes `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGua
 
 This documentation review checked source only; it did not run a Windows editor or package installation. Regression tests cover Load → CreateTask → IVsTaskItem, coordinate bounds and consent isolation. Windows `net472` test execution, VSIX packaging and manual navigation at 1:1 and 42:12 remain distinct acceptance checks. Record the exact Visual Studio version, saved source and reproduction when reporting an IDE issue. See the [maintenance evidence](../../../plans/261015-vs-maintenance/plan.md) for actual execution status.
 
-Display-only Beta transition: the menu/Output pane is **StackAccord (Beta)**; **Tools > Options > DataGuard**, command IDs, CLI/config, diagnostics and file names remain unchanged. Verify identity/settings retention on the exact Windows artifact.
+Display-only Beta transition: the menu/Output pane is **StackAccord (Beta)**; the visible settings path is **Tools > Options > StackAccord**. The canonical Options/automation category remains `DataGuard`; command IDs, CLI/config, diagnostics and file names remain unchanged. Verify identity/settings retention on the exact Windows artifact.
 
 ## Constant SQL composition
 

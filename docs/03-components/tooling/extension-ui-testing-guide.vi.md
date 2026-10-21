@@ -15,7 +15,7 @@ StackAccord Extension được thiết kế theo kiến trúc **Two-Tier (Lớp 
 | Visual Studio (2022 / 2026) | Visual Studio Code |
 |---|---|
 | Menu **Tools → StackAccord (Beta)** | Status bar **StackAccord** |
-| Settings **Tools → Options → DataGuard** | Command Palette: tìm **StackAccord** |
+| Settings **Tools → Options → StackAccord** | Command Palette: tìm **StackAccord** |
 | **Error List** | **Problems** (`Ctrl+Shift+M`) |
 | Output pane **StackAccord (Beta)** | Output channel **StackAccord** |
 | Diagnostic trong editor; **View Diagnostic Logs** | Diagnostic trong editor; hộp thoại xác nhận và thông báo |
@@ -29,7 +29,7 @@ StackAccord Extension được thiết kế theo kiến trúc **Two-Tier (Lớp 
 | Điểm chạm | Vị trí / Phím tắt | Cách tương tác & Chức năng |
 |---|---|---|
 | **Top Menu Bar** | Menu `StackAccord (Beta)` (trong Tools) | • **Run Validation** (`Ctrl+Alt+D, V`): Quét toàn bộ Solution.<br>• **Cancel Validation** (`Ctrl+Alt+D, C`): Dừng tác vụ đang chạy.<br>• **Assess Workspace**: Đánh giá cấu trúc dự án offline.<br>• **View Diagnostic Logs...**: Mở file log chẩn đoán trong editor. |
-| **Options Page** | `Tools` $\rightarrow$ `Options` $\rightarrow$ `DataGuard` $\rightarrow$ `General` | Giao diện cấu hình:<br>• `Enable Detailed Logging` (Checkbox bật/tắt log).<br>• `Log Directory` (Thư mục lưu log, mặc định `%APPDATA%\DataGuard\logs`).<br>• `Custom CLI Executable Path` (Đường dẫn file `dataguard.exe`).<br>• `Run Validation on Build` (Tự động chạy xác thực khi build solution hoàn tất).<br>• `Validation Timeout (seconds)` (Timeout cho validate, mặc định 300s, 5–900s).<br>• `Assessment Timeout (seconds)` (Timeout cho assess, mặc định 60s, 5–900s). |
+| **Options Page** | `Tools` $\rightarrow$ `Options` $\rightarrow$ `StackAccord` $\rightarrow$ `General` | Giao diện cấu hình:<br>• `Enable Detailed Logging` (Checkbox bật/tắt log).<br>• `Log Directory` (Thư mục lưu log, mặc định `%APPDATA%\DataGuard\logs`).<br>• `Custom CLI Executable Path` (Đường dẫn file `dataguard.exe`).<br>• `Run Validation on Build` (Tự động chạy xác thực khi build solution hoàn tất).<br>• `Validation Timeout (seconds)` (Timeout cho validate, mặc định 300s, 5–900s).<br>• `Assessment Timeout (seconds)` (Timeout cho assess, mặc định 60s, 5–900s). |
 | **Error List** | `View` $\rightarrow$ `Error List` (`Ctrl+\, E`) | Hiển thị toàn bộ vi phạm hợp đồng (DG017, DG004, DG002...). **Click đúp vào dòng lỗi để nhảy đến vị trí code vi phạm**. |
 | **Output Window** | `View` $\rightarrow$ `Output` (`Ctrl+Alt+O`) | Chọn `Show output from: StackAccord (Beta)`. Hiển thị tiến trình, thời gian chạy và số lượng lỗi được tải vào Error List. |
 | **In-Editor Squigglies** | Trực tiếp trong file `.cs` | Gạch chân cảnh báo màu vàng (Warning) hoặc màu đỏ (Error) khi câu query Dapper/EF Core vi phạm hợp đồng. |

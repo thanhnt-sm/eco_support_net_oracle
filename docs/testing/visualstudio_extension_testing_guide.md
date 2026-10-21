@@ -10,13 +10,13 @@
 
 The VSIX bundles a self-contained `cli\dataguard.exe`. `CliLocator` checks an explicit custom absolute executable path first, then the bundled CLI, `DATAGUARD_CLI_PATH`, standard install directories and filtered PATH candidates. An invalid explicit custom path fails instead of silently selecting another executable.
 
-The extension does not install a NuGet global tool when discovery fails. Test the missing-CLI error; reinstall a verified VSIX or configure an accepted executable via **Tools → Options → DataGuard → General → Custom CLI Executable Path**. See the [installation guide](../05-operations/installation-guide.md).
+The extension does not install a NuGet global tool when discovery fails. Test the missing-CLI error; reinstall a verified VSIX or configure an accepted executable via **Tools → Options → StackAccord → General → Custom CLI Executable Path**. See the [installation guide](../05-operations/installation-guide.md).
 
 `CliArgumentBuilder` sets `DOTNET_ROLL_FORWARD=LatestMajor`; this setting is not proof that a framework-dependent override works on every later .NET version. Exercise the actual executable/runtime combination and retain its diagnostics.
 
 ## 3. Options & Configuration
 
-You can access the configuration settings at: **Tools** -> **Options** -> **DataGuard**.
+You can access the configuration settings at: **Tools** -> **Options** -> **StackAccord**. The canonical Options/automation category remains `DataGuard`; existing settings and automation keep that identifier.
 * **General**:
   * **Diagnostics & Logging**: Toggle `Enable Detailed Logging` and specify a custom `Log Directory`.
   * **CLI Configuration**: Specify a `Custom CLI Executable Path` to override auto-discovery.
@@ -37,7 +37,7 @@ You can access the configuration settings at: **Tools** -> **Options** -> **Data
 
 ## 5. Filtering Validation Results
 
-1. Go to **Tools** -> **Options** -> **DataGuard** -> **Validation Rules**.
+1. Go to **Tools** -> **Options** -> **StackAccord** -> **Validation Rules**.
 2. Uncheck any rule (e.g., *DG016: Phantom Column Reference*).
 3. Run validation again (via **Tools** -> **StackAccord (Beta)** -> **Run Validation**).
 4. The extension passes the disabled rule IDs to the CLI via `validate --skip-rules <ids>` (for example `--skip-rules DG016`), so the CLI never emits those violations.

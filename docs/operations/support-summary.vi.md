@@ -20,4 +20,4 @@ Regression host-free kiểm tra secret dài, bearer/kết nối/SQL/path/control
 
 Chuỗi option công khai cố định `'--ide-safe'` vẫn đọc được trong lỗi CLI. Ngoại lệ này không áp dụng cho argument được quote khác, credential assignment hoặc cả câu SQL.
 
-Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; **Tools > Options > DataGuard**, command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.
+Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; đường settings hiển thị là **Tools > Options > StackAccord**. ID category Options/automation vẫn là `DataGuard`; command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.

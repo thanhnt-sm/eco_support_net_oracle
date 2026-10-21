@@ -20,4 +20,4 @@ Host-free regressions cover long secrets, bearer/connection/SQL/path/control inp
 
 The fixed public option text `'--ide-safe'` remains readable in CLI rejection messages. This does not exempt other quoted arguments, credential assignments or complete SQL statements from redaction.
 
-Display-only Beta transition: the menu/Output pane is **StackAccord (Beta)**; **Tools > Options > DataGuard**, command IDs, CLI/config, diagnostics and file names remain unchanged. Verify identity/settings retention on the exact Windows artifact.
+Display-only Beta transition: the menu/Output pane is **StackAccord (Beta)**; the visible settings path is **Tools > Options > StackAccord**. The canonical Options/automation category remains `DataGuard`; command IDs, CLI/config, diagnostics and file names remain unchanged. Verify identity/settings retention on the exact Windows artifact.

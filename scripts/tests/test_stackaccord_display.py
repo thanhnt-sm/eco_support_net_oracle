@@ -36,7 +36,7 @@ class StackAccordDisplayTests(unittest.TestCase):
             text = (ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("StackAccord (Beta)", text, relative)
             for separator in (" > ", " → ", " -> "):
-                # VS Code commands and Tools > Options > DataGuard retain their names.
+                # Canonical command/settings IDs are checked separately from visible labels.
                 self.assertNotIn("Tools" + separator + "DataGuard", text, relative)
             self.assertEqual(text, unicodedata.normalize("NFC", text), relative)
             self.assertNotIn("\ufffd", text, relative)

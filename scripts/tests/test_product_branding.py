@@ -13,6 +13,43 @@ SPEC.loader.exec_module(BRANDING)
 
 
 class ProductBrandingTests(unittest.TestCase):
+    def test_visible_options_navigation_rejects_the_canonical_storage_name(self):
+        for text in (
+            "Open Tools > Options > DataGuard.",
+            "Open **Tools → Options → DataGuard → General**.",
+            "Open **Tools** -> **Options** -> **DataGuard**.",
+            "Open `Tools > Options > DataGuard > Validation Rules`.",
+            r"Open `Tools` $\rightarrow$ `Options` $\rightarrow$ `DataGuard`.",
+            "Mở Tools > Options > DataGuard.",
+            "Open Tools &gt; Options &gt; DataGuard.",
+            "Open Tools > Options > DataGuard technical identifiers.",
+            "Tools > Options > DataGuard; the canonical Options/automation category remains `DataGuard`.",
+        ):
+            with self.subTest(navigation=text):
+                self.assertTrue(BRANDING.inspect_text("docs/current.md", text))
+
+    def test_documented_options_navigation_matches_the_localized_registration(self):
+        vs = ROOT / "src/DataGuard.VisualStudio"
+        label = ET.parse(vs / "VSPackage.resx").getroot().findtext("./data[@name='110']/value")
+        self.assertEqual("StackAccord", label)
+        registration = (vs / "DataGuardPackage.cs").read_text(encoding="utf-8")
+        for page in ("DataGuardOptionsPage", "DataGuardRulesOptionsPage"):
+            self.assertRegex(registration, rf'ProvideOptionPage\(typeof\({page}\), "DataGuard", "[^"]+", 110, 0, true, ProvidesLocalizedCategoryName = true\)')
+        paths = ("README.md", "README.vi.md", "docs/product/branding.md", "docs/product/branding.vi.md",
+                 "docs/03-components/tooling/visual-studio-extension.md",
+                 "docs/03-components/tooling/visual-studio-extension.vi.md",
+                 "docs/testing/vs-beta-acceptance.md", "docs/testing/vs-beta-acceptance.vi.md",
+                 "docs/operations/support-summary.md", "docs/operations/support-summary.vi.md",
+                 "docs/product/marketplace-copy.md", "docs/product/marketplace-copy.vi.md",
+                 "docs/USAGE.md", "docs/03-components/tooling/extension-ui-testing-guide.vi.md",
+                 "docs/testing/visualstudio_extension_testing_guide.md")
+        for relative in paths:
+            with self.subTest(path=relative):
+                text = (ROOT / relative).read_text(encoding="utf-8")
+                navigation = text.replace("*", "").replace("`", "").replace(r"$\rightarrow$", "→")
+                navigation = re.sub(r"\s*(?:->|>|→)\s*", " > ", navigation)
+                self.assertIn("Tools > Options > " + label, navigation)
+
     def test_owned_current_surfaces_have_consistent_visible_branding(self):
         findings, current, historical = BRANDING.audit(ROOT)
         self.assertEqual([], findings)
@@ -46,7 +83,9 @@ class ProductBrandingTests(unittest.TestCase):
     def test_technical_examples_and_settings_remain_valid(self):
         text = """# StackAccord
 Use `DataGuard.Cli`, `dataguard.cliPath` and `.dataguard.yml`.
-Keep **Tools > Options > DataGuard** and DataGuard technical identifiers.
+Open **Tools > Options > StackAccord**. The canonical Options/automation category remains `DataGuard`.
+ID category Options/automation vẫn là `DataGuard`.
+Keep DataGuard technical identifiers.
 Giữ tên kỹ thuật DataGuard.
 Code fix marker: `// DataGuard: ...`.
 [Build](../DataGuard.sln) https://example.test/DataGuard
@@ -60,8 +99,8 @@ DATAGUARD_CONNECTION_STRING=synthetic dataguard validate
 """
         self.assertEqual([], BRANDING.inspect_text("docs/current.md", text))
         self.assertTrue(all(BRANDING.COMPATIBILITY.values()))
-        # An allowed path must not mask another visible legacy brand on the line.
-        self.assertTrue(BRANDING.inspect_text("docs/current.md", "Tools > Options > DataGuard; use DataGuard today."))
+        # An allowed canonical-ID explanation must not mask another legacy display name.
+        self.assertTrue(BRANDING.inspect_text("docs/current.md", "The canonical Options/automation category remains `DataGuard`; use DataGuard today."))
 
     def test_historical_exceptions_have_explicit_reasons(self):
         for path, reason in BRANDING.RECORDS.items():
