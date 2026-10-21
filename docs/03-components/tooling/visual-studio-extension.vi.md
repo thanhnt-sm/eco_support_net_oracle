@@ -28,7 +28,7 @@ Các lệnh theo đợt đọc file trên đĩa. Lưu rồi chạy lại sau khi
 
 VSIX có sẵn `cli\dataguard.exe` self-contained; không bắt buộc cài CLI riêng trên PATH. `CliLocator` tìm theo thứ tự:
 
-1. **Tools > Options > DataGuard > General > Custom CLI Executable Path**: đường dẫn đầy đủ tới executable. Nếu người dùng đặt đường dẫn không hợp lệ, việc tìm CLI thất bại, không tự chuyển sang lựa chọn khác.
+1. **Tools > Options > StackAccord > General > Custom CLI Executable Path**: đường dẫn đầy đủ tới executable. Nếu người dùng đặt đường dẫn không hợp lệ, việc tìm CLI thất bại, không tự chuyển sang lựa chọn khác.
 2. `cli\dataguard.exe` đi kèm.
 3. `DATAGUARD_CLI_PATH`.
 4. `%USERPROFILE%\.dotnet\tools`, rồi thư mục cài đặt chuẩn trong Program Files và LocalAppData.
@@ -42,7 +42,7 @@ Khởi động lại Visual Studio sau khi đổi biến môi trường. Nếu t
 
 IDE-safe là chính sách CLI, không phải sandbox của hệ điều hành. Nó vô hiệu hóa việc tải assembly/plugin từ cấu hình và một số thiết lập kết nối, secret manager, output. `IdeSafePolicy` hiện cũng tắt cả hai tùy chọn mô tả Oracle REF CURSOR (`DescribeRefCursors` và `UseRefCursorDescribe`), kể cả khi giữ credential từ môi trường. Ghi chú audit cũ về việc giữ các tùy chọn này thuộc lịch sử, không phản ánh triển khai hiện tại. Handshake xác nhận lựa chọn chính sách, không chứng minh cô lập hoàn toàn tiến trình hoặc mạng.
 
-**Refresh Snapshot** và **Verify SQL Shapes Against Database** là lệnh live rõ ràng. Đặt **Connection Environment Variable**, **Live Provider** và tùy chọn **Live Schema** trong **Tools > Options > DataGuard > General**. Extension lưu tên biến, không lưu credential, và hiện host đích trích xuất để xác nhận **mỗi lần chạy**. Các lệnh này dùng `--connection-env`, không truyền `--config`, `--ide-safe`, `--connection` và không đọc `.dataguard.yml` của solution.
+**Refresh Snapshot** và **Verify SQL Shapes Against Database** là lệnh live rõ ràng. Đặt **Connection Environment Variable**, **Live Provider** và tùy chọn **Live Schema** trong **Tools > Options > StackAccord > General**. Extension lưu tên biến, không lưu credential, và hiện host đích trích xuất để xác nhận **mỗi lần chạy**. Các lệnh này dùng `--connection-env`, không truyền `--config`, `--ide-safe`, `--connection` và không đọc `.dataguard.yml` của solution.
 
 Consent live dùng thư mục và file solution, độc lập với nội dung cấu hình. **Forget Solution Consent** xóa cả khóa validation hiện tại lẫn khóa live, không dừng sau lần xóa đầu tiên; gọi lặp lại an toàn và không ảnh hưởng consent của file solution khác. Lệnh này không hủy lượt đang chạy. Dùng **Cancel Validation** để hủy.
 
@@ -88,7 +88,7 @@ VSIX chứa `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGuard.Con
 
 Đợt rà soát tài liệu này chỉ đối chiếu mã nguồn, không chạy editor Windows hoặc cài gói. Test hồi quy bao phủ Load → CreateTask → IVsTaskItem, biên tọa độ và cô lập consent. Chạy test Windows `net472`, đóng gói VSIX và nghiệm thu điều hướng thủ công tại 1:1, 42:12 là các bước riêng. Khi báo lỗi IDE, ghi phiên bản Visual Studio chính xác, nguồn đã lưu và cách tái hiện. Xem [bằng chứng bảo trì](../../../plans/261015-vs-maintenance/plan.md) để biết trạng thái chạy thực tế.
 
-Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; **Tools > Options > DataGuard**, command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.
+Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; đường settings hiển thị là **Tools > Options > StackAccord**. ID category Options/automation vẫn là `DataGuard`; command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.
 
 ## Ghép SQL hằng
 

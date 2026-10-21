@@ -134,7 +134,7 @@ Rule adapter nào chạy tùy `--provider` (`src/DataGuard.Cli/ProviderRuleCatal
 
 ## Hỗ trợ Visual Studio
 
-Extension `DataGuard.VisualStudio` dùng menu **Tools → StackAccord (Beta)** để chạy CLI đi kèm. Validation/assessment dùng `--ide-safe` với consent theo solution; lệnh database live cần consent riêng và xác nhận host đích. Kết quả SARIF hiển thị trong Error List. **Tools → Options → DataGuard** và các technical ID không đổi. CI Windows kiểm tra đóng gói; nghiệm thu cài đặt/UI vẫn là bước riêng. Xem [hướng dẫn Visual Studio](docs/03-components/tooling/visual-studio-extension.vi.md).
+Extension `DataGuard.VisualStudio` dùng menu **Tools → StackAccord (Beta)** để chạy CLI đi kèm. Validation/assessment dùng `--ide-safe` với consent theo solution; lệnh database live cần consent riêng và xác nhận host đích. Kết quả SARIF hiển thị trong Error List. Đường settings hiển thị là **Tools → Options → StackAccord**. ID category Options/automation vẫn là `DataGuard`; các technical ID không đổi. CI Windows kiểm tra đóng gói; nghiệm thu cài đặt/UI vẫn là bước riêng. Xem [hướng dẫn Visual Studio](docs/03-components/tooling/visual-studio-extension.vi.md).
 
 ## Tài liệu
 

@@ -28,10 +28,10 @@ HISTORICAL_BANNERS = ("Historical evidence /", "⚠️ ARCHIVED")
 # Match only the retained name/context, not an entire line: another legacy brand
 # on the same line must still fail. Each exception describes a compatibility use.
 COMPATIBILITY = {
-    r"Options(?:\*\*)?\s*(?:>|→|->)\s*(?:\*\*)?DataGuard":
-        "Visual Studio's existing persisted options category stays DataGuard.",
-    r"Options`?\s*\$[^$]+\$\s*`DataGuard`":
-        "The same persisted Options category in a mathematical-arrow navigation example.",
+    r"[Cc]anonical Options/automation category remains DataGuard":
+        "Explicit canonical storage/automation identity; never visible user navigation.",
+    r"ID category Options/automation vẫn là DataGuard":
+        "Vietnamese explanation of the same retained canonical identifier.",
     r"DataGuard (?:technical (?:identit(?:y|ies)|identifiers)|identities|IDs)":
         "Explicit explanations of retained technical identity, not the product name.",
     r"(?:[Tt]ên kỹ thuật|Technical identity) DataGuard":
@@ -47,6 +47,7 @@ TENTATIVE = re.compile(
     r"hướng thương hiệu|tên thương hiệu đề xuất|tên hiển thị VS dự kiến", re.I)
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})([^\s`]*)")
 INLINE = re.compile(r"(`+)(.+?)\1")
+VISIBLE_OPTIONS = re.compile(r"\bTools\s*(?:>|→|->)\s*Options\s*(?:>|→|->)\s*DataGuard\b", re.I)
 
 
 def record_reason(relative, text):
@@ -61,9 +62,8 @@ def record_reason(relative, text):
 def prose_lines(text):
     """Yield prose and visible Mermaid labels, excluding literal technical examples.
 
-    Technical code spans, URLs and link targets represent stable machine names.
-    Inline display labels containing the old product name and Mermaid labels are
-    still inspected. Compatibility exceptions mask only their matched context.
+    URLs and link targets represent stable machine locations. Keep inline syntax
+    until visible navigation has been checked, before applying ID exceptions.
     """
     fence = None
     for number, line in enumerate(text.splitlines(), 1):
@@ -79,9 +79,6 @@ def prose_lines(text):
         # Link destinations can contain stable package/path IDs. Keep link labels.
         line = re.sub(r"\]\([^)]*\)", "]", line)
         line = re.sub(r"https?://[^\s)>]+", "", line)
-        for pattern in COMPATIBILITY:
-            line = re.sub(pattern, "", line)
-        line = INLINE.sub(lambda m: m[2] if LEGACY.search(m[2]) else "", line)
         yield number, line
 
 
@@ -90,6 +87,14 @@ def inspect_text(relative, text):
         return []
     findings = []
     for number, line in prose_lines(text):
+        navigation = line.replace("*", "").replace("`", "").replace(r"$\rightarrow$", "→").replace("&gt;", ">")
+        # Inspect visible navigation before any technical-identity exception can mask it.
+        if VISIBLE_OPTIONS.search(navigation):
+            findings.append(f"{relative}:{number}: visible Options navigation uses StackAccord; DataGuard is the canonical ID")
+            continue
+        for pattern in COMPATIBILITY:
+            line = re.sub(pattern, "", line)
+        line = INLINE.sub(lambda m: m[2] if LEGACY.search(m[2]) else "", line)
         for pattern in COMPATIBILITY:
             line = re.sub(pattern, "", line)
         if LEGACY.search(line):

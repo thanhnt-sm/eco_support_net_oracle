@@ -26,6 +26,6 @@ Sau nghiệm thu host và quyền publish rõ ràng, dùng workflow hiện có v
 
 Chưa release khi thiếu nghiệm thu host/navigation, identity/license gói bất biến, quyết định phân phối, quyền listing/publisher hoặc readiness approval. Ghi unavailable nếu không có Windows/editor. Grammar parity đầy đủ và tính năng enterprise/agent tương lai là backlog trừ khi lỗi trái với tính năng đang quảng bá. VS Code có nghiệm thu riêng nếu chỉ phát hành VS. Checklist không khẳng định đang có công cụ computer-use.
 
-Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; **Tools > Options > DataGuard**, command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.
+Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; đường settings hiển thị là **Tools > Options > StackAccord**. ID category Options/automation vẫn là `DataGuard`; command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.
 
 Unit test package trên Windows chạy `OutputPaneWriter` từ assembly production với JTF context no-op và service double cho VS Output. Test kiểm tra identity/tên pane, banner offline/live, redaction và dịch vụ pane vắng mặt/lỗi. Test không xác minh UI-thread affinity hay chạy host VS đã cài hay hộp thoại consent/export; vẫn cần nghiệm thu thủ công bên trên. Test đọc source để kiểm tra tên hiển thị không phải coverage runtime.
