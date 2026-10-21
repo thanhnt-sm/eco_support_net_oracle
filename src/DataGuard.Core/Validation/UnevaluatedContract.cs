@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using DataGuard.Core.Abstractions;
+using DataGuard.Core.Rules;
 using Microsoft.CodeAnalysis;
 
 namespace DataGuard.Core.Validation;
@@ -93,4 +94,35 @@ public static class UnevaluatedContracts
             .ThenBy(entry => entry.ContractId, StringComparer.Ordinal)
             .ThenBy(entry => entry.Reason, StringComparer.Ordinal)
             .ToList();
+}
+
+/// <summary>
+/// Owns registered ContractRuleBase rules' status collections until this engine invocation returns or throws.
+/// Custom reporter queues retain their public drain contract and manage their own cancellation lifetime.
+/// </summary>
+internal sealed class RuleEvaluationStatusScope : IDisposable
+{
+    private readonly List<ContractRuleBase.StatusCollection> _collections = new();
+
+    internal RuleEvaluationStatusScope(IEnumerable<IContractRule> rules)
+    {
+        var seen = new HashSet<ContractRuleBase>(ReferenceEqualityComparer.Instance);
+        foreach (var rule in rules)
+        {
+            if (rule is ContractRuleBase statusRule && seen.Add(statusRule))
+            {
+                _collections.Add(statusRule.BeginStatusCollection());
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        for (var index = _collections.Count - 1; index >= 0; index--)
+        {
+            _collections[index].Dispose();
+        }
+
+        _collections.Clear();
+    }
 }
