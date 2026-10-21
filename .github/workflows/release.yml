@@ -736,7 +736,7 @@ jobs:
             --target "$TARGET_SHA" \
             "${release_flags[@]}" \
             --title "$RELEASE_TAG" \
-            --notes "Release $RELEASE_TAG of DataGuard (NuGet packages, CLI packages per RID with SHA-256, Visual Studio Extension, and VS Code Extension)." \
+            --notes "Release $RELEASE_TAG of StackAccord (NuGet packages, CLI packages per RID with SHA-256, Visual Studio Extension, and VS Code Extension). DataGuard technical identifiers and artifact filenames are retained for upgrade/configuration compatibility." \
             ./artifacts/*.nupkg \
             ./artifacts/*.sigstore.json \
             ./artifacts/dataguard-*.zip \

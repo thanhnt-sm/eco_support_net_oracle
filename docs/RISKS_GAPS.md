@@ -4,7 +4,7 @@
 
 ## Tổng Quan / Executive Summary / Tổng Quan
 
-Tài liệu này phân tích toàn diện các rủi ro, khoảng trống (gaps) và nợ kỹ thuật trong triển khai DataGuard hiện tại. Phân tích dựa trên codebase thực tế, tài liệu kiến trúc, và các best practice bảo mật/hiệu năng.
+Tài liệu này phân tích toàn diện các rủi ro, khoảng trống (gaps) và nợ kỹ thuật trong triển khai StackAccord hiện tại. Phân tích dựa trên codebase thực tế, tài liệu kiến trúc, và các best practice bảo mật/hiệu năng.
 
 **Phương pháp**: Code review toàn bộ codebase, threat modeling (STRIDE), performance profiling, security audit checklist, usability heuristic evaluation.
 

@@ -1,6 +1,6 @@
-> **Định hướng sản phẩm (2026-10-18):** [StackAccord](product/strategy.md) là thương hiệu đề xuất; ID kỹ thuật hiện tại giữ nguyên. [Roadmap](product/roadmap.md) và [bản nháp Marketplace](product/marketplace-copy.md) phân biệt triển khai, kiểm chứng, phát hành và kế hoạch. Các hướng dẫn bên dưới được đối chiếu source trong SA-DOC-015; đây không phải bằng chứng đã công bố. Workflow Marketplace cũ vẫn tạm dừng; đường thủ công riêng cần gate nghiệm thu.
+> **Thương hiệu sản phẩm:** [StackAccord](product/strategy.vi.md) là tên sản phẩm đã chọn; [tên kỹ thuật DataGuard](product/branding.vi.md) được giữ để tương thích. [Roadmap](product/roadmap.md) và [bản nháp Marketplace](product/marketplace-copy.md) phân biệt triển khai, kiểm chứng, phát hành và kế hoạch. Các hướng dẫn bên dưới được đối chiếu source trong SA-DOC-015; đây không phải bằng chứng đã công bố. Workflow Marketplace cũ vẫn tạm dừng; đường thủ công riêng cần gate nghiệm thu.
 
-# Phát hành DataGuard trên Marketplace
+# Phát hành StackAccord trên Marketplace
 
 [English](marketplace-publishing.md) · [Các kênh release khác](operations/release_guide.vi.md)
 

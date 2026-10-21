@@ -2,7 +2,7 @@
 
 [English](installation-guide.md)
 
-Dùng bản build từ source hoặc artifact đã kiểm tra. Hướng dẫn này không xác nhận DataGuard đã có trên NuGet, GHCR hay Marketplace. ID kỹ thuật vẫn là DataGuard; [StackAccord](../product/strategy.md) là tên thương hiệu đề xuất.
+Dùng bản build từ source hoặc artifact đã kiểm tra. Hướng dẫn này không xác nhận StackAccord đã có trên NuGet, GHCR hay Marketplace. StackAccord là tên sản phẩm đã chọn; [tên kỹ thuật DataGuard](../product/branding.vi.md) được giữ để tương thích.
 
 ## Điều kiện cần
 

@@ -4,7 +4,7 @@
 
 `.github/workflows/marketplace-release.yml` là workflow `workflow_dispatch` riêng, chỉ chạy khi người dùng chủ động chọn. Mặc định `publish=false` chỉ kiểm thử và đóng gói; chỉ chấp nhận dispatch từ `main` của repository này. `marketplace.yml` vẫn chỉ test/package, helper vẫn tạm dừng Marketplace và `installers.yml` giữ hành vi nightly đã ghi nhận. Đợt review cục bộ ban đầu chưa chạy hosted preparation hoặc công cụ Windows. Sau đó, các kiểm tra chuẩn bị đã đạt cho đúng run và byte được ghi tại [bằng chứng chuẩn bị](product/release-claims.md). Nghiệm thu editor đã cài, quyền environment công bố và xác thực publisher vẫn chưa được xác minh; test cục bộ hoặc chuẩn bị thành công không tự phê duyệt công bố.
 
-SA-DOC-015 đối chiếu workflow/helper tại baseline `ca68a3159425495f771da866188df75a8237ab4b`; không truy vấn listing, credential hoặc trạng thái hosted run. ID DataGuard và lịch sử license giữ nguyên; thương hiệu đề xuất xem [chiến lược](product/strategy.md).
+SA-DOC-015 đối chiếu workflow/helper tại baseline `ca68a3159425495f771da866188df75a8237ab4b`; không truy vấn listing, credential hoặc trạng thái hosted run. Tên kỹ thuật DataGuard và lịch sử license giữ nguyên; xem [quy tắc thương hiệu và tương thích](product/branding.vi.md).
 
 ## Điều kiện trước khi chạy và điểm chặn hiện tại
 

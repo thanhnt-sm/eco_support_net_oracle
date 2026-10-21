@@ -4,7 +4,7 @@
 
 `.github/workflows/marketplace-release.yml` is a separate, opt-in `workflow_dispatch` entry point. Its default `publish=false` only tests and prepares packages. It accepts dispatches from this repository's `main` only. Existing `marketplace.yml` remains test/package-only, the release helper's Marketplace pause stays intact, and `installers.yml` keeps its documented rolling-nightly behavior. The original local review did not exercise hosted preparation or the Windows toolchain. Those preparation checks subsequently passed for the exact run and bytes recorded in [release-claims preparation evidence](product/release-claims.md). Installed-editor acceptance, publication environment access and publisher authentication remain unverified; local or preparation success alone does not approve publication.
 
-SA-DOC-015 checked these workflow/helper contracts at baseline `ca68a3159425495f771da866188df75a8237ab4b`; it did not query listings, credentials or hosted run status. DataGuard IDs and license history remain unchanged; see the proposed brand [strategy](product/strategy.md).
+SA-DOC-015 checked these workflow/helper contracts at baseline `ca68a3159425495f771da866188df75a8237ab4b`; it did not query listings, credentials or hosted run status. DataGuard technical identifiers and license history remain unchanged; see the [branding compatibility policy](product/branding.md).
 
 ## Prerequisites and current blockers
 

@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/PublicApi/PublicApiSurface.cs`
 
-The public API surface provides a stable, versioned entry point for programmatic DataGuard usage. It includes the main `DataGuardApi` facade, the fluent `ValidationPipeline`, result types, drift detection, and a DI-friendly factory.
+The public API surface provides a stable, versioned entry point for programmatic StackAccord usage. It includes the main `DataGuardApi` facade, the fluent `ValidationPipeline`, result types, drift detection, and a DI-friendly factory.
 
 ## API Usage Flow
 
@@ -240,7 +240,7 @@ The default status is `Missing`; evaluated paths set it to `Complete` explicitly
 
 ## DataGuardFactory
 
-DI-friendly factory for creating DataGuard components.
+DI-friendly factory for creating StackAccord components.
 
 ```csharp
 public static class DataGuardFactory

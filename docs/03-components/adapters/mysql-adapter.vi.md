@@ -76,7 +76,7 @@ ORDER BY r.ROUTINE_SCHEMA, r.ROUTINE_TYPE, r.ROUTINE_NAME, p.ORDINAL_POSITION
 
 ### Ánh xạ direction
 
-| MySQL Mode | Direction DataGuard |
+| MySQL Mode | Direction StackAccord |
 |------------|---------------------|
 | `IN` | `Input` |
 | `OUT` | `Output` |

@@ -1,15 +1,15 @@
-# DataGuard enterprise observability reference
+# StackAccord enterprise observability reference
 
 Ngày 2026-09-14 (Phase 6 local-file final gate; nền tảng được tạo ngày 2026-09-13). Đây là
 starter implementation dựa trên discovery tĩnh; không tuyên bố production-ready.
 
-Discovery cho thấy DataGuard là CLI/library đa surface `net9.0`/`netstandard2.0`, có custom
+Discovery cho thấy StackAccord là CLI/library đa surface `net9.0`/`netstandard2.0`, có custom
 `System.Diagnostics.Metrics` và telemetry NDJSON opt-in. Sản phẩm không phải backend/frontend và
 không chạy trong Docker. Vì vậy đường chạy mặc định là `DataGuard.Core.Telemetry.FileObservabilitySink`:
 ghi record observability dạng text NDJSON, archive theo ngày UTC, bounded queue và fail-open.
 
 OTel SDK/Collector/LGTM/Kubernetes/profiling artifacts bên dưới là compatibility/reference adapter
-cho một host khác nếu sau này có owner contract; chúng không được DataGuard CLI/library khởi tạo
+cho một host khác nếu sau này có owner contract; chúng không được StackAccord CLI/library khởi tạo
 hoặc mở endpoint mặc định. Observability file cũng không phải audit ledger; `FileAuditLogger` vẫn
 là đường hash-chain riêng.
 

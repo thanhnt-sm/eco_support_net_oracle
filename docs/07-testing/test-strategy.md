@@ -7,7 +7,7 @@
 
 ## Test Philosophy
 
-DataGuard follows a **contract-first, evidence-based** testing approach:
+StackAccord follows a **contract-first, evidence-based** testing approach:
 
 1. **Every rule has tests**: Each DG/MY/PG rule has unit tests covering happy path, edge cases, and error conditions
 2. **Golden corpus**: Known-good and known-bad SQL/entity pairs for regression testing

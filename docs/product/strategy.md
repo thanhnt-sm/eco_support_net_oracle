@@ -24,8 +24,8 @@ Non-goals are a general React linter, migration executor, autonomous database re
 
 ## Brand and governance
 
-The accepted brand direction is **StackAccord**; proposed VS display name is **StackAccord – .NET Database Contracts (Beta)**. Do not shorten the brand to Accord. Indexed name research is not trademark or availability clearance. Navy/teal is an optional visual direction; no logo has been delivered.
+The product name is **StackAccord**; the Visual Studio display name in source is **StackAccord – .NET Database Contracts (Beta)**. Do not shorten the brand to Accord. Indexed name research is not trademark or availability clearance. Navy/teal is an optional visual direction; no logo has been delivered.
 
-The proposed repository slug is `stackaccord`, but the current repository remains `thanhnt-sm/eco_support_net_oracle`. Preserve `DataGuard.*`, `dataguard`, `.dataguard.yml`, `DATAGUARD_*`, VSIX identity `DataGuard.VisualStudio` and VS Code identity `thanhnt-sm.dataguard-vscode`. Renaming and same-ID installed-user upgrade checks are separate work.
+The proposed repository slug is `stackaccord`, but the current repository remains `thanhnt-sm/eco_support_net_oracle`. Preserve `DataGuard.*`, `dataguard`, `.dataguard.yml`, `DATAGUARD_*`, VSIX identity `DataGuard.VisualStudio` and VS Code identity `thanhnt-sm.dataguard-vscode`. These are compatibility identifiers, not pending product-name substitutions. Same-ID installed-user upgrade checks remain separate acceptance work. See the [branding compatibility policy](branding.md).
 
 Product owner owns claims and scope; engineering leads own implementation evidence; QA owns independent corpora; security owns threat-model review; release engineering owns artifact/host acceptance; legal owns name and license review. These are roles, not assigned people. Publication remains paused. No legal text, technical metadata or production source is changed by this strategy.

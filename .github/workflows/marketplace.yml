@@ -143,7 +143,7 @@ jobs:
           sbom-tool generate \
             -b "$GITHUB_WORKSPACE/$VSCODE_DIR" \
             -bc "$GITHUB_WORKSPACE/$VSCODE_DIR" \
-            -pn "DataGuard VS Code Extension" \
+            -pn "StackAccord VS Code Extension" \
             -pv "$VERSION" \
             -ps "$RUNNER_TEMP" \
             -m "$RUNNER_TEMP/dataguard-vscode-sbom"
@@ -283,7 +283,7 @@ jobs:
           & $sbomTool generate `
             -b "$env:GITHUB_WORKSPACE\$env:VISUAL_STUDIO_DIR" `
             -bc "$env:GITHUB_WORKSPACE\$env:VISUAL_STUDIO_DIR" `
-            -pn "DataGuard Visual Studio Extension" `
+            -pn "StackAccord Visual Studio Extension" `
             -pv "$env:VERSION" `
             -ps "$env:RUNNER_TEMP" `
             -m "$env:RUNNER_TEMP\dataguard-visualstudio-sbom"

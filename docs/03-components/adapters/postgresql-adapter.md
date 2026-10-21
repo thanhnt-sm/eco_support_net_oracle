@@ -72,7 +72,7 @@ Table columns come from `information_schema.columns`. Materialized views are not
 
 ### Direction Mapping
 
-| `proargmodes` | DataGuard |
+| `proargmodes` | StackAccord |
 |---------------|-----------|
 | `i` | `Input` |
 | `o` | `Output` |

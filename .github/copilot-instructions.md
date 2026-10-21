@@ -2,7 +2,7 @@
 
 ## License
 
-From v0.4.0 DataGuard is dual-licensed: **GNU GPL version 3 only** (`GPL-3.0-only`, see `LICENSE`, with the
+From v0.4.0 StackAccord is dual-licensed: **GNU GPL version 3 only** (`GPL-3.0-only`, see `LICENSE`, with the
 additional permission in `docs/legal/ADDITIONAL-PERMISSIONS.md`) **or a commercial licence** agreed per licensee.
 This matches the "Dual licence & FAQ" section of `README.md`, which is the authoritative summary.
 

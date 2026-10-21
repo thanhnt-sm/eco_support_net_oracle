@@ -1,6 +1,6 @@
 # Tiện ích mở rộng Visual Studio 2022
 
-DataGuard chạy CLI đi kèm bên ngoài `devenv.exe` và đưa kết quả kiểm tra theo đợt vào Error List. Roslyn analyzer đi kèm cung cấp diagnostic trong trình soạn thảo qua luồng riêng. Analyzer dùng Roslyn 4.12, cần Visual Studio 2022 **17.12 trở lên**; manifest VSIX chấp nhận `[17.12,19.0)` trên Windows amd64. Đây không phải extension cho Visual Studio for Mac.
+StackAccord chạy CLI đi kèm bên ngoài `devenv.exe` và đưa kết quả kiểm tra theo đợt vào Error List. Roslyn analyzer đi kèm cung cấp diagnostic trong trình soạn thảo qua luồng riêng. Analyzer dùng Roslyn 4.12, cần Visual Studio 2022 **17.12 trở lên**; manifest VSIX chấp nhận `[17.12,19.0)` trên Windows amd64. Đây không phải extension cho Visual Studio for Mac.
 
 ## Các lệnh và cách sử dụng
 
@@ -9,7 +9,7 @@ Mở solution, lưu mã nguồn/cấu hình rồi chọn **Tools > StackAccord (
 | Lệnh | Hành vi |
 |---|---|
 | Run Validation | Kiểm tra các file đã lưu với `.dataguard.yml` ở gốc solution; công bố kết quả SARIF hợp lệ. |
-| Cancel Validation | Hủy lệnh DataGuard đang chạy và yêu cầu kết thúc cây tiến trình CLI do extension sở hữu. |
+| Cancel Validation | Hủy lệnh StackAccord đang chạy và yêu cầu kết thúc cây tiến trình CLI do extension sở hữu. |
 | Assess Workspace | Chạy `assess` ưu tiên cục bộ, không bật quyền truy vấn advisory từ xa. |
 | Export Support Summary | Xem trước summary theo danh sách cho phép, sau đó chủ động lưu cục bộ; không tự tải lên. |
 | View Diagnostic Logs | Mở vị trí log chẩn đoán. |

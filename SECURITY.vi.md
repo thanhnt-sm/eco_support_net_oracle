@@ -2,9 +2,9 @@
 
 ## Báo cáo lỗ hổng
 
-Chúng tôi coi trọng bảo mật của DataGuard và hệ sinh thái .NET/EF Core downstream mà nó bảo vệ.
+Chúng tôi coi trọng bảo mật của StackAccord và hệ sinh thái .NET/EF Core downstream mà nó bảo vệ.
 
-Nếu bạn phát hiện một lỗ hổng tiềm ẩn trong DataGuard (Core, adapters, analyzers, CLI, hoặc extension
+Nếu bạn phát hiện một lỗ hổng tiềm ẩn trong StackAccord (Core, adapters, analyzers, CLI, hoặc extension
 VS Code), vui lòng báo cáo một cách riêng tư:
 
 - Mở **GitHub Security Advisory riêng tư** tại

@@ -476,9 +476,9 @@ Sprint 3-4 (Week 5-8): P2 Medium Priority
 **Tasks**:
 - [ ] Extension manifest (package.json)
 - [ ] Language Server Protocol (LSP) integration
-- [ ] Diagnostic collection từ DataGuard Analyzers
+- [ ] Diagnostic collection từ StackAccord Analyzers
 - [ ] Code Actions (Quick Fixes) trong VS Code
-- [ ] Status bar: DataGuard status
+- [ ] Status bar: StackAccord status
 - [ ] Settings: Enable/disable, config path
 - [ ] Publish to VS Code Marketplace
 
@@ -678,7 +678,7 @@ Sprint 3-4 (Week 5-8): P2 Medium Priority
 
 **Tasks**:
 - [ ] Define plugin versioning: Semantic Versioning (MAJOR.MINOR.PATCH)
-- [ ] Compatibility matrix: DataGuard version ↔ Plugin version
+- [ ] Compatibility matrix: StackAccord version ↔ Plugin version
 - [ ] Plugin manifest: `dataguard-plugin.json`
 - [ ] Version negotiation: Load compatible plugins only
 - [ ] Deprecation policy: 2 major versions
@@ -794,7 +794,7 @@ Sprint 3-4 (Week 5-8): P2 Medium Priority
 ---
 
 #### **Fix-034: Standalone Utility Architecture (No Package Reference Required)**
-**Issue**: DataGuard nên là standalone utility - không cần `dotnet add package` vào project dev. Giống `eslint`, `dotnet format`, `sonarqube`.
+**Issue**: StackAccord nên là standalone utility - không cần `dotnet add package` vào project dev. Giống `eslint`, `dotnet format`, `sonarqube`.
 **File**: `src/DataGuard.CLI/`, `src/DataGuard.Core/`, `build/Standalone.csproj`, `src/DataGuard.Analyzers/`
 **Effort**: 20 hours
 **Dependencies**: Fix-001, Fix-003, Fix-016
@@ -871,7 +871,7 @@ Sprint 3-4 (Week 5-8): P2 Medium Priority
 
 - [ ] **Analyzer Binary Versioning**:
   - [ ] Semantic versioning: `analyzer-v{major}.{minor}.{patch}`
-  - [ ] Compatibility matrix: DataGuard CLI version <-> Analyzer version
+  - [ ] Compatibility matrix: StackAccord CLI version <-> Analyzer version
   - [ ] Fallback: Embedded analyzer trong CLI nếu download fail
 
 **Acceptance Criteria**:

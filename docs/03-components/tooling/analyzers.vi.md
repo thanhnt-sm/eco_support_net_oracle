@@ -1,6 +1,6 @@
 # Roslyn Analyzers
 
-Gói analyzer của DataGuard là **tầng IDE chỉ dùng syntax**: một incremental generator (DG001) và một
+Gói analyzer của StackAccord là **tầng IDE chỉ dùng syntax**: một incremental generator (DG001) và một
 `DiagnosticAnalyzer` dạng syntax-node (heuristic trên SQL literal). Cả hai không bind symbol, không mở database, không
 IO file/mạng. Các kiểm tra cần ground truth database (DG002-DG020, DG101) chỉ chạy trong CLI (`dataguard validate`);
 descriptor của chúng vẫn được analyzer khai báo để severity trong `.editorconfig` và code fix gắn đúng ID.

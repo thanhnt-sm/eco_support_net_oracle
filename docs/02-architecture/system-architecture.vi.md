@@ -1,14 +1,14 @@
 # Kiến Trúc Hệ Thống
 
-> **DataGuard** — Công cụ .NET 9 validate contract giữa Entity ↔ Stored Procedure / Raw SQL.
+> **StackAccord** — Công cụ .NET 9 validate contract giữa Entity ↔ Stored Procedure / Raw SQL.
 
-Tài liệu này mô tả kiến trúc hệ thống đầy đủ của DataGuard, bao gồm topology thành phần, thiết kế tầng, luồng dữ liệu, kiến trúc bảo mật và pipeline CI/CD.
+Tài liệu này mô tả kiến trúc hệ thống đầy đủ của StackAccord, bao gồm topology thành phần, thiết kế tầng, luồng dữ liệu, kiến trúc bảo mật và pipeline CI/CD.
 
 ---
 
 ## 1. Topology Thành Phẩm Cao Cấp
 
-DataGuard bao gồm **11 dự án nguồn** được tổ chức theo kiến trúc tầng nghiêm ngặt. Tầng Contracts nhắm `netstandard2.0` để tương thích IDE tối đa; engine Core và adapters nhắm `net9.0`; phần mở rộng IDE nhắm framework đặc thù của từng host.
+StackAccord bao gồm **11 dự án nguồn** được tổ chức theo kiến trúc tầng nghiêm ngặt. Tầng Contracts nhắm `netstandard2.0` để tương thích IDE tối đa; engine Core và adapters nhắm `net9.0`; phần mở rộng IDE nhắm framework đặc thù của từng host.
 
 ```mermaid
 graph TB
@@ -69,7 +69,7 @@ graph TB
 
 ## 2. Kiến Trúc Tầng
 
-DataGuard tuân theo **mô hình phụ thuộc đi lên từ dưới**. Mỗi tầng chỉ phụ thuộc vào các tầng bên dưới — không bao giờ phụ thuộc ngang hoặc đi lên.
+StackAccord tuân theo **mô hình phụ thuộc đi lên từ dưới**. Mỗi tầng chỉ phụ thuộc vào các tầng bên dưới — không bao giờ phụ thuộc ngang hoặc đi lên.
 
 ```mermaid
 graph TB
@@ -192,7 +192,7 @@ flowchart LR
 
 ## 4. Kiến Trúc Bảo Mật: Chuỗi Credential Zero-Trust
 
-DataGuard triển khai mô hình bảo mật **zero-trust**. Credentials không bao giờ được ghi log, không bao giờ được serialize dạng plain text và được mã hóa khi lưu trữ khi được cấu hình.
+StackAccord triển khai mô hình bảo mật **zero-trust**. Credentials không bao giờ được ghi log, không bao giờ được serialize dạng plain text và được mã hóa khi lưu trữ khi được cấu hình.
 
 ```mermaid
 flowchart TB
@@ -251,7 +251,7 @@ flowchart TB
 
 ## 5. Kiến Trúc Pipeline CI/CD
 
-DataGuard sử dụng GitHub Actions với pipeline **phòng thủ nhiều lớp**: build → test → security scan → CodeQL → ký → publish.
+StackAccord sử dụng GitHub Actions với pipeline **phòng thủ nhiều lớp**: build → test → security scan → CodeQL → ký → publish.
 
 ```mermaid
 flowchart LR
@@ -386,7 +386,7 @@ graph TB
 
 ## 7. Điểm Mở Rộng
 
-DataGuard được thiết kế để mở rộng ở mọi tầng:
+StackAccord được thiết kế để mở rộng ở mọi tầng:
 
 | Điểm Mở Rộng | Cơ Chế | Trường Hợp Sử Dụng |
 |---------------|--------|---------------------|

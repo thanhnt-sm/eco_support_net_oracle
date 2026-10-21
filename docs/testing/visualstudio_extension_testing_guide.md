@@ -1,4 +1,4 @@
-# DataGuard Extension Testing Guide
+# StackAccord Extension Testing Guide
 
 ## 1. Installation
 
@@ -29,9 +29,9 @@ You can access the configuration settings at: **Tools** -> **Options** -> **Data
 ## 4. Validating Projects
 
 1. Open a solution that has a `.dataguard.yml` configuration file.
-2. Under the **Tools** menu, locate the **DataGuard** sub-menu and click **Run Validation**.
+2. Under the **Tools** menu, locate the **StackAccord** sub-menu and click **Run Validation**.
 3. Output Window:
-   * Navigate to the **Output** window and select **DataGuard** from the "Show output from:" dropdown.
+   * Navigate to the **Output** window and select **StackAccord** from the "Show output from:" dropdown.
    * Review the command status, CLI diagnostics and exit outcome. Missing executables produce an error; no auto-install success message is expected.
 4. The generated validation violations will automatically populate the Visual Studio **Error List**.
 
@@ -39,10 +39,10 @@ You can access the configuration settings at: **Tools** -> **Options** -> **Data
 
 1. Go to **Tools** -> **Options** -> **DataGuard** -> **Validation Rules**.
 2. Uncheck any rule (e.g., *DG016: Phantom Column Reference*).
-3. Run validation again (via **Tools** -> **DataGuard** -> **Run Validation**).
+3. Run validation again (via **Tools** -> **StackAccord** -> **Run Validation**).
 4. The extension passes the disabled rule IDs to the CLI via `validate --skip-rules <ids>` (for example `--skip-rules DG016`), so the CLI never emits those violations.
 5. Check the **Error List**: you will notice that the violations for the disabled rule are no longer present.
 
 ## 6. Validation Rules & Descriptions Catalog
 
-Under **Tools** -> **DataGuard**, you can click **Validation Rules & Descriptions** to output a detailed list of all rules and their current enabled/disabled state to the Output window. This is highly useful for sharing the exact configuration during a team review.
+Under **Tools** -> **StackAccord**, you can click **Validation Rules & Descriptions** to output a detailed list of all rules and their current enabled/disabled state to the Output window. This is highly useful for sharing the exact configuration during a team review.

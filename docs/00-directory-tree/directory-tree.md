@@ -1,4 +1,4 @@
-# DataGuard Workspace Directory Tree
+# StackAccord Workspace Directory Tree
 
 > Directory overview retained for navigation; not an exhaustive current file inventory. See [review inventory](../product/documentation-inventory.md).
 
@@ -266,7 +266,7 @@ Command-line interface tool with 9 commands.
 | `docs/SOLUTION.md` | Solution architecture document | Documentation | Markdown |
 | `docs/assess.md` | Assessment command documentation | Documentation | Markdown |
 | `docs/cli.md` | CLI reference documentation | Documentation | Markdown |
-| `docs/mcp.md` | Historical EcoSupport MCP documentation; no current DataGuard MCP product | Documentation | Markdown |
+| `docs/mcp.md` | Historical EcoSupport MCP documentation; no current StackAccord MCP product | Documentation | Markdown |
 | `docs/contributing.md` | Contributor guide | Documentation | Markdown |
 | `docs/enterprise-banking-profile.md` | Enterprise banking use case profile | Documentation | Markdown |
 
@@ -277,7 +277,7 @@ Command-line interface tool with 9 commands.
 | `scripts/verify_docs_sync.sh` | Verifies bilingual (EN/VI) documentation synchronization | Ops | Bash |
 | `scripts/preflight_agent_check.sh` | Pre-flight checks for AI agent operations | Ops | Bash |
 | `scripts/anti_garbage_guard.sh` | Prevents garbage/low-quality commits from AI agents | Ops | Bash |
-| `scripts/demo_scan.sh` | Demo script for running a full DataGuard scan | Ops | Bash |
+| `scripts/demo_scan.sh` | Demo script for running a full StackAccord scan | Ops | Bash |
 | `scripts/git_conflict_resolver.sh` | Automated git merge conflict resolution helper | Ops | Bash |
 | `scripts/git_sync.sh` | Git synchronization and branch management script | Ops | Bash |
 
@@ -311,7 +311,7 @@ Command-line interface tool with 9 commands.
 
 | Path | Purpose | Layer | Language |
 |------|---------|-------|----------|
-| `samples/DataGuard.Sample/` | Sample project demonstrating DataGuard usage | Example | C# |
+| `samples/DataGuard.Sample/` | Sample project demonstrating StackAccord usage | Example | C# |
 | `tools/benchmarks/DataGuard.Benchmarks/` | BenchmarkDotNet offline hot-path benchmarks (CI dry run) | Test | C# |
 | `tools/benchmarks/DataGuard.Observability.Benchmarks/` | BenchmarkDotNet observability wrapper overhead benchmark | Test | C# |
 | `BenchmarkDotNet.Artifacts/` | Benchmark execution results and logs | Test | Various |

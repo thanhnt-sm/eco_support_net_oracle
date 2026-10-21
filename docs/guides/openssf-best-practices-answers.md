@@ -1,6 +1,6 @@
 > **Dated questionnaire evidence (2026-10-18):** portal scores, submissions, signing and release assertions below are historical self-assessment statements, not a fresh remote verification. Recheck each answer against the exact artifact/run before submission; publication remains paused. License authority: [legal notices](../legal/ADDITIONAL-PERMISSIONS.md).
 
-# OpenSSF Best Practices (CII) Questionnaire Cheat Sheet: DataGuard
+# OpenSSF Best Practices (CII) Questionnaire Cheat Sheet: StackAccord
 
 > **Target Repository**: `thanhnt-sm/eco_support_net_oracle`  
 > **Self-Certification Portal**: [https://bestpractices.dev](https://bestpractices.dev)  

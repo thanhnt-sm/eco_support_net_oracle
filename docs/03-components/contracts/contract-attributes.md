@@ -1,6 +1,6 @@
 # Contract Attributes
 
-The `DataGuard.Contracts` assembly provides attributes for manual ground-truth mode and validation control. These attributes live in a `netstandard2.0` assembly so they can be referenced by any .NET project without pulling in the full DataGuard engine.
+The `DataGuard.Contracts` assembly provides attributes for manual ground-truth mode and validation control. These attributes live in a `netstandard2.0` assembly so they can be referenced by any .NET project without pulling in the full StackAccord engine.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ graph TB
         RAW[Raw SQL Methods]
     end
 
-    subgraph "DataGuard Engine"
+    subgraph "StackAccord Engine"
         MS[ManualContractSource]
         IDE[Analyzer Quick-Fixes]
         CLI[CLI --offline]
@@ -84,7 +84,7 @@ the same short name. These attributes are additive; `ExpectedColumn` and
 
 ## SkipContractCheckAttribute
 
-Exempts a method or class from DataGuard contract validation. Used for dynamic SQL, complex queries, or cases where automatic validation is not applicable.
+Exempts a method or class from StackAccord contract validation. Used for dynamic SQL, complex queries, or cases where automatic validation is not applicable.
 
 ### Definition
 

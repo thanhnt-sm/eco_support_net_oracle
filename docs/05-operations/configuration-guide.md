@@ -2,7 +2,7 @@
 
 ## Configuration File: `.dataguard.yml`
 
-DataGuard uses a YAML configuration file (default: `.dataguard.yml` in project root).
+StackAccord uses a YAML configuration file (default: `.dataguard.yml` in project root).
 
 ### Generate Default Config
 

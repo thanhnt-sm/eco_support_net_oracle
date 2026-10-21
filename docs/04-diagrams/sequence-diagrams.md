@@ -59,7 +59,7 @@ sequenceDiagram
 sequenceDiagram
     actor Developer
     participant VSCode as VS Code
-    participant Ext as DataGuard Extension
+    participant Ext as StackAccord Extension
     participant CLI as dataguard CLI
     participant Analyzer as Roslyn Analyzer
     participant CodeFix as Code Fix Provider
@@ -79,7 +79,7 @@ sequenceDiagram
     Developer->>VSCode: Select fix
     CodeFix->>VSCode: Apply code change
     
-    Developer->>VSCode: Run full validation (Ctrl+Shift+P → DataGuard)
+    Developer->>VSCode: Run full validation (Ctrl+Shift+P → StackAccord)
     VSCode->>Ext: runValidation()
     Ext->>CLI: spawn("dataguard", ["validate", "--format", "sarif"])
     CLI-->>Ext: SARIF output

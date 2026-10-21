@@ -2,9 +2,9 @@
 
 ## Reporting a Vulnerability
 
-We take the security of DataGuard and the downstream .NET/EF Core ecosystems it protects seriously.
+We take the security of StackAccord and the downstream .NET/EF Core ecosystems it protects seriously.
 
-If you discover a potential vulnerability in DataGuard (Core, adapters, analyzers, CLI, or the VS Code
+If you discover a potential vulnerability in StackAccord (Core, adapters, analyzers, CLI, or the VS Code
 extension), please report it privately:
 
 - Open a **private GitHub Security Advisory** at

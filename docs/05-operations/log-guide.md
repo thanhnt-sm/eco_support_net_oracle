@@ -4,7 +4,7 @@
 
 ### 1. Console Output (Default)
 
-DataGuard outputs validation results to stdout by default.
+StackAccord outputs validation results to stdout by default.
 
 ```bash
 # Standard output

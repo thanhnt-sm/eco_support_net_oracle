@@ -1,8 +1,8 @@
 # Design Philosophy
 
-> The principles that shape every line of DataGuard code.
+> The principles that shape every line of StackAccord code.
 
-DataGuard is not just a linter — it is a **contract enforcement system** for the boundary between .NET application code and database stored procedures / raw SQL. Every design decision flows from eight core principles.
+StackAccord is not just a linter — it is a **contract enforcement system** for the boundary between .NET application code and database stored procedures / raw SQL. Every design decision flows from eight core principles.
 
 ---
 
@@ -10,7 +10,7 @@ DataGuard is not just a linter — it is a **contract enforcement system** for t
 
 > **Every claim must be backed by database ground truth.**
 
-DataGuard never guesses. When it reports that a stored procedure expects 5 parameters but the call site passes 4, that claim is backed by reading `ALL_ARGUMENTS` (Oracle), `sys.parameters` (SQL Server), or `information_schema` (MySQL/PostgreSQL). When it says a column is `VARCHAR2(100)` but the entity maps `MaxLength = 200`, the evidence comes from `ALL_TAB_COLUMNS`.
+StackAccord never guesses. When it reports that a stored procedure expects 5 parameters but the call site passes 4, that claim is backed by reading `ALL_ARGUMENTS` (Oracle), `sys.parameters` (SQL Server), or `information_schema` (MySQL/PostgreSQL). When it says a column is `VARCHAR2(100)` but the entity maps `MaxLength = 200`, the evidence comes from `ALL_TAB_COLUMNS`.
 
 This principle extends to the output format. The `ContractEvidence` artifact is versioned, sorted, and redacted — a durable, machine-readable record that CI pipelines can gate on.
 
@@ -40,7 +40,7 @@ flowchart LR
 
 > **When in doubt, deny. Credentials never exposed; plaintext fallback disabled by default.**
 
-The `AllowPlaintextConfigFallback` setting defaults to `false`. This means that if the only connection string available is in a plain `.config` file and no vault is configured, DataGuard refuses to proceed rather than silently downgrading to an insecure credential path.
+The `AllowPlaintextConfigFallback` setting defaults to `false`. This means that if the only connection string available is in a plain `.config` file and no vault is configured, StackAccord refuses to proceed rather than silently downgrading to an insecure credential path.
 
 This is a deliberate departure from "developer convenience" defaults. In production CI/CD pipelines, a silent credential downgrade is a security vulnerability, not a convenience.
 
@@ -101,7 +101,7 @@ flowchart LR
 
 > **Snapshot mode needs no database connection.**
 
-DataGuard supports three ground truth modes:
+StackAccord supports three ground truth modes:
 
 | Mode | Database Required | Use Case |
 |------|-------------------|----------|
@@ -131,7 +131,7 @@ flowchart TD
 
 > **MEF plugin architecture for custom rules.**
 
-DataGuard uses MEF 2 (`System.Composition`) for plugin discovery. Custom rules are discovered by scanning assemblies for the `[ExportRule]` attribute. No configuration files, no registration code — just annotate and drop the assembly.
+StackAccord uses MEF 2 (`System.Composition`) for plugin discovery. Custom rules are discovered by scanning assemblies for the `[ExportRule]` attribute. No configuration files, no registration code — just annotate and drop the assembly.
 
 ```csharp
 [ExportRule(
@@ -166,7 +166,7 @@ public sealed class CustomNamingConventionRule : IContractRule
 
 > **Audit logging, SARIF output, baseline management, SBOM generation.**
 
-DataGuard is designed for enterprise CI/CD pipelines:
+StackAccord is designed for enterprise CI/CD pipelines:
 
 - **SARIF 2.1.0 output**: Industry-standard format, natively supported by GitHub Code Scanning, Azure DevOps, and most SAST platforms.
 - **Audit logging**: Hash-chained audit entries can support review; they do not establish SOC 2/ISO 27001 compliance.
@@ -197,7 +197,7 @@ flowchart LR
 
 > **Roslyn analyzers catch issues on keystroke.**
 
-DataGuard uses a **dual-layer analyzer architecture**:
+StackAccord uses a **dual-layer analyzer architecture**:
 
 | Layer | Technology | Speed | Scope |
 |-------|-----------|-------|-------|
@@ -233,11 +233,11 @@ flowchart TD
 
 > **Model contracts pattern ported to .NET.**
 
-DataGuard borrows the **model contracts** concept from dbt (data build tool). In dbt, you define contracts that specify the shape of your data models — column names, types, nullability. DataGuard applies the same pattern to .NET:
+StackAccord borrows the **model contracts** concept from dbt (data build tool). In dbt, you define contracts that specify the shape of your data models — column names, types, nullability. StackAccord applies the same pattern to .NET:
 
 - **Entity contracts**: EF Core entities define the expected shape (properties, types, nullability).
 - **Stored procedure contracts**: Database stored procedures define parameters and result sets.
-- **Contract enforcement**: DataGuard validates that the two sides match, catching drift before it reaches production.
+- **Contract enforcement**: StackAccord validates that the two sides match, catching drift before it reaches production.
 
 This is the core insight: **the boundary between application code and database is a contract, and contracts should be enforced automatically.**
 
@@ -248,7 +248,7 @@ flowchart LR
         B1 --> C1["Enforcement<br/>(dbt build)"]
     end
 
-    subgraph "DataGuard Pattern"
+    subgraph "StackAccord Pattern"
         A2["EF Core Entity"] --> B2["Contract<br/>(properties, types)"]
         A3["Stored Procedure"] --> B2
         B2 --> C2["Enforcement<br/>(dataguard validate)"]
@@ -265,7 +265,7 @@ flowchart LR
 
 ```mermaid
 mindmap
-  root((DataGuard Philosophy))
+  root((StackAccord Philosophy))
     Evidence-First
       Database ground truth
       Versioned artifacts

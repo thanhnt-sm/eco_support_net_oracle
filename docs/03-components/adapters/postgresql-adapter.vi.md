@@ -72,7 +72,7 @@ Cột bảng lấy từ `information_schema.columns`; cột materialized view l�
 
 ### Ánh xạ direction
 
-| `proargmodes` | DataGuard |
+| `proargmodes` | StackAccord |
 |---------------|-----------|
 | `i` | `Input` |
 | `o` | `Output` |

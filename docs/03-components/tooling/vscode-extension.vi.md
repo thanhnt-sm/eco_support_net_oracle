@@ -1,16 +1,16 @@
 # Tiện ích mở rộng VS Code
 
-DataGuard kết hợp lệnh CLI theo đợt, language server đi kèm và giao diện editor. Đây là các luồng thực thi riêng: CLI chạy thành công chưa chứng minh language server đã khởi động hoặc contract database đã được đánh giá đầy đủ.
+StackAccord kết hợp lệnh CLI theo đợt, language server đi kèm và giao diện editor. Đây là các luồng thực thi riêng: CLI chạy thành công chưa chứng minh language server đã khởi động hoặc contract database đã được đánh giá đầy đủ.
 
 ## Yêu cầu và kích hoạt
 
-Manifest phiên bản `0.4.0` yêu cầu VS Code `^1.91.0`, khai báo workspace extension, không hỗ trợ workspace chưa tin cậy hoặc workspace ảo. Sự kiện kích hoạt là `onLanguage:csharp` và `onStartupFinished`; không phụ thuộc việc tìm thấy `.dataguard.yml` hoặc tham chiếu package DataGuard.
+Manifest phiên bản `0.4.0` yêu cầu VS Code `^1.91.0`, khai báo workspace extension, không hỗ trợ workspace chưa tin cậy hoặc workspace ảo. Sự kiện kích hoạt là `onLanguage:csharp` và `onStartupFinished`; không phụ thuộc việc tìm thấy `.dataguard.yml` hoặc tham chiếu package `DataGuard.*`.
 
 Lệnh CLI dùng `dataguard.cliPath` (mặc định `dataguard`). Language server chạy `server/DataGuard.LanguageServer.dll` đi kèm qua `dotnet`, cần runtime .NET tương thích. Trước khi chạy, extension đối chiếu artifact với manifest SHA-256. Đây là kiểm tra tính nhất quán của gói, không phải chữ ký nhà phát hành độc lập. Xem [hướng dẫn build extension](../../05-operations/extension-build-guide.vi.md) về yêu cầu đóng gói.
 
 ## Lệnh và kết quả
 
-Mở workspace tin cậy, lưu file nguồn rồi dùng các lệnh DataGuard trong Command Palette. Với workspace nhiều gốc, chọn thư mục cho lượt chạy.
+Mở workspace tin cậy, lưu file nguồn rồi dùng các lệnh StackAccord trong Command Palette. Với workspace nhiều gốc, chọn thư mục cho lượt chạy.
 
 | Lệnh | Hành vi CLI thực tế |
 |---|---|
@@ -28,7 +28,7 @@ Snapshot, baseline và verify-shape yêu cầu xác nhận truy cập database l
 
 Lệnh theo đợt đọc file đã lưu. Lệnh mới thay lượt đang chạy sau khi chọn workspace, đọc credential và hoàn tất xác nhận live nếu cần. Mã request/run loại kết quả hoàn tất đã lỗi thời. Khi lượt mới đến bước khởi chạy, nó xóa đồng thời Problems, findings, trạng thái quick-fix, truy vấn, CodeLens, hover, decoration và dữ liệu dashboard. Không coi các view này là lịch sử lưu bền của những lượt thành công trước.
 
-Đọc **Output > DataGuard**, Problems và tooltip trạng thái cùng nhau. Thanh trạng thái dùng icon idle/running/warning/error; nhấp vào sẽ chạy validation. Kết quả syntactic-only nghĩa là chưa đối chiếu dữ liệu chuẩn database. Không có finding chưa chứng minh tương thích schema; contract không hỗ trợ hoặc chưa đánh giá phải được đọc trong summary. `--ide-safe` ngầm cho phép contract chưa đánh giá ở lớp exit code CLI; mã thoát 0 không chứng minh kiểm tra đầy đủ.
+Đọc **Output > StackAccord**, Problems và tooltip trạng thái cùng nhau. Thanh trạng thái dùng icon idle/running/warning/error; nhấp vào sẽ chạy validation. Kết quả syntactic-only nghĩa là chưa đối chiếu dữ liệu chuẩn database. Không có finding chưa chứng minh tương thích schema; contract không hỗ trợ hoặc chưa đánh giá phải được đọc trong summary. `--ide-safe` ngầm cho phép contract chưa đánh giá ở lớp exit code CLI; mã thoát 0 không chứng minh kiểm tra đầy đủ.
 
 Khi summary validation đã hoàn tất có `AcquisitionDiagnosticCount` lớn hơn 0, thông báo kết thúc cảnh báo việc thu thập nguồn còn thiếu, kể cả khi đã tải ground truth và không có lỗi hoặc cảnh báo từ rule. Trạng thái thêm `acquisition diagnostics N` riêng với số lượng finding; xem các dòng `ACQUISITION` trong output. Giá trị 0 hoặc trường vắng mặt giữ hành vi hiện tại, bao gồm lượt bỏ qua có chủ đích mà CLI đã loại khỏi số đếm. Thông báo hủy, timeout và lỗi vẫn được ưu tiên. Visual Studio dùng cùng chính sách thông báo kết thúc và trạng thái. Xem [kế hoạch regression acquisition summary](../../../plans/2026-10-21-ide-acquisition-summary.md) về phạm vi kiểm chứng.
 

@@ -76,9 +76,9 @@ jobs:
       - name: NuGet/npm licence allow-list
         run: python3 scripts/check-nuget-licences.py
 
-      # DataGuard's own licence surfaces (GPL-3.0-only + Commercial; Contracts stays MIT): no stale MIT in
+      # StackAccord's own licence surfaces (GPL-3.0-only + Commercial; Contracts stays MIT): no stale MIT in
       # README/docs/grants, central package metadata, GPL LICENSE text, byte-identical shipped notice copies.
-      - name: DataGuard licence consistency
+      - name: StackAccord licence consistency
         run: python3 scripts/check-license-consistency.py
 
       - name: Build solution
@@ -534,7 +534,7 @@ jobs:
           sbom-tool generate \
             -b "$(pwd)/src" \
             -bc "$(pwd)/src" \
-            -pn "DataGuard" \
+            -pn "StackAccord" \
             -pv "0.1.0-ci" \
             -ps "$(pwd)/artifacts" \
             -m "$(pwd)/sbom"

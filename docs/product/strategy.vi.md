@@ -20,8 +20,8 @@ Mã nguồn hiện có phân tích .NET/database, snapshot, báo cáo, tích h�
 
 Hướng kiến trúc: parser/IR/rule xác định, adapter CLI/editor/CI/agent mỏng; ưu tiên snapshot và kết quả unknown rõ ràng. Phân tích có chạy build cần ranh giới tin cậy được phê duyệt riêng. Không mặc định thực thi repository khi mở nó. Không đặt mục tiêu thành React linter tổng quát, công cụ chạy migration, tự sửa database, máy quét bảo mật bao quát hoặc chứng nhận tuân thủ. Không xây control plane hosted mới khi chưa chứng minh nhu cầu. Các ADR freeze/extract đang Proposed phải được chủ sở hữu quyết định riêng.
 
-Thương hiệu: **StackAccord**; tên hiển thị VS dự kiến **StackAccord – .NET Database Contracts (Beta)**. Không rút gọn thành Accord. Tra cứu tên công khai không thay thế kiểm tra nhãn hiệu. Navy/teal chỉ là hướng hình ảnh; chưa có logo.
+Thương hiệu đã chọn: **StackAccord**; tên hiển thị Visual Studio trong source là **StackAccord – .NET Database Contracts (Beta)**. Không rút gọn thành Accord. Tra cứu tên công khai không thay thế kiểm tra nhãn hiệu. Navy/teal chỉ là hướng hình ảnh; chưa có logo.
 
-Slug `stackaccord` mới là đề xuất; repository vẫn là `thanhnt-sm/eco_support_net_oracle`. Giữ `DataGuard.*`, `dataguard`, `.dataguard.yml`, `DATAGUARD_*`, `DataGuard.VisualStudio`, `thanhnt-sm.dataguard-vscode`. Đổi tên kỹ thuật và kiểm tra nâng cấp người dùng nightly là công việc riêng.
+Slug `stackaccord` mới là đề xuất; repository vẫn là `thanhnt-sm/eco_support_net_oracle`. Giữ `DataGuard.*`, `dataguard`, `.dataguard.yml`, `DATAGUARD_*`, `DataGuard.VisualStudio`, `thanhnt-sm.dataguard-vscode`. Đây là ID tương thích, không phải tên thương hiệu cần thay tiếp. Kiểm tra nâng cấp người dùng nightly giữ nguyên ID vẫn là bước nghiệm thu riêng. Xem [quy tắc thương hiệu và tương thích](branding.vi.md).
 
 Product owner chịu trách nhiệm phạm vi/tuyên bố; engineering chịu trách nhiệm mã và bằng chứng; QA phụ trách corpus độc lập; security phụ trách threat model; release engineering phụ trách artifact/host; legal phụ trách tên và giấy phép. Chưa chỉ định cá nhân. Vẫn tạm dừng xuất bản; tài liệu này không sửa mã, metadata hay văn bản pháp lý.

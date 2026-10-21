@@ -55,6 +55,6 @@ Azure `KeyVaultUri` must be an HTTPS root at `name.vault.azure.net`, using the d
 
 ## Visual Studio settings are separate
 
-**Live Provider = oracle** applies only to Refresh Snapshot and Verify SQL Shapes Against Database. Run Validation passes the solution's `.dataguard.yml` and `--ide-safe`, without `--provider`; it therefore uses YAML `DefaultProvider`. An empty live environment-variable name blocks live commands; it does not select a validation dialect. Live Schema is likewise separate. A configured **Custom CLI Path** takes precedence over the bundled CLI, so installing a new VSIX does not prove that validation used its new CLI. Check the executable reported in DataGuard output and its version; no credential value is needed.
+**Live Provider = oracle** applies only to Refresh Snapshot and Verify SQL Shapes Against Database. Run Validation passes the solution's `.dataguard.yml` and `--ide-safe`, without `--provider`; it therefore uses YAML `DefaultProvider`. An empty live environment-variable name blocks live commands; it does not select a validation dialect. Live Schema is likewise separate. A configured **Custom CLI Path** takes precedence over the bundled CLI, so installing a new VSIX does not prove that validation used its new CLI. Check the executable reported in StackAccord output and its version; no credential value is needed.
 
 Credential-boundary synthetic regression scope and compatibility evidence: [local reconciliation plan](../../plans/2026-10-16-credential-reconciliation.md).

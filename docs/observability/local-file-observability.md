@@ -2,7 +2,7 @@
 
 ## Phạm vi
 
-DataGuard là CLI/library. Không có HTTP API hoặc container runtime trong đường chạy mặc định.
+StackAccord là CLI/library. Không có HTTP API hoặc container runtime trong đường chạy mặc định.
 `TelemetryCollector` giữ các `Meter` hiện hữu để tương thích .NET/OpenTelemetry, đồng thời tự động
 đưa event, counter, histogram và validation summary vào `FileObservabilitySink` khi telemetry được
 bật mà không inject exporter khác.

@@ -1,10 +1,10 @@
-# Kiến Trúc DataGuard / DataGuard Architecture
+# Kiến Trúc StackAccord / StackAccord Architecture
 
 ## Tổng Quan / Overview
 
-DataGuard includes a CLI, Roslyn analyzers/generator, library APIs and editor integrations for .NET database contracts. SQL Server, Oracle, PostgreSQL and MySQL have distinct adapters; support for one operation does not imply identical grammar or metadata coverage across providers.
+StackAccord includes a CLI, Roslyn analyzers/generator, library APIs and editor integrations for .NET database contracts. SQL Server, Oracle, PostgreSQL and MySQL have distinct adapters; support for one operation does not imply identical grammar or metadata coverage across providers.
 
-DataGuard gồm CLI, Roslyn analyzer/generator, API thư viện và tích hợp editor cho contract cơ sở dữ liệu .NET. Bốn adapter có phạm vi riêng; không suy ra parity về grammar hay metadata.
+StackAccord gồm CLI, Roslyn analyzer/generator, API thư viện và tích hợp editor cho contract cơ sở dữ liệu .NET. Bốn adapter có phạm vi riêng; không suy ra parity về grammar hay metadata.
 
 This document describes source wiring reviewed on 2026-10-18, not a runtime verification or published-release claim. The earlier document carried the historical date 2025-01-19; its illustrative diagrams and version pins were not current implementation evidence.
 

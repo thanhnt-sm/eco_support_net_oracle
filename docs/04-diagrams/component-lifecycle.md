@@ -1,6 +1,6 @@
 # Component Active Lifetime Diagrams
 
-## 1. DataGuard CLI Process Lifetime
+## 1. StackAccord CLI Process Lifetime
 
 ```mermaid
 sequenceDiagram
@@ -131,7 +131,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant VSCode as VS Code
-    participant Ext as DataGuard Extension
+    participant Ext as StackAccord Extension
     participant SB as StatusBarItem
     participant OC as OutputChannel
     participant Diag as DiagnosticCollection
@@ -265,7 +265,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant App as DataGuard Application
+    participant App as StackAccord Application
     participant Logger as FileAuditLogger
     participant Chain as Hash Chain
     participant FS as audit-log.jsonl

@@ -1,6 +1,6 @@
 # Golden Standard — Template Checklist
 
-> **Mục đích**: khuôn mẫu để owner copy workspace DataGuard cho sản phẩm .NET mới và có ngay nền tảng chuẩn GitHub / NuGet.org / Marketplace / enterprise.
+> **Mục đích**: khuôn mẫu để owner copy workspace StackAccord cho sản phẩm .NET mới và có ngay nền tảng chuẩn GitHub / NuGet.org / Marketplace / enterprise.
 > Mỗi mục kèm lệnh verify. Mục `[OWNER]` cần thao tác server-side hoặc secrets — không làm được từ repo.
 
 ## 1. Community & docs (Cấp 1)
@@ -25,7 +25,7 @@
 | Thành phần | Yêu cầu | Verify |
 |---|---|---|
 | `.github/workflows/ci.yml` | build → test → format gate → coverage gate → vuln gate → TruffleHog → CodeQL | `actionlint` clean |
-| Coverage gate | fail dưới ngưỡng (DataGuard dùng 60%) | grep threshold trong ci.yml |
+| Coverage gate | fail dưới ngưỡng (StackAccord dùng 60%) | grep threshold trong ci.yml |
 | Format gate | `dotnet format --verify-no-changes` | step trong ci.yml |
 | `.github/workflows/release.yml` | cosign sign+verify, SBOM, provenance attestation, gh CLI draft→publish, Trusted Publishing | SHA-pinned actions |
 | `.github/workflows/scorecard.yml` | OSSF Scorecard, read-only permissions | actionlint + badge README |
