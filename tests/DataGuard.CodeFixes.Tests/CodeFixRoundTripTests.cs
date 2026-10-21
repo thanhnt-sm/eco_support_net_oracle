@@ -260,7 +260,7 @@ public class CodeFixRoundTripTests
             """
             public class Repo
             {
-                public IEnumerable<Customer> Top(IDbConnection connection) => connection.Query<Customer>("SELECT TOP 10 Id, Name FROM Customers c");
+                public IEnumerable<Customer> Top(IDbConnection connection) => connection.Query<Customer>("SELECT TOP 10 c.Id, c.Name FROM Customers c");
             }
             """);
         await test.RunAsync();
