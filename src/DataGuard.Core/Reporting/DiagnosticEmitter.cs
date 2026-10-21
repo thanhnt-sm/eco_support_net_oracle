@@ -63,7 +63,7 @@ public class DiagnosticEmitter
                 {
                     Name = "DataGuard",
                     Version = "0.1.0-alpha.1",
-                    InformationUri = "https://github.com/DataGuard/DataGuard",
+                    InformationUri = "https://github.com/thanhnt-sm/eco_support_net_oracle",
                     Rules = violations
                         .GroupBy(v => v.RuleId)
                         .Select(g => new ReportingDescriptor
@@ -370,8 +370,9 @@ public class FileSarifSink : ISarifSink
                     writer.WritePropertyName("driver");
                     writer.WriteStartObject();
                     writer.WriteString("name", run.Tool?.Driver?.Name ?? "DataGuard");
+                    writer.WriteString("fullName", run.Tool?.Driver?.FullName ?? "StackAccord");
                     writer.WriteString("version", run.Tool?.Driver?.Version ?? "0.1.0");
-                    writer.WriteString("informationUri", run.Tool?.Driver?.InformationUri ?? "https://github.com/DataGuard/DataGuard");
+                    writer.WriteString("informationUri", run.Tool?.Driver?.InformationUri ?? "https://github.com/thanhnt-sm/eco_support_net_oracle");
 
                     // Rules
                     writer.WritePropertyName("rules");
@@ -592,8 +593,9 @@ public class StreamingSarifSink : ISarifSink
         writer.WritePropertyName("driver");
         writer.WriteStartObject();
         writer.WriteString("name", "DataGuard");
+        writer.WriteString("fullName", "StackAccord");
         writer.WriteString("version", "0.1.0");
-        writer.WriteString("informationUri", "https://github.com/DataGuard/DataGuard");
+        writer.WriteString("informationUri", "https://github.com/thanhnt-sm/eco_support_net_oracle");
 
         // Collect unique rule IDs
         var ruleIds = violations.Select(v => v.RuleId).Distinct().ToArray();

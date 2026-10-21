@@ -56,7 +56,7 @@ public class CliArgumentBuilderTests
         result.IdeSafeUnsupported.Should().BeTrue();
         result.HasSummary.Should().BeTrue();
         result.ErrorCount.Should().Be(1);
-        written.ToString().Should().Contain("[DataGuard CLI] Unrecognized command or argument '--ide-safe'.");
+        written.ToString().Should().Contain("[StackAccord CLI] Unrecognized command or argument '--ide-safe'.");
     }
 
     [Theory]
@@ -86,7 +86,7 @@ public class CliArgumentBuilderTests
     public void ExitCodeExplainer_SummaryWithoutSarif_ReportsWriteFailure()
     {
         ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, hasSummary: true), sarifExists: false)
-            .Should().Be("[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)");
+            .Should().Be("[ERROR] The CLI reported a summary but failed to write results (see [StackAccord CLI] lines)");
         ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(3), sarifExists: false)
             .Should().Contain("previous Error List items were preserved");
     }

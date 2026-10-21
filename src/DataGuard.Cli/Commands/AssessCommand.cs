@@ -89,7 +89,7 @@ internal static class AssessCommand
 
                 if (normalizedFormat is not "text" && string.IsNullOrEmpty(output))
                 {
-                    Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
+                    Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; StackAccord never writes machine-readable output to stdout.");
                     Environment.ExitCode = 2;
                     return;
                 }
@@ -156,7 +156,7 @@ internal static class AssessCommand
                     }
                     else
                     {
-                        Console.WriteLine($"DataGuard assessment: {report.Summary.TotalFindings} findings ({report.Summary.Critical} critical, {report.Summary.Errors_} errors, {report.Summary.Warnings} warnings, {report.Summary.Information} info), {report.Summary.ToolErrors} tool errors");
+                        Console.WriteLine($"StackAccord assessment: {report.Summary.TotalFindings} findings ({report.Summary.Critical} critical, {report.Summary.Errors_} errors, {report.Summary.Warnings} warnings, {report.Summary.Information} info), {report.Summary.ToolErrors} tool errors");
                     }
 
                     foreach (var error in report.Errors)

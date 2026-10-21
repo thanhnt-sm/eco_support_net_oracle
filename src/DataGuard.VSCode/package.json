@@ -1,7 +1,7 @@
 {
   "name": "dataguard-vscode",
-  "displayName": "DataGuard",
-  "description": "Detect database contract drift between .NET code, stored procedures, and SQL before it reaches production.",
+  "displayName": "StackAccord",
+  "description": "StackAccord detects database contract drift between .NET code, stored procedures, and SQL before it reaches production.",
   "version": "0.4.0",
   "publisher": "thanhnt-sm",
   "license": "SEE LICENSE IN LICENSE",
@@ -43,11 +43,11 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "DataGuard runs a local validation CLI and only executes in trusted workspaces."
+      "description": "StackAccord runs a local validation CLI and only executes in trusted workspaces."
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "DataGuard requires a local workspace and CLI executable."
+      "description": "StackAccord requires a local workspace and CLI executable."
     }
   },
   "main": "./out/extension.js",
@@ -59,72 +59,72 @@
     "commands": [
       {
         "command": "dataguard.runValidation",
-        "title": "DataGuard: Run Validation"
+        "title": "StackAccord: Run Validation"
       },
       {
         "command": "dataguard.cancelValidation",
-        "title": "DataGuard: Cancel Validation"
+        "title": "StackAccord: Cancel Validation"
       },
       {
         "command": "dataguard.assess",
-        "title": "DataGuard: Assess Workspace"
+        "title": "StackAccord: Assess Workspace"
       },
       {
         "command": "dataguard.refreshSnapshot",
-        "title": "DataGuard: Refresh Snapshot"
+        "title": "StackAccord: Refresh Snapshot"
       },
       {
         "command": "dataguard.createBaseline",
-        "title": "DataGuard: Create Baseline"
+        "title": "StackAccord: Create Baseline"
       },
       {
         "command": "dataguard.configureConnection",
-        "title": "DataGuard: Configure Connection Credential"
+        "title": "StackAccord: Configure Connection Credential"
       },
       {
         "command": "dataguard.openDashboard",
-        "title": "DataGuard: Open Drift Dashboard",
+        "title": "StackAccord: Open Drift Dashboard",
         "icon": "$(dashboard)"
       },
       {
         "command": "dataguard.refreshFindings",
-        "title": "DataGuard: Refresh Findings",
+        "title": "StackAccord: Refresh Findings",
         "icon": "$(refresh)"
       },
       {
         "command": "dataguard.clearFindings",
-        "title": "DataGuard: Clear Findings",
+        "title": "StackAccord: Clear Findings",
         "icon": "$(clear-all)"
       },
       {
         "command": "dataguard.groupBySeverity",
-        "title": "DataGuard: Group by Severity"
+        "title": "StackAccord: Group by Severity"
       },
       {
         "command": "dataguard.groupByRule",
-        "title": "DataGuard: Group by Rule"
+        "title": "StackAccord: Group by Rule"
       },
       {
         "command": "dataguard.groupByFile",
-        "title": "DataGuard: Group by File"
+        "title": "StackAccord: Group by File"
       },
       {
         "command": "dataguard.applyQuickFix",
-        "title": "DataGuard: Apply Quick-Fix"
+        "title": "StackAccord: Apply Quick-Fix"
       },
       {
         "command": "dataguard.scanProject",
-        "title": "DataGuard: Scan Project SQL & Mappings",
+        "title": "StackAccord: Scan Project SQL & Mappings",
         "icon": "$(search)"
       },
       {
         "command": "dataguard.refreshQueries",
-        "title": "DataGuard: Refresh SQL Queries",
+        "title": "StackAccord: Refresh SQL Queries",
         "icon": "$(refresh)"
       },
       {
         "command": "dataguard.verifyShape",
-        "title": "DataGuard: Verify SQL Shapes Against Database",
+        "title": "StackAccord: Verify SQL Shapes Against Database",
         "icon": "$(check)"
       }
     ],
@@ -132,7 +132,7 @@
       "activitybar": [
         {
           "id": "dataguard-explorer",
-          "title": "DataGuard",
+          "title": "StackAccord",
           "icon": "media/shield.svg"
         }
       ]
@@ -191,18 +191,18 @@
       ]
     },
     "configuration": {
-      "title": "DataGuard",
+      "title": "StackAccord",
       "properties": {
         "dataguard.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable DataGuard validation."
+          "description": "Enable StackAccord validation."
         },
         "dataguard.configPath": {
           "type": "string",
           "default": ".dataguard.yml",
           "scope": "resource",
-          "description": "Path to the DataGuard configuration file, relative to the workspace root."
+          "description": "Path to the StackAccord configuration file, relative to the workspace root."
         },
         "dataguard.provider": {
           "type": "string",
@@ -214,13 +214,13 @@
           ],
           "default": "sqlserver",
           "scope": "resource",
-          "description": "Database provider used by explicit DataGuard commands."
+          "description": "Database provider used by explicit StackAccord commands."
         },
         "dataguard.cliPath": {
           "type": "string",
           "default": "dataguard",
           "scope": "machine",
-          "description": "Path or command name for the DataGuard CLI. Configure only in User Settings."
+          "description": "Path or command name for the StackAccord CLI. Configure only in User Settings."
         },
         "dataguard.timeoutSeconds": {
           "type": "number",
@@ -228,7 +228,7 @@
           "minimum": 5,
           "maximum": 900,
           "scope": "window",
-          "description": "Maximum validation duration before DataGuard terminates its process tree."
+          "description": "Maximum validation duration before StackAccord terminates its process tree."
         },
         "dataguard.assessmentTimeoutSeconds": {
           "type": "number",
@@ -244,7 +244,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "test": "npm run compile && npm run test:typescript && node --test out/security.test.js out/run-coordinator.test.js out/command-args.test.js out/ide-safe-contract.test.js out/live-database-confirmation.test.js out/ui/design-tokens.test.js out/ui/dashboard-view.test.js out/ui/redaction.test.js out/ui/redaction-redteam.test.js out/ui/csp-security.test.js out/ui/sql-queries-tree.test.js out/ui/performance-smoke.test.js out/ui/codelens-provider.test.js out/ui/decoration-manager.test.js out/ui/hover-provider.test.js out/ui/providers-behavior.test.js out/extension-lifecycle.test.js out/ui/controllers-behavior.test.js out/edge-contracts.test.js",
+    "test": "npm run compile && npm run test:typescript && node --test out/branding.test.js out/security.test.js out/run-coordinator.test.js out/command-args.test.js out/ide-safe-contract.test.js out/live-database-confirmation.test.js out/ui/design-tokens.test.js out/ui/dashboard-view.test.js out/ui/redaction.test.js out/ui/redaction-redteam.test.js out/ui/csp-security.test.js out/ui/sql-queries-tree.test.js out/ui/performance-smoke.test.js out/ui/codelens-provider.test.js out/ui/decoration-manager.test.js out/ui/hover-provider.test.js out/ui/providers-behavior.test.js out/extension-lifecycle.test.js out/ui/controllers-behavior.test.js out/edge-contracts.test.js",
     "test:coverage": "npm run compile && npm run test:typescript && node scripts/coverage.cjs",
     "test:typescript": "npx --no-install tsc --noEmit --ignoreConfig --strict --skipLibCheck --target ES2020 test/fixtures/generated-contract.ts",
     "test:extension-host": "npm run compile && node scripts/test-extension-host.cjs",

@@ -19,7 +19,7 @@ test("exit explanations distinguish incomplete, cancelled and unknown commands w
     assert.match(explainCliExit("validate", 0, { ...summary, warningCount: 1 }, true), /completed with warnings/);
     assert.match(explainCliExit("validate", 1, { ...summary, groundTruthMissing: true }, true), /syntactic only/);
     assert.match(describeCliStatus(empty), /unavailable/);
-    assert.equal(describeCliStatus(summary), "DataGuard: 0 errors, 0 warnings");
+    assert.equal(describeCliStatus(summary), "StackAccord: 0 errors, 0 warnings");
     assert.equal(describeGroundTruth(empty), undefined);
     assert.equal(describeGroundTruth({ ...summary, groundTruth: "synthetic snapshot" }), "Ground truth: synthetic snapshot");
 });

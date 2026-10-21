@@ -104,6 +104,8 @@ test("dashboard creates constrained webview, reuses it, sends updates and dispos
     const h = await harness(t); const initial = [finding(path.join(h.a, "Example.cs"))];
     const controller = h.show(initial, report()); const panel = h.panels[0];
     assert.equal(h.panels.length, 1); assert.equal(panel.args[2], 1);
+    assert.equal(panel.args[0], "dataguard.dashboard");
+    assert.equal(panel.args[1], "StackAccord Contract Drift Dashboard");
     assert.deepEqual(panel.args[3].localResourceRoots.map((u: any) => u.fsPath), [path.join(h.root, "media")]);
     assert.equal(panel.args[3].enableScripts, true);
     assert.match(panel.webview.html, /Content-Security-Policy/); assert.match(panel.webview.html, /script-src 'nonce-/);

@@ -17,7 +17,7 @@ internal static class LinuxSecretServiceSecretStore
     public static void Store(string service, string account, string value)
     {
         EnsureAvailable();
-        using var process = Start("store", "--label", "DataGuard credential", "service", service, "account", account);
+        using var process = Start("store", "--label", "StackAccord credential", "service", service, "account", account);
         var standardOutput = ReadBoundedAsync(process.StandardOutput, MaximumSecretOutputBytes);
         var standardError = ReadBoundedAsync(process.StandardError, MaximumErrorOutputBytes);
         process.StandardInput.Write(value);

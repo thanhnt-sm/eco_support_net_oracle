@@ -1,8 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord PostgreSql Adapter</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net9.0</TargetFramework>
     <PackageId>DataGuard.PostgreSql.Adapter</PackageId>
-    <Description>PostgreSQL adapter for DataGuard contract validation. Requires Npgsql (PostgreSQL License).</Description>
+    <Description>PostgreSQL adapter for StackAccord contract validation. Requires Npgsql (PostgreSQL License).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;postgresql</PackageTags>
   </PropertyGroup>
 

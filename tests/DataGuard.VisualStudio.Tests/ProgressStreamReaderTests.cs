@@ -53,7 +53,7 @@ public class ProgressStreamReaderTests
 
         result.IdeSafeUnsupported.Should().BeTrue();
         result.HasSummary.Should().BeFalse();
-        output.Should().Contain("[DataGuard CLI] " + RejectionLine);
+        output.Should().Contain("[StackAccord CLI] " + RejectionLine);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class ProgressStreamReaderTests
         var (result, output) = await ReadAsync("\nide-safe: active\r\n" + SummaryLine + "\n");
 
         result.IdeSafeAcknowledged.Should().BeTrue();
-        output.Should().Contain("[DataGuard CLI] ide-safe: active");
+        output.Should().Contain("[StackAccord CLI] ide-safe: active");
     }
 
     [Theory]

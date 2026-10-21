@@ -131,13 +131,13 @@ export function mapSarifLevelToSeverity(level?: string): FindingSeverity {
 export function getQuickFixInfo(ruleId: string): { available: boolean; title?: string } {
     switch (ruleId) {
         case "DG001":
-            return { available: true, title: "DataGuard: Review parameter count against SQL definition" };
+            return { available: true, title: "StackAccord: Review parameter count against SQL definition" };
         case "DG002":
-            return { available: true, title: "DataGuard: Review C# parameter types against database column types" };
+            return { available: true, title: "StackAccord: Review C# parameter types against database column types" };
         case "DG017":
-            return { available: true, title: "DataGuard: Review SELECT * and choose schema-verified columns" };
+            return { available: true, title: "StackAccord: Review SELECT * and choose schema-verified columns" };
         case "DG018":
-            return { available: true, title: "DataGuard: Review entity contract against schema snapshot" };
+            return { available: true, title: "StackAccord: Review entity contract against schema snapshot" };
         default:
             return { available: false };
     }

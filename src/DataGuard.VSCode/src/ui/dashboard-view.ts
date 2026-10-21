@@ -83,7 +83,7 @@ export function renderDashboardHtml(findings: FindingItem[], nonce: string, scan
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="${csp}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DataGuard Contract Drift Dashboard</title>
+    <title>StackAccord Contract Drift Dashboard</title>
     <style>
 ${css}
 .nav-tabs {
@@ -166,7 +166,7 @@ ${css}
 <body>
     <header class="dashboard-header">
         <div class="dashboard-title">
-            <span>DataGuard Contract Drift</span>
+            <span>StackAccord Contract Drift</span>
             <span class="badge-count" id="totalCount">${sanitizedFindings.length}</span>
         </div>
         <div class="toolbar-controls">

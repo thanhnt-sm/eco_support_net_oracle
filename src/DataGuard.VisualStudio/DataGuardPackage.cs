@@ -18,7 +18,7 @@ using Microsoft.VisualStudio.Shell.Settings;
 using Task = System.Threading.Tasks.Task;
 
 /// <summary>
-/// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials
+/// Hosts StackAccord CLI commands inside Visual Studio without loading database providers or credentials
 /// into devenv. Registration, lifetime and command wiring live here; command execution is in
 /// DataGuardPackage.Commands.cs, consent in DataGuardPackage.Consent.cs, result publishing in
 /// DataGuardPackage.Publishing.cs, run-stop paths in DataGuardPackage.Lifetime.cs and the live database
@@ -28,8 +28,8 @@ using Task = System.Threading.Tasks.Task;
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [InstalledProductRegistration("StackAccord – .NET Database Contracts (Beta)", "Beta evaluation of supported .NET/database contracts; provider and mode limits apply.", ExtensionVersion.Fallback)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
-[ProvideOptionPage(typeof(DataGuardOptionsPage), "DataGuard", "General", 0, 0, true)]
-[ProvideOptionPage(typeof(DataGuardRulesOptionsPage), "DataGuard", "Validation Rules", 0, 0, true)]
+[ProvideOptionPage(typeof(DataGuardOptionsPage), "DataGuard", "General", 110, 0, true, ProvidesLocalizedCategoryName = true)]
+[ProvideOptionPage(typeof(DataGuardRulesOptionsPage), "DataGuard", "Validation Rules", 110, 0, true, ProvidesLocalizedCategoryName = true)]
 [System.Runtime.InteropServices.Guid(PackageGuidString)]
 public sealed partial class DataGuardPackage : AsyncPackage
 {
@@ -68,7 +68,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
         var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
         DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
         DataGuardLogger.EnsureInitialized(await this.DescribeHostAsync(), ExtensionVersion.Current);
-        DataGuardLogger.LogInfo("DataGuard Visual Studio Package initialized successfully.");
+        DataGuardLogger.LogInfo("StackAccord Visual Studio Package initialized successfully.");
         this.JoinableTaskFactory.RunAsync(async () =>
         {
             await Task.Yield();
@@ -197,9 +197,9 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private async Task ViewLogsAsync()
     {
         await this.output!.ActivateAsync();
-        await this.output.WriteAsync("[DataGuard] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
-        await this.output.WriteAsync("[DataGuard] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
-        await this.output.WriteAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
+        await this.output.WriteAsync("[StackAccord] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
+        await this.output.WriteAsync("[StackAccord] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
+        await this.output.WriteAsync("[StackAccord] Tip: Each StackAccord run is delimited by ================================================================================.\r\n");
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         DataGuardLogger.OpenLog(this);
     }

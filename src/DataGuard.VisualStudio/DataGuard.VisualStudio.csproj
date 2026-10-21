@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord VisualStudio</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>DataGuard.VisualStudio</AssemblyName>
     <RootNamespace>DataGuard.VisualStudio</RootNamespace>
@@ -29,6 +32,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Update="VSPackage.resx">
+      <LogicalName>VSPackage.resources</LogicalName>
+    </EmbeddedResource>
     <ProjectCapability Include="CreateVsixContainer" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
@@ -134,7 +140,7 @@
           BeforeTargets="GetVsixSourceItems"
           DependsOnTargets="PublishDataGuardCli">
     <Error Condition="!Exists('$(DataGuardCliPublishDir)dataguard.exe')"
-           Text="DataGuard CLI publish failed or dataguard.exe was not found at $(DataGuardCliPublishDir). Refusing to build empty VSIX." />
+           Text="StackAccord CLI publish failed or dataguard.exe was not found at $(DataGuardCliPublishDir). Refusing to build empty VSIX." />
     <ItemGroup>
       <VSIXSourceItem Include="$(DataGuardCliPublishDir)dataguard.exe">
         <VSIXSubPath>cli</VSIXSubPath>

@@ -31,7 +31,7 @@ export class DataGuardDashboardPanel {
         }
         const panel = vscode.window.createWebviewPanel(
             DataGuardDashboardPanel.viewType,
-            "DataGuard Contract Drift Dashboard",
+            "StackAccord Contract Drift Dashboard",
             column || vscode.ViewColumn.One,
             {
                 enableScripts: true,
@@ -73,7 +73,7 @@ export class DataGuardDashboardPanel {
                                 try {
                                     const resolvedPath = this.resolveWorkspaceFilePath(message.file);
                                     if (!this.isPathInWorkspace(resolvedPath) || !fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-                                        void vscode.window.showWarningMessage(`DataGuard: Target file is outside active workspace folders or is not a valid file.`);
+                                        void vscode.window.showWarningMessage(`StackAccord: Target file is outside active workspace folders or is not a valid file.`);
                                         break;
                                     }
                                     const uri = vscode.Uri.file(resolvedPath);
@@ -84,7 +84,7 @@ export class DataGuardDashboardPanel {
                                     editor.selection = new vscode.Selection(range.start, range.end);
                                     editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
                                 } catch {
-                                    void vscode.window.showWarningMessage(`DataGuard: Could not open file ${message.file}`);
+                                    void vscode.window.showWarningMessage(`StackAccord: Could not open file ${message.file}`);
                                 }
                             }
                             break;
@@ -186,7 +186,7 @@ export class DataGuardDashboardPanel {
         try {
             const resolvedPath = this.resolveWorkspaceFilePath(finding.filePath);
             if (!this.isPathInWorkspace(resolvedPath)) {
-                void vscode.window.showWarningMessage(`DataGuard: Target file is outside active workspace folders.`);
+                void vscode.window.showWarningMessage(`StackAccord: Target file is outside active workspace folders.`);
                 return;
             }
             const uri = vscode.Uri.file(resolvedPath);
@@ -201,7 +201,7 @@ export class DataGuardDashboardPanel {
             editor.selection = new vscode.Selection(range.start, range.end);
             editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
         } catch {
-            vscode.window.showWarningMessage(`DataGuard: Could not open file ${finding.filePath}`);
+            vscode.window.showWarningMessage(`StackAccord: Could not open file ${finding.filePath}`);
         }
     }
 

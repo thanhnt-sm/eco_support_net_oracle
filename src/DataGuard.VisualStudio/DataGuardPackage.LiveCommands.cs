@@ -34,7 +34,7 @@ public sealed partial class DataGuardPackage
         var solution = await this.ReadSolutionInfoAsync();
         if (solution == null)
         {
-            await output.WriteAsync("[DataGuard] Open a solution before running " + command + ".\r\n");
+            await output.WriteAsync("[StackAccord] Open a solution before running " + command + ".\r\n");
             return;
         }
 
@@ -46,7 +46,7 @@ public sealed partial class DataGuardPackage
 
         if (!reserved)
         {
-            await output.WriteAsync("[DataGuard] A DataGuard command is already running for this solution.\r\n");
+            await output.WriteAsync("[StackAccord] A StackAccord command is already running for this solution.\r\n");
             return;
         }
 
@@ -57,7 +57,7 @@ public sealed partial class DataGuardPackage
             var live = LiveDatabaseOptions.Validate(options?.ConnectionEnvironmentVariable, options?.LiveProvider, options?.LiveSchema);
             if (live.Error != null)
             {
-                await output.WriteAsync("[DataGuard] " + live.Error + "\r\n");
+                await output.WriteAsync("[StackAccord] " + live.Error + "\r\n");
                 this.processRegistry.ReleaseReservation();
                 return;
             }
@@ -121,13 +121,13 @@ public sealed partial class DataGuardPackage
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
         if (answer != (int)VSConstants.MessageBoxResult.IDYES)
         {
-            await this.output!.WriteAsync("[DataGuard] Database command declined; nothing was executed for this solution.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Database command declined; nothing was executed for this solution.\r\n");
             return false;
         }
 
         if (!this.processRegistry.ShouldStartAfterConsent())
         {
-            await this.output!.WriteAsync("[DataGuard] Cancel was requested while waiting for consent; the run was not started and consent was not recorded.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Cancel was requested while waiting for consent; the run was not started and consent was not recorded.\r\n");
             return false;
         }
 
@@ -153,7 +153,7 @@ public sealed partial class DataGuardPackage
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
         if (answer != (int)VSConstants.MessageBoxResult.IDYES)
         {
-            await this.output!.WriteAsync("[DataGuard] " + LiveDatabaseCommands.CommandName(kind) + " was not confirmed; nothing was executed.\r\n");
+            await this.output!.WriteAsync("[StackAccord] " + LiveDatabaseCommands.CommandName(kind) + " was not confirmed; nothing was executed.\r\n");
             return false;
         }
 
@@ -167,8 +167,8 @@ public sealed partial class DataGuardPackage
         if (outcome.TerminatedAtTimeout)
         {
             this.LogRun(context, TimedOutExitCode, outcome.ElapsedMs, 0);
-            await output.WriteAsync("[DataGuard] " + context.Command + " was terminated at the timeout; its results were not used. A partial " + LiveDatabaseCommands.SnapshotFileName + ".*.tmp file may remain in the solution directory.\r\n");
-            await output.SetStatusAsync("DataGuard: Timed out");
+            await output.WriteAsync("[StackAccord] " + context.Command + " was terminated at the timeout; its results were not used. A partial " + LiveDatabaseCommands.SnapshotFileName + ".*.tmp file may remain in the solution directory.\r\n");
+            await output.SetStatusAsync("StackAccord: Timed out");
             return;
         }
 
@@ -192,18 +192,18 @@ public sealed partial class DataGuardPackage
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                await output.WriteAsync("[DataGuard] summary.json could not be read: " + DataGuardLogger.Redact(ex.Message) + "\r\n");
+                await output.WriteAsync("[StackAccord] summary.json could not be read: " + DataGuardLogger.Redact(ex.Message) + "\r\n");
             }
         }
 
         this.LogRun(context, outcome.ExitCode, outcome.ElapsedMs, 0);
-        await output.WriteAsync("[DataGuard] " + context.Command + " completed in " + outcome.ElapsedMs + " ms with exit code " + outcome.ExitCode + ".\r\n");
+        await output.WriteAsync("[StackAccord] " + context.Command + " completed in " + outcome.ElapsedMs + " ms with exit code " + outcome.ExitCode + ".\r\n");
         var lines = LiveCommandOutcome.Describe(kind, outcome.ExitCode, evidence, summary, context.LiveOptions.VariableName);
         foreach (var line in lines)
         {
-            await output.WriteAsync("[DataGuard] " + DataGuardLogger.Redact(line) + "\r\n");
+            await output.WriteAsync("[StackAccord] " + DataGuardLogger.Redact(line) + "\r\n");
         }
 
-        await output.SetStatusAsync("DataGuard: " + lines[0]);
+        await output.SetStatusAsync("StackAccord: " + lines[0]);
     }
 }

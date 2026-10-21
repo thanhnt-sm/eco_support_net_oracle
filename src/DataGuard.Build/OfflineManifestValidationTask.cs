@@ -35,7 +35,7 @@ public sealed class OfflineManifestValidationTask : Microsoft.Build.Utilities.Ta
             var info = new FileInfo(manifestPath);
             if (info.Length > MaximumManifestBytes)
             {
-                return Fail("DG_BUILD002", "DataGuard offline manifest exceeds the 1 MiB limit.");
+                return Fail("DG_BUILD002", "StackAccord offline manifest exceeds the 1 MiB limit.");
             }
 
             using var stream = File.OpenRead(manifestPath);
@@ -49,32 +49,32 @@ public sealed class OfflineManifestValidationTask : Microsoft.Build.Utilities.Ta
                 !HasBoundedFindings(root) ||
                 !HasBoundedContracts(root))
             {
-                return Fail("DG_BUILD003", "DataGuard offline manifest has an unsupported schema or invalid bounded fields.");
+                return Fail("DG_BUILD003", "StackAccord offline manifest has an unsupported schema or invalid bounded fields.");
             }
 
             var hasErrors = EmitFindings(root);
-            Log.LogMessage(MessageImportance.Low, "DataGuard validated offline manifest for {0}.", root.GetProperty("target").GetString());
+            Log.LogMessage(MessageImportance.Low, "StackAccord validated offline manifest for {0}.", root.GetProperty("target").GetString());
             return !hasErrors;
         }
         catch (IOException)
         {
-            return Fail("DG_BUILD004", "DataGuard offline manifest could not be read.");
+            return Fail("DG_BUILD004", "StackAccord offline manifest could not be read.");
         }
         catch (UnauthorizedAccessException)
         {
-            return Fail("DG_BUILD004", "DataGuard offline manifest could not be read.");
+            return Fail("DG_BUILD004", "StackAccord offline manifest could not be read.");
         }
         catch (JsonException)
         {
-            return Fail("DG_BUILD003", "DataGuard offline manifest has an unsupported schema or invalid bounded fields.");
+            return Fail("DG_BUILD003", "StackAccord offline manifest has an unsupported schema or invalid bounded fields.");
         }
         catch (InvalidOperationException)
         {
-            return Fail("DG_BUILD003", "DataGuard offline manifest has an unsupported schema or invalid bounded fields.");
+            return Fail("DG_BUILD003", "StackAccord offline manifest has an unsupported schema or invalid bounded fields.");
         }
         catch (FormatException)
         {
-            return Fail("DG_BUILD003", "DataGuard offline manifest has an unsupported schema or invalid bounded fields.");
+            return Fail("DG_BUILD003", "StackAccord offline manifest has an unsupported schema or invalid bounded fields.");
         }
     }
 

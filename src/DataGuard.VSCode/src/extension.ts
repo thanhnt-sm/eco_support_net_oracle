@@ -39,7 +39,7 @@ const ASSESS_COMMAND = "dataguard.assess";
 const SNAPSHOT_COMMAND = "dataguard.refreshSnapshot";
 const BASELINE_COMMAND = "dataguard.createBaseline";
 const CONFIGURE_CONNECTION_COMMAND = "dataguard.configureConnection";
-const OUTPUT_CHANNEL_NAME = "DataGuard";
+const OUTPUT_CHANNEL_NAME = "StackAccord";
 
 interface ValidationRun {
     readonly child: ChildProcess;
@@ -87,7 +87,7 @@ let decorationManager: DataGuardDecorationManager | undefined;
 let hoverProvider: DataGuardHoverProvider | undefined;
 export function activate(context: vscode.ExtensionContext): void {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    statusBarItem.name = "DataGuard";
+    statusBarItem.name = "StackAccord";
     setStatus("idle");
     statusBarItem.command = RUN_VALIDATION_COMMAND;
     statusBarItem.show();
@@ -296,12 +296,12 @@ async function cleanStaleTempDirectories(): Promise<void> {
 async function handleApplyQuickFix(target?: FindingTreeItem | string): Promise<void> {
     const findingId = typeof target === "string" ? target : target?.finding?.id;
     if (!findingId || !findingsTreeProvider) {
-        vscode.window.showInformationMessage("DataGuard: Select a finding with a Quick-Fix available.");
+        vscode.window.showInformationMessage("StackAccord: Select a finding with a Quick-Fix available.");
         return;
     }
     const finding = findingsTreeProvider.getFindings().find((f) => f.id === findingId);
     if (!finding || !finding.quickFixAvailable) {
-        vscode.window.showInformationMessage("DataGuard: No automated Quick-Fix is available for this finding.");
+        vscode.window.showInformationMessage("StackAccord: No automated Quick-Fix is available for this finding.");
         return;
     }
     const uri = vscode.Uri.file(finding.filePath);
@@ -336,7 +336,7 @@ async function startLanguageServer(context: vscode.ExtensionContext, session: La
         await verifyLanguageServerArtifact(serverPath);
     } catch {
         if (!session.active) { return; }
-        getOutputChannel().appendLine("[DataGuard] Local language server artifact is missing or failed integrity verification; LSP is disabled.");
+        getOutputChannel().appendLine("[StackAccord] Local language server artifact is missing or failed integrity verification; LSP is disabled.");
         return;
     }
 
@@ -344,12 +344,12 @@ async function startLanguageServer(context: vscode.ExtensionContext, session: La
     const serverOptions: ServerOptions = { run: { command: "dotnet", args: [serverPath] }, debug: { command: "dotnet", args: [serverPath] } };
     const clientOptions: LanguageClientOptions = { documentSelector: [{ scheme: "file", language: "csharp" }] };
     try {
-        const client = new LanguageClient("dataguardLanguageServer", "DataGuard Language Server", serverOptions, clientOptions);
+        const client = new LanguageClient("dataguardLanguageServer", "StackAccord Language Server", serverOptions, clientOptions);
         session.client = client;
         await client.start();
     } catch (err) {
         if (session.active) {
-            getOutputChannel().appendLine(`[DataGuard] Failed to start language server (${redactSensitiveText(String(err))}). LSP features will be disabled.`);
+            getOutputChannel().appendLine(`[StackAccord] Failed to start language server (${redactSensitiveText(String(err))}). LSP features will be disabled.`);
         }
     }
 }
@@ -376,7 +376,7 @@ function stopLanguageServer(session: LanguageServerSession): Promise<void> {
         } catch (error) {
             // Deactivation still releases editor resources; never recreate a disposed channel.
             if (outputChannel === channel) {
-                channel?.appendLine(`[DataGuard] Language server shutdown failed: ${redactSensitiveText(String(error))}`);
+                channel?.appendLine(`[StackAccord] Language server shutdown failed: ${redactSensitiveText(String(error))}`);
             }
         }
     })();
@@ -389,7 +389,7 @@ async function verifyLanguageServerArtifact(serverPath: string): Promise<void> {
     const manifest = JSON.parse(manifestText) as { schemaVersion?: number; artifact?: string; sha256?: string };
     const actual = createHash("sha256").update(artifact).digest("hex");
     if (manifest.schemaVersion !== 1 || manifest.artifact !== path.basename(serverPath) || manifest.sha256 !== actual) {
-        throw new Error("Invalid DataGuard language server artifact manifest.");
+        throw new Error("Invalid StackAccord language server artifact manifest.");
     }
 }
 
@@ -416,7 +416,7 @@ async function confirmLiveDatabaseCommand(command: CliCommand, connectionString:
 async function configureConnection(context: vscode.ExtensionContext): Promise<void> {
     const workspaceFolder = await selectWorkspaceFolder();
     if (!workspaceFolder) {
-        void vscode.window.showWarningMessage("DataGuard: open a workspace folder first.");
+        void vscode.window.showWarningMessage("StackAccord: open a workspace folder first.");
         return;
     }
 
@@ -432,8 +432,8 @@ async function configureConnection(context: vscode.ExtensionContext): Promise<vo
     await storeConnectionSecret(context.secrets, workspaceFolder.uri.toString(), connectionString);
     void vscode.window.showInformationMessage(
         connectionString.trim().length === 0
-            ? "DataGuard connection credential removed."
-            : "DataGuard connection credential stored securely.",
+            ? "StackAccord connection credential removed."
+            : "StackAccord connection credential stored securely.",
     );
 }
 
@@ -448,7 +448,7 @@ async function configFileExists(filePath: string): Promise<boolean> {
 
 async function runCliCommand(context: vscode.ExtensionContext, command: CliCommand, timeoutSetting: "timeoutSeconds" | "assessmentTimeoutSeconds"): Promise<void> {
     if (!vscode.workspace.isTrusted) {
-        void vscode.window.showWarningMessage("DataGuard does not run CLI commands in an untrusted workspace. Trust this workspace first.");
+        void vscode.window.showWarningMessage("StackAccord does not run CLI commands in an untrusted workspace. Trust this workspace first.");
         return;
     }
 
@@ -457,7 +457,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     const workspaceFolder = await selectWorkspaceFolder();
     if (!requestIsCurrent()) { return; }
     if (!workspaceFolder) {
-        void vscode.window.showWarningMessage("DataGuard: open a workspace folder first.");
+        void vscode.window.showWarningMessage("StackAccord: open a workspace folder first.");
         return;
     }
 
@@ -466,7 +466,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         connectionString = await readConnectionSecret(context.secrets, workspaceFolder.uri.toString());
     } catch {
         if (!requestIsCurrent()) { return; }
-        void vscode.window.showErrorMessage("DataGuard could not access VS Code SecretStorage.");
+        void vscode.window.showErrorMessage("StackAccord could not access VS Code SecretStorage.");
         return;
     }
     if (!requestIsCurrent()) { return; }
@@ -482,11 +482,11 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     const hadActiveRun = runCoordinator.current !== undefined;
     const reservationToken = runCoordinator.nextReservation();
     if (hadActiveRun) {
-        void vscode.window.showInformationMessage("DataGuard replaced the previous run with this command.");
+        void vscode.window.showInformationMessage("StackAccord replaced the previous run with this command.");
     }
     const configuration = vscode.workspace.getConfiguration("dataguard", workspaceFolder.uri);
     if (!configuration.get<boolean>("enabled", true)) {
-        void vscode.window.showWarningMessage("DataGuard validation is disabled (dataguard.enabled).");
+        void vscode.window.showWarningMessage("StackAccord validation is disabled (dataguard.enabled).");
         return;
     }
 
@@ -502,7 +502,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
             );
         } catch (error) {
             if (!runCoordinator.isReservationCurrent(reservationToken)) { return; }
-            void vscode.window.showErrorMessage(`DataGuard: ${error instanceof Error ? error.message : String(error)}`);
+            void vscode.window.showErrorMessage(`StackAccord: ${error instanceof Error ? error.message : String(error)}`);
             return;
         }
     }
@@ -514,7 +514,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
     try {
         provider = normalizeProvider(configuration.get<string>("provider", "sqlserver"));
     } catch (error) {
-        void vscode.window.showErrorMessage(`DataGuard: ${error instanceof Error ? error.message : String(error)}`);
+        void vscode.window.showErrorMessage(`StackAccord: ${error instanceof Error ? error.message : String(error)}`);
         return;
     }
     if (!runCoordinator.isReservationCurrent(reservationToken)) { return; }
@@ -533,7 +533,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         ? path.join(outputDirectory, "validation.sarif")
         : (expectsSummary ? path.join(outputDirectory, "summary.json") : undefined);
     const args = buildCliArguments(command, workspaceFolder.uri.fsPath, provider, configPath, outputPath, { hasUserCredential });
-    channel.appendLine(`[DataGuard] ${command === "validate" ? "Validation" : "Local assessment"} started for ${path.basename(workspaceFolder.uri.fsPath)}.`);
+    channel.appendLine(`[StackAccord] ${command === "validate" ? "Validation" : "Local assessment"} started for ${path.basename(workspaceFolder.uri.fsPath)}.`);
     if (!runCoordinator.isReservationCurrent(reservationToken)) {
         await fs.rm(outputDirectory, { recursive: true, force: true });
         return;
@@ -609,17 +609,17 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
                 })
                 .join("\n");
             if (rawErrors.length > 0) {
-                channel.appendLine(`[DataGuard] ${redactAndBoundSensitiveText(rawErrors, MAX_CLI_OUTPUT)}`);
+                channel.appendLine(`[StackAccord] ${redactAndBoundSensitiveText(rawErrors, MAX_CLI_OUTPUT)}`);
             }
         }
         if (run.timedOut) {
             finalStatus = "error";
             const timedOut = `${command} timed out after ${timeoutSeconds} seconds.`;
-            reportRunError(channel, `DataGuard ${timedOut}`, `\n[DataGuard] ${timedOut}`);
+            reportRunError(channel, `StackAccord ${timedOut}`, `\n[StackAccord] ${timedOut}`);
             return;
         }
         if (run.cancelled) {
-            channel.appendLine(`\n[DataGuard] ${command} cancelled.`);
+            channel.appendLine(`\n[StackAccord] ${command} cancelled.`);
             return;
         }
         // ide-safe handshake: without the ack the CLI never applied the policy (old CLI, wrapper, or a
@@ -627,7 +627,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         if (expectsSarif && !hasIdeSafeAck(result.firstStderrLine)) {
             finalStatus = "error";
             const message = buildIdeSafeFailureMessage(result.firstStderrLine);
-            reportRunError(channel, message, `\n[DataGuard] ${message} (exit code ${exitCode ?? "unknown"})`);
+            reportRunError(channel, message, `\n[StackAccord] ${message} (exit code ${exitCode ?? "unknown"})`);
             return;
         }
 
@@ -637,14 +637,14 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         if (expectsSarif && outputPath && sarifExists) {
             const diagnosticCount = await loadDiagnostics(outputPath, workspaceFolder, diagnostics, channel, isCurrent);
             if (!isCurrent()) { return; }
-            channel.appendLine(`[DataGuard] SARIF summary: ${diagnosticCount} finding(s) loaded into Problems.`);
+            channel.appendLine(`[StackAccord] SARIF summary: ${diagnosticCount} finding(s) loaded into Problems.`);
             // Update UI providers with fresh findings
             const findings = findingsTreeProvider?.getFindings() ?? [];
             decorationManager?.applyFindings(findings);
             hoverProvider?.setFindings(findings);
             codeLensProvider?.setFindings(findings);
         } else if (expectsSarif && !sarifExists) {
-            channel.appendLine(`[DataGuard] ${command} produced no SARIF file; previous results were cleared.`);
+            channel.appendLine(`[StackAccord] ${command} produced no SARIF file; previous results were cleared.`);
         }
             const summaryPath = path.join(outputDirectory, "summary.json");
             try {
@@ -692,7 +692,7 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
                         latestScanReport = summaryObj;
                         sqlQueriesTreeProvider?.setScanReport(summaryObj);
                         DataGuardDashboardPanel.currentPanel?.updateScanReport(summaryObj);
-                        channel.appendLine(`[DataGuard] ${command === "verify-shape" ? "Verify-shape" : "Scan"} summary: ${summaryObj.queriesFound ?? 0} SQL queries analyzed across ${summaryObj.filesScanned ?? 0} files. Connections: ${summaryObj.connectionsFound ?? 0}.`);
+                        channel.appendLine(`[StackAccord] ${command === "verify-shape" ? "Verify-shape" : "Scan"} summary: ${summaryObj.queriesFound ?? 0} SQL queries analyzed across ${summaryObj.filesScanned ?? 0} files. Connections: ${summaryObj.connectionsFound ?? 0}.`);
                         if (summaryObj.queries && summaryObj.queries.length > 0) {
                             for (const q of summaryObj.queries) {
                                 const snippet = q.sql.replace(/\s+/g, " ").trim();
@@ -708,12 +708,12 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         if (!isCurrent()) { return; }
         const groundTruthLine = describeGroundTruth(result.progress);
         if (groundTruthLine !== undefined) {
-            channel.appendLine(`[DataGuard] ${groundTruthLine}`);
+            channel.appendLine(`[StackAccord] ${groundTruthLine}`);
         }
         const explanation = explainCliExit(command, exitCode, result.progress, sarifExists);
-        channel.appendLine(`\n[DataGuard] exited with code ${exitCode ?? "unknown"}`);
+        channel.appendLine(`\n[StackAccord] exited with code ${exitCode ?? "unknown"}`);
         if (result.progress.hasSummary || exitCode !== 0 || result.progress.groundTruthMissing) {
-            channel.appendLine(`[DataGuard] ${explanation}`);
+            channel.appendLine(`[StackAccord] ${explanation}`);
         }
         if (explanation.startsWith("[OK]")) {
             finalStatus = "idle";
@@ -721,10 +721,10 @@ async function runCliCommand(context: vscode.ExtensionContext, command: CliComma
         } else if (explanation.startsWith("[WARN]")) {
             finalStatus = "warning";
             setStatus("warning", result.progress.hasSummary ? describeCliStatus(result.progress) : undefined);
-            void vscode.window.showWarningMessage(`DataGuard (${command}): ${explanation}`);
+            void vscode.window.showWarningMessage(`StackAccord (${command}): ${explanation}`);
         } else {
             finalStatus = "error";
-            reportRunError(channel, `DataGuard (${command}): ${explanation}`);
+            reportRunError(channel, `StackAccord (${command}): ${explanation}`);
         }
     } finally {
         clearTimeout(run.timeout);
@@ -745,7 +745,7 @@ async function cancelValidation(): Promise<void> {
     // Cancel also invalidates a reservation waiting for asynchronous preparation.
     const run = runCoordinator.cancel();
     if (!run) {
-        void vscode.window.showInformationMessage("No DataGuard command is running.");
+        void vscode.window.showInformationMessage("No StackAccord command is running.");
         return;
     }
 
@@ -771,7 +771,7 @@ async function selectWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefin
 
     const selected = await vscode.window.showQuickPick(
         folders.map((folder) => ({ label: folder.name, folder })),
-        { placeHolder: "Select the workspace for DataGuard validation" },
+        { placeHolder: "Select the workspace for StackAccord validation" },
     );
     return selected?.folder;
 }
@@ -794,7 +794,7 @@ function processProgressText(
     const lines = state.buffer.split("\n");
     state.buffer = lines.pop() ?? "";
     if (state.buffer.length > MAX_PROGRESS_BUFFER) {
-        channel.appendLine("[DataGuard] Warning: progress buffer exceeded safe limits and was reset.");
+        channel.appendLine("[StackAccord] Warning: progress buffer exceeded safe limits and was reset.");
         state.buffer = "";
     }
     for (const rawLine of lines) {
@@ -806,7 +806,7 @@ function processProgressText(
         recordProgressLine(rawLine, progress);
         const rendered = formatProgressLine(rawLine);
         if (rendered !== undefined) {
-            channel.appendLine(`[DataGuard] ${rendered}`);
+            channel.appendLine(`[StackAccord] ${rendered}`);
         }
     }
 }
@@ -890,13 +890,13 @@ async function loadDiagnostics(
         const stat = await fs.stat(outputPath).catch(() => null);
         if (!isCurrent()) { return 0; }
         if (!stat?.isFile() || stat.size > 50 * 1024 * 1024) {
-            channel.appendLine(`\n[DataGuard] SARIF output was unavailable or exceeded size limit (50MB).`);
+            channel.appendLine(`\n[StackAccord] SARIF output was unavailable or exceeded size limit (50MB).`);
             return 0;
         }
         sarif = JSON.parse(await fs.readFile(outputPath, "utf8")) as SarifLog;
     } catch (error) {
         if (!isCurrent()) { return 0; }
-        channel.appendLine(`\n[DataGuard] SARIF output was unavailable or invalid: ${redactSensitiveText(String(error))}`);
+        channel.appendLine(`\n[StackAccord] SARIF output was unavailable or invalid: ${redactSensitiveText(String(error))}`);
         return 0;
     }
 
@@ -922,7 +922,7 @@ async function loadDiagnostics(
         try {
             filePath = resolveWorkspaceSarifPath(workspaceFolder.uri.fsPath, sourceUri);
         } catch (error) {
-            channel.appendLine(`[DataGuard] Ignored external SARIF location: ${redactSensitiveText(error instanceof Error ? error.message : String(error))}`);
+            channel.appendLine(`[StackAccord] Ignored external SARIF location: ${redactSensitiveText(error instanceof Error ? error.message : String(error))}`);
             continue;
         }
         const uri = vscode.Uri.file(filePath);
@@ -930,11 +930,11 @@ async function loadDiagnostics(
         const entry = byDocument.get(key) ?? { uri, diagnostics: [] };
         const diag = new vscode.Diagnostic(
             toRange(location?.region),
-            redactForUi(result.message?.text ?? "DataGuard contract violation"),
+            redactForUi(result.message?.text ?? "StackAccord contract violation"),
             toSeverity(result.level),
         );
         diag.code = result.ruleId ?? "DG000";
-        diag.source = "DataGuard";
+        diag.source = "StackAccord";
         entry.diagnostics.push(diag);
         byDocument.set(key, entry);
     }
@@ -1025,8 +1025,8 @@ function terminateProcessTree(child: ChildProcess): void {
 function showStartError(error: unknown, channel: vscode.OutputChannel): void {
     const err = error as NodeJS.ErrnoException;
     const message = err.code === "ENOENT"
-        ? "DataGuard CLI was not found. Install the dataguard CLI from GitHub Releases (verify SHA-256) and set dataguard.cliPath in User Settings."
-        : `Failed to start DataGuard: ${redactSensitiveText(err.message ?? String(error))}`;
+        ? "StackAccord CLI was not found. Install the dataguard CLI from GitHub Releases (verify SHA-256) and set dataguard.cliPath in User Settings."
+        : `Failed to start StackAccord: ${redactSensitiveText(err.message ?? String(error))}`;
     channel.appendLine(`\n${message}`);
     void vscode.window.showErrorMessage(message);
 }
@@ -1048,10 +1048,10 @@ function setStatus(state: "idle" | "running" | "warning" | "error", detailToolti
         return;
     }
     const values = {
-        idle: ["$(shield) DataGuard", "Run DataGuard contract validation"],
-        running: ["$(sync~spin) DataGuard", "DataGuard validation is running"],
-        warning: ["$(warning) DataGuard", "DataGuard validation needs attention"],
-        error: ["$(error) DataGuard", "DataGuard validation failed"],
+        idle: ["$(shield) StackAccord", "Run StackAccord contract validation"],
+        running: ["$(sync~spin) StackAccord", "StackAccord validation is running"],
+        warning: ["$(warning) StackAccord", "StackAccord validation needs attention"],
+        error: ["$(error) StackAccord", "StackAccord validation failed"],
     } as const;
     statusBarItem.text = values[state][0];
     statusBarItem.tooltip = detailTooltip ? `${values[state][1]} (${detailTooltip})` : values[state][1];

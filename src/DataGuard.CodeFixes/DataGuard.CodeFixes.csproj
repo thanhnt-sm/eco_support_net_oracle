@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord CodeFixes</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.CodeFixes</PackageId>
-    <Description>Roslyn code fixes for DataGuard contract validation.</Description>
+    <Description>Roslyn code fixes for StackAccord contract validation.</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;codefix;roslyn</PackageTags>
     <IsRoslynComponent>true</IsRoslynComponent>
     <IncludeBuildOutput>false</IncludeBuildOutput>

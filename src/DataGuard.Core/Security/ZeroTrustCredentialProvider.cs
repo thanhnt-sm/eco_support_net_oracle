@@ -171,7 +171,7 @@ public sealed class ZeroTrustCredentialProvider : ICredentialProvider
             && !_secretStores.Any(store => string.Equals(store.Name, AwsSecretsManagerStoreName, StringComparison.Ordinal)))
         {
             _logger?.LogWarning(
-                "AwsRegion is configured but no {Store} secret store is registered; the lookup is skipped (the DataGuard CLI registers it)",
+                "AwsRegion is configured but no {Store} secret store is registered; the lookup is skipped (the StackAccord CLI registers it)",
                 AwsSecretsManagerStoreName);
         }
 

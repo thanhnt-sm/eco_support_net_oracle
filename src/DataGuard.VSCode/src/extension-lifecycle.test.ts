@@ -65,7 +65,7 @@ async function harness(t: TestContext, lsp?: LspOptions) {
     const providers = new Map<string, Provider>(); const registrations: Resource[] = [];
     const notices: string[] = []; const lines: string[] = [];
     const status = Object.assign(new Resource(), { text: "", show() {} });
-    const output = Object.assign(new Resource(), { appendLine(v: string) { lines.push(v); }, clear() { lines.length = 0; }, show() {} });
+    const output = Object.assign(new Resource(), { name: "", appendLine(v: string) { lines.push(v); }, clear() { lines.length = 0; }, show() {} });
     const values = new Map<string, any[]>();
     const diagnostics = Object.assign(new Resource(), { clear() { values.clear(); }, set(uri: any, v: any[]) { values.set(uri.fsPath, v); } });
     const dashboard = Object.assign(new Provider(), { update(this: Provider, v: any[]) { this.findings = v; }, updateScanReport(this: Provider, v: any) { this.report = v; } });
@@ -84,7 +84,7 @@ async function harness(t: TestContext, lsp?: LspOptions) {
             onDidChangeConfiguration(fn: (e: any) => void) { configChanged = fn; return register(); },
         },
         window: {
-            createStatusBarItem: () => status, createOutputChannel: () => output,
+            createStatusBarItem: () => status, createOutputChannel: (name: string) => { output.name = name; return output; },
             registerTreeDataProvider: register,
             showInputBox: async (_options: any): Promise<string | undefined> => undefined,
             showQuickPick: async (_items: any[]): Promise<any> => undefined,
@@ -178,6 +178,19 @@ test("activation disposes owned decoration resources even after deactivate clear
     assert.ok(h.providers.get("decoration-manager")!.disposed);
     assert.ok(h.registrations.every(r => r.disposed));
     assert.ok(h.status.disposed && h.output.disposed && h.diagnostics.disposed);
+});
+
+test("activation and command notices present StackAccord while legacy command bindings still dispatch", async t => {
+    const h = await harness(t);
+    assert.equal(h.status.text, "$(shield) StackAccord");
+    await h.command("cancelValidation");
+    assert.deepEqual(h.notices, ["No StackAccord command is running."]);
+    const run = await h.start();
+    assert.equal(h.output.name, "StackAccord");
+    assert.equal(h.status.text, "$(sync~spin) StackAccord");
+    await h.finish(run);
+    assert.ok(h.lines.some(line => line.startsWith("[StackAccord]")));
+    assert.ok(h.lines.every(line => !line.includes("[DataGuard]")));
 });
 
 test("registered validation publishes correct multiline Problems coordinates and safe spawn options", async t => {

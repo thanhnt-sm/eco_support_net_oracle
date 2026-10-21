@@ -100,15 +100,15 @@ export function buildLiveDatabaseConfirmation(input: LiveDatabaseConfirmationInp
         : "the database configured in .dataguard.yml or DATAGUARD_CONNECTION_STRING (no SecretStorage credential is stored)";
     switch (input.command) {
         case "snapshot":
-            return `DataGuard will refresh the schema snapshot from ${target}. Continue?`;
+            return `StackAccord will refresh the schema snapshot from ${target}. Continue?`;
         case "baseline":
-            return `DataGuard will create a baseline using ${target}. Continue?`;
+            return `StackAccord will create a baseline using ${target}. Continue?`;
         case "verify-shape": {
             const count = input.readQueryCount;
             const literals = count !== undefined && Number.isInteger(count) && count >= 0
                 ? `${count} read SQL quer${count === 1 ? "y" : "ies"} from the last scan`
                 : "every read SQL query discovered in this workspace";
-            return `DataGuard will send ${literals} to ${target} to describe their result shapes. Continue?`;
+            return `StackAccord will send ${literals} to ${target} to describe their result shapes. Continue?`;
         }
     }
 }

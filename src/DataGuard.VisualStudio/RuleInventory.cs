@@ -86,15 +86,15 @@ internal sealed class RuleInventory
         var withViolations = inventory.Where(r => !string.IsNullOrEmpty(r.RuleId) && r.ViolationCount > 0).ToList();
 
         var banner = new StringBuilder();
-        banner.AppendLine("[DataGuard] ==================== Validation Summary ====================");
-        banner.AppendLine($"[DataGuard] Rules Evaluated: {evaluated.Count} ({string.Join(", ", evaluated.Select(r => r.RuleId))})");
+        banner.AppendLine("[StackAccord] ==================== Validation Summary ====================");
+        banner.AppendLine($"[StackAccord] Rules Evaluated: {evaluated.Count} ({string.Join(", ", evaluated.Select(r => r.RuleId))})");
         if (withViolations.Count > 0)
         {
-            banner.AppendLine($"[DataGuard] Rules with Findings: {string.Join(", ", withViolations.Select(r => $"{r.RuleId} ({r.ViolationCount})"))}");
+            banner.AppendLine($"[StackAccord] Rules with Findings: {string.Join(", ", withViolations.Select(r => $"{r.RuleId} ({r.ViolationCount})"))}");
         }
 
-        banner.AppendLine("[DataGuard] Double-click any Error List item to jump directly to code.");
-        banner.AppendLine("[DataGuard] ==========================================================");
+        banner.AppendLine("[StackAccord] Double-click any Error List item to jump directly to code.");
+        banner.AppendLine("[StackAccord] ==========================================================");
         return banner.ToString();
     }
 }

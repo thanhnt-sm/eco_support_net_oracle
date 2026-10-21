@@ -118,6 +118,9 @@ public sealed class ConfigurationGuidanceTests
             var yaml = File.ReadAllText(path);
             yaml.Should().Contain("DefaultProvider: oracle #");
             var documented = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "ConfigurationExamples", "oracle-snapshot.full.yml"));
+
+            // Accept the previous product name in this docs-owned comment; every configuration byte still matches.
+            documented = documented.Replace("# DataGuard configuration.", "# StackAccord configuration.", StringComparison.Ordinal);
             yaml.Replace("\r\n", "\n").Should().Be(documented.Replace("\r\n", "\n"));
             ConfigLoader.DeserializeConfig(yaml).DefaultProvider.Should().Be("oracle");
             File.AppendAllText(path, "# Handwritten team guidance\n");

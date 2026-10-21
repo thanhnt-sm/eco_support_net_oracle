@@ -129,8 +129,8 @@ public class RunStateReportingTests
         var (result, output) = await ReadAsync("ide-safe: active\n" + GroundTruthWarningLine + "\n" + SummaryLine + "\n");
 
         result.GroundTruthMissing.Should().BeTrue();
-        output.Should().Contain("[DataGuard] [WARN] " + GroundTruthWarningLine + "\r\n");
-        output.Should().NotContain("[DataGuard CLI] Warning:");
+        output.Should().Contain("[StackAccord] [WARN] " + GroundTruthWarningLine + "\r\n");
+        output.Should().NotContain("[StackAccord CLI] Warning:");
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class RunStateReportingTests
     {
         var (result, output) = await ReadAsync("ide-safe: active\n" + line + "\n");
 
-        output.Should().Contain("[DataGuard] [WARN] " + line + "\r\n");
+        output.Should().Contain("[StackAccord] [WARN] " + line + "\r\n");
         result.GroundTruthMissing.Should().BeFalse();
     }
 
@@ -162,7 +162,7 @@ public class RunStateReportingTests
     {
         var (_, output) = await ReadAsync("ide-safe: active\n" + line + "\n");
 
-        output.Should().Contain("[DataGuard CLI] " + line + "\r\n");
+        output.Should().Contain("[StackAccord CLI] " + line + "\r\n");
     }
 
     [Fact]
@@ -171,7 +171,7 @@ public class RunStateReportingTests
         var (result, output) = await ReadAsync("ide-safe: active\n" + SpoofLine + "\n" + SummaryLine + "\n");
 
         result.GroundTruthMissing.Should().BeFalse();
-        output.Should().Contain("[DataGuard CLI] [DG1290] [REDACTED]");
+        output.Should().Contain("[StackAccord CLI] [DG1290] [REDACTED]");
         output.Should().NotContain("C:\\x\\Warning:");
     }
 
@@ -180,7 +180,7 @@ public class RunStateReportingTests
     {
         var (_, output) = await ReadAsync("ide-safe: active\nUNEVALUATED: contract acquisition failed: Login failed for Password=Hunter2\n");
 
-        output.Should().Contain("[DataGuard] [WARN] UNEVALUATED: contract acquisition failed: Login failed for Password=[REDACTED]");
+        output.Should().Contain("[StackAccord] [WARN] UNEVALUATED: contract acquisition failed: Login failed for Password=[REDACTED]");
         output.Should().NotContain("Hunter2");
     }
 
@@ -248,7 +248,7 @@ public class RunStateReportingTests
     public void Explain_ValidateExitFour_IsRefusedOutputPath()
     {
         ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(4), sarifExists: false)
-            .Should().Be("[ERROR] The CLI refused to write results to the output path (see [DataGuard CLI] lines above).");
+            .Should().Be("[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above).");
     }
 
     [Fact]
@@ -264,9 +264,9 @@ public class RunStateReportingTests
     [Fact]
     public void DescribeStatus_SyntacticOnly_OnlyWithSummaryAndFlag()
     {
-        ExitCodeExplainer.DescribeStatus(new ProgressReadResult { HasSummary = true, GroundTruthMissing = true }).Should().Be("DataGuard: syntactic only (0 errors, 0 warnings)");
-        ExitCodeExplainer.DescribeStatus(new ProgressReadResult { HasSummary = true, ErrorCount = 2, WarningCount = 1 }).Should().Be("DataGuard: 2 errors, 1 warnings");
-        ExitCodeExplainer.DescribeStatus(new ProgressReadResult { HasSummary = false, GroundTruthMissing = true }).Should().Be("DataGuard: Result summary unavailable");
+        ExitCodeExplainer.DescribeStatus(new ProgressReadResult { HasSummary = true, GroundTruthMissing = true }).Should().Be("StackAccord: syntactic only (0 errors, 0 warnings)");
+        ExitCodeExplainer.DescribeStatus(new ProgressReadResult { HasSummary = true, ErrorCount = 2, WarningCount = 1 }).Should().Be("StackAccord: 2 errors, 1 warnings");
+        ExitCodeExplainer.DescribeStatus(new ProgressReadResult { HasSummary = false, GroundTruthMissing = true }).Should().Be("StackAccord: Result summary unavailable");
     }
 
     [Fact]

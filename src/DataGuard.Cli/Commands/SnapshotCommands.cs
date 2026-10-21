@@ -231,7 +231,7 @@ internal static class SnapshotCommands
 
                 if (baseline.Version > SnapshotFormat.LatestVersion)
                 {
-                    Console.Error.WriteLine($"UNEVALUATED: snapshot format version {baseline.Version} is newer than this DataGuard supports ({SnapshotFormat.LatestVersion}).");
+                    Console.Error.WriteLine($"UNEVALUATED: snapshot format version {baseline.Version} is newer than this StackAccord supports ({SnapshotFormat.LatestVersion}).");
                     Environment.ExitCode = 3;
                     return;
                 }

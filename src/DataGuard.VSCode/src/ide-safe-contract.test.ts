@@ -48,7 +48,7 @@ test("MIN_CLI_VERSION names the first CLI that acknowledges ide-safe", () => {
 });
 
 test("buildIdeSafeFailureMessage adds the update hint only for an old-CLI rejection", () => {
-    const base = "DataGuard CLI did not confirm IDE-safe mode; results were discarded";
+    const base = "StackAccord CLI did not confirm IDE-safe mode; results were discarded";
     assert.equal(buildIdeSafeFailureMessage(undefined), base);
     assert.equal(buildIdeSafeFailureMessage(""), base);
     assert.equal(buildIdeSafeFailureMessage("Validation failed: boom"), base);
@@ -149,7 +149,7 @@ test("recordProgressLine and formatProgressLine capture Summary counts, GroundTr
     assert.equal(summary.acquisitionDiagnosticCount, 0);
     assert.equal(summary.groundTruth, "entities");
     assert.equal(summary.groundTruthMissing, true);
-    assert.equal(describeCliStatus(summary), "DataGuard: syntactic only (2 errors, 1 warnings)");
+    assert.equal(describeCliStatus(summary), "StackAccord: syntactic only (2 errors, 1 warnings)");
     assert.equal(describeGroundTruth(summary), "Ground truth: not loaded (syntactic rules only)");
 });
 
@@ -179,7 +179,7 @@ test("explainCliExit distinguishes exit codes 0/1/2/3/4 and GroundTruthMissing/U
     assert.ok(explainCliExit("validate", 3, createCliProgressSummary(), false).startsWith("[WARN] Validation incomplete:"));
     assert.equal(
         explainCliExit("validate", 4, createCliProgressSummary(), false),
-        "[ERROR] The CLI refused to write results to the output path (see [DataGuard CLI] lines above).",
+        "[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above).",
     );
     assert.equal(
         explainCliExit("assess", 1, createCliProgressSummary(), true),
@@ -187,7 +187,7 @@ test("explainCliExit distinguishes exit codes 0/1/2/3/4 and GroundTruthMissing/U
     );
     assert.equal(
         explainCliExit("assess", 2, createCliProgressSummary(), false),
-        "[ERROR] Invalid arguments for assess. See the [DataGuard CLI] lines above.",
+        "[ERROR] Invalid arguments for assess. See the [StackAccord CLI] lines above.",
     );
     assert.equal(
         explainCliExit("assess", 4, createCliProgressSummary(), true),
@@ -208,7 +208,7 @@ test("acquisition gaps with loaded ground truth warn independently of rule count
         assert.ok(explanation.includes("3 contract(s) could not be evaluated"));
         assert.ok(!explanation.includes("[OK]"));
         assert.ok(!explanation.includes("No issues found"));
-        assert.equal(describeCliStatus(summary), `DataGuard: 0 errors, ${warningCount} warnings; acquisition diagnostics 2`);
+        assert.equal(describeCliStatus(summary), `StackAccord: 0 errors, ${warningCount} warnings; acquisition diagnostics 2`);
     }
 });
 
@@ -216,7 +216,7 @@ test("zero or absent acquisition count preserves clean and skipped-only results"
     for (const acquisitionDiagnosticCount of [undefined, 0]) {
         const summary = { ...createCliProgressSummary(), hasSummary: true, acquisitionDiagnosticCount };
         assert.equal(explainCliExit("validate", 0, summary, true), "[OK] No issues found.");
-        assert.equal(describeCliStatus(summary), "DataGuard: 0 errors, 0 warnings");
+        assert.equal(describeCliStatus(summary), "StackAccord: 0 errors, 0 warnings");
     }
 });
 
@@ -224,7 +224,7 @@ test("acquisition gaps preserve syntactic-only, cancellation, and error preceden
     const summary = { ...createCliProgressSummary(), hasSummary: true, acquisitionDiagnosticCount: 2 };
     const syntacticOnly = { ...summary, groundTruthMissing: true };
     assert.ok(explainCliExit("validate", 0, syntacticOnly, true).startsWith("[WARN] Ran syntactic rules only"));
-    assert.equal(describeCliStatus(syntacticOnly), "DataGuard: syntactic only (0 errors, 0 warnings; acquisition diagnostics 2)");
+    assert.equal(describeCliStatus(syntacticOnly), "StackAccord: syntactic only (0 errors, 0 warnings; acquisition diagnostics 2)");
     for (const exitCode of [0, 1]) {
         assert.ok(explainCliExit("validate", exitCode, summary, false).startsWith("[ERROR] The CLI reported a summary but failed to write results"));
     }
@@ -239,7 +239,7 @@ test("acquisition gaps preserve syntactic-only, cancellation, and error preceden
     }
     const missingSummary = { ...summary, hasSummary: false };
     assert.ok(explainCliExit("validate", 1, missingSummary, false).startsWith("[ERROR] The CLI failed before producing a validation summary."));
-    assert.equal(describeCliStatus(missingSummary), "DataGuard: Result summary unavailable");
+    assert.equal(describeCliStatus(missingSummary), "StackAccord: Result summary unavailable");
 });
 
 test("buildChildEnvironment strips DATAGUARD_CONNECTION_STRING and connectionEnv under --ide-safe without --allow-env-connection", () => {

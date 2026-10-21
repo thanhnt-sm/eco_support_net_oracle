@@ -46,14 +46,18 @@ public class Tool
 
 public class ToolComponent
 {
+    // SARIF name is a scanner identity used by existing code-scanning uploads. Brand via fullName.
     [JsonPropertyName("name")]
     public string Name { get; set; } = "DataGuard";
+
+    [JsonPropertyName("fullName")]
+    public string FullName { get; set; } = "StackAccord";
 
     [JsonPropertyName("version")]
     public string Version { get; set; } = "0.1.0-alpha.1";
 
     [JsonPropertyName("informationUri")]
-    public string InformationUri { get; set; } = "https://github.com/DataGuard/DataGuard";
+    public string InformationUri { get; set; } = "https://github.com/thanhnt-sm/eco_support_net_oracle";
 
     [JsonPropertyName("rules")]
     public List<ReportingDescriptor> Rules { get; set; } = new();

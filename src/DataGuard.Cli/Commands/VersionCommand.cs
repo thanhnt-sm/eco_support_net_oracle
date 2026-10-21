@@ -11,11 +11,11 @@ internal static class VersionCommand
 {
     public static Command Create(string version)
     {
-        var versionCommand = new Command("version", "Show DataGuard version information");
+        var versionCommand = new Command("version", "Show StackAccord version information");
 
         versionCommand.SetAction((ParseResult result) =>
         {
-            Console.WriteLine($"DataGuard CLI version {version}");
+            Console.WriteLine($"StackAccord CLI version {version}");
             Console.WriteLine($"Runtime: {Environment.Version}");
             Console.WriteLine($"OS: {Environment.OSVersion}");
 

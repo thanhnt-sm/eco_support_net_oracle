@@ -50,7 +50,7 @@ test("maskConnectionHost never leaks credentials and returns undefined when no h
 
 test("buildLiveDatabaseConfirmation names the masked host and the read-query count for verify-shape", () => {
     const text = buildLiveDatabaseConfirmation({ command: "verify-shape", maskedHost: "db-***.com", readQueryCount: 12 });
-    assert.equal(text, "DataGuard will send 12 read SQL queries from the last scan to host db-***.com (your SecretStorage credential) to describe their result shapes. Continue?");
+    assert.equal(text, "StackAccord will send 12 read SQL queries from the last scan to host db-***.com (your SecretStorage credential) to describe their result shapes. Continue?");
     assert.ok(buildLiveDatabaseConfirmation({ command: "verify-shape", maskedHost: "db-***.com", readQueryCount: 1 }).includes("1 read SQL query from the last scan"));
 });
 
@@ -65,6 +65,6 @@ test("buildLiveDatabaseConfirmation never fabricates a count or a host", () => {
 });
 
 test("buildLiveDatabaseConfirmation keeps snapshot and baseline wording explicit about the target", () => {
-    assert.equal(buildLiveDatabaseConfirmation({ command: "snapshot", maskedHost: "sql***" }), "DataGuard will refresh the schema snapshot from host sql*** (your SecretStorage credential). Continue?");
-    assert.ok(buildLiveDatabaseConfirmation({ command: "baseline", maskedHost: undefined }).startsWith("DataGuard will create a baseline using the database configured in"));
+    assert.equal(buildLiveDatabaseConfirmation({ command: "snapshot", maskedHost: "sql***" }), "StackAccord will refresh the schema snapshot from host sql*** (your SecretStorage credential). Continue?");
+    assert.ok(buildLiveDatabaseConfirmation({ command: "baseline", maskedHost: undefined }).startsWith("StackAccord will create a baseline using the database configured in"));
 });
