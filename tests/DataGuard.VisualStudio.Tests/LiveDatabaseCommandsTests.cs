@@ -12,7 +12,7 @@ namespace DataGuard.VisualStudio.Tests;
 /// Refresh Snapshot / Verify SQL Shapes: pure option validation, host extraction for the confirmation
 /// modal, argv (never --config, --ide-safe or --connection), separate live consent, and outcome texts.
 /// </summary>
-public class LiveDatabaseCommandsTests
+public partial class LiveDatabaseCommandsTests
 {
     private const string Sln = @"D:\repo\solution\App.sln";
 
@@ -41,13 +41,6 @@ public class LiveDatabaseCommandsTests
             options.Provider.Should().Be(provider);
             options.Schema.Should().Be(string.IsNullOrEmpty(schema) ? null : schema);
         }
-    }
-
-    [Fact]
-    public void Validate_EmptyVariableName_PointsAtTheOptionsPage()
-    {
-        LiveDatabaseOptions.Validate(null, "sqlserver", null).Error.Should().Be(LiveDatabaseOptions.MissingVariableMessage);
-        LiveDatabaseOptions.MissingVariableMessage.Should().Contain("Tools > Options > DataGuard > General > Connection Environment Variable");
     }
 
     [Fact]
@@ -149,16 +142,6 @@ public class LiveDatabaseCommandsTests
         text.Should().Contain(Path.Combine(@"D:\repo", ".dataguard-snapshot.json"));
         text.Should().Contain(".dataguard.yml is never read");
         text.Should().NotContain("--ide-safe");
-    }
-
-    [Fact]
-    public void ConfirmationText_NamesHostVariableProviderAndTarget()
-    {
-        var refresh = LiveDatabaseCommands.BuildConfirmationText(LiveCommandKind.RefreshSnapshot, "db-prod:1433", "MyDb", "sqlserver", @"D:\repo");
-        refresh.Should().Be("DataGuard will connect to db-prod:1433 (environment variable MyDb, provider sqlserver) to refresh the schema snapshot into " + Path.Combine(@"D:\repo", ".dataguard-snapshot.json") + ". Continue?");
-
-        var verify = LiveDatabaseCommands.BuildConfirmationText(LiveCommandKind.VerifyShape, "(unknown host)", "MyDb", "oracle", @"D:\repo");
-        verify.Should().Be("DataGuard will connect to (unknown host) (environment variable MyDb, provider oracle) to describe every read SQL query under D:\\repo. Continue?");
     }
 
     [Fact]
