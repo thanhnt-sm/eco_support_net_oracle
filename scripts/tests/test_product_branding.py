@@ -95,8 +95,20 @@ DATAGUARD_CONNECTION_STRING=synthetic dataguard validate
             self.assertNotRegex(path.read_text(encoding="utf-8"),
                                 r"StackAccord\.(?:Cli|Core|Contracts|VisualStudio)|STACKACCORD_CONNECTION_STRING|\.stackaccord\.yml")
 
+    def test_legal_brand_note_preserves_attribution_and_technical_identities(self):
+        for name in ("ADDITIONAL-PERMISSIONS.md", "THIRD-PARTY-NOTICES.md"):
+            with self.subTest(notice=name):
+                text = (ROOT / "docs/legal" / name).read_text(encoding="utf-8")
+                self.assertIn("StackAccord is the current product name for the DataGuard project.", text)
+                self.assertIn("This note does not amend any licence terms or permissions.", text)
+                self.assertRegex(text, r"(?m)^(?:DataGuard is )?Copyright \(c\) \d{4} .+ and DataGuard contributors\.$")
+                self.assertIn("`DataGuard.Contracts`", text)
+                self.assertIn("**v0.3.0**", text)
+        permission = (ROOT / "docs/legal/ADDITIONAL-PERMISSIONS.md").read_text(encoding="utf-8")
+        self.assertIn("permission granted by the copyright holders of DataGuard under section 7", permission)
+
     def test_real_extension_upgrade_and_settings_identities_stay_stable(self):
-        # Read-only cross-lane compatibility checks; this lane never edits src/.
+        # Read-only checks of extension identity/settings; notice copies follow the canonical legal files.
         vs = ROOT / "src/DataGuard.VisualStudio"
         ns = {"v": "http://schemas.microsoft.com/developer/vsx-schema/2011"}
         metadata = ET.parse(vs / "source.extension.vsixmanifest").getroot().find("v:Metadata", ns)
