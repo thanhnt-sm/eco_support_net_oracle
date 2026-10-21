@@ -14,6 +14,18 @@ namespace DataGuard.Core.Tests;
 
 public sealed class BrandingContractTests
 {
+    [Fact]
+    public void VisualStudioOverview_MatchesVisibleLabels_AndDistinguishesCanonicalIdentity()
+    {
+        var overview = File.ReadAllText(Source("DataGuard.VisualStudio", "overview.md"));
+        overview.Should().Contain("Tools > Options > StackAccord");
+        overview.Should().Contain("StackAccord: syntactic only");
+        overview.Should().NotContain("Tools > Options > DataGuard").And.NotContain("DataGuard: syntactic only");
+        overview.Should().Contain("diagnostic/status presentation uses StackAccord");
+        overview.Should().Contain("canonical Options/automation category remains `DataGuard`");
+        overview.Should().Contain("`DataGuard.VisualStudio`").And.Contain("`.dataguard.yml`").And.Contain("`DATAGUARD_*`");
+    }
+
     [Theory]
     [InlineData("--help")]
     [InlineData("init", "--help")]
