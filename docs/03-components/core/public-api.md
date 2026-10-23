@@ -75,6 +75,10 @@ public sealed class ValidationPipeline : IDisposable
     internal ValidationPipeline(DataGuardConfiguration config) { ... }
 
     public ValidationPipeline WithRules(params IContractRule[] rules) { ... }
+    public ValidationPipeline WithProviderRules(IEnumerable<IContractRule> providerRules) { ... }
+    public ValidationPipeline WithProviderRules(
+        IEnumerable<IContractRule> providerRules,
+        IEnumerable<RuleExecutionOutcome> unavailableOutcomes) { ... }
     public ValidationPipeline WithPlugins(string pluginDirectory) { ... }
     public ValidationPipeline WithPlugins(
         string pluginDirectory,
@@ -113,6 +117,20 @@ var pipeline = DataGuardApi.CreatePipeline(config)
     .WithTelemetry(new TelemetryConfig(Enabled: true))
     .WithBaselineFile(".dataguard-baseline.json");
 ```
+
+### Provider rules and declared availability
+
+The existing `WithProviderRules(providerRules)` overload remains available. The additive overload accepts ready rule instances plus `unavailableOutcomes`: only `RuleExecutionState.Unavailable` records with nonblank `RuleId` and `PrerequisiteReason`, an empty `Violations` collection, and `FailureReason == null` are accepted. Invalid metadata is rejected. Unavailable declarations stay outside the dependency graph; the graph runs only the ready rules.
+
+`ProviderRuleCatalog.CreatePipeline(provider, configuration, connectionString)` supplies the catalog's ready rules and unavailable metadata together:
+
+| Provider | Declared unavailable rule |
+|----------|---------------------------|
+| `oracle` | `DG012` (provider-registration metadata prerequisite) |
+| `postgres` / `postgresql` | `PG004` (provider-registration metadata prerequisite) |
+| `sqlserver` / `mysql` | None |
+
+Calling either `WithProviderRules` overload replaces the previous provider rules and unavailable declarations; the existing overload clears declarations by supplying none. Rules added through `WithRules` or admitted plugins remain composed, with duplicate-ID guards retained across rules and declarations. A caller explicitly omitting a rule does not create an `Unavailable` outcome for that rule.
 
 ### ValidateAsync
 
@@ -167,6 +185,8 @@ the configured-cap reason after retained findings fill its result capacity. In t
 case the enclosing `ExecutionStatus` is incomplete. Existing positional
 construction and legacy result members remain unchanged.
 
+`ValidateAsync` merges declared unavailable outcomes with outcomes from executed rules in `RuleOutcomes`. Missing requested coverage produces `ExecutionStatus = Incomplete` and `IsClean = false`, even with zero violations and regardless of `FailOnUnavailableRules`. That flag controls CLI exit policy; unavailable coverage does not itself throw an API exception or manufacture a contract violation. Baseline filtering applies only to violations and cannot remove the declared availability status.
+
 Result of a validation run.
 
 ```csharp
@@ -180,9 +200,16 @@ public sealed record ValidationResult(
     TimeSpan Duration,
     string SchemaVersion)
 {
+    public ValidationExecutionStatus ExecutionStatus { get; init; } = ValidationExecutionStatus.Complete;
+    public int? DroppedViolationCount { get; init; }
+    public IReadOnlyList<RuleExecutionOutcome> RuleOutcomes { get; init; } = Array.Empty<RuleExecutionOutcome>();
+    public IReadOnlyList<UnevaluatedContract> UnevaluatedContracts { get; init; } = Array.Empty<UnevaluatedContract>();
     public bool HasErrors => Errors > 0;
     public bool HasWarnings => Warnings > 0;
-    public bool IsClean => TotalViolations == 0;
+    public bool IsClean => TotalViolations == 0
+        && ExecutionStatus == ValidationExecutionStatus.Complete
+        && UnevaluatedContracts.Count == 0
+        && !RuleOutcomes.Any(outcome => outcome.MakesValidationIncomplete);
     public bool HasViolations => TotalViolations > 0;
     public double ViolationsPerContract => ContractsValidated > 0
         ? (double)TotalViolations / ContractsValidated : 0;
@@ -201,8 +228,11 @@ public sealed record ValidationResult(
 | `Violations` | `ImmutableArray<ContractViolation>` | All violations |
 | `Duration` | `TimeSpan` | Validation duration |
 | `SchemaVersion` | `string` | Schema version |
+| `RuleOutcomes` | `IReadOnlyList<RuleExecutionOutcome>` | Declared unavailable outcomes merged with execution outcomes |
+| `ExecutionStatus` | `ValidationExecutionStatus` | `Complete` or `Incomplete`; missing requested coverage is incomplete |
+| `UnevaluatedContracts` | `IReadOnlyList<UnevaluatedContract>` | Contracts a rule could not evaluate; these also prevent a clean result |
 | `HasErrors` | `bool` | True if any errors |
-| `IsClean` | `bool` | True if zero violations |
+| `IsClean` | `bool` | True when there are no displayed violations, unevaluated contracts, or `Unavailable`/`Failed` rule outcomes and execution is complete |
 | `ViolationsPerContract` | `double` | Violation density metric |
 
 ## DriftReport
