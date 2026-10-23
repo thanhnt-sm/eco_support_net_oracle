@@ -50,18 +50,38 @@ public partial class NavigationTests
     [Fact]
     public async Task Navigate_WhenFileMissing_AwaitsWriterAndPropagatesFailure()
     {
-        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool>? completion = null;
+        var writes = 0;
         var navigations = 0;
         var pending = DocumentNavigation.NavigateAsync(
-            MissingDocument(), _ => completion.Task, () =>
+            MissingDocument(), _ =>
+            {
+                writes++;
+                writes.Should().Be(1, "the missing-file message must be written once");
+                var writerCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                completion = writerCompletion;
+                return writerCompletion.Task;
+            }, () =>
             {
                 navigations++;
                 return Task.CompletedTask;
             });
 
         pending.IsCompleted.Should().BeFalse("output must be awaited, not fired and forgotten");
-        completion.SetException(new InvalidOperationException("synthetic output failure"));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => pending);
+        Assert.NotNull(completion);
+        completion!.SetException(new InvalidOperationException("synthetic output failure"));
+        InvalidOperationException? failure = null;
+        try
+        {
+            await pending;
+        }
+        catch (InvalidOperationException ex)
+        {
+            failure = ex;
+        }
+
+        failure.Should().NotBeNull();
+        failure!.Message.Should().Be("synthetic output failure");
         navigations.Should().Be(0);
     }
 
@@ -73,7 +93,7 @@ public partial class NavigationTests
         {
             var messages = 0;
             var navigations = 0;
-            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool>? completion = null;
             var pending = DocumentNavigation.NavigateAsync(
                 document,
                 _ =>
@@ -84,13 +104,17 @@ public partial class NavigationTests
                 () =>
                 {
                     navigations++;
-                    return completion.Task;
+                    navigations.Should().Be(1, "duplicate navigation must fail before waiting again");
+                    var navigationCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    completion = navigationCompletion;
+                    return navigationCompletion.Task;
                 });
 
             navigations.Should().Be(1);
             messages.Should().Be(0);
             pending.IsCompleted.Should().BeFalse("the shell callback must not become async void");
-            completion.SetResult(true);
+            Assert.NotNull(completion);
+            completion!.SetResult(true);
             await pending;
             navigations.Should().Be(1);
         }
