@@ -178,6 +178,8 @@ flowchart LR
 6. Kiểm tra `alias.column` qualified với tham chiếu bảng gần nhất trong scope (subquery trong cùng trước, nên alias dùng lại trong subquery resolve về bảng của subquery)
 7. Kiểm tra các item một identifier của từng danh sách `SELECT` (tách theo ngoặc) với hợp cột của mọi bảng mà `SELECT` đó tham chiếu; `AS alias` và alias ngầm phía sau là tên output, không bao giờ là tham chiếu cột
 
+DG016 so sánh cột PostgreSQL và Oracle bằng folding theo provider cho SQL không quote và exact case cho SQL có quote. Tên cột catalog được giữ nguyên, kể cả `total` và `Total` cùng tồn tại. Quy tắc áp dụng cho tham chiếu qualified, SELECT item đơn giản và scope enclosing/correlated. Public map canonical `SchemaTable.Columns`, so sánh provider trung lập, suppression nguồn unknown và fallback schema sang tên bảng bare được giữ nguyên.
+
 Cả hai rule nhận `IPhantomReferenceAnalyzer` tùy chọn (mặc định: tokenizer ở trên); một kết quả cho mỗi raw SQL contract được cache và dùng chung cho DG015 và DG016. `ProviderRuleCatalog` truyền `TSqlPhantomAnalyzer` cho `--provider sqlserver`; mọi provider khác giữ tokenizer (parse AST cho dialect không phải T-SQL nằm ngoài phạm vi).
 
 **SQL Server (`TSqlPhantomAnalyzer`, ScriptDOM `TSql160Parser`, bật quoted identifier):**
