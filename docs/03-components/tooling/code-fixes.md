@@ -8,7 +8,7 @@ The five Roslyn providers below register source transformations. Registration, c
 | --- | --- | --- |
 | `DataGuardCodeFixProvider` | DG001 | Adds `[SkipContractCheck]`, a type `[DataContract]`, or parameter `[SqlParameter]` declarations where the syntax supports them. |
 | Same provider | DG002 | Replaces a string literal when diagnostic properties pass the metadata checks below. |
-| Same provider | DG017 | Regex replacement of `SELECT *`/qualified-star patterns with `ExplicitColumns`, or a TODO comment when that property is absent. |
+| Same provider | DG017 | Bounded single-wildcard replacement with simple `ExplicitColumns`; no action when column evidence is missing or SQL context is ambiguous. |
 | `AddMaxLengthAttributeFixProvider` | DG007, DG009 | Adds/replaces a length attribute when metadata contains a digest-shaped string and positive length. |
 | `SkipContractCheckFixProvider` | DG001 | Adds the same named-reason skip attribute. |
 | `NamingConventionFixProvider` | DG006 | Offers PascalCase rename or a snake_case `[Column]` attribute. |
@@ -25,7 +25,7 @@ The SQL replacement is represented as a C# string literal; this preserves that s
 ## Heuristic and manual actions
 
 - **DG001:** `[SkipContractCheck(Reason = "Dynamic SQL - manual review required")]` suppresses checks; it does not repair a contract. Manual declarations record source intent without proving routine identity, database type or direction.
-- **DG017:** replacement uses a regex, not a dialect parser. `ExplicitColumns` comes from mapped CLR shape where available, including `[Column]` names; it is not a live schema result. With no columns, the TODO placeholder can leave SQL incomplete. Aliases, joins, quoting and nested SQL need manual review even when a C# fixture compiles.
+- **DG017:** a bounded regex recognizes a leading single wildcard and retains its qualifier. No action without simple mapped columns; quotes, comments, joins, batches, set operations, nested SELECT and unsupported projections are left for manual remediation. No TODO SQL is generated. `ExplicitColumns` comes from CLR shape, not live schema or an authoritative SQL verifier; validate the preview against the target dialect and schema. Original decoded SQL and surrounding C# trivia are preserved; literal token spelling may change.
 - **DG006:** rename calls `NameConventions.ToPascalCase` and Roslyn `Renamer.RenameSymbolAsync`; the returned action is a `Document`, not a guarantee that all solution-wide changes are applied. The `[Column]` suggestion computes `ToSnakeCase` from the property name, without looking up the real column or checking for an existing attribute. Review references, mappings and duplicate attributes.
 - **DG012:** the provider matches a method name syntactically and preserves its arguments. It does not establish the receiver's provider identity, choose the correct invocation among multiple builders, add an Oracle package, translate connection strings, or validate overload compatibility. This is not an automatic database-provider migration.
 

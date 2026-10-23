@@ -282,17 +282,109 @@ public class CodeFixProviderTests
     }
 
     [Fact]
-    public async Task SelectStarUsage_WithoutExplicitColumns_ReplacesWithPlaceholder()
+    public async Task SelectStarUsage_WithoutExplicitColumns_DoesNotOfferInvalidSqlRewrite()
     {
         var document = CreateDocument("class C { void M() { Query(\"SELECT * FROM Customers\"); } void Query(string sql) { } }");
         var literal = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
         var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, literal.GetLocation());
 
+        var actions = await GetActionsAsync(new DataGuardCodeFixProvider(), document, diagnostic);
+
+        actions.Should().BeEmpty("a wildcard must not be replaced with an empty SQL projection when no columns are known");
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM Customers WHERE Note = 'SELECT *'", "SELECT Id, Name FROM Customers WHERE Note = 'SELECT *'")]
+    [InlineData("/* SELECT * FROM Other */ SELECT * FROM Customers", "/* SELECT * FROM Other */ SELECT Id, Name FROM Customers")]
+    [InlineData("SELECT * FROM Customers -- SELECT * FROM Other", "SELECT Id, Name FROM Customers -- SELECT * FROM Other")]
+    public async Task SelectStarUsage_WithQuotedOrCommentLookalikes_PreservesSqlTextOrDeclinesFix(string sql, string expectedSql)
+    {
+        var source = "class C { void M() { Query(" + SyntaxFactory.Literal(sql).Text + "); } void Query(string sql) { } }";
+        var document = CreateDocument(source);
+        var literal = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        var properties = ImmutableDictionary<string, string?>.Empty.Add("ExplicitColumns", "Id, Name");
+        var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, literal.GetLocation(), properties);
+        var actions = await GetActionsAsync(new DataGuardCodeFixProvider(), document, diagnostic);
+
+        // Withdrawing the action is safe when a bounded rewrite cannot distinguish SQL code from data.
+        if (actions.Count == 0)
+        {
+            return;
+        }
+
+        actions.Should().ContainSingle();
+        var operation = (await actions.Single().GetOperationsAsync(CancellationToken.None)).OfType<ApplyChangesOperation>().Single();
+        var changed = operation.ChangedSolution.GetDocument(document.Id)!;
+        var changedLiteral = (await changed.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        changedLiteral.Token.ValueText.Should().Be(expectedSql, "SQL quoted values and comments must remain unchanged");
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM Customers WHERE Note = 'SELECT *'")]
+    [InlineData("/* SELECT * FROM Other */ SELECT * FROM Customers")]
+    [InlineData("SELECT * FROM Customers -- SELECT * FROM Other")]
+    [InlineData("SELECT c.* FROM Customers c JOIN Orders o ON c.Id = o.CustomerId")]
+    [InlineData("SELECT c.* FROM Customers c, Orders o WHERE c.Id = o.CustomerId")]
+    [InlineData("SELECT * FROM Customers WHERE Id IN (SELECT Id FROM Other)")]
+    [InlineData("SELECT * FROM Customers; SELECT * FROM Other")]
+    public async Task SelectStarUsage_UnsupportedSqlContext_DoesNotRegisterAction(string sql)
+    {
+        var source = "class C { void M() { Query(" + SyntaxFactory.Literal(sql).Text + "); } void Query(string sql) { } }";
+        var document = CreateDocument(source);
+        var literal = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        var properties = ImmutableDictionary<string, string?>.Empty.Add("ExplicitColumns", "Id, Name");
+        var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, literal.GetLocation(), properties);
+
+        var actions = await GetActionsAsync(new DataGuardCodeFixProvider(), document, diagnostic);
+
+        actions.Should().BeEmpty("unsupported SQL needs manual review rather than a speculative rewrite");
+    }
+
+    [Theory]
+    [InlineData("Id, Order")]
+    [InlineData("Id, Group")]
+    [InlineData("FROM")]
+    [InlineData("Id, fRoM")]
+    [InlineData("Id, User")]
+    [InlineData("Id, CURRENT_DATE")]
+    [InlineData("Id,")]
+    [InlineData("Id,, Name")]
+    [InlineData(", Id")]
+    [InlineData("Id; DROP TABLE Customers")]
+    [InlineData("Id, Name FROM Other")]
+    [InlineData("Id, /* comment */ Name")]
+    [InlineData("Id, [Order]")]
+    public async Task SelectStarUsage_ReservedOrMalformedColumnList_DoesNotRegisterAction(string explicitColumns)
+    {
+        var document = CreateDocument("class C { void M() { Query(\"SELECT * FROM Customers\"); } void Query(string sql) { } }");
+        var literal = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        var properties = ImmutableDictionary<string, string?>.Empty.Add("ExplicitColumns", explicitColumns);
+        var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, literal.GetLocation(), properties);
+
+        var actions = await GetActionsAsync(new DataGuardCodeFixProvider(), document, diagnostic);
+
+        actions.Should().BeEmpty("unquoted reserved names and malformed column evidence cannot safely form a projection");
+    }
+
+    [Theory]
+    [InlineData("\"SELECT * FROM Customers\\nWHERE Id = @id\"")]
+    [InlineData("@\"SELECT * FROM Customers\nWHERE Id = @id\"")]
+    [InlineData("\"\"\"SELECT * FROM Customers WHERE Id = @id\"\"\"")]
+    public async Task SelectStarUsage_LiteralEncodings_PreserveDecodedSqlAndSurroundingSource(string tokenText)
+    {
+        const string prefix = "class C { void M() { /* keep */ Query(";
+        const string suffix = "); } void Query(string sql) { } }";
+        var document = CreateDocument(prefix + tokenText + suffix);
+        var literal = (await document.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        var expectedSql = literal.Token.ValueText.Replace("SELECT *", "SELECT Id, Name");
+        var properties = ImmutableDictionary<string, string?>.Empty.Add("ExplicitColumns", "Id, Name");
+        var diagnostic = CreateDiagnostic(DiagnosticIds.SelectStarUsage, literal.GetLocation(), properties);
+
         var changed = await ApplyOnlyActionAsync(new DataGuardCodeFixProvider(), document, diagnostic);
 
-        (await changed.GetTextAsync()).ToString().Should().Contain("SELECT /* TODO: Replace with specific columns */ FROM Customers");
-        (await changed.Project.GetCompilationAsync())!.GetDiagnostics()
-            .Should().NotContain(d => d.Severity == DiagnosticSeverity.Error);
+        var changedLiteral = (await changed.GetSyntaxRootAsync())!.DescendantNodes().OfType<LiteralExpressionSyntax>().Single();
+        changedLiteral.Token.ValueText.Should().Be(expectedSql);
+        (await changed.GetTextAsync()).ToString().Should().StartWith(prefix).And.EndWith(suffix);
     }
 
     [Fact]

@@ -414,7 +414,8 @@ internal static class ValidateCommand
                     progress: null,
                     config.StrictProcedureContracts,
                     config.DefaultSchema,
-                    config.DefaultPackage);
+                    config.DefaultPackage,
+                    config.NamingConvention);
                 var unavailableOutcomes = catalog
                     .Where(registration => registration.Availability == RuleAvailability.Unavailable)
                     .Where(registration => skipRuleIds is null || !skipRuleIds.Contains(registration.Rule.RuleId))
