@@ -258,13 +258,13 @@ public class OutputPaneWriterTests
         DataGuardLogger.Configure(true, directory);
         try
         {
-            var rules = hasRules ? new[]
+            var rules = new[]
             {
                 new DataGuardRulesOptionsPage.RuleDescriptor("DG001", "First", "Alpha", "First description", true),
                 new DataGuardRulesOptionsPage.RuleDescriptor("DG002", "Second", "Beta", "Second description", false),
                 new DataGuardRulesOptionsPage.RuleDescriptor("DG003", "Third", "Alpha", "Third description", true),
-            } : Array.Empty<DataGuardRulesOptionsPage.RuleDescriptor>();
-            context.Factory.Run(() => RuleCatalogPrinter.PrintAsync(rules, fixture.Writer));
+            };
+            context.Factory.Run(() => RuleCatalogPrinter.PrintAsync(hasRules ? rules : Array.Empty<DataGuardRulesOptionsPage.RuleDescriptor>(), fixture.Writer));
 
             var text = string.Concat(fixture.Text);
             text.Should().Contain("\r\nStackAccord Validation Rules — Current Configuration\r\n")
