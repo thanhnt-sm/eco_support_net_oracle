@@ -337,6 +337,42 @@ jobs:
             echo "::endgroup::"
           done
 
+  windows-junction-tests:
+    name: Windows Junction Write-Path Tests
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore Core tests
+        run: dotnet restore tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj --locked-mode
+
+      - name: Run Windows junction tests
+        run: dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~DataGuard.Core.Tests.IdeSafeWritePathEndToEndTests" --results-directory TestResults/windows-junction --logger "trx;LogFileName=junction.trx"
+
+      - name: Require seven executed passes and zero skips
+        if: ${{ !cancelled() }}
+        run: python scripts/assert_windows_junction_tests.py --trx TestResults/windows-junction/junction.trx
+
+      - name: Preserve junction test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-junction-test-results
+          path: TestResults/windows-junction/*.trx
+          if-no-files-found: error
+
   visual-studio-build-and-test:
     name: Visual Studio Build and Test
     runs-on: windows-latest
