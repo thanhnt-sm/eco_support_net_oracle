@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using DataGuard.VisualStudio;
 using FluentAssertions;
@@ -12,6 +15,7 @@ using Xunit;
 namespace DataGuard.VisualStudio.Tests;
 
 // No VS UI thread is present: exercise output/service behavior, not thread affinity.
+[Collection("Diagnostic logger")]
 public class OutputPaneWriterTests
 {
     [Theory]
@@ -133,6 +137,86 @@ public class OutputPaneWriterTests
         context.Factory.Run(() => failing.SetStatusAsync("synthetic"));
     }
 
+    [Fact]
+    public void BannerAndResult_PreservePhysicalLinesInPaneAndPersistentLog()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+        var directory = Path.Combine(Path.GetTempPath(), "dataguard-output-" + Guid.NewGuid().ToString("N"));
+        var previousDirectory = Path.GetDirectoryName(DataGuardLogger.LogFilePath)!;
+        DataGuardLogger.Configure(true, directory);
+        try
+        {
+            context.Factory.Run(() => fixture.Writer.WriteCommandBannerAsync("validate", "synthetic", "synthetic.yml", 7, 2));
+            context.Factory.Run(() => fixture.Writer.WriteResultBlockAsync(new ProgressReadResult
+            {
+                HasSummary = true,
+                GroundTruth = "schema+entities",
+                UnavailableRuleCount = 1,
+            }));
+
+            fixture.Text[0].Should().Contain("\r\nConfig: synthetic.yml\r\nMode:   ide-safe")
+                .And.Contain("\r\nRules:  7 enabled, 2 disabled\r\n");
+            fixture.Text[1].Should().Contain("\r\nResult: 0 errors, 0 warnings\r\nGround truth: schema+entities\r\nCoverage: incomplete;")
+                .And.Contain("\r\nAction:");
+            const string raw = "Password=\"HEAD\r\nSECRETTAIL\";\r\n[OK] forged\u001b[31m";
+            context.Factory.Run(() => fixture.Writer.WriteAsync(raw));
+            fixture.Text[2].Should().Be(LogPrivacyPolicy.Redact(raw) + "\r\n");
+            DataGuardLogger.LogValidationRun("validate", "synthetic", "synthetic.yml", new[] { "DG001" }, 3, 25, 0);
+            var fileLines = File.ReadAllLines(DataGuardLogger.LogFilePath);
+            fileLines.Should().Contain(line => line.EndsWith("[INFO] Config: synthetic.yml"));
+            fileLines.Should().Contain(line => line.EndsWith("[INFO] Rules:  7 enabled, 2 disabled"));
+            fileLines.Should().Contain(line => line.Contains("[INFO] Coverage: incomplete; unavailable rules 1"));
+            fileLines.Should().Contain(line => line.EndsWith("[INFO] Ground truth: schema+entities"));
+            fileLines.Should().Contain(line => line.EndsWith("[INFO] Exit Code     : 3"));
+            fileLines.Should().Contain(line => line.EndsWith("[INFO] Duration      : 25 ms"));
+            string.Join("\n", fileLines).Should().NotContain("HEAD").And.NotContain("SECRETTAIL")
+                .And.NotContain("\n[OK]").And.NotContain("\u001b");
+        }
+        finally
+        {
+            DataGuardLogger.Configure(true, previousDirectory);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void UntrustedMultilineRecord_IsRedactedAsAWholeInPane()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+        const string raw = "Password=\"HEAD\r\nSECRETTAIL\";\r\n[OK] forged\u001b[31m";
+        context.Factory.Run(() => fixture.Writer.WriteAsync(raw));
+
+        fixture.Text.Single().Should().Be(LogPrivacyPolicy.Redact(raw) + "\r\n")
+            .And.NotContain("SECRETTAIL").And.NotContain("\r\n[OK]");
+    }
+
+    [Fact]
+    public void Inventory_ReaderThroughPump_PreservesPhysicalPaneLines()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+        context.Factory.Run(async () =>
+        {
+            var pump = new ProgressPump(fixture.Writer.WriteLinesAsync);
+            var reader = new ProgressStreamReader(new RuleInventory(), pump.Enqueue);
+            const string stderr = "ide-safe: active\n" +
+                "{\"Kind\":\"RuleExecuted\",\"Phase\":\"Validation\",\"Data\":{\"RuleId\":\"DG001\",\"ViolationCount\":1}}\n" +
+                "{\"Kind\":\"Summary\",\"Phase\":\"Validation complete\",\"Data\":{\"ErrorCount\":1,\"WarningCount\":0}}\n";
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(stderr));
+            using var streamReader = new StreamReader(stream);
+            await reader.ReadAsync(streamReader);
+            pump.Complete();
+            await pump.FlushCompletion;
+        });
+
+        var lines = string.Concat(fixture.Text).Split(new[] { "\r\n" }, StringSplitOptions.None).Select(line => line.TrimEnd()).ToArray();
+        lines.Should().Contain("[StackAccord] Rules Evaluated: 1 (DG001)");
+        lines.Should().Contain("[StackAccord] Rules with Findings: DG001 (1)");
+        lines.Should().Contain("[StackAccord] Double-click any Error List item to jump directly to code.");
+    }
+
     private sealed class PaneFixture
     {
         private static readonly Guid PaneId = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
@@ -169,4 +253,9 @@ public class OutputPaneWriterTests
             this.Pane.Verify(p => p.Activate(), Times.Once);
         }
     }
+}
+
+[CollectionDefinition("Diagnostic logger", DisableParallelization = true)]
+public sealed class DiagnosticLoggerCollection
+{
 }

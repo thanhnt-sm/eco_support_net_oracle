@@ -44,6 +44,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../src/DataGuard.VisualStudio/BoundedLogFile.cs" Link="VisualStudio/BoundedLogFile.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/OutputBlockFormatter.cs" Link="VisualStudio/OutputBlockFormatter.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/LogPrivacyPolicy.cs" Link="VisualStudio/LogPrivacyPolicy.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/SupportSummary.cs" Link="VisualStudio/SupportSummary.cs" />
     <!-- Exercise the real IDE completion formatter and its pure model dependencies on non-Windows CI. -->
