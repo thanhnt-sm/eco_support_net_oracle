@@ -6,7 +6,6 @@ namespace DataGuard.VisualStudio;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -133,45 +132,10 @@ internal sealed class ErrorListPresenter
             this.joinableTaskFactory.RunAsync(async () =>
             {
                 await this.joinableTaskFactory.SwitchToMainThreadAsync();
-                if (!File.Exists(task.Document))
-                {
-                    if (this.writeOutput != null)
-                    {
-                        await this.writeOutput($"[StackAccord] Cannot navigate: file not found '{task.Document}'.\r\n");
-                    }
-
-                    return;
-                }
-
-                if (this.serviceProvider != null)
-                {
-                    VsShellUtilities.OpenDocument(
-                        this.serviceProvider,
-                        task.Document,
-                        VSConstants.LOGVIEWID_Code,
-                        out _,
-                        out _,
-                        out IVsWindowFrame frame,
-                        out IVsTextView view);
-
-                    frame?.Show();
-                    if (view != null)
-                    {
-                        // CreateTask already converted SARIF to zero-based VS coordinates.
-                        view.SetCaretPos(task.Line, task.Column);
-                        view.CenterLines(task.Line, 1);
-                    }
-                }
-                else if (this.provider != null)
-                {
-                    if (!this.provider.Navigate(task, VSConstants.LOGVIEWID_Code))
-                    {
-                        if (this.writeOutput != null)
-                        {
-                            await this.writeOutput($"[StackAccord] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
-                        }
-                    }
-                }
+                await DocumentNavigation.NavigateAsync(
+                    task.Document,
+                    this.writeOutput,
+                    () => this.NavigateExistingDocumentAsync(task));
             }).FileAndForget("DataGuard/NavigateTask");
         };
         return task;
@@ -215,5 +179,38 @@ internal sealed class ErrorListPresenter
 
         cache[documentPath] = hierarchy;
         return hierarchy;
+    }
+    private async Task NavigateExistingDocumentAsync(ErrorTask task)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (this.serviceProvider != null)
+        {
+            VsShellUtilities.OpenDocument(
+                this.serviceProvider,
+                task.Document,
+                VSConstants.LOGVIEWID_Code,
+                out _,
+                out _,
+                out IVsWindowFrame frame,
+                out IVsTextView view);
+
+            frame?.Show();
+            if (view != null)
+            {
+                // CreateTask already converted SARIF to zero-based VS coordinates.
+                view.SetCaretPos(task.Line, task.Column);
+                view.CenterLines(task.Line, 1);
+            }
+        }
+        else if (this.provider != null)
+        {
+            if (!this.provider.Navigate(task, VSConstants.LOGVIEWID_Code))
+            {
+                if (this.writeOutput != null)
+                {
+                    await this.writeOutput($"[StackAccord] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
+                }
+            }
+        }
     }
 }
