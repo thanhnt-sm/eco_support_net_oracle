@@ -56,6 +56,7 @@ public sealed class ValidationPipeline : IDisposable
     private DataGuardConfiguration _config;
     private RuleDependencyGraph _ruleGraph;
     private IReadOnlyList<IContractRule> _baseRules;
+    private ImmutableArray<RuleExecutionOutcome> _unavailableRuleOutcomes = ImmutableArray<RuleExecutionOutcome>.Empty;
     private readonly List<IContractRule> _additionalRules = new();
     private TelemetryCollector? _telemetry;
     private readonly List<RulePluginManager> _pluginManagers = new();
@@ -94,7 +95,7 @@ public sealed class ValidationPipeline : IDisposable
 
     /// <summary>
     /// The composed rules in execution order: the base set (built-in defaults, or the list passed to
-    /// <see cref="WithProviderRules"/>) plus rules added with <see cref="WithRules"/> and <see cref="WithPlugins(string)"/>.
+    /// <see cref="WithProviderRules(IEnumerable{IContractRule})"/>) plus rules added with <see cref="WithRules"/> and <see cref="WithPlugins(string)"/>.
     /// </summary>
     public ImmutableArray<IContractRule> Rules => _ruleGraph.GetExecutionOrder();
 
@@ -106,11 +107,56 @@ public sealed class ValidationPipeline : IDisposable
     /// <exception cref="InvalidOperationException">Two rules share a rule ID.</exception>
     /// <returns>This pipeline.</returns>
     public ValidationPipeline WithProviderRules(IEnumerable<IContractRule> providerRules)
+        => WithProviderRules(providerRules, Array.Empty<RuleExecutionOutcome>());
+
+    /// <summary>
+    /// Replaces provider rules and their unavailable inventory while keeping custom and plugin rules.
+    /// Only executable rules enter the dependency graph. Unavailable outcomes must have a nonempty ID and
+    /// prerequisite reason, no violations and no failure reason. Both input collections are copied.
+    /// The original overload clears any previous unavailable inventory.
+    /// </summary>
+    /// <exception cref="ArgumentException">An outcome does not describe an unavailable rule.</exception>
+    /// <exception cref="InvalidOperationException">An ID appears in both inventories or is declared more than once.</exception>
+    /// <returns>This pipeline.</returns>
+    public ValidationPipeline WithProviderRules(
+        IEnumerable<IContractRule> providerRules,
+        IEnumerable<RuleExecutionOutcome> unavailableOutcomes)
     {
         ArgumentNullException.ThrowIfNull(providerRules);
+        ArgumentNullException.ThrowIfNull(unavailableOutcomes);
         var rules = providerRules.ToList();
-        _ruleGraph = BuiltInRuleDependencies.Create(rules.Concat(_additionalRules));
+        var outcomes = unavailableOutcomes.ToImmutableArray();
+        var declaredIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var outcome in outcomes)
+        {
+            if (outcome is null || string.IsNullOrWhiteSpace(outcome.RuleId) ||
+                outcome.State != RuleExecutionState.Unavailable ||
+                string.IsNullOrWhiteSpace(outcome.PrerequisiteReason) ||
+                outcome.Violations is null || outcome.Violations.Count != 0 || outcome.FailureReason is not null)
+            {
+                throw new ArgumentException("Declared outcomes must describe unavailable rules with a prerequisite reason and no findings or execution failure.", nameof(unavailableOutcomes));
+            }
+
+            if (!declaredIds.Add(outcome.RuleId))
+            {
+                throw new InvalidOperationException($"Rule ID '{outcome.RuleId}' is declared more than once.");
+            }
+        }
+
+        var graph = BuiltInRuleDependencies.Create(rules.Concat(_additionalRules));
+        foreach (var rule in graph.GetExecutionOrder())
+        {
+            if (declaredIds.Contains(rule.RuleId))
+            {
+                throw new InvalidOperationException($"Rule ID '{rule.RuleId}' is already registered for execution.");
+            }
+        }
+
+        _ruleGraph = graph;
         _baseRules = rules;
+
+        // Do not retain mutable violation collections supplied by a caller, even empty ones.
+        _unavailableRuleOutcomes = outcomes.Select(outcome => outcome with { Violations = ImmutableArray<ContractViolation>.Empty }).ToImmutableArray();
         return this;
     }
 
@@ -132,6 +178,12 @@ public sealed class ValidationPipeline : IDisposable
 
     private void AddAdditionalRule(IContractRule rule)
     {
+        ArgumentNullException.ThrowIfNull(rule);
+        if (_unavailableRuleOutcomes.Any(outcome => string.Equals(outcome.RuleId, rule.RuleId, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException($"Rule ID '{rule.RuleId}' is already declared unavailable.");
+        }
+
         _ruleGraph.AddRule(rule);
         if (!_additionalRules.Contains(rule) && !_baseRules.Contains(rule))
         {
@@ -161,7 +213,7 @@ public sealed class ValidationPipeline : IDisposable
             logger: null,
             trustPolicy: trustPolicy,
             provenanceVerifier: provenanceVerifier,
-            reservedRuleIds: registered.Select(rule => rule.RuleId));
+            reservedRuleIds: registered.Select(rule => rule.RuleId).Concat(_unavailableRuleOutcomes.Select(outcome => outcome.RuleId)));
         _pluginManagers.Add(manager);
         foreach (var rule in manager.GetPluginRules(registered))
         {
@@ -208,17 +260,22 @@ public sealed class ValidationPipeline : IDisposable
     {
         ArgumentNullException.ThrowIfNull(contracts);
         var stopwatch = Stopwatch.StartNew();
+        var graph = _ruleGraph;
+        var unavailableOutcomes = _unavailableRuleOutcomes;
 
         // One executor for CLI and API: concurrent levels or sequential, both draining unevaluated contracts.
         var execution = await GraphValidationExecutor.ValidateAsync(
-            _ruleGraph,
+            graph,
             contracts,
             _config.EnableConcurrentValidation,
             _config.MaxDegreeOfParallelism,
             _config.MaxViolationQueueSize,
             cancellationToken);
         var allViolations = execution.Violations.ToList();
-        var executionStatus = execution.IsIncomplete ? ValidationExecutionStatus.Incomplete : ValidationExecutionStatus.Complete;
+        var ruleOutcomes = execution.RuleOutcomes.Concat(unavailableOutcomes)
+            .OrderBy(outcome => outcome.RuleId, StringComparer.Ordinal).ToImmutableArray();
+        var executionStatus = execution.IsIncomplete || ruleOutcomes.Any(outcome => outcome.MakesValidationIncomplete)
+            ? ValidationExecutionStatus.Incomplete : ValidationExecutionStatus.Complete;
 
         // Apply baseline filtering
         if (_config.EnableBaseline && !string.IsNullOrEmpty(_config.BaselineFilePath))
@@ -253,7 +310,7 @@ public sealed class ValidationPipeline : IDisposable
         {
             ExecutionStatus = executionStatus,
             DroppedViolationCount = execution.DroppedViolationCount,
-            RuleOutcomes = execution.RuleOutcomes,
+            RuleOutcomes = ruleOutcomes,
             UnevaluatedContracts = execution.UnevaluatedContracts,
         };
     }
@@ -587,7 +644,7 @@ public sealed record ValidationResult(
     public IReadOnlyList<UnevaluatedContract> UnevaluatedContracts { get; init; } = Array.Empty<UnevaluatedContract>();
     public bool HasErrors => Errors > 0;
     public bool HasWarnings => Warnings > 0;
-    public bool IsClean => TotalViolations == 0 && ExecutionStatus == ValidationExecutionStatus.Complete && UnevaluatedContracts.Count == 0;
+    public bool IsClean => TotalViolations == 0 && ExecutionStatus == ValidationExecutionStatus.Complete && UnevaluatedContracts.Count == 0 && !RuleOutcomes.Any(outcome => outcome.MakesValidationIncomplete);
     public bool HasViolations => TotalViolations > 0;
     public double ViolationsPerContract => ContractsValidated > 0 ? (double)TotalViolations / ContractsValidated : 0;
 }
