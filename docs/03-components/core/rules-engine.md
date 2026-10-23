@@ -180,6 +180,8 @@ flowchart LR
 6. Check qualified `alias.column` against the nearest table reference in scope (innermost subquery first, so an alias reused in a subquery resolves to the subquery's table)
 7. Check single-identifier items of each `SELECT` list (parenthesis-aware split) against the union of all tables that `SELECT` references; `AS alias` and implicit trailing aliases are output names, never column references
 
+DG016 compares PostgreSQL and Oracle column references using provider folding for unquoted SQL and exact case for quoted SQL. Catalog column names remain verbatim, including case-distinct names such as `total` and `Total`. This applies to qualified references, simple SELECT items, and enclosing/correlated scopes. The public canonical `SchemaTable.Columns` map, neutral-provider comparisons, unknown-source suppression, and legacy schema-to-bare-table fallback remain unchanged.
+
 Both rules take an optional `IPhantomReferenceAnalyzer` (default: the tokenizer above); one result per raw SQL contract is cached and shared by DG015 and DG016. `ProviderRuleCatalog` passes `TSqlPhantomAnalyzer` for `--provider sqlserver`; every other provider keeps the tokenizer (AST parsing of non-T-SQL dialects is out of scope).
 
 **SQL Server (`TSqlPhantomAnalyzer`, ScriptDOM `TSql160Parser`, quoted identifiers on):**

@@ -6,6 +6,8 @@ namespace DataGuard.Core.Rules.Sql;
 /// <summary>A catalog table with its columns keyed by canonical name.</summary>
 public sealed class SchemaTable
 {
+    private readonly HashSet<string> _exactColumnNames = new(StringComparer.Ordinal);
+
     internal SchemaTable(string displayName, DatabaseTableDescriptor descriptor)
     {
         DisplayName = displayName;
@@ -13,6 +15,8 @@ public sealed class SchemaTable
         var columns = new Dictionary<string, ColumnDescriptor>(StringComparer.Ordinal);
         foreach (var column in descriptor.Columns)
         {
+            // Catalog column names are server values, not SQL text: preserve them verbatim.
+            _exactColumnNames.Add(column.Name);
             var key = SchemaObjectName.Canonical(column.Name);
             if (key.Length > 0)
             {
@@ -31,6 +35,13 @@ public sealed class SchemaTable
 
     /// <summary>Gets the columns keyed by canonical name.</summary>
     public IReadOnlyDictionary<string, ColumnDescriptor> Columns { get; }
+
+    // Keep the public canonical map for DG005 and existing adapters. Only provider-aware
+    // SQL references use the parallel exact identities (including case-distinct columns).
+    internal bool ContainsColumn(string? provider, string nameAsWritten) =>
+        SchemaObjectName.IsCaseSensitive(provider)
+            ? _exactColumnNames.Contains(SchemaObjectName.Canonical(provider, nameAsWritten))
+            : Columns.ContainsKey(SchemaObjectName.Canonical(nameAsWritten));
 }
 
 /// <summary>
