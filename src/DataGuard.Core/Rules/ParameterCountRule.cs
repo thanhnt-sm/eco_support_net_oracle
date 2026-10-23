@@ -59,6 +59,10 @@ public class ParameterCountRule : StoredProcedureContractRuleBase
         var resolution = Resolve(call, allContracts);
         switch (resolution.Status)
         {
+            case StoredProcedureResolutionStatus.Ambiguous:
+                MarkUnevaluated(call, resolution.Note ?? "Stored procedure call is ambiguous; qualify the call or set DefaultSchema/DefaultPackage.");
+                break;
+
             case StoredProcedureResolutionStatus.NoCandidate:
                 var nearest = resolution.NearestCandidate is null
                     ? string.Empty
