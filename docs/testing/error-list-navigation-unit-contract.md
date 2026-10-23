@@ -4,7 +4,7 @@ The original `NavigationTests.Navigate_WhenFileMissing_WritesOutputMessage` was 
 
 `DocumentNavigation.NavigateAsync` is the production guard called by the Error List event handler. A missing document writes the existing message through the supplied output sink and never calls the navigation callback, including when the sink is absent. An existing document invokes and awaits the callback exactly once. Writer and callback completion/failures remain part of the returned task; the callback is `Func<Task>`, not `async void`.
 
-The presenter still switches to the UI thread before calling the guard. The guard invokes an existing-document callback synchronously before its first await; the extracted VS operation also checks UI affinity before using shell services. Document opening, caret placement, fallback provider navigation and existing output strings are preserved.
+The presenter still switches to the UI thread before calling the guard. The guard invokes an existing-document callback synchronously before its first await; the extracted async VS operation independently switches to the UI thread before using shell services. It does not use a synchronous thread assertion in a Task-returning method (VSTHRD109). Document opening, caret placement, fallback provider navigation and existing output strings are preserved.
 
 Run the shared executable contracts with:
 

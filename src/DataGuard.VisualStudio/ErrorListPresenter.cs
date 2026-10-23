@@ -182,7 +182,7 @@ internal sealed class ErrorListPresenter
     }
     private async Task NavigateExistingDocumentAsync(ErrorTask task)
     {
-        ThreadHelper.ThrowIfNotOnUIThread();
+        await this.joinableTaskFactory!.SwitchToMainThreadAsync();
         if (this.serviceProvider != null)
         {
             VsShellUtilities.OpenDocument(
