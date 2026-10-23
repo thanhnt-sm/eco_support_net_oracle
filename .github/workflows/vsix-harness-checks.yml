@@ -1,0 +1,32 @@
+name: VSIX harness Windows contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/vsix_ide_probe.ps1'
+      - 'scripts/vsix_ide_smoke.py'
+      - 'scripts/tests/test_vsix_ide_smoke.py'
+      - 'scripts/tests/test_vsix_harness_workflows.py'
+      - '.github/workflows/vsix-ide-smoke.yml'
+      - '.github/workflows/vsix-harness-checks.yml'
+permissions:
+  contents: read
+jobs:
+  windows-contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Harness unit and orchestration contracts
+        run: python -m unittest discover -s scripts/tests -p 'test_vsix_*.py'
+      - name: Windows PowerShell syntax and embedded C# compilation
+        shell: powershell
+        run: |
+          $parseErrors = $null
+          $tokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/vsix_ide_probe.ps1'), [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) { throw 'Probe PowerShell syntax failed' }
+          & powershell.exe -NoProfile -STA -File scripts/vsix_ide_probe.ps1 -ProcessId 0 -MajorVersion 17 -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Probe C# helper compile failed' }
