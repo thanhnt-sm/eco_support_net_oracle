@@ -10,6 +10,7 @@ configuration.Deconstruct(
     out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _,
     out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _);
 using var pipeline = DataGuardApi.CreatePipeline(configuration);
+pipeline.WithProviderRules(Array.Empty<IContractRule>());
 var result = new ValidationResult(0, 0, 0, 0, 0, ImmutableArray<ContractViolation>.Empty, TimeSpan.Zero, "1.0");
 result.Deconstruct(out _, out _, out _, out _, out _, out _, out _, out _);
 var snapshotColumn = new SnapshotColumn("ID", "int", null, null, null, null, false, null);

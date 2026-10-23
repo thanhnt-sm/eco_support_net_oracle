@@ -139,19 +139,23 @@ public static class ProviderRuleCatalog
     /// Library entry point with the CLI's rule composition: a <see cref="ValidationPipeline"/> whose rules are
     /// <see cref="GetReadyRules(string, string?, ProgressEmitter?, bool, string?, string?)"/> for <paramref name="provider"/> configured from <paramref name="configuration"/>
     /// (<c>StrictProcedureContracts</c>, <c>DefaultSchema</c>, <c>DefaultPackage</c>, <c>NamingConvention</c>). It runs through the same
-    /// <see cref="GraphValidationExecutor"/> as <c>dataguard validate</c>.
+    /// <see cref="GraphValidationExecutor"/> as <c>dataguard validate</c>. Unavailable registrations are retained
+    /// as rule outcomes, so incomplete provider coverage is visible even when there are no contracts or findings.
     /// </summary>
     public static ValidationPipeline CreatePipeline(string provider, DataGuardConfiguration configuration, string? connectionString = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        return DataGuardApi.CreatePipeline(configuration).WithProviderRules(GetReadyRules(
+        var registrations = Get(
             provider,
             connectionString,
             progress: null,
             configuration.StrictProcedureContracts,
             configuration.DefaultSchema,
             configuration.DefaultPackage,
-            configuration.NamingConvention));
+            configuration.NamingConvention);
+        return DataGuardApi.CreatePipeline(configuration).WithProviderRules(
+            registrations.Where(registration => registration.Availability == RuleAvailability.Ready).Select(registration => registration.Rule),
+            registrations.Where(registration => registration.Availability == RuleAvailability.Unavailable).Select(registration => registration.CreateUnavailableOutcome()));
     }
 
     /// <summary>

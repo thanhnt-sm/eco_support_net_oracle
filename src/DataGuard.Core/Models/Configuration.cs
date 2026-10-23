@@ -65,6 +65,7 @@ public record DataGuardConfiguration(
     /// <summary>
     /// When true, <c>validate</c> exits 3 if any registered rule cannot be evaluated (same as <c>--fail-on-unavailable</c>).
     /// Default false: unavailable rules are reported on stderr and do not block the run.
+    /// This is CLI exit policy; API results still report incomplete coverage regardless of this flag.
     /// </summary>
     public bool FailOnUnavailableRules { get; init; }
 
