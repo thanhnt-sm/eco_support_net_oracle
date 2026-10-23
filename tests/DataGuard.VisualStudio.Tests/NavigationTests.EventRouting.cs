@@ -12,6 +12,7 @@ using Xunit;
 
 namespace DataGuard.VisualStudio.Tests;
 
+/// <summary>Exercises missing-document task events with unit fakes, without live IDE acceptance.</summary>
 public partial class NavigationTests
 {
     [Theory]
@@ -22,8 +23,7 @@ public partial class NavigationTests
         using var context = JoinableTaskContext.CreateNoOpContext();
         var navigationTasks = context.CreateCollection();
         var navigationFactory = context.CreateFactory(navigationTasks);
-        var shell = new Mock<IServiceProvider>();
-        shell.Setup(service => service.GetService(It.IsAny<Type>())).Returns((object?)null);
+        var shell = new Mock<IServiceProvider>(MockBehavior.Strict);
         var messages = new List<string>();
         TaskCompletionSource<bool>? writerCompletion = null;
         var document = MissingDocument();
