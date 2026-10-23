@@ -68,8 +68,11 @@ esac
                        DG_RELEASE_SKIP_FETCH='true', API_ERROR=str(int(api_error)))
             if token:
                 env['DG_RELEASE_GITHUB_TOKEN'] = 'synthetic-only'
+            # API-error cases must reach the stub rather than race the workflow deadline.
+            # The unchanged outer watchdog still fails the test if error handling hangs.
+            fixture_workflow_budget = '60' if api_error else '1'
             result = subprocess.run([shutil.which('bash'), str(SCRIPT), '--tag', 'v1.2.3', '--yes',
-                                     '--timeout-seconds', '1'], cwd=temp, env=env,
+                                     '--timeout-seconds', fixture_workflow_budget], cwd=temp, env=env,
                                     capture_output=True, text=True, timeout=5)
             calls = (root / 'api-calls').read_text() if (root / 'api-calls').exists() else ''
             return result, calls
@@ -115,10 +118,13 @@ esac
         self.assert_status(result, 'NuGet', 'failed')
 
     def test_api_failure(self):
-        result, _ = self.run_release(api_error=True)
+        result, calls = self.run_release(api_error=True)
         self.assertNotEqual(result.returncode, 0)
         self.assert_status(result, 'NuGet', 'unverified')
         self.assertIn('API', result.stderr)
+        self.assertEqual(calls.splitlines(), [
+            'https://api.github.com/repos/fixture/repo/actions/workflows/release.yml/runs?event=push&per_page=100',
+        ])
 
 
     def test_untrusted_or_incomplete_evidence(self):
