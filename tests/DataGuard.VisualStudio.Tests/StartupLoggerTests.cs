@@ -21,13 +21,19 @@ public sealed class StartupLoggerTests
             // Copy only the test's managed output. A bundled fixture takes precedence over
             // machine installations and environment settings; the empty executable is never run.
             var testAssembly = typeof(StartupLoggerTests).Assembly;
-            var output = Path.GetDirectoryName(testAssembly.Location)!;
+
+            // xUnit can shadow-copy each assembly into a separate directory. CodeBase points
+            // back to the complete owned build output, including the logger and its dependencies.
+            var output = Path.GetDirectoryName(new Uri(testAssembly.CodeBase).LocalPath)!;
             foreach (var file in Directory.EnumerateFiles(output).Where(file =>
                 file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
                 file.EndsWith(".dll.config", StringComparison.OrdinalIgnoreCase)))
             {
                 File.Copy(file, Path.Combine(directory, Path.GetFileName(file)));
             }
+
+            File.Exists(Path.Combine(directory, typeof(DataGuardLogger).Assembly.GetName().Name + ".dll"))
+                .Should().BeTrue("the isolated domain needs the real logger assembly");
 
             var cliDirectory = Directory.CreateDirectory(Path.Combine(directory, "cli")).FullName;
             var fixtureCli = Path.Combine(cliDirectory, "dataguard.exe");
