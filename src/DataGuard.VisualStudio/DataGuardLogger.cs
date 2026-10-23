@@ -109,28 +109,19 @@ public static class DataGuardLogger
             try
             {
                 var cliInPath = CliLocator.FindCliExecutable(null);
-                var header = string.Format(
-                    "================================================================================\r\n" +
-                    "[{0:yyyy-MM-dd HH:mm:ss.fff} UTC] StackAccord Visual Studio Extension Initialized\r\n" +
-                    "Extension Version : {1}\r\n" +
-                    "Host Process      : {2} (PID: {3})\r\n" +
-                    "Visual Studio     : {4}\r\n" +
-                    "Operating System  : {5}\r\n" +
-                    "CLR Runtime       : {6}\r\n" +
-                    "Detected CLI Path : {7}\r\n" +
-                    "Log File Path     : {8}\r\n" +
-                    "================================================================================\r\n",
-                    DateTime.UtcNow,
-                    extensionVersion,
-                    Process.GetCurrentProcess().ProcessName,
-                    Process.GetCurrentProcess().Id,
-                    vsVersion,
-                    Environment.OSVersion.VersionString,
-                    Environment.Version,
-                    string.IsNullOrEmpty(cliInPath) ? "Not found in standard paths" : cliInPath,
-                    LogFilePath);
-
-                WriteEntry("INFO", header);
+                LogInfoBatch(new[]
+                {
+                    "================================================================================",
+                    $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] StackAccord Visual Studio Extension Initialized",
+                    "Extension Version : " + extensionVersion,
+                    $"Host Process      : {Process.GetCurrentProcess().ProcessName} (PID: {Process.GetCurrentProcess().Id})",
+                    "Visual Studio     : " + vsVersion,
+                    "Operating System  : " + Environment.OSVersion.VersionString,
+                    "CLR Runtime       : " + Environment.Version,
+                    "Detected CLI Path : " + (string.IsNullOrEmpty(cliInPath) ? "Not found in standard paths" : cliInPath),
+                    "Log File Path     : " + LogFilePath,
+                    "================================================================================",
+                });
 
                 // Record availability only; never read another application log into this one.
                 RecordActivityLogAvailability();
@@ -281,18 +272,19 @@ public static class DataGuardLogger
         int diagnosticCount)
     {
         var disabledRuleList = disabledRules.Count == 0 ? "(none)" : string.Join(", ", disabledRules);
-        var entry =
-            "================================================================================\r\n" +
-            $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] DATAGUARD RUN\r\n" +
-            $"Command       : {command}\r\n" +
-            $"Solution      : {solutionDirectory}\r\n" +
-            $"Config        : {configPath}\r\n" +
-            $"Disabled Rules: {disabledRuleList}\r\n" +
-            $"Exit Code     : {exitCode}\r\n" +
-            $"Duration      : {elapsedMs} ms\r\n" +
-            $"Diagnostics   : {diagnosticCount} loaded into Error List\r\n" +
-            "================================================================================";
-        LogInfo(entry);
+        LogInfoBatch(new[]
+        {
+            "================================================================================",
+            $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] DATAGUARD RUN",
+            $"Command       : {command}",
+            $"Solution      : {solutionDirectory}",
+            $"Config        : {configPath}",
+            $"Disabled Rules: {disabledRuleList}",
+            $"Exit Code     : {exitCode}",
+            $"Duration      : {elapsedMs} ms",
+            $"Diagnostics   : {diagnosticCount} loaded into Error List",
+            "================================================================================",
+        });
     }
 
     private static void WriteEntry(string level, string message)
