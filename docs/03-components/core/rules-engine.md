@@ -79,6 +79,8 @@ Calling a rule directly outside an engine scope retains the public `ValidateAsyn
 **Severity:** Error
 **Scope:** `RawSqlDescriptor`
 
+With a procedure catalog, ambiguous calls are recorded as unevaluated without a fabricated violation. DG101 preserves the resolver's reason: every ambiguous schema/package match, unobserved-argument overload set and equally ranked overload set supplies a nonempty note.
+
 Validates that stored procedure calls have the expected number of parameters. For raw SQL text starting with `EXEC`/`EXECUTE`, it counts `@`-prefixed parameter tokens and flags when zero parameters are detected.
 
 **Stored Procedure Handling:**

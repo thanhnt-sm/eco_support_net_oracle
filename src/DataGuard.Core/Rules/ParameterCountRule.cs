@@ -60,7 +60,8 @@ public class ParameterCountRule : StoredProcedureContractRuleBase
         switch (resolution.Status)
         {
             case StoredProcedureResolutionStatus.Ambiguous:
-                MarkUnevaluated(call, resolution.Note ?? "Stored procedure call is ambiguous; qualify the call or set DefaultSchema/DefaultPackage.");
+                // The static resolver supplies a nonempty reason for every Ambiguous result.
+                MarkUnevaluated(call, resolution.Note!);
                 break;
 
             case StoredProcedureResolutionStatus.NoCandidate:
