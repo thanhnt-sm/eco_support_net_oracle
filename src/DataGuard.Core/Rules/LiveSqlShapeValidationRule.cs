@@ -257,8 +257,8 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
             {
                 matchedDbColumns.Add(matchedCol.Name);
 
-                // Type compatibility check
-                if (!string.IsNullOrEmpty(matchedCol.DataType) && !string.IsNullOrEmpty(prop.ClrTypeName))
+                // Missing database type metadata must flow through Unknown to DG020, never count as a pass.
+                if (!string.IsNullOrEmpty(prop.ClrTypeName))
                 {
                     var normalizedClr = NormalizeClrType(prop.ClrTypeName);
                     if (!string.IsNullOrEmpty(normalizedClr))
