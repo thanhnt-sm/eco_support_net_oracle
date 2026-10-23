@@ -460,10 +460,10 @@ internal sealed class PhantomTokenWalker
                 continue;
             }
 
-            var column = _t[k - 1].Upper;
-            if (!tables.Any(t => t.Columns.ContainsKey(column)))
+            var column = AsWritten(_t[k - 1]);
+            if (!tables.Any(t => t.ContainsColumn(_provider, column)))
             {
-                _columnFindings.Add(new PhantomColumnRef(column, DisplayName(tables)));
+                _columnFindings.Add(new PhantomColumnRef(SchemaObjectName.Canonical(column), DisplayName(tables)));
             }
         }
     }
@@ -539,12 +539,12 @@ internal sealed class PhantomTokenWalker
             foreach (var item in SplitSelectItems(s + 1, listEnd, scope))
             {
                 var column = SimpleColumn(item);
-                if (column is null || tables.Any(t => t.Columns.ContainsKey(column)) || ExistsInEnclosingScopes(column, scope))
+                if (column is null || tables.Any(t => t.ContainsColumn(_provider, column)) || ExistsInEnclosingScopes(column, scope))
                 {
                     continue;
                 }
 
-                _columnFindings.Add(new PhantomColumnRef(column, DisplayName(tables)));
+                _columnFindings.Add(new PhantomColumnRef(SchemaObjectName.Canonical(column), DisplayName(tables)));
             }
         }
     }
@@ -641,7 +641,7 @@ internal sealed class PhantomTokenWalker
         return items;
     }
 
-    /// <summary>Returns the canonical column name when the item's expression is a single bare identifier, else null.</summary>
+    /// <summary>Returns the column name as written (including quotes) when the item's expression is a single bare identifier, else null.</summary>
     private string? SimpleColumn(List<int> item)
     {
         var count = item.Count;
@@ -677,7 +677,7 @@ internal sealed class PhantomTokenWalker
             return null;
         }
 
-        return token.Upper;
+        return AsWritten(token);
     }
 
     private bool IsKeyword(int i) =>
@@ -708,7 +708,7 @@ internal sealed class PhantomTokenWalker
                     continue;
                 }
 
-                if (reference.Tables is null || reference.Tables.Any(t => t.Columns.ContainsKey(column)))
+                if (reference.Tables is null || reference.Tables.Any(t => t.ContainsColumn(_provider, column)))
                 {
                     return true; // unknown outer source or a real outer column: not provably phantom
                 }
