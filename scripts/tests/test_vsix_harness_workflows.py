@@ -2,6 +2,9 @@
 from pathlib import Path
 import unittest
 import re
+import os
+import shutil
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -26,6 +29,8 @@ class HarnessWorkflowBoundaryTests(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/vsix-ide-smoke.yml').read_text()
         guard = workflow.index('      - name: Verify expected checkout revision')
         self.assertLess(workflow.index('actions/checkout@'), guard)
+        checkout = workflow[workflow.index('      - uses: actions/checkout@'):guard]
+        self.assertIn('ref: ${{ inputs.expected_sha }}', checkout)
         for later in ['actions/setup-dotnet@', '      - name: Harness failure contracts',
                       '      - name: Parse and compile probe', '      - name: Build exact candidate',
                       '      - name: Install exact VSIX']:
@@ -36,6 +41,47 @@ class HarnessWorkflowBoundaryTests(unittest.TestCase):
         self.assertIn('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }', step)
         self.assertNotIn('${{', step.split('        run: |', 1)[1])
         self.assertNotIn('continue-on-error:', workflow)
+
+    def event_guard_body(self):
+        workflow = (ROOT / '.github/workflows/vsix-ide-smoke.yml').read_text()
+        start = workflow.index('      - name: Verify dispatch event revision')
+        checkout = workflow.index('      - uses: actions/checkout@')
+        self.assertLess(start, checkout)
+        step = workflow[start:checkout]
+        self.assertIn('VSIX_SMOKE_EXPECTED_SHA: ${{ inputs.expected_sha }}', step)
+        self.assertIn('VSIX_SMOKE_EVENT_SHA: ${{ github.sha }}', step)
+        body = step.split('        run: |\n', 1)[1]
+        self.assertNotIn('${{', body)
+        for forbidden in ['python', 'scripts/', 'git ', 'Invoke-', '& ']:
+            self.assertNotIn(forbidden, body)
+        return '\n'.join(line[10:] for line in body.splitlines())
+
+    def test_event_revision_is_checked_before_checkout_controlled_code(self):
+        body = self.event_guard_body()
+        self.assertIn('BLOCKED: expected-sha-format', body)
+        self.assertIn('BLOCKED: event-sha-mismatch', body)
+        self.assertIn('exit 2', body)
+
+    def test_event_guard_executes_fail_closed_in_powershell(self):
+        body = self.event_guard_body()
+        pwsh = shutil.which('pwsh')
+        if not pwsh:
+            self.skipTest('PowerShell runtime required; covered by Windows contracts lane')
+        sha = 'abcdef01' * 5
+        cases = [(sha, sha, 0), (sha.upper(), sha, 0), (sha, 'b' * 40, 2)]
+        cases += [(bad, sha, 2) for bad in ['', 'a' * 39, 'a' * 41, 'a' * 40 + '\n',
+                                          ' ' + 'a' * 40, 'g' * 40, '$(PRIVATE)']]
+        cases += [(sha, '', 2), (sha, 'PRIVATE', 2)]
+        for expected, actual, code in cases:
+            with self.subTest(expected=expected, actual=actual):
+                result = subprocess.run([pwsh, '-NoProfile', '-NonInteractive', '-Command', body],
+                                        env=dict(os.environ, VSIX_SMOKE_EXPECTED_SHA=expected,
+                                                 VSIX_SMOKE_EVENT_SHA=actual),
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertNotIn('PRIVATE', result.stdout + result.stderr)
+                if code:
+                    self.assertIn('BLOCKED:', result.stderr)
 
     def test_pr_lane_has_no_install_build_or_publish_action(self):
         workflow = (ROOT / '.github/workflows/vsix-harness-checks.yml').read_text()
