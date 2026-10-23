@@ -6,6 +6,17 @@ namespace DataGuard.Core.Tests;
 public sealed class VisualStudioOutputBlockTests
 {
     [Fact]
+    public void Result_WithoutSummaryDoesNotInventCountsOrCoverage()
+    {
+        var text = OutputBlockFormatter.RenderLines(OutputBlockFormatter.Result(new ProgressReadResult()));
+
+        Assert.Contains("\r\nResult: No final validation summary was produced.\r\n", text);
+        Assert.DoesNotContain("0 errors", text);
+        Assert.DoesNotContain("Coverage:", text);
+        Assert.DoesNotContain("Ground truth:", text);
+    }
+
+    [Fact]
     public void Banner_HasPhysicalLinesForEachField()
     {
         var text = OutputBlockFormatter.RenderLines(OutputBlockFormatter.Banner(

@@ -220,6 +220,28 @@ public sealed class AcquisitionSummaryTests
         Assert.Equal(acknowledged ? PublishVerdict.Publish : PublishVerdict.HandshakeMissing, PublishGate.Decide(progress, 3));
     }
 
+    [Theory]
+    [InlineData(null, null, null, null)]
+    [InlineData(0, 0, 0, null)]
+    [InlineData(1, null, null, "; unavailable rules 1")]
+    [InlineData(null, 2, null, "; unevaluated contracts 2")]
+    [InlineData(null, null, 3, "; acquisition diagnostics 3")]
+    [InlineData(1, 2, 3, "; unavailable rules 1; unevaluated contracts 2; acquisition diagnostics 3")]
+    public void DescribeCoverage_ReportsOnlyPositiveCounts(int? unavailable, int? unevaluated, int? acquisition, string? expectedGaps)
+    {
+        var progress = new ProgressReadResult
+        {
+            HasSummary = true,
+            UnavailableRuleCount = unavailable,
+            UnevaluatedContractCount = unevaluated,
+            AcquisitionDiagnosticCount = acquisition,
+        };
+
+        Assert.Equal(
+            expectedGaps == null ? null : "Coverage: incomplete" + expectedGaps + ". Review Rule ... not evaluated, UNEVALUATED and ACQUISITION lines above.",
+            ExitCodeExplainer.DescribeCoverage(progress));
+    }
+
     private static CliRunOutcome CreateOutcome() => new()
     {
         ExitCode = 0,

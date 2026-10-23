@@ -217,6 +217,94 @@ public class OutputPaneWriterTests
         lines.Should().Contain("[StackAccord] Double-click any Error List item to jump directly to code.");
     }
 
+    [Fact]
+    public void StartupHeader_IsStampedPerRecordAndWrittenOnlyOnce()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dataguard-startup-" + Guid.NewGuid().ToString("N"));
+        var previousDirectory = Path.GetDirectoryName(DataGuardLogger.LogFilePath)!;
+        DataGuardLogger.Configure(true, directory);
+        try
+        {
+            DataGuardLogger.EnsureInitialized("synthetic-vs", "synthetic-extension");
+            DataGuardLogger.EnsureInitialized("second-vs", "second-extension");
+
+            var lines = File.ReadAllLines(DataGuardLogger.LogFilePath);
+            lines.Count(line => line.Contains("StackAccord Visual Studio Extension Initialized")).Should().Be(1);
+            lines.Should().Contain(line => line.EndsWith("[INFO] Extension Version : synthetic-extension"));
+            lines.Should().Contain(line => line.EndsWith("[INFO] Visual Studio     : synthetic-vs"));
+            foreach (var label in new[] { "Host Process", "Operating System", "CLR Runtime", "Detected CLI Path", "Log File Path" })
+            {
+                lines.Should().Contain(line => line.Contains("[INFO] " + label));
+            }
+
+            string.Join("\n", lines).Should().NotContain("second-vs").And.NotContain("second-extension");
+        }
+        finally
+        {
+            DataGuardLogger.Configure(true, previousDirectory);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Catalog_PreservesGroupingStatusAndPhysicalRecords(bool hasRules)
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+        var directory = Path.Combine(Path.GetTempPath(), "dataguard-catalog-" + Guid.NewGuid().ToString("N"));
+        var previousDirectory = Path.GetDirectoryName(DataGuardLogger.LogFilePath)!;
+        DataGuardLogger.Configure(true, directory);
+        try
+        {
+            var rules = hasRules ? new[]
+            {
+                new DataGuardRulesOptionsPage.RuleDescriptor("DG001", "First", "Alpha", "First description", true),
+                new DataGuardRulesOptionsPage.RuleDescriptor("DG002", "Second", "Beta", "Second description", false),
+                new DataGuardRulesOptionsPage.RuleDescriptor("DG003", "Third", "Alpha", "Third description", true),
+            } : Array.Empty<DataGuardRulesOptionsPage.RuleDescriptor>();
+            context.Factory.Run(() => RuleCatalogPrinter.PrintAsync(rules, fixture.Writer));
+
+            var text = string.Concat(fixture.Text);
+            text.Should().Contain("\r\nStackAccord Validation Rules — Current Configuration\r\n")
+                .And.Contain("\r\n[ENABLED] = enabled    [DISABLED] = disabled\r\n")
+                .And.Contain("\r\nTo change rules: Tools -> Options -> StackAccord -> Validation Rules.\r\n");
+            var fileLines = File.ReadAllLines(DataGuardLogger.LogFilePath);
+            fileLines.Should().Contain(line => line.EndsWith("[INFO] StackAccord Validation Rules — Current Configuration"));
+            if (hasRules)
+            {
+                text.IndexOf("Category: Alpha", StringComparison.Ordinal).Should().BeLessThan(text.IndexOf("Category: Beta", StringComparison.Ordinal));
+                text.IndexOf("DG003: Third", StringComparison.Ordinal).Should().BeLessThan(text.IndexOf("Category: Beta", StringComparison.Ordinal));
+                text.Should().Contain("\r\n[ENABLED]  DG001: First\r\n           First description\r\n")
+                    .And.Contain("\r\n[ENABLED]  DG003: Third\r\n           Third description\r\n")
+                    .And.Contain("\r\n[DISABLED] DG002: Second\r\n           Second description\r\n");
+                fileLines.Should().Contain(line => line.EndsWith("[INFO] Category: Alpha"));
+                fileLines.Should().Contain(line => line.EndsWith("[INFO]            First description"));
+            }
+            else
+            {
+                text.Should().NotContain("Category:").And.NotContain("DG001");
+            }
+        }
+        finally
+        {
+            DataGuardLogger.Configure(true, previousDirectory);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void ResultWithoutSummary_DoesNotClaimSuccessfulValidation()
+    {
+        using var context = JoinableTaskContext.CreateNoOpContext();
+        var fixture = new PaneFixture(context);
+        context.Factory.Run(() => fixture.Writer.WriteResultBlockAsync(new ProgressReadResult()));
+
+        fixture.Text.Single().Should().Contain("\r\nResult: No final validation summary was produced.\r\n")
+            .And.NotContain("0 errors").And.NotContain("Coverage:");
+    }
+
     private sealed class PaneFixture
     {
         private static readonly Guid PaneId = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
