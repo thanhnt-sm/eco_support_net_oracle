@@ -28,7 +28,8 @@ class HarnessWorkflowBoundaryTests(unittest.TestCase):
                           'VSIXInstaller.exe', 'devenv.exe', 'dotnet tool', 'publish']:
             self.assertNotIn(forbidden, workflow)
         self.assertIn('-ValidateOnly', workflow)
-        self.assertIn("test_vsix_*.py", workflow)
+        self.assertIn('python -m unittest scripts.tests.test_vsix_ide_smoke scripts.tests.test_vsix_harness_workflows', workflow)
+        self.assertNotIn('test_vsix_*.py', workflow)
 
 
 if __name__ == '__main__':
