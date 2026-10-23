@@ -79,6 +79,8 @@ Gọi trực tiếp rule ngoài scope engine vẫn giữ contract công khai `Va
 **Mức độ:** Error
 **Phạm vi:** `RawSqlDescriptor`
 
+Khi có procedure catalog, lời gọi mơ hồ được ghi nhận là chưa đánh giá, không tạo violation giả. DG101 giữ nguyên lý do của resolver: mọi trường hợp trùng schema/package, nhiều overload chưa quan sát được arguments hoặc nhiều overload đồng hạng đều cung cấp note có nội dung.
+
 Kiểm tra rằng các lệnh gọi stored procedure có đúng số lượng tham số. Đối với văn bản SQL bắt đầu bằng `EXEC`/`EXECUTE`, nó đếm các token tham số tiền tố `@` và cảnh báo khi phát hiện 0 tham số.
 
 **Xử lý Stored Procedure:**
