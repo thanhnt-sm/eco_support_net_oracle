@@ -163,6 +163,31 @@ public sealed class AcquisitionSummaryTests
         Assert.Equal("StackAccord: 0 errors, 0 warnings", ExitCodeExplainer.DescribeStatus(outcome.Progress));
     }
 
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    public void UnfinalizedCounts_DoNotBecomeCoverageWarnings(int exitCode, bool sarifExists)
+    {
+        // Exercise the helper's defensive input contract. The production caller suppresses an
+        // exit-zero explanation without a summary; this test does not certify that run as clean.
+        var outcome = new CliRunOutcome
+        {
+            ExitCode = exitCode,
+            Progress = new ProgressReadResult { HasSummary = false },
+        };
+        var withoutCounts = ExitCodeExplainer.Explain("validate", outcome, sarifExists);
+
+        outcome.Progress.UnavailableRuleCount = 7;
+        outcome.Progress.UnevaluatedContractCount = 11;
+        outcome.Progress.AcquisitionDiagnosticCount = 13;
+
+        Assert.Equal(withoutCounts, ExitCodeExplainer.Explain("validate", outcome, sarifExists));
+        Assert.Null(ExitCodeExplainer.DescribeCoverage(outcome.Progress));
+        Assert.Equal("StackAccord: Result summary unavailable", ExitCodeExplainer.DescribeStatus(outcome.Progress));
+    }
+
     [Fact]
     public void DescribeCoverage_ReportsExplicitGapsWithoutInferringAllRulesWereEvaluated()
     {

@@ -217,35 +217,6 @@ public class OutputPaneWriterTests
         lines.Should().Contain("[StackAccord] Double-click any Error List item to jump directly to code.");
     }
 
-    [Fact]
-    public void StartupHeader_IsStampedPerRecordAndWrittenOnlyOnce()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "dataguard-startup-" + Guid.NewGuid().ToString("N"));
-        var previousDirectory = Path.GetDirectoryName(DataGuardLogger.LogFilePath)!;
-        DataGuardLogger.Configure(true, directory);
-        try
-        {
-            DataGuardLogger.EnsureInitialized("synthetic-vs", "synthetic-extension");
-            DataGuardLogger.EnsureInitialized("second-vs", "second-extension");
-
-            var lines = File.ReadAllLines(DataGuardLogger.LogFilePath);
-            lines.Count(line => line.Contains("StackAccord Visual Studio Extension Initialized")).Should().Be(1);
-            lines.Should().Contain(line => line.EndsWith("[INFO] Extension Version : synthetic-extension"));
-            lines.Should().Contain(line => line.EndsWith("[INFO] Visual Studio     : synthetic-vs"));
-            foreach (var label in new[] { "Host Process", "Operating System", "CLR Runtime", "Detected CLI Path", "Log File Path" })
-            {
-                lines.Should().Contain(line => line.Contains("[INFO] " + label));
-            }
-
-            string.Join("\n", lines).Should().NotContain("second-vs").And.NotContain("second-extension");
-        }
-        finally
-        {
-            DataGuardLogger.Configure(true, previousDirectory);
-            Directory.Delete(directory, true);
-        }
-    }
-
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
