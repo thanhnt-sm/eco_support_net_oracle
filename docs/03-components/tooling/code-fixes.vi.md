@@ -8,7 +8,7 @@ Năm Roslyn provider dưới đây đăng ký biến đổi source. Có action, 
 | --- | --- | --- |
 | `DataGuardCodeFixProvider` | DG001 | Thêm `[SkipContractCheck]`, `[DataContract]` trên type hoặc `[SqlParameter]` trên parameter khi cú pháp hỗ trợ. |
 | Cùng provider | DG002 | Thay string literal khi thuộc tính diagnostic qua kiểm tra metadata bên dưới. |
-| Cùng provider | DG017 | Regex thay `SELECT *`/qualified-star bằng `ExplicitColumns`, hoặc TODO comment nếu thiếu thuộc tính đó. |
+| Cùng provider | DG017 | Thay một wildcard trong phạm vi hẹp với `ExplicitColumns` đơn giản; không có action khi thiếu cột hoặc SQL không rõ ngữ cảnh. |
 | `AddMaxLengthAttributeFixProvider` | DG007, DG009 | Thêm/thay attribute độ dài khi metadata có chuỗi đúng dạng digest và độ dài dương. |
 | `SkipContractCheckFixProvider` | DG001 | Thêm cùng skip attribute với property `Reason` có tên. |
 | `NamingConventionFixProvider` | DG006 | Đưa action rename PascalCase hoặc thêm `[Column]` snake_case. |
@@ -25,7 +25,7 @@ Replacement SQL được biểu diễn bằng C# string literal; giữ dạng c�
 ## Action heuristic và thủ công
 
 - **DG001:** `[SkipContractCheck(Reason = "Dynamic SQL - manual review required")]` tắt kiểm tra, không sửa contract. Declaration manual ghi ý định source, chưa chứng minh routine identity, database type hoặc direction.
-- **DG017:** dùng regex, không phải dialect parser. `ExplicitColumns` lấy từ CLR shape ánh xạ khi có, kể cả tên `[Column]`, không phải kết quả live schema. Không có cột thì TODO placeholder có thể làm SQL chưa hoàn chỉnh. Alias, join, quoting và SQL lồng cần review dù fixture C# biên dịch được.
+- **DG017:** regex chỉ nhận một wildcard đầu SELECT và giữ qualifier. Không có action khi thiếu cột đơn giản; quote, comment, join, batch, set operation, SELECT lồng hoặc projection chưa hỗ trợ phải sửa thủ công. Không tạo SQL TODO. `ExplicitColumns` lấy từ CLR shape, không phải live schema hay SQL đã được verifier xác nhận; cần kiểm tra preview theo dialect/schema. Giữ giá trị SQL đã giải mã và trivia C#; cách viết token literal có thể đổi.
 - **DG006:** rename gọi `NameConventions.ToPascalCase` và `Renamer.RenameSymbolAsync`; action trả `Document`, không bảo đảm mọi thay đổi toàn solution được áp dụng. Gợi ý `[Column]` tính `ToSnakeCase` từ tên property, không tra cột thật hoặc kiểm tra attribute đã có. Cần review references, mapping và attribute trùng.
 - **DG012:** match tên method bằng cú pháp rồi giữ nguyên arguments. Không xác lập provider identity của receiver, chọn đúng invocation giữa nhiều builder, thêm package Oracle, dịch connection string hay kiểm tra tương thích overload. Đây không phải migration provider database tự động.
 

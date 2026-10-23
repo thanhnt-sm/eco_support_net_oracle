@@ -18,6 +18,30 @@ public class PostgreSqlDialectCheckerTests
 {
     private readonly PostgreSqlDialectChecker _checker = new();
 
+    [Theory]
+    [InlineData("SELECT replace('a', 'a', 'b')")]
+    [InlineData("SELECT format('%s', name) FROM t")]
+    [InlineData("SELECT to_char(current_timestamp, 'YYYY')")]
+    [InlineData("SELECT to_date('2026-10-21', 'YYYY-MM-DD')")]
+    [InlineData("SELECT to_number('12', '99')")]
+    [InlineData("SELECT regexp_replace(name, 'a', 'b') FROM t")]
+    [InlineData("SELECT category, sum(amount) FROM t GROUP BY CUBE(category)")]
+    [InlineData("SELECT category, sum(amount) FROM t GROUP BY ROLLUP(category)")]
+    [InlineData("SELECT category, sum(amount) FROM t GROUP BY GROUPING SETS ((category), ())")]
+    public void Pg002_NativePostgreSqlFeatures_DoNotReportForeignSyntax(string sql)
+    {
+        _checker.CheckNonPostgreSqlSyntaxInPostgreSqlContext(sql, true).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("REPLACE INTO t VALUES (1)")]
+    [InlineData("SELECT GETDATE()")]
+    [InlineData("SELECT NVL(name, 'unknown') FROM t")]
+    public void Pg002_ForeignFeaturesStillReport(string sql)
+    {
+        _checker.CheckNonPostgreSqlSyntaxInPostgreSqlContext(sql, true).Should().Contain(v => v.RuleId == "PG002");
+    }
+
     [Fact]
     public void CheckPostgreSqlSyntax_NonPgContext_DetectsSerial()
     {

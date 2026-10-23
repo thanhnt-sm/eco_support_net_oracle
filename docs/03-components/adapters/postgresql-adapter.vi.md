@@ -152,6 +152,8 @@ foreach (var property in entity.Properties)
 
 Mỗi cấu trúc chỉ bị báo một lần. Các mẫu chuyên biệt (`TOP n`, `EXEC schema.proc`, `LIMIT offset, count`, `NVL(`, `DECODE(`, `ISNULL(`, `GETDATE()`, `IDENTITY(`) chạy trước và có `suggestion`; từ khóa đã được chúng báo thì danh sách từ khóa bỏ qua. Cú pháp của chính PostgreSQL không bị báo: `LIMIT n` thông thường, `GENERATED ... AS IDENTITY`, và `COALESCE` (ANSI SQL, không dialect checker nào coi là đặc thù Oracle).
 
+PG002 không còn coi tên `replace`, `format`, `to_char`, `to_date`, `to_number`, `regexp_replace`, `CUBE`, `ROLLUP`, `GROUPING SETS` vốn hợp lệ trong PostgreSQL là cú pháp ngoại. `REPLACE INTO`, `GETDATE`, `NVL` vẫn bị báo. Đây vẫn là heuristic: literal/comment, ngữ cảnh identifier và phiên bản còn cần xử lý; không có PG002 không chứng minh SQL đúng grammar PostgreSQL.
+
 ### PG003 — Độ dài entity vượt độ dài cột PostgreSQL
 
 | Thuộc tính | Giá trị |
