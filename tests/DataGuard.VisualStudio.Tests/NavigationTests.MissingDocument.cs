@@ -15,36 +15,23 @@ public partial class NavigationTests
     {
         var document = MissingDocument();
         string? message = null;
-        var navigations = 0;
-
-        await DocumentNavigation.NavigateAsync(
+        var canNavigate = await DocumentNavigation.CanNavigateAsync(
             document,
             text =>
             {
                 message = text;
                 return Task.CompletedTask;
-            },
-            () =>
-            {
-                navigations++;
-                return Task.CompletedTask;
             });
 
         message.Should().Be($"[StackAccord] Cannot navigate: file not found '{document}'.\r\n");
-        navigations.Should().Be(0, "a missing file must never reach shell navigation");
+        canNavigate.Should().BeFalse("a missing file must never reach shell navigation");
     }
 
     [Fact]
     public async Task Navigate_WhenFileMissingWithoutOutput_DoesNotNavigate()
     {
-        var navigations = 0;
-        await DocumentNavigation.NavigateAsync(
-            MissingDocument(), null, () =>
-            {
-                navigations++;
-                return Task.CompletedTask;
-            });
-        navigations.Should().Be(0);
+        var canNavigate = await DocumentNavigation.CanNavigateAsync(MissingDocument(), null);
+        canNavigate.Should().BeFalse();
     }
 
     [Fact]
@@ -52,8 +39,7 @@ public partial class NavigationTests
     {
         TaskCompletionSource<bool>? completion = null;
         var writes = 0;
-        var navigations = 0;
-        var pending = DocumentNavigation.NavigateAsync(
+        var pending = DocumentNavigation.CanNavigateAsync(
             MissingDocument(), _ =>
             {
                 writes++;
@@ -61,10 +47,6 @@ public partial class NavigationTests
                 var writerCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 completion = writerCompletion;
                 return writerCompletion.Task;
-            }, () =>
-            {
-                navigations++;
-                return Task.CompletedTask;
             });
 
         pending.IsCompleted.Should().BeFalse("output must be awaited, not fired and forgotten");
@@ -82,41 +64,25 @@ public partial class NavigationTests
 
         failure.Should().NotBeNull();
         failure!.Message.Should().Be("synthetic output failure");
-        navigations.Should().Be(0);
     }
 
     [Fact]
-    public async Task Navigate_WhenFileExists_InvokesAndAwaitsNavigationWithoutMissingMessage()
+    public async Task Navigate_WhenFileExists_AllowsNavigationWithoutMissingMessage()
     {
         var document = Path.GetTempFileName();
         try
         {
             var messages = 0;
-            var navigations = 0;
-            TaskCompletionSource<bool>? completion = null;
-            var pending = DocumentNavigation.NavigateAsync(
+            var canNavigate = await DocumentNavigation.CanNavigateAsync(
                 document,
                 _ =>
                 {
                     messages++;
                     return Task.CompletedTask;
-                },
-                () =>
-                {
-                    navigations++;
-                    navigations.Should().Be(1, "duplicate navigation must fail before waiting again");
-                    var navigationCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    completion = navigationCompletion;
-                    return navigationCompletion.Task;
                 });
 
-            navigations.Should().Be(1);
+            canNavigate.Should().BeTrue();
             messages.Should().Be(0);
-            pending.IsCompleted.Should().BeFalse("the shell callback must not become async void");
-            Assert.NotNull(completion);
-            completion!.SetResult(true);
-            await pending;
-            navigations.Should().Be(1);
         }
         finally
         {

@@ -47,11 +47,13 @@ internal sealed class ErrorListPresenter
     internal ErrorListPresenter(
         Func<string, IVsHierarchy?> hierarchyResolver,
         IServiceProvider? serviceProvider = null,
-        JoinableTaskFactory? joinableTaskFactory = null)
+        JoinableTaskFactory? joinableTaskFactory = null,
+        Func<string, Task>? writeOutput = null)
     {
         this.hierarchyResolver = hierarchyResolver ?? throw new ArgumentNullException(nameof(hierarchyResolver));
         this.serviceProvider = serviceProvider;
         this.joinableTaskFactory = joinableTaskFactory;
+        this.writeOutput = writeOutput;
     }
 
     /// <summary>
@@ -132,10 +134,40 @@ internal sealed class ErrorListPresenter
             this.joinableTaskFactory.RunAsync(async () =>
             {
                 await this.joinableTaskFactory.SwitchToMainThreadAsync();
-                await DocumentNavigation.NavigateAsync(
-                    task.Document,
-                    this.writeOutput,
-                    () => this.NavigateExistingDocumentAsync(task));
+                if (!await DocumentNavigation.CanNavigateAsync(task.Document, this.writeOutput))
+                {
+                    return;
+                }
+
+                if (this.serviceProvider != null)
+                {
+                    VsShellUtilities.OpenDocument(
+                        this.serviceProvider,
+                        task.Document,
+                        VSConstants.LOGVIEWID_Code,
+                        out _,
+                        out _,
+                        out IVsWindowFrame frame,
+                        out IVsTextView view);
+
+                    frame?.Show();
+                    if (view != null)
+                    {
+                        // CreateTask already converted SARIF to zero-based VS coordinates.
+                        view.SetCaretPos(task.Line, task.Column);
+                        view.CenterLines(task.Line, 1);
+                    }
+                }
+                else if (this.provider != null)
+                {
+                    if (!this.provider.Navigate(task, VSConstants.LOGVIEWID_Code))
+                    {
+                        if (this.writeOutput != null)
+                        {
+                            await this.writeOutput($"[StackAccord] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
+                        }
+                    }
+                }
             }).FileAndForget("DataGuard/NavigateTask");
         };
         return task;
@@ -179,38 +211,5 @@ internal sealed class ErrorListPresenter
 
         cache[documentPath] = hierarchy;
         return hierarchy;
-    }
-    private async Task NavigateExistingDocumentAsync(ErrorTask task)
-    {
-        await this.joinableTaskFactory!.SwitchToMainThreadAsync();
-        if (this.serviceProvider != null)
-        {
-            VsShellUtilities.OpenDocument(
-                this.serviceProvider,
-                task.Document,
-                VSConstants.LOGVIEWID_Code,
-                out _,
-                out _,
-                out IVsWindowFrame frame,
-                out IVsTextView view);
-
-            frame?.Show();
-            if (view != null)
-            {
-                // CreateTask already converted SARIF to zero-based VS coordinates.
-                view.SetCaretPos(task.Line, task.Column);
-                view.CenterLines(task.Line, 1);
-            }
-        }
-        else if (this.provider != null)
-        {
-            if (!this.provider.Navigate(task, VSConstants.LOGVIEWID_Code))
-            {
-                if (this.writeOutput != null)
-                {
-                    await this.writeOutput($"[StackAccord] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
-                }
-            }
-        }
     }
 }
