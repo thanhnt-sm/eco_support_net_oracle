@@ -16,7 +16,6 @@ using Task = System.Threading.Tasks.Task;
 /// <summary>Writes to the "StackAccord (Beta)" Output pane and the status bar; mirrors every line to the log file.</summary>
 internal sealed class OutputPaneWriter
 {
-    private const string Separator = "========================================================================\r\n";
     private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
 
     private readonly JoinableTaskFactory joinableTaskFactory;
@@ -52,11 +51,11 @@ internal sealed class OutputPaneWriter
             return;
         }
 
-        lines = lines.Select(line => DataGuardLogger.Redact(line) + "\r\n").ToArray();
-        DataGuardLogger.LogInfoBatch(lines.Select(line => line.TrimEnd('\r', '\n')));
+        lines = lines.Select(DataGuardLogger.Redact).ToArray();
+        DataGuardLogger.LogInfoBatch(lines);
         await this.joinableTaskFactory.SwitchToMainThreadAsync();
         var pane = await this.GetPaneAsync();
-        pane?.OutputStringThreadSafe(string.Concat(lines));
+        pane?.OutputStringThreadSafe(OutputBlockFormatter.RenderLines(lines));
     }
 
     public async Task SetStatusAsync(string text)
@@ -86,7 +85,7 @@ internal sealed class OutputPaneWriter
             configPath,
             "ide-safe (no assembly loading, no database or network access)",
             "previous results are kept until new ones load",
-            command == "validate" ? "Rules:  " + enabledRuleCount + " enabled, " + disabledRuleCount + " disabled\r\n" : string.Empty);
+            command == "validate" ? new[] { "Rules:  " + enabledRuleCount + " enabled, " + disabledRuleCount + " disabled" } : Array.Empty<string>());
     }
 
     /// <summary>Banner for Refresh Snapshot / Verify SQL Shapes: not ide-safe, no .dataguard.yml, Error List untouched.</summary>
@@ -103,39 +102,17 @@ internal sealed class OutputPaneWriter
             "(not read)",
             LiveDatabaseCommands.DescribeMode(variableName),
             "the Error List is not changed by this command",
-            string.Empty);
+            Array.Empty<string>());
     }
 
-    private async Task WriteCommandBannerAsync(string title, string description, string solutionDirectory, string configPath, string mode, string errorsLine, string extraLines)
+    private async Task WriteCommandBannerAsync(string title, string description, string solutionDirectory, string configPath, string mode, string errorsLine, IReadOnlyList<string> extraLines)
     {
         await this.ActivateAsync();
-        await this.WriteAsync(
-            Separator +
-            "StackAccord (Beta) — " + title + "\r\n" +
-            Separator +
-            "What:   " + description + "\r\n" +
-            "Scope:  " + solutionDirectory + "\r\n" +
-            "Config: " + configPath + "\r\n" +
-            "Mode:   " + mode + "\r\n" +
-            "Errors: " + errorsLine + "\r\n" +
-            extraLines +
-            Separator);
+        await this.WriteLinesAsync(OutputBlockFormatter.Banner(title, description, solutionDirectory, configPath, mode, errorsLine, extraLines));
     }
 
-    public async Task WriteResultBlockAsync(ProgressReadResult progress)
-    {
-        var resultText = progress.HasSummary
-            ? "Result: " + progress.ErrorCount + " errors, " + progress.WarningCount + " warnings\r\n"
-            : "Result: No final validation summary was produced.\r\n";
-        var groundTruth = ExitCodeExplainer.DescribeGroundTruth(progress);
-        await this.WriteAsync(
-            Separator +
-            resultText +
-            (groundTruth == null ? string.Empty : groundTruth + "\r\n") +
-            "Action: Open Error List to see details and jump to source locations.\r\n" +
-            "Docs:   Tools -> Options -> StackAccord -> Validation Rules\r\n" +
-            Separator);
-    }
+    public Task WriteResultBlockAsync(ProgressReadResult progress) =>
+        this.WriteLinesAsync(OutputBlockFormatter.Result(progress));
 
     private async Task<IVsOutputWindowPane?> GetPaneAsync()
     {
