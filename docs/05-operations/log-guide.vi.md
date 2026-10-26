@@ -163,3 +163,11 @@ time dataguard validate --verbose 2>&1 | grep "Duration"
     pathToPublish: '$(Build.SourcesDirectory)/results.sarif'
     artifactName: 'sarif-results'
 ```
+
+## Output và log cục bộ của Visual Studio
+
+Tools → StackAccord (Beta) ghi banner lệnh, khối kết quả và inventory thành từng dòng riêng. File log cục bộ thêm thời gian UTC và mức log cho mỗi dòng. Chính sách privacy hiện có che các mẫu credential, đường dẫn riêng tư và SQL nhận diện được, đồng thời loại ký tự điều khiển trước khi extension thêm dấu xuống dòng. Redaction là best effort, không bảo đảm ẩn danh hoàn toàn. Newline trong một logical record hoặc trường đã decode không tạo thêm output record; stderr thô của CLI vẫn dùng dòng vật lý để phân định message.
+
+Exit code 0 phản ánh policy của CLI, không chứng minh mọi rule và contract đã được kiểm tra. Khi summary báo rule unavailable hoặc contract unevaluated, extension hiển thị `Coverage: incomplete` cùng số đếm và cảnh báo thay vì báo sạch. Đọc các dòng `Rule ... not evaluated`, `UNEVALUATED`, `ACQUISITION`, bổ sung điều kiện còn thiếu rồi chạy lại. Nếu thiếu ground truth, extension báo syntactic-only và hướng dẫn Refresh Snapshot hoặc EF model snapshot. Số đếm không có trong summary của CLI cũ là chưa biết; inventory sự kiện thực thi không phải chứng nhận coverage theo contract.
+
+Exit code 3 báo validation chưa đầy đủ. Trạng thái Error List được thông báo riêng: đã nạp diagnostic, SARIF thiếu/không đọc được, kết quả bị loại hoặc provider không khả dụng. SARIF hợp lệ cùng handshake IDE-safe có thể thay kết quả cũ, kể cả xóa các task cũ khi không có diagnostic mới.

@@ -116,10 +116,9 @@ internal sealed class ProgressStreamReader
 
         if (parsed.IsSummary)
         {
-            var banner = this.inventory.BuildBanner();
-            if (!string.IsNullOrEmpty(banner))
+            foreach (var record in this.inventory.BuildLines())
             {
-                this.emitOutput(banner);
+                this.emitOutput(record + "\r\n");
             }
         }
     }
