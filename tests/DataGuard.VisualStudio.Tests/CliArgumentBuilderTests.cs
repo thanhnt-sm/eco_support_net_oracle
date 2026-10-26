@@ -88,7 +88,7 @@ public class CliArgumentBuilderTests
         ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, hasSummary: true), sarifExists: false)
             .Should().Be("[ERROR] The CLI reported a summary but failed to write results (see [StackAccord CLI] lines)");
         ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(3), sarifExists: false)
-            .Should().Contain("previous Error List items were preserved");
+            .Should().Contain("Error List publication is reported separately.").And.NotContain("previous Error List items were preserved");
     }
 
     [Fact]
