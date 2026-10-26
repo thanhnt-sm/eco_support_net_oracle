@@ -1,6 +1,11 @@
 name: VSIX IDE Stage1 smoke (manual)
 on:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full 40-character commit SHA approved for this run
+        required: true
+        type: string
 permissions:
   contents: read
 jobs:
@@ -9,9 +14,31 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
+      - name: Verify dispatch event revision
+        shell: pwsh
+        env:
+          VSIX_SMOKE_EXPECTED_SHA: ${{ inputs.expected_sha }}
+          VSIX_SMOKE_EVENT_SHA: ${{ github.sha }}
+        run: |
+          if ($env:VSIX_SMOKE_EXPECTED_SHA -cnotmatch '\A[0-9a-fA-F]{40}\z') {
+            [Console]::Error.WriteLine('BLOCKED: expected-sha-format')
+            exit 2
+          }
+          if ($env:VSIX_SMOKE_EVENT_SHA -cnotmatch '\A[0-9a-fA-F]{40}\z' -or $env:VSIX_SMOKE_EVENT_SHA -ine $env:VSIX_SMOKE_EXPECTED_SHA) {
+            [Console]::Error.WriteLine('BLOCKED: event-sha-mismatch')
+            exit 2
+          }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.expected_sha }}
           persist-credentials: false
+      - name: Verify expected checkout revision
+        shell: pwsh
+        env:
+          VSIX_SMOKE_EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          python scripts/vsix_smoke_revision.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 9.0.x

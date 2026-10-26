@@ -4,9 +4,11 @@ on:
     paths:
       - 'scripts/vsix_ide_probe.ps1'
       - 'scripts/vsix_ide_smoke.py'
+      - 'scripts/vsix_smoke_revision.py'
       - 'scripts/vsix_installer_receipt.py'
       - 'scripts/tests/test_vsix_ide_smoke.py'
       - 'scripts/tests/test_vsix_harness_workflows.py'
+      - 'scripts/tests/test_vsix_smoke_revision.py'
       - 'scripts/tests/test_vsix_installer_receipt.py'
       - '.github/workflows/vsix-ide-smoke.yml'
       - '.github/workflows/vsix-harness-checks.yml'
@@ -22,7 +24,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Harness unit and orchestration contracts
-        run: python -m unittest scripts.tests.test_vsix_ide_smoke scripts.tests.test_vsix_harness_workflows scripts.tests.test_vsix_installer_receipt
+        run: python -m unittest scripts.tests.test_vsix_ide_smoke scripts.tests.test_vsix_harness_workflows scripts.tests.test_vsix_smoke_revision scripts.tests.test_vsix_installer_receipt
       - name: Windows PowerShell syntax and embedded C# compilation
         shell: powershell
         run: |
