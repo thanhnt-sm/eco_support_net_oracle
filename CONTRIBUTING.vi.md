@@ -39,6 +39,12 @@ Cảm ơn bạn đã quan tâm đến việc đóng góp cho **StackAccord**! St
    `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 dotnet test DataGuard.CrossPlatform.slnf --filter Category=LiveDb`
    (cần Docker daemon); job CI `build-and-test` loại bộ này bằng `--filter "Category!=LiveDb"` và job
    `live-db-integration` chạy nó.
+   Năm method trong `IdeSafeWritePathEndToEndTests` cần NTFS junction trên Windows (`mklink /J`). Linux
+   báo năm platform skip (theory ba dòng chưa được liệt kê trên nền tảng này). Job CI
+   `Windows Junction Write-Path Tests` chạy CLI thật trên Windows và bắt buộc **7 passed, 0 skipped**
+   qua `scripts/assert_windows_junction_tests.py`; TRX được lưu trong artifact `windows-junction-test-results`.
+   Các test kiểm tra output bên ngoài được phép và từ chối đi qua junction trong workspace trước khi truy cập
+   database. Chúng không cần database hoặc extension Visual Studio đã cài, và không chứng minh nghiệm thu IDE đã cài.
 4. **Gửi Pull Request (PR)**:
    - Đảm bảo feature/rule mới có unit test đi kèm trong `tests/`.
    - Chú ý public API surface: `DataGuard.Contracts` (netstandard2.0) được project người dùng reference — breaking change cần ADR trong `plans/adr/`.
