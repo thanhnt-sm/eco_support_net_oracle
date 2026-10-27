@@ -4,7 +4,7 @@ title: "Remediate Security & Concurrency Findings from Adversarial Review"
 createdAt: "2026-10-11"
 mode: "deep"
 tdd: true
-blockedBy: [2026-10-13-github-jobs-scans-main-integration]
+blockedBy: []
 ---
 
 # Plan: Remediate Security & Concurrency Findings from Adversarial Review
