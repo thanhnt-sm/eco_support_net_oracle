@@ -52,12 +52,14 @@ Repair confirmed failures only. Push CI has 11 successes; schedule has 10 succes
      python3 scripts/check-workflow-policy.py
      python3 scripts/check-nuget-licences.py
      python3 scripts/check-license-consistency.py
+     actionlint .github/workflows/*.yml
      ```
-   - Execute solution build and full test modules without weakening any assertion:
+   - Execute solution build and coverage-validated test modules without weakening any assertion:
      ```bash
      dotnet restore DataGuard.CrossPlatform.slnf --locked-mode
      dotnet build DataGuard.CrossPlatform.slnf --configuration Release --no-restore
-     dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-build --filter "Category!=LiveDb"
+     dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --results-directory TestResults/dotnet-unit --logger trx
+     python3 scripts/coverage_manifest.py --input TestResults/dotnet-unit --output TestResults/validated-unit --expect 5 --minimum 60
      ```
 2. **Triaging Latent / New Failures:**
    - If a workflow failure is detected, inspect the exact failing step via `gh run view <id> --log-failed`.
@@ -77,13 +79,13 @@ Repair confirmed failures only. Push CI has 11 successes; schedule has 10 succes
 - [ ] `python3 scripts/check-workflow-policy.py` passes with zero violations.
 - [ ] `python3 scripts/check-nuget-licences.py` passes with zero allow-list violations.
 - [ ] `python3 scripts/check-license-consistency.py` passes with zero license discrepancies.
+- [ ] `actionlint .github/workflows/*.yml` passes with zero workflow syntax or semantic violations.
 - [ ] All CI test projects pass with >=60.0% code coverage maintained without test tampering.
 - [ ] Consistency check verified: all matching patterns updated across the repository.
 - [ ] Scope check verified: minimal diff, no unrelated behavioral changes.
 - [ ] Verification check verified: full test files pass without sibling regressions.
 - [ ] NuGet genuine OIDC login and actual publishing proven on authorized release; otherwise explicitly blocked.
 - [x] Scorecard alert #19 resolved with new analysis evidence: dismissed via GitHub API by owner on 2026-10-13 (state: dismissed, reason: won't fix) as accepted risk for single maintainer; open code scanning alerts count is 0.
-- [ ] Visual Studio publisher refuses checksum mismatch and failed/missing provenance before VsixPublisher; full existing policy test module and isolated PowerShell smoke pass without publishing.
 
 ## Risk Assessment
 - **Risk:** Modifying workflow YAML without validating policy scripts triggers policy gate failures in CI.
