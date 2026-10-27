@@ -39,6 +39,12 @@ Thank you for your interest in contributing to **StackAccord**! StackAccord is a
    `DATAGUARD_REQUIRE_LIVE_RELATIONAL=1 DATAGUARD_REQUIRE_LIVE_SQLSERVER=1 dotnet test DataGuard.CrossPlatform.slnf --filter Category=LiveDb`
    (needs a Docker daemon); CI's `build-and-test` job excludes it with `--filter "Category!=LiveDb"` and the
    `live-db-integration` job runs it.
+   Five methods in `IdeSafeWritePathEndToEndTests` require Windows NTFS junctions (`mklink /J`). Linux
+   reports five platform skips (the three-row theory is not enumerated there). CI's
+   `Windows Junction Write-Path Tests` job runs the actual CLI on Windows and requires **7 passed, 0 skipped**
+   via `scripts/assert_windows_junction_tests.py`; its TRX is preserved as `windows-junction-test-results`.
+   These tests verify allowed external output and rejection of workspace junction traversal before database
+   access. They require no database or installed Visual Studio extension and do not prove installed IDE acceptance.
 4. **Submitting a Pull Request**:
    - Ensure new features/rules have accompanying unit tests under `tests/`.
    - Keep the public API surface in mind: `DataGuard.Contracts` (netstandard2.0) is referenced by consumer projects — breaking changes need an ADR in `plans/adr/`.
