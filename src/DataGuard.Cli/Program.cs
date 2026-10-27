@@ -12,7 +12,7 @@ var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>
 
 var options = new CommonOptions();
 
-var rootCommand = new RootCommand("DataGuard - Entity ↔ SP/Raw SQL Contract Validator");
+var rootCommand = new RootCommand("StackAccord - Entity ↔ SP/Raw SQL Contract Validator");
 
 rootCommand.Add(ValidateCommand.Create(options));
 rootCommand.Add(PreflightCommand.Create(options));

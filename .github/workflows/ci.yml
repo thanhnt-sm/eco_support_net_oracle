@@ -22,6 +22,9 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,13 +76,32 @@ jobs:
       - name: NuGet/npm licence allow-list
         run: python3 scripts/check-nuget-licences.py
 
-      # DataGuard's own licence surfaces (GPL-3.0-only + Commercial; Contracts stays MIT): no stale MIT in
+      # StackAccord's own licence surfaces (GPL-3.0-only + Commercial; Contracts stays MIT): no stale MIT in
       # README/docs/grants, central package metadata, GPL LICENSE text, byte-identical shipped notice copies.
-      - name: DataGuard licence consistency
+      - name: StackAccord licence consistency
         run: python3 scripts/check-license-consistency.py
 
       - name: Build solution
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
+
+      # Analyzer load gate: the bundled Roslyn analyzer must load under the compiler line VS 2022 17.12+ and
+      # the .NET 9.0.1xx SDK run (Microsoft.CodeAnalysis 4.12). Roslyn refuses an analyzer built against a
+      # newer compiler (warning CS9057) and reports nothing, and the floating 9.0.x SDK above (Roslyn >= 4.14)
+      # would accept such an analyzer. A second SDK, 9.0.100 (Roslyn 4.12.0), is installed side by side; the
+      # script pins it through the temp consumer's global.json (rollForward disable), fails on CS9057 or a
+      # missing DG017/DG001, and also asserts the committed lock files resolve Roslyn to exactly 4.12.0
+      # (scripts/assert-roslyn-lock.sh, unit-tested above). RoslynReferenceVersionTests cover the same
+      # invariant from inside the test suites.
+      - name: Setup .NET 9.0.100 (Roslyn 4.12 analyzer load gate)
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "9.0.100"
+
+      - name: Analyzer packaging and Roslyn 4.12 load gate
+        run: |
+          dotnet pack src/DataGuard.Analyzers/DataGuard.Analyzers.csproj --configuration Release --no-build -o "$RUNNER_TEMP/nupkg"
+          dotnet pack src/DataGuard.Contracts/DataGuard.Contracts.csproj --configuration Release --no-build -o "$RUNNER_TEMP/nupkg"
+          bash scripts/verify-analyzer-packaging.sh "$RUNNER_TEMP/nupkg"
 
       - name: Run analyzers
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore /p:RunAnalyzers=true
@@ -99,55 +121,49 @@ jobs:
 
       # Category=LiveDb tests (Testcontainers, real databases) run in the live-db-integration job below.
       - name: Run tests (fail-fast)
-        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --logger "trx;LogFileName=test_results.trx"
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --results-directory TestResults/dotnet-unit --logger trx
 
-      - name: Code Coverage Gate (Fail under 60%)
-        run: |
-          python3 - <<'EOF'
-          import xml.etree.ElementTree as ET
-          import glob, sys
-          from collections import defaultdict
-          hits = defaultdict(bool)
-          files = glob.glob('**/TestResults/**/coverage.cobertura.xml', recursive=True)
-          if not files:
-              print("::error::No coverage files found!")
-              sys.exit(1)
-          for f in files:
-              r = ET.parse(f).getroot()
-              for cls in r.iter('class'):
-                  fn = cls.attrib['filename'].replace("\\", "/")
-                  if "/obj/" in fn:
-                      continue
-                  # Coverlet can emit the same source both relative to `src/`
-                  # and as an absolute checkout path.  Collapse them before
-                  # aggregating so one file is not counted twice.
-                  marker = "/src/"
-                  if marker in fn:
-                      fn = fn.split(marker, 1)[1]
-                  for line in cls.iter('line'):
-                      key = (fn, int(line.attrib['number']))
-                      hits[key] = hits[key] or int(line.attrib['hits']) > 0
-          total = len(hits)
-          cov = sum(1 for v in hits.values() if v)
-          rate = (cov / total * 100) if total > 0 else 0
-          print(f"Overall Solution Line Coverage: {rate:.2f}% ({cov}/{total} lines)")
-          if rate < 60.0:
-              print(f"::error::Coverage {rate:.2f}% is below required threshold of 60.0%!")
-              sys.exit(1)
-          EOF
+      - name: Validate .NET unit coverage (60% measured suite floor)
+        id: unit-coverage
+        run: python3 scripts/coverage_manifest.py --input TestResults/dotnet-unit --output TestResults/validated-unit --expect 5 --minimum 60 --github-output "$GITHUB_OUTPUT"
+
       - name: Upload test results
         if: ${{ always() && env.ACT != 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results
-          path: "**/TestResults/*.trx"
+          path: TestResults/dotnet-unit/*.trx
 
       - name: Upload coverage
         if: ${{ always() && env.ACT != 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
-          path: "**/coverage.cobertura.xml"
+          path: TestResults/validated-unit/
+
+      - name: Convert TRX to JUnit XML for Test Analytics
+        if: ${{ !cancelled() }}
+        run: python3 scripts/trx_to_junit.py --input-glob "TestResults/dotnet-unit/*.trx" --output "TestResults/junit-dotnet-unit.xml"
+
+      - name: Upload .NET unit coverage to Codecov
+        if: ${{ success() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: ${{ steps.unit-coverage.outputs.files }}
+          disable_search: true
+          flags: dotnet-unit
+          use_oidc: true
+          fail_ci_if_error: false
+
+      - name: Upload .NET unit test results to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: TestResults/junit-dotnet-unit.xml
+          report_type: test_results
+          flags: dotnet-unit
+          use_oidc: true
+          fail_ci_if_error: false
 
   # Real-database integration tests (Testcontainers: Oracle, SQL Server, PostgreSQL, MySQL). The two env
   # vars make a fixture whose container cannot start fail instead of skip, so this job cannot go green
@@ -156,6 +172,9 @@ jobs:
     name: Live DB Integration
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
     env:
       DATAGUARD_REQUIRE_LIVE_RELATIONAL: "1"
       DATAGUARD_REQUIRE_LIVE_SQLSERVER: "1"
@@ -185,15 +204,50 @@ jobs:
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
       - name: Run live database tests
-        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category=LiveDb" --logger "trx;LogFileName=live_db_results.trx"
+        run: dotnet test ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-build --filter "Category=LiveDb" --collect:"XPlat Code Coverage" --results-directory TestResults/live-db --logger trx
+
+      - name: Validate live DB coverage
+        id: live-coverage
+        run: python3 scripts/coverage_manifest.py --input TestResults/live-db --output TestResults/validated-live --expect 5 --github-output "$GITHUB_OUTPUT"
+
+      - name: Preserve live DB coverage evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-live-db
+          path: TestResults/validated-live/
+          if-no-files-found: error
 
       - name: Upload live DB test results
         if: ${{ always() && env.ACT != 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: live-db-test-results
-          path: "**/TestResults/live_db_results.trx"
+          path: "TestResults/live-db/*.trx"
           if-no-files-found: ignore
+
+      - name: Convert live DB TRX to JUnit XML for Test Analytics
+        if: ${{ !cancelled() }}
+        run: python3 scripts/trx_to_junit.py --input-glob "TestResults/live-db/*.trx" --output "TestResults/junit-live-db.xml"
+
+      - name: Upload live DB coverage to Codecov
+        if: ${{ success() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: ${{ steps.live-coverage.outputs.files }}
+          disable_search: true
+          flags: live-db
+          use_oidc: true
+          fail_ci_if_error: false
+
+      - name: Upload live DB test results to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: TestResults/junit-live-db.xml
+          report_type: test_results
+          flags: live-db
+          use_oidc: true
+          fail_ci_if_error: false
 
   # TypeScript unit tests of the VS Code extension plus a production-dependency audit. No .NET here:
   # `npm test` compiles and runs node --test; prepare-lsp (dotnet publish) is a packaging step only.
@@ -201,6 +255,9 @@ jobs:
     name: VS Code Extension Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: src/DataGuard.VSCode
@@ -209,7 +266,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -219,7 +276,37 @@ jobs:
         run: npm ci
 
       - name: Unit tests
-        run: npm test
+        run: npm run test:coverage
+
+      - name: Preserve VS Code coverage evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-vscode
+          path: |
+            src/DataGuard.VSCode/coverage/lcov.info
+            src/DataGuard.VSCode/coverage/manifest.json
+            src/DataGuard.VSCode/coverage/coverage-summary.json
+          if-no-files-found: error
+
+      - name: Upload VS Code extension coverage to Codecov
+        if: ${{ success() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: src/DataGuard.VSCode/coverage/lcov.info
+          disable_search: true
+          flags: vscode-ext
+          use_oidc: true
+          fail_ci_if_error: false
+
+      - name: Upload VS Code extension test results to Codecov
+        if: ${{ !cancelled() && env.ACT != 'true' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: src/DataGuard.VSCode/coverage/junit.xml
+          report_type: test_results
+          flags: vscode-ext
+          use_oidc: true
+          fail_ci_if_error: false
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
@@ -250,9 +337,48 @@ jobs:
             echo "::endgroup::"
           done
 
+  windows-junction-tests:
+    name: Windows Junction Write-Path Tests
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore Core tests
+        run: dotnet restore tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj --locked-mode
+
+      - name: Run Windows junction tests
+        run: dotnet test tests/DataGuard.Core.Tests/DataGuard.Core.Tests.csproj --configuration Release --no-restore --filter "FullyQualifiedName~DataGuard.Core.Tests.IdeSafeWritePathEndToEndTests" --results-directory TestResults/windows-junction --logger "trx;LogFileName=junction.trx"
+
+      - name: Require seven executed passes and zero skips
+        if: ${{ !cancelled() }}
+        run: python scripts/assert_windows_junction_tests.py --trx TestResults/windows-junction/junction.trx
+
+      - name: Preserve junction test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-junction-test-results
+          path: TestResults/windows-junction/*.trx
+          if-no-files-found: error
+
   visual-studio-build-and-test:
     name: Visual Studio Build and Test
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -268,7 +394,44 @@ jobs:
         run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
 
       - name: Run Visual Studio tests
-        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore --collect:"XPlat Code Coverage" --results-directory TestResults/visual-studio --diag TestResults/visual-studio/vstest.log
+
+      - name: Preserve Windows collector diagnostics
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults/visual-studio -Filter '*.log' -Recurse | ForEach-Object {
+            Select-String -Path $_.FullName -Pattern '\[coverlet\].*(Unable|instrument|exclude|source|pdb|module)' | Select-Object -Last 40 | ForEach-Object { $_.Line }
+          }
+
+      - name: Preserve raw Windows collector results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-visual-studio-raw
+          path: TestResults/visual-studio/
+          if-no-files-found: error
+
+      - name: Validate Windows coverage
+        id: windows-coverage
+        shell: bash
+        run: python scripts/coverage_manifest.py --input TestResults/visual-studio --output TestResults/validated-windows --expect 1 --github-output "$GITHUB_OUTPUT"
+
+      - name: Preserve Windows coverage evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-visual-studio
+          path: TestResults/validated-windows/
+          if-no-files-found: error
+
+      - name: Upload Windows coverage to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: ${{ steps.windows-coverage.outputs.files }}
+          disable_search: true
+          flags: visual-studio
+          use_oidc: true
+          fail_ci_if_error: false
 
   # The test job above compiles the package with CreateVsixContainer=false, so CreatePkgDef
   # reflection failures (TypeLoadException on exotic BCL/Interop types) never surface there.
@@ -314,11 +477,26 @@ jobs:
           & ./scripts/assert-vsix.ps1 -VsixPath $vsix.FullName -ExpectedVersion $sourceVersion
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # VsixAnalyzerPackagingTests return silently when no VSIX exists (local runs, the test job's
+      # CreateVsixContainer=false build). Here one was just packaged, so DATAGUARD_VSIX_EXPECTED=1 turns a
+      # missing container into a failure and the tests assert the four analyzer assemblies
+      # (Analyzers, CodeFixes, Contracts, SqlClassification) and their manifest assets (decision Q2a).
+      # Build the test reference normally: BuildingForTesting uses isolated obj/ and bin/ paths,
+      # so its DLL must be compiled separately from the packaging build. Its incremental clean
+      # cannot remove the packaged VSIX, which the artifact tests still require below.
+      - name: Restore Visual Studio tests
+        run: dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
+
+      - name: Run Visual Studio tests against the packaged VSIX
+        env:
+          DATAGUARD_VSIX_EXPECTED: "1"
+        run: dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
+
       # Fork PRs build the VSIX (the gate above still runs) but never publish it: an unsigned
       # installable built from untrusted code must not be hosted under this repository.
       - name: Upload VSIX artifact
         if: ${{ env.ACT != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataguard-visualstudio-vsix-ci-${{ github.sha }}
           path: src/DataGuard.VisualStudio/bin/Release/**/*.vsix
@@ -345,7 +523,7 @@ jobs:
           '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
 
       - name: Check for secrets with TruffleHog (commit range + working tree, fail on verified)
-        uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
+        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
         with:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -392,13 +570,13 @@ jobs:
           sbom-tool generate \
             -b "$(pwd)/src" \
             -bc "$(pwd)/src" \
-            -pn "DataGuard" \
+            -pn "StackAccord" \
             -pv "0.1.0-ci" \
             -ps "$(pwd)/artifacts" \
             -m "$(pwd)/sbom"
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom
           path: ./sbom/**/*
@@ -441,7 +619,7 @@ jobs:
 
       - name: Upload benchmark artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmark-artifacts
           path: tools/benchmarks/DataGuard.Benchmarks/BenchmarkDotNet.Artifacts/**
@@ -487,7 +665,7 @@ jobs:
           fetch-depth: 0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: csharp
           config-file: ./.github/codeql-config.yml
@@ -504,6 +682,6 @@ jobs:
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: "/language:csharp"

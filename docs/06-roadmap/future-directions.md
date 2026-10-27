@@ -1,5 +1,8 @@
 # Future Directions & Roadmap
 
+> Historical planning snapshot — 2026-10-18: version labels, counts and forecasts below are not the current release inventory. Preserve this roadmap as context; use the [source map](../product/source-map.md) and [draft strategy index](../product/README.md) for reconciliation.
+
+
 ## Current State (v0.1.x)
 
 - ✅ 16+ validation rules (DG001-DG016, MY001-003, PG001-003)
@@ -108,7 +111,7 @@
 
 ### .NET Platform
 
-| Technology | Status | DataGuard Impact |
+| Technology | Status | StackAccord Impact |
 |------------|--------|------------------|
 | .NET 10 Preview | Active | Monitor EF Core 10 changes |
 | C# 14 | Preview | Pattern matching enhancements |
@@ -117,7 +120,7 @@
 
 ### Database Platforms
 
-| Platform | Version | DataGuard Impact |
+| Platform | Version | StackAccord Impact |
 |----------|---------|------------------|
 | Oracle 23c | GA | JSON-Relational duality views |
 | SQL Server 2025 | Preview | JSON support enhancements |
@@ -126,11 +129,11 @@
 
 ### Competitor Landscape
 
-| Tool | Focus | DataGuard Differentiator |
+| Tool | Focus | StackAccord Differentiator |
 |------|-------|-------------------------|
-| dbt | Data engineering contracts | DataGuard targets .NET SP/SQL, not ELT |
-| SQLFluff | SQL linting | DataGuard validates entity↔SP contract |
-| sqlcheck | SQL anti-patterns | DataGuard has ground-truth validation |
+| dbt | Data engineering contracts | StackAccord targets .NET SP/SQL, not ELT |
+| SQLFluff | SQL linting | StackAccord validates entity↔SP contract |
+| sqlcheck | SQL anti-patterns | StackAccord has ground-truth validation |
 | EF Core | ORM | EF Core declined SP contract validation (issue #245) |
 
 ## Contributing to the Roadmap

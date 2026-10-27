@@ -16,10 +16,8 @@ internal static class CliProcessTestRunner
     /// <summary>Repository root: the nearest ancestor of the test output directory that contains DataGuard.sln.</summary>
     internal static string RepoRoot { get; } = FindRepoRoot();
 
-    /// <summary>The CLI assembly built in the same configuration (Debug/Release) as the running tests.</summary>
-    internal static string CliDllPath { get; } = Path.Combine(
-        RepoRoot, "src", "DataGuard.Cli", "bin",
-        new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug", "net9.0", "DataGuard.Cli.dll");
+    /// <summary>The referenced CLI copy is instrumented by the test collector, including child execution.</summary>
+    internal static string CliDllPath { get; } = Path.Combine(AppContext.BaseDirectory, "DataGuard.Cli.dll");
 
     /// <summary>Runs the CLI with <paramref name="args"/> and returns its exit code and split output streams.</summary>
     /// <param name="workingDirectory">Child working directory; null inherits the test host's.</param>

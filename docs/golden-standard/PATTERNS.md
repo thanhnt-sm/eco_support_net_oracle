@@ -1,6 +1,6 @@
 # Golden Standard — Patterns đáng giá
 
-> **Mục đích**: document hóa các kỹ thuật đã được chứng minh trong workspace DataGuard để tái sử dụng cho sản phẩm khác. Mỗi pattern: vấn đề → cách làm → verify.
+> **Mục đích**: document hóa các kỹ thuật đã được chứng minh trong workspace StackAccord để tái sử dụng cho sản phẩm khác. Mỗi pattern: vấn đề → cách làm → verify.
 
 ## 1. SHA-pinned actions
 
@@ -77,7 +77,7 @@ Fallback `NUGET_API_KEY` cho trường hợp OIDC chưa bật.
 **Cách làm**:
 - Default `Enabled=false`, `ExportEndpoint=null` — không tạo HttpClient khi disabled (test chốt).
 - Khi bật explicit: allowlist scheme+host (HTTPS, loopback), reject plain HTTP remote/invalid URI.
-- Circuit breaker: sau N lỗi export liên tiếp (DataGuard dùng 3) ngừng export, reset khi thành công — tránh retry storm.
+- Circuit breaker: sau N lỗi export liên tiếp (StackAccord dùng 3) ngừng export, reset khi thành công — tránh retry storm.
 
 **Verify**: unit test "zero HttpClient when disabled", "allowlist accepts/rejects", "circuit breaker stops/resets".
 

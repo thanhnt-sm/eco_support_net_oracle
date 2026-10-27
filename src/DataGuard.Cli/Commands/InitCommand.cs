@@ -19,7 +19,7 @@ internal static class InitCommand
         initProviderOption.DefaultValueFactory = (_) => "sqlserver";
         var initWizardOption = new Option<bool>("--wizard");
         initWizardOption.Description = "Run the interactive setup wizard";
-        var initCommand = new Command("init", "Initialize DataGuard configuration")
+        var initCommand = new Command("init", "Initialize StackAccord configuration")
         {
             initOutputOption, initProviderOption, initWizardOption,
         };
@@ -32,6 +32,13 @@ internal static class InitCommand
                 {
                     return;
                 }
+                if (File.Exists(output))
+                {
+                    Console.Error.WriteLine("Configuration already exists; edit it in place to preserve comments, or choose a new --output path.");
+                    Environment.ExitCode = 2;
+                    return;
+                }
+
                 if (result.GetValue(initWizardOption))
                 {
                     var configPath = Path.GetFullPath(output!);

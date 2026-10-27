@@ -13,8 +13,8 @@ graph TB
     end
 
     subgraph "PostgreSQL Catalog"
-        R[(information_schema.routines)]
-        P[(information_schema.parameters)]
+        R[(pg_proc + pg_namespace)]
+        P[(pg_type)]
     end
 
     subgraph "Rules Engine"
@@ -33,58 +33,60 @@ graph TB
 
 ## File nguồn
 
-| File | Dòng | Mục đích |
-|------|------|----------|
-| `PostgreSqlStoredProcedureParser.cs` | ~90 | Triển khai IContractSource cho PostgreSQL SP |
-| `PostgreSqlDialectChecker.cs` | ~90 | Phát hiện phương ngữ + rules PG001/PG002 |
-| `PostgreSqlLengthMismatchDetector.cs` | ~60 | Phát hiện sai lệch độ dài + rule PG003 |
+| File | Mục đích |
+|------|----------|
+| `PostgreSqlStoredProcedureParser.cs` | Triển khai IContractSource cho PostgreSQL SP |
+| `PostgreSqlDialectChecker.cs` | Phát hiện phương ngữ + rules PG001/PG002 |
+| `PostgreSqlLengthMismatchDetector.cs` | Phát hiện sai lệch độ dài + rule PG003 |
 
 ## Phụ thuộc
 
 ```xml
-<PackageReference Include="Npgsql" Version="9.0.3" />
+<PackageReference Include="Npgsql" Version="10.0.3" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
 ```
 
 ## PostgreSqlStoredProcedureParser
 
-Triển khai `IContractSource` để trích xuất contract stored procedure từ `information_schema` của PostgreSQL.
+Triển khai `IContractSource`, đọc function và procedure từ `pg_proc` + `pg_type`, cùng bảng, view và materialized view cho các rule độ dài.
 
 ### Mẫu truy vấn
 
 ```sql
-SELECT r.routine_name, p.parameter_name, p.data_type, p.parameter_mode,
-       p.ordinal_position, p.character_maximum_length, p.numeric_precision,
-       p.numeric_scale, r.specific_name
-FROM information_schema.routines r
-LEFT JOIN information_schema.parameters p
-  ON r.specific_schema = p.specific_schema AND r.specific_name = p.specific_name
-WHERE r.routine_type = 'PROCEDURE' AND r.routine_schema = @schema
-ORDER BY r.routine_name, p.ordinal_position
+SELECT p.proname, n.nspname, p.proargnames, p.proargtypes, p.proallargtypes, p.proargmodes,
+       p.prorettype, p.oid, p.prokind, p.pronargs, p.pronargdefaults, p.proretset
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = @schema AND p.prokind IN ('f', 'p')
 ```
+
+Cột bảng lấy từ `information_schema.columns`; cột materialized view lấy từ `pg_matviews` và `pg_attribute`. Khóa bảng giữ nguyên tên catalog, so sánh ordinal; `DatabaseTableDescriptor.Schema` được gán.
 
 ### Quyết định thiết kế chính
 
-- **Schema mặc định**: Mặc định là `"public"` (quy ước PostgreSQL) thay vì chuỗi rỗng.
-- **Xử lý overload**: PostgreSQL hỗ trợ overload function qua `specific_name` (duy nhất cho mỗi overload). Parser dùng `specific_name` làm khóa để tránh merge các overload cùng tên.
-- **Bỏ qua tham số NULL**: Khi `ordinal_position IS NULL` (dòng filler LEFT JOIN cho procedure không tham số), dòng bị bỏ qua.
-- **Không hỗ trợ package**: PostgreSQL không có package — `PackageName` luôn rỗng.
+- **Schema mặc định**: `"public"`.
+- **RETURNS TABLE**: đối số `proargmodes = 't'` trở thành `ResultColumns` (tên, `typname`), không phải parameter.
+- **Giá trị mặc định**: `pronargdefaults = N` đặt `HasDefault` cho N tham số input (`i`/`b`/`v`) cuối.
+- **Đối số không tên**: tên rỗng trở thành `p{i}` (đánh số từ 1).
+- **Kiểu trả về**: function có `ReturnType = typname(prorettype)`; `refcursor` đặt `ReturnsRefCursor`.
+- **Package**: `PackageName` luôn rỗng.
 
 ### Ánh xạ direction
 
-| PostgreSQL Mode | Direction DataGuard |
-|-----------------|---------------------|
-| `IN` | `Input` |
-| `OUT` | `Output` |
-| `INOUT` | `InputOutput` |
+| `proargmodes` | StackAccord |
+|---------------|-----------|
+| `i` | `Input` |
+| `o` | `Output` |
+| `b` | `InputOutput` |
+| `v` (VARIADIC) | `Input` |
+| `t` (TABLE) | cột kết quả |
 
 ### Định dạng Contract ID
 
 ```
-postgres:{schema}.{specific_name}
+postgres:{schema}.{name}({in-arg type names})
 ```
 
-`specific_name` được sử dụng thay vì `routine_name` để xử lý chính xác các function overloaded.
+Ví dụ `postgres:public.find_orders(int4,text)`. Chữ ký dùng `proargtypes` (IN, INOUT, VARIADIC) để phân biệt overload; khác OID, chữ ký ổn định qua dump/restore.
 
 ## PostgreSqlDialectChecker
 
@@ -150,6 +152,8 @@ foreach (var property in entity.Properties)
 
 Mỗi cấu trúc chỉ bị báo một lần. Các mẫu chuyên biệt (`TOP n`, `EXEC schema.proc`, `LIMIT offset, count`, `NVL(`, `DECODE(`, `ISNULL(`, `GETDATE()`, `IDENTITY(`) chạy trước và có `suggestion`; từ khóa đã được chúng báo thì danh sách từ khóa bỏ qua. Cú pháp của chính PostgreSQL không bị báo: `LIMIT n` thông thường, `GENERATED ... AS IDENTITY`, và `COALESCE` (ANSI SQL, không dialect checker nào coi là đặc thù Oracle).
 
+PG002 không còn coi tên `replace`, `format`, `to_char`, `to_date`, `to_number`, `regexp_replace`, `CUBE`, `ROLLUP`, `GROUPING SETS` vốn hợp lệ trong PostgreSQL là cú pháp ngoại. `REPLACE INTO`, `GETDATE`, `NVL` vẫn bị báo. Đây vẫn là heuristic: literal/comment, ngữ cảnh identifier và phiên bản còn cần xử lý; không có PG002 không chứng minh SQL đúng grammar PostgreSQL.
+
 ### PG003 — Độ dài entity vượt độ dài cột PostgreSQL
 
 | Thuộc tính | Giá trị |
@@ -174,11 +178,11 @@ Cả `postgresql` và `postgres` đều được chấp nhận làm tên provide
 
 ### Function vs Procedure
 
-PostgreSQL 11+ giới thiệu `PROCEDURE` như một đối tượng riêng biệt với `FUNCTION`. Parser lọc theo `routine_type = 'PROCEDURE'` để khớp mô hình contract DataGuard. Function có giá trị trả về chưa được hỗ trợ.
+PostgreSQL 11+ giới thiệu `PROCEDURE` như một đối tượng riêng biệt với `FUNCTION`. Parser đọc cả hai (`prokind IN ('f','p')`); function có `ReturnType`.
 
 ### Function overloaded
 
-PostgreSQL cho phép nhiều function cùng tên nhưng khác kiểu tham số (overloading). Cột `specific_name` trong `information_schema.routines` là duy nhất cho mỗi overload và được dùng làm khóa contract.
+PostgreSQL cho phép nhiều function cùng tên nhưng khác kiểu tham số (overloading). Chữ ký kiểu tham số IN trong contract Id phân biệt các overload.
 
 ### Qualification schema
 
@@ -186,7 +190,7 @@ PostgreSQL cho phép nhiều function cùng tên nhưng khác kiểu tham số (
 
 ### Hệ thống kiểu
 
-PostgreSQL có hệ thống kiểu phong phú bao gồm array, kiểu composite, và domain tùy chỉnh. Adapter hiện chỉ đọc `data_type` cơ bản từ `information_schema.parameters`, bao gồm các kiểu tiêu chuẩn nhưng có thể không biểu diễn đầy đủ các kiểu phức tạp.
+PostgreSQL có hệ thống kiểu phong phú bao gồm array, kiểu composite, và domain tùy chỉnh. Metadata routine dùng `pg_type.typname` tra theo OID kiểu từ catalog. Đây không phải xác thực ngữ nghĩa đầy đủ cho array, composite hay domain; ánh xạ kiểu chưa hỗ trợ vẫn là Unknown/unevaluated.
 
 ## Cập nhật catalog (Phase 3.3/3.7)
 
@@ -195,3 +199,7 @@ PostgreSQL có hệ thống kiểu phong phú bao gồm array, kiểu composite,
 - Materialized view được đọc qua `pg_matviews`. Khóa bảng giữ đúng tên catalog (so sánh Ordinal), và `DatabaseTableDescriptor.Schema` được gán.
 - PG003: mỗi property có tối đa một vi phạm. Không còn kiểm tra byte UTF-8, vì `varchar(n)` của PostgreSQL giới hạn theo ký tự. Tên cột được thử thêm dạng snake_case.
 
+
+ResultColumns của routine chỉ được suy ra từ metadata RETURNS TABLE, không từ việc phân tích thân function; OUT vẫn là parameter. Nullability tham số được đặt true vì pg_proc không cung cấp thông tin này. Path live raw SQL riêng không làm cho mọi routine có result shape đã xác thực.
+
+Nguồn triển khai được đối chiếu: [PostgreSqlStoredProcedureParser.cs](../../../src/DataGuard.PostgreSql.Adapter/PostgreSqlStoredProcedureParser.cs). Các giới hạn mô tả ở đây là hành vi hiện tại, không phải cam kết parity giữa provider hay bằng chứng kiểm thử cơ sở dữ liệu live.

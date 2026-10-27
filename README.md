@@ -1,14 +1,17 @@
-# DataGuard — Contract Validation for Entity ↔ Stored Procedure / Raw SQL
+> **Product identity:** [StackAccord](docs/product/strategy.md) is the product name. [DataGuard technical identifiers](docs/product/branding.md) remain stable for upgrades and compatibility. The [roadmap](docs/product/roadmap.md) and [Marketplace draft](docs/product/marketplace-copy.md) distinguish implementation, validation, release and plans. Review scope and unresolved verification are recorded in the [documentation inventory](docs/product/documentation-inventory.md); historical numbers are not current release evidence. Publication remains paused.
+
+# StackAccord — Contract Validation for Entity ↔ Stored Procedure / Raw SQL
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
-[![Build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions)
+[![Build](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions)
+[![codecov](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
 
-**DataGuard** detects drift between your .NET entities and the SQL they depend on — stored procedure parameters, result-set shapes, nullability, length semantics, and dialect mismatches — at design time and in CI.
+**StackAccord** detects drift between your .NET entities and the SQL they depend on — stored procedure parameters, result-set shapes, nullability, length semantics, and dialect mismatches — at design time and in CI.
 
-> **Why it exists:** EF Core has tracked the gap for stored-procedure contract validation since [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) and declined to build it. DataGuard ports the *model contracts* pattern that **dbt** proved out for data engineering (preflight column/parameter checks at compile time, since Core v1.5, 2023) to the .NET stored-procedure world.
+> **Why it exists:** EF Core has tracked the gap for stored-procedure contract validation since [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) and declined to build it. StackAccord ports the *model contracts* pattern that **dbt** proved out for data engineering (preflight column/parameter checks at compile time, since Core v1.5, 2023) to the .NET stored-procedure world.
 
 ## Quickstart
 
@@ -17,10 +20,13 @@
 # .sha256 file next to it (needs the .NET 9 runtime; DataGuard.Cli is not yet published on nuget.org):
 # https://github.com/thanhnt-sm/eco_support_net_oracle/releases
 cd YourProject
-dataguard init            # writes .dataguard.yml + .dataguard-snapshot.json
+dataguard init            # writes .dataguard.yml (snapshot refresh writes .dataguard-snapshot.json)
 dataguard validate        # runs contract rules against ground truth
 dataguard snapshot diff   # detects schema drift vs the committed snapshot
 ```
+
+[Configuration guide and commented Oracle examples](docs/guides/configuration.md)
+
 
 ## How it works — three ground-truth modes
 
@@ -160,29 +166,68 @@ CI note: `snapshot diff` reports drift with exit code `0` unless `--fail-on-drif
 
 - **Roslyn analyzers** (`DataGuard.Analyzers`): DG001 diagnostics with quick fixes (MaxLength, UseOracle, SkipContractCheck, naming) in any C# IDE.
 - **VS Code extension** (`DataGuard.VSCode`): trusted-workspace CLI runner with private SARIF diagnostics, cancellation and bounded output.
-- **Visual Studio 2022 extension** (`DataGuard.VisualStudio`): Tools → DataGuard commands over the bundled CLI, always run in `--ide-safe` mode with per-solution consent (keyed by the `.dataguard.yml` hash); SARIF results land in the Error List with line/column navigation. Packaged and content-checked on Windows CI.
+- **Visual Studio extension** (`DataGuard.VisualStudio`): **Tools → StackAccord (Beta)** runs the bundled CLI. Validation/assessment use `--ide-safe` with per-solution consent; live database commands require separate consent and target-host confirmation. SARIF findings appear in the Error List. The visible settings path is **Tools → Options → StackAccord**. The canonical Options/automation category remains `DataGuard`; technical IDs stay unchanged. Windows CI checks packaging; installed-editor acceptance remains separate. See the [Visual Studio guide](docs/03-components/tooling/visual-studio-extension.md).
 
 ## Documentation
 
-- [Solution overview](docs/SOLUTION.md) · [Product](docs/PRODUCT.md) · [Usage](docs/USAGE.md) · [Architecture](docs/architecture/system_architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
+- [Solution overview](docs/SOLUTION.md) · [Product](docs/01-overview/product-overview.md) · [Usage](docs/USAGE.md) · [Architecture](docs/02-architecture/system-architecture.md) · [Security](SECURITY.md) · [Marketplace publishing](docs/marketplace-publishing.md)
+
+## Test Coverage & Quality Telemetry
+
+Coverage uploads use validated, explicit report lists; automatic discovery is disabled.
+The local 60% floor is the union of measured .NET unit-suite lines, not all product code.
+`dotnet-unit` and `live-db` overlap and must not be added together. CLI/LSP subprocesses
+use collector-instrumented test output; `visual-studio` measures the real Windows suite.
+VS Code includes all production TypeScript modules, including unexecuted modules.
+Existing flags may carry historical results forward; a green build does not prove Codecov
+accepted this commit's upload. Branch totals are retained per report, not falsely summed
+across overlapping suites. See [scope, baseline and limitations](plans/2026-10-15-coverage-integrity.md).
+
+
+Continuous line, branch, and test-analytics telemetry is published to [Codecov](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) via OIDC (`codecov/codecov-action@v7.1.1`) and configured in [`.github/codecov.yml`](.github/codecov.yml).
+
+### Test Suite Flags
+
+| Flag | Test Suite Scope | Coverage |
+|---|---|---|
+| `dotnet-unit` | Cross-platform .NET 9 unit & contract tests (`DataGuard.CrossPlatform.slnf`) | [![dotnet-unit](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=dotnet-unit)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `live-db` | Testcontainers live database integration suites (Oracle, SQL Server, PostgreSQL, MySQL) | [![live-db](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=live-db)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `vscode-ext` | VS Code extension TypeScript & UI security unit tests (Node 22) | [![vscode-ext](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=vscode-ext)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+
+### Architectural Components
+
+| Component ID | Subsystem | Tracked Paths | Coverage |
+|---|---|---|---|
+| `core_engine` | Core Engine & Contracts | `src/DataGuard.Core/**`, `src/DataGuard.Contracts/**`, `src/DataGuard.SqlClassification/**` | [![core_engine](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=core_engine)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `db_adapters` | Database Adapters | `src/DataGuard.{Oracle,SqlServer,PostgreSql,MySql}.Adapter/**` | [![db_adapters](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=db_adapters)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `roslyn_analyzers` | Roslyn Analyzers & CodeFixes | `src/DataGuard.Analyzers/**`, `src/DataGuard.CodeFixes/**` | [![roslyn_analyzers](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=roslyn_analyzers)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `cli_and_host` | CLI, Host, Build & LSP | `src/DataGuard.{Cli,Host,Build,LanguageServer}/**` | [![cli_and_host](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=cli_and_host)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `observability` | Enterprise Observability | `src/DataGuard.Observability*/**` | [![observability](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=observability)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `ide_extensions` | VS Code & Visual Studio Extensions | `src/DataGuard.VSCode/**`, `src/DataGuard.VisualStudio/**` | [![ide_extensions](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=ide_extensions)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+
+### Coverage Architecture Graphs
+
+| Sunburst Hierarchy | File Coverage Grid |
+|---|---|
+| [![Codecov Sunburst](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/sunburst.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) | [![Codecov Grid](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/grid.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) |
 
 ## Dual licence & FAQ
 
-From **v0.4.0** DataGuard is offered under two licences:
+From **v0.4.0** StackAccord is offered under two licences:
 
 1. **GNU GPL version 3 only** (`GPL-3.0-only`, see [`LICENSE`](LICENSE)), plus an additional permission for
    the database drivers and IDE hosts it runs with ([`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md)).
-2. **A commercial licence** for companies that want to embed DataGuard in a closed-source product they distribute.
+2. **A commercial licence** for companies that want to embed StackAccord in a closed-source product they distribute.
    Contact `<contact email placeholder>`. Terms are agreed per licensee; there is no public price list or form.
 
 > **Legal status:** the additional-permission text and the commercial-licence terms have **not been reviewed by a
 > lawyer**. Nothing here is legal advice. If a licensing question matters to you, ask your own counsel.
 
-**Does GPL-3.0 stop companies from using DataGuard commercially?** No. GPL-3.0 allows commercial use, copying and
+**Does GPL-3.0 stop companies from using StackAccord commercially?** No. GPL-3.0 allows commercial use, copying and
 modification. Running `dataguard validate` in your CI, or using the analyzers while you build your own product, needs
 no commercial licence by itself.
 
-**When does the copyleft apply?** When you *distribute* a work based on DataGuard, for example by shipping DataGuard
+**When does the copyleft apply?** When you *distribute* a work based on StackAccord, for example by shipping StackAccord
 code or binaries inside your product. You then have to offer that work under GPL-3.0, or take the commercial licence
 instead. Using a tool internally does not distribute it.
 
@@ -192,10 +237,10 @@ and including v0.3.0 were published under the MIT licence and **stay MIT permane
 **Which parts are not GPL?**
 
 - `DataGuard.Contracts` is licensed under the MIT licence on purpose. It ends up inside your application and is read by
-  DataGuard through reflection, so it must not pull your code into the GPL.
+  StackAccord through reflection, so it must not pull your code into the GPL.
 - `Oracle.ManagedDataAccess.Core` and `Microsoft.Data.SqlClient.SNI.runtime` ship with the CLI, RID archives, container
   image and IDE extensions under their own vendor terms. Their licence texts are in
-  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), which travels with every DataGuard download.
+  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), which travels with every StackAccord download.
 
 **What does the analyzer package leave in my output?** `DataGuard.Analyzers` is a build-time development dependency:
 its analyzer assemblies load inside the compiler from `analyzers/dotnet/cs`, and the package has no `lib/` assets, so

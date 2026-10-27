@@ -1,6 +1,6 @@
 # Roslyn Analyzers
 
-DataGuard's analyzer package is a **syntax-only IDE layer**: an incremental generator (DG001) and a syntax-node
+StackAccord's analyzer package is a **syntax-only IDE layer**: an incremental generator (DG001) and a syntax-node
 `DiagnosticAnalyzer` (literal-SQL heuristics). Neither binds symbols, opens a database, or does file/network IO.
 Checks that need database ground truth (DG002-DG020, DG101) run only in the CLI (`dataguard validate`); their
 descriptors are advertised by the analyzer so `.editorconfig` severities and code fixes bind to the same IDs.

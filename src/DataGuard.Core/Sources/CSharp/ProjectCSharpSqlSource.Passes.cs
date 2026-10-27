@@ -2,6 +2,7 @@ using DataGuard.Core.Abstractions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace DataGuard.Core.Sources;
 
@@ -143,14 +144,14 @@ public sealed partial class ProjectCSharpSqlSource
             return candidates;
         }
 
-        /// <summary>Unreferenced SQL constants/static readonly fields whose text no call site has used.</summary>
+        /// <summary>Unreferenced SQL const fields whose text no call site has used.</summary>
         public IReadOnlyList<SqlCandidate> ScanUnreferencedConstants()
         {
             var candidates = new List<SqlCandidate>();
             foreach (var field in _root.DescendantNodes().OfType<FieldDeclarationSyntax>())
             {
                 _ct.ThrowIfCancellationRequested();
-                if (!field.Modifiers.Any(m => m.IsKind(SyntaxKind.ConstKeyword) || m.IsKind(SyntaxKind.ReadOnlyKeyword)))
+                if (!field.Modifiers.Any(m => m.IsKind(SyntaxKind.ConstKeyword)))
                 {
                     continue;
                 }
@@ -178,6 +179,7 @@ public sealed partial class ProjectCSharpSqlSource
                     {
                         SqlText = sqlText,
                         Location = variable.GetLocation(),
+                        SqlExpression = variable.Initializer.Value,
                         AnchorNode = variable,
                         Model = _model,
                     });
@@ -188,17 +190,90 @@ public sealed partial class ProjectCSharpSqlSource
         }
 
         /// <summary>Resolves SQL text; a literal over the size cap is reported once and treated as absent.</summary>
-        private string? ResolveSql(ExpressionSyntax expression, Location location, List<SqlHole>? holes)
+        private string? ResolveSql(ExpressionSyntax expression, Location location, List<SqlHole>? holes, bool sqlSlot = false)
         {
-            var text = TryResolveSql(expression, _model, holes, _ct);
-            if (text is not null && text.Length > MaxSqlLiteralLength)
+            var result = ResolveArgument(expression, location, holes);
+            if (result.IsRejected && (sqlSlot || result.SqlEvidence))
             {
-                _run.ReportOversized(location, text.Length);
-                return null;
+                ReportRejected(expression, result.Rejection);
+            }
+            else if (sqlSlot && result.Text is null && !result.Oversized)
+            {
+                ReportUnresolved(expression);
             }
 
-            return text;
+            return result.Text;
         }
+
+        private SqlStringResolution ResolveArgument(ExpressionSyntax expression, Location location, List<SqlHole>? holes)
+        {
+            var result = ResolveSqlValue(expression, _model, holes, _ct, _run.LocalValues);
+            if (result.Text is { Length: > MaxSqlLiteralLength } text)
+            {
+                _run.ReportOversized(location, text.Length);
+                return result with { Text = null, Oversized = true };
+            }
+
+            return result;
+        }
+
+        private readonly record struct SqlArgumentSelection(int Index, bool Unsupported = false);
+
+        private SqlArgumentSelection FindSqlArgument(InvocationExpressionSyntax invocation)
+        {
+            // This refines the existing method-name discovery heuristic; it does not prove arbitrary API identity.
+            if (_model.GetOperation(invocation, _ct) is IInvocationOperation operation)
+            {
+                var parameters = operation.TargetMethod.Parameters.Where(p => IsSqlParameter(p.Name) && (p.Type.SpecialType == SpecialType.System_String || p.Type.ToDisplayString() == "System.FormattableString")).ToArray();
+                if (parameters.Length > 1)
+                {
+                    return new(-1, true);
+                }
+
+                if (parameters.Length == 1)
+                {
+                    foreach (var argument in operation.Arguments)
+                    {
+                        if (argument.ArgumentKind != ArgumentKind.Explicit || !SymbolEqualityComparer.Default.Equals(argument.Parameter, parameters[0]))
+                        {
+                            continue;
+                        }
+
+                        for (var i = 0; i < invocation.ArgumentList.Arguments.Count; i++)
+                        {
+                            if (invocation.ArgumentList.Arguments[i].Span.Contains(argument.Syntax.Span))
+                            {
+                                return new(i);
+                            }
+                        }
+                    }
+
+                    // A known implicit/default slot cannot fall through to an unrelated explicit string.
+                    return new(-1, true);
+                }
+
+                return new(-1);
+            }
+
+            // Named SQL slots remain identifiable with absent references. Multiple roles are unsupported.
+            var named = -1;
+            for (var i = 0; i < invocation.ArgumentList.Arguments.Count; i++)
+            {
+                if (invocation.ArgumentList.Arguments[i].NameColon?.Name.Identifier.ValueText is { } name && IsSqlParameter(name))
+                {
+                    if (named >= 0)
+                    {
+                        return new(-1, true);
+                    }
+
+                    named = i;
+                }
+            }
+
+            return new(named);
+        }
+
+        private static bool IsSqlParameter(string name) => name is "sql" or "commandText" or "query";
 
         private string? ProviderHintOf(ExpressionSyntax? receiver)
         {
@@ -228,6 +303,14 @@ public sealed partial class ProjectCSharpSqlSource
                 }
 
                 var args = invocation.ArgumentList.Arguments;
+                var selection = FindSqlArgument(invocation);
+                if (selection.Unsupported)
+                {
+                    ReportUnresolved(invocation);
+                    continue;
+                }
+
+                var sqlRoleIndex = selection.Index;
                 var isStoredProcedure = args.Any(IsStoredProcedureCommandTypeArgument);
                 var holes = new List<SqlHole>();
                 string sqlText;
@@ -238,23 +321,45 @@ public sealed partial class ProjectCSharpSqlSource
                     // commandType: CommandType.StoredProcedure (named or positional): the first string argument is the
                     // procedure name, which is intentionally not statement-shaped.
                     string? name = null;
+                    var rejection = SqlValueRejection.None;
+                    var sqlEvidence = false;
+                    var oversized = false;
                     for (var i = 0; i < args.Count; i++)
                     {
+                        if (sqlRoleIndex >= 0 && sqlRoleIndex != i)
+                        {
+                            continue;
+                        }
+
                         if (args[i].NameColon?.Name.Identifier.ValueText == "commandType" || IsStoredProcedureCommandTypeArgument(args[i]))
                         {
                             continue;
                         }
 
-                        name = ResolveSql(args[i].Expression, invocation.GetLocation(), null);
-                        if (!string.IsNullOrWhiteSpace(name))
+                        var result = ResolveArgument(args[i].Expression, invocation.GetLocation(), null);
+                        rejection = MergeRejection(rejection, result.Rejection);
+                        sqlEvidence |= result.SqlEvidence;
+                        oversized |= result.Oversized;
+                        if (name is null && !string.IsNullOrWhiteSpace(result.Text))
                         {
+                            name = result.Text;
                             sqlArgIndex = i;
-                            break;
                         }
+                    }
+
+                    if (rejection != SqlValueRejection.None && (sqlRoleIndex >= 0 || sqlEvidence || name is not null))
+                    {
+                        ReportRejected(invocation, rejection);
+                        continue;
                     }
 
                     if (name is null || !IsProcedureName(name))
                     {
+                        if (sqlRoleIndex >= 0 && name is null && !oversized)
+                        {
+                            ReportUnresolved(invocation);
+                        }
+
                         continue;
                     }
 
@@ -265,21 +370,42 @@ public sealed partial class ProjectCSharpSqlSource
                 {
                     var isEf = IsEfSqlMethod(methodName);
                     sqlText = string.Empty;
+                    var rejection = SqlValueRejection.None;
+                    var sqlEvidence = false;
+                    var oversized = false;
                     for (var i = 0; i < args.Count; i++)
                     {
-                        var argHoles = new List<SqlHole>();
-                        var resolved = ResolveSql(args[i].Expression, invocation.GetLocation(), argHoles);
-                        if (!string.IsNullOrWhiteSpace(resolved) && (isEf || IsSqlString(resolved)))
+                        if (sqlRoleIndex >= 0 && sqlRoleIndex != i)
                         {
-                            sqlText = resolved;
+                            continue;
+                        }
+
+                        var argHoles = new List<SqlHole>();
+                        var result = ResolveArgument(args[i].Expression, invocation.GetLocation(), argHoles);
+                        rejection = MergeRejection(rejection, result.Rejection);
+                        sqlEvidence |= result.SqlEvidence;
+                        oversized |= result.Oversized;
+                        if (sqlArgIndex < 0 && !string.IsNullOrWhiteSpace(result.Text) && (isEf || IsSqlString(result.Text)))
+                        {
+                            sqlText = result.Text;
                             sqlArgIndex = i;
                             holes = argHoles;
-                            break;
                         }
+                    }
+
+                    if (rejection != SqlValueRejection.None && (sqlRoleIndex >= 0 || sqlEvidence || sqlArgIndex >= 0))
+                    {
+                        ReportRejected(invocation, rejection);
+                        continue;
                     }
 
                     if (string.IsNullOrWhiteSpace(sqlText))
                     {
+                        if (sqlRoleIndex >= 0 && !oversized)
+                        {
+                            ReportUnresolved(invocation);
+                        }
+
                         continue;
                     }
                 }
@@ -321,6 +447,7 @@ public sealed partial class ProjectCSharpSqlSource
                 {
                     SqlText = sqlText,
                     Location = invocation.GetLocation(),
+                    SqlExpression = !isStoredProcedure && sqlArgIndex >= 0 ? args[sqlArgIndex].Expression : null,
                     AnchorNode = invocation,
                     Model = _model,
                     SourceKey = invocation.Span,
@@ -333,6 +460,39 @@ public sealed partial class ProjectCSharpSqlSource
                     ArgumentsKnown = argumentsKnown,
                 });
             }
+        }
+
+        private void ReportRejected(SyntaxNode node, SqlValueRejection rejection)
+        {
+            if (HasSkipContractCheck(node, _model, _ct))
+            {
+                _run.ReportSkipped(node.GetLocation());
+                return;
+            }
+
+            if (rejection == SqlValueRejection.UnstableLocal)
+            {
+                _run.ReportUnstableSql(node.GetLocation());
+            }
+            else
+            {
+                _run.ReportUnknownMemberSql(node.GetLocation());
+            }
+        }
+
+        private static SqlValueRejection MergeRejection(SqlValueRejection current, SqlValueRejection incoming) =>
+            current == SqlValueRejection.UnstableLocal || incoming == SqlValueRejection.UnstableLocal
+                ? SqlValueRejection.UnstableLocal : current != SqlValueRejection.None ? current : incoming;
+
+        private void ReportUnresolved(SyntaxNode node)
+        {
+            if (HasSkipContractCheck(node, _model, _ct))
+            {
+                _run.ReportSkipped(node.GetLocation());
+                return;
+            }
+
+            _run.ReportUnresolvedSql(node.GetLocation());
         }
 
         // null/default or an anonymous object without members: Dapper sends no parameters, and that is visible.
@@ -368,7 +528,7 @@ public sealed partial class ProjectCSharpSqlSource
                 }
 
                 var holes = new List<SqlHole>();
-                var sqlText = ResolveSql(assignment.Right, assignment.GetLocation(), holes);
+                var sqlText = ResolveSql(assignment.Right, assignment.GetLocation(), holes, sqlSlot: IsKnownCommandTextAssignment(assignment, _model, _ct));
                 if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
                 {
                     continue;
@@ -388,6 +548,7 @@ public sealed partial class ProjectCSharpSqlSource
                 {
                     SqlText = sqlText,
                     Location = assignment.GetLocation(),
+                    SqlExpression = assignment.Right,
                     AnchorNode = assignment,
                     Model = _model,
                     SourceKey = assignment.Span,
@@ -428,7 +589,7 @@ public sealed partial class ProjectCSharpSqlSource
                     continue;
                 }
 
-                var procedureName = ResolveSql(chosen.Value, chosen.Node.GetLocation(), null)?.Trim();
+                var procedureName = ResolveSql(chosen.Value, chosen.Node.GetLocation(), null, sqlSlot: IsKnownCommandTextAssignment(assignment, _model, _ct) || IsKnownCommandTypeAssignment(assignment, _model, _ct))?.Trim();
                 if (string.IsNullOrWhiteSpace(procedureName) || !IsProcedureName(procedureName))
                 {
                     continue;
@@ -466,14 +627,27 @@ public sealed partial class ProjectCSharpSqlSource
             {
                 _ct.ThrowIfCancellationRequested();
                 var typeName = GetCreatedTypeName(creation, _model, _ct);
-                if (typeName is null || !typeName.EndsWith("Command", StringComparison.OrdinalIgnoreCase) ||
-                    creation.ArgumentList is not { Arguments.Count: > 0 } argumentList)
+                if (creation.ArgumentList is not { Arguments.Count: > 0 } ||
+                    !(typeName?.EndsWith("Command", StringComparison.OrdinalIgnoreCase) == true ||
+                      IsCommandTextCarrier(_model.GetTypeInfo(creation, _ct).Type)))
+                {
+                    continue;
+                }
+
+                var selection = FindCommandSqlArgument(creation, _model, _ct);
+                if (selection.Unsupported)
+                {
+                    ReportUnresolved(creation);
+                    continue;
+                }
+
+                if (selection.Argument is not { } sqlArgument)
                 {
                     continue;
                 }
 
                 var holes = new List<SqlHole>();
-                var sqlText = ResolveSql(argumentList.Arguments[0].Expression, creation.GetLocation(), holes);
+                var sqlText = ResolveSql(sqlArgument.Expression, creation.GetLocation(), holes, sqlSlot: selection.KnownSlot);
                 if (string.IsNullOrWhiteSpace(sqlText) || !IsSqlString(sqlText))
                 {
                     continue;
@@ -638,15 +812,20 @@ public sealed partial class ProjectCSharpSqlSource
             foreach (var creation in creations)
             {
                 var typeName = GetCreatedTypeName(creation, _model, _ct);
-                if (typeName is null || !typeName.EndsWith("Command", StringComparison.OrdinalIgnoreCase))
+                if (!(typeName?.EndsWith("Command", StringComparison.OrdinalIgnoreCase) == true ||
+                      IsCommandTextCarrier(_model.GetTypeInfo(creation, _ct).Type)))
                 {
                     continue;
                 }
 
                 var hint = InferProviderHint(typeName);
-                if (creation.ArgumentList is { Arguments.Count: > 0 } ctorArgs)
+                if (creation.ArgumentList is { Arguments.Count: > 0 })
                 {
-                    sources.Add((creation.SpanStart, creation, ctorArgs.Arguments[0].Expression, hint));
+                    var selection = FindCommandSqlArgument(creation, _model, _ct);
+                    if (selection.Argument is { } sqlArgument)
+                    {
+                        sources.Add((creation.SpanStart, creation, sqlArgument.Expression, hint));
+                    }
                 }
 
                 if (creation.Initializer is { } initializer)

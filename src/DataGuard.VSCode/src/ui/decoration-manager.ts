@@ -54,7 +54,8 @@ export class DataGuardDecorationManager {
             const startLine = Math.max(0, finding.startLine - 1);
             const startCol = Math.max(0, finding.startColumn - 1);
             const endLine = Math.max(startLine, finding.endLine - 1);
-            const endCol = Math.max(startCol, finding.endColumn - 1);
+            // Columns on different lines are independent; only same-line spans need ordering.
+            const endCol = Math.max(endLine === startLine ? startCol : 0, finding.endColumn - 1);
             const range = new vscode.Range(startLine, startCol, endLine, endCol);
 
             if (finding.severity === "error") {

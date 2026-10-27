@@ -13,8 +13,8 @@ graph TB
     end
 
     subgraph "PostgreSQL Catalog"
-        R[(information_schema.routines)]
-        P[(information_schema.parameters)]
+        R[(pg_proc + pg_namespace)]
+        P[(pg_type)]
     end
 
     subgraph "Rules Engine"
@@ -33,16 +33,16 @@ graph TB
 
 ## Source Files
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `PostgreSqlStoredProcedureParser.cs` | ~90 | IContractSource implementation for PostgreSQL SPs |
-| `PostgreSqlDialectChecker.cs` | ~90 | Dialect detection + PG001/PG002 rules |
-| `PostgreSqlLengthMismatchDetector.cs` | ~60 | Length mismatch detection + PG003 rule |
+| File | Purpose |
+|------|---------|
+| `PostgreSqlStoredProcedureParser.cs` | IContractSource implementation for PostgreSQL SPs |
+| `PostgreSqlDialectChecker.cs` | Dialect detection + PG001/PG002 rules |
+| `PostgreSqlLengthMismatchDetector.cs` | Length mismatch detection + PG003 rule |
 
 ## Dependencies
 
 ```xml
-<PackageReference Include="Npgsql" Version="9.0.3" />
+<PackageReference Include="Npgsql" Version="10.0.3" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
 ```
 
@@ -72,7 +72,7 @@ Table columns come from `information_schema.columns`. Materialized views are not
 
 ### Direction Mapping
 
-| `proargmodes` | DataGuard |
+| `proargmodes` | StackAccord |
 |---------------|-----------|
 | `i` | `Input` |
 | `o` | `Output` |
@@ -144,6 +144,8 @@ Columns match on the EF column name, then the property name, then snake_case (`C
 
 Each construct is reported once. The dedicated patterns (`TOP n`, `EXEC schema.proc`, `LIMIT offset, count`, `NVL(`, `DECODE(`, `ISNULL(`, `GETDATE()`, `IDENTITY(`) run first and carry a `suggestion`; a keyword they already reported is skipped by the keyword lists. PostgreSQL's own syntax is not reported: plain `LIMIT n`, `GENERATED ... AS IDENTITY`, and `COALESCE` (ANSI SQL, never listed as Oracle-specific in any dialect checker).
 
+PG002 no longer treats native PostgreSQL `replace`, `format`, `to_char`, `to_date`, `to_number`, `regexp_replace`, `CUBE`, `ROLLUP` or `GROUPING SETS` as foreign merely by name. `REPLACE INTO`, `GETDATE` and `NVL` remain findings. This remains a lexical heuristic: literals/comments, identifier context and version-specific syntax require further work; absence of PG002 does not validate PostgreSQL grammar.
+
 ### PG003 — Entity Length Exceeds PostgreSQL Column Length
 
 | Property | Value |
@@ -180,4 +182,8 @@ PostgreSQL's `information_schema` is case-sensitive for schema names. The defaul
 
 ### Type System
 
-PostgreSQL has a rich type system including arrays, composite types, and custom domains. The adapter currently reads only the base `data_type` from `information_schema.parameters`, which covers standard types but may not fully represent complex types.
+PostgreSQL has a rich type system including arrays, composite types, and custom domains. Routine metadata uses `pg_type.typname` resolved from catalog type OIDs. This is not complete semantic validation of arrays, composites or domains; unsupported type mappings remain Unknown/unevaluated.
+
+Routine ResultColumns come from RETURNS TABLE metadata, not function-body parsing; OUT arguments remain parameters. Parameter nullability is set to true because pg_proc does not provide it. The separate live raw SQL path does not establish a validated result shape for every routine.
+
+Implementation reference: [PostgreSqlStoredProcedureParser.cs](../../../src/DataGuard.PostgreSql.Adapter/PostgreSqlStoredProcedureParser.cs). These limits describe current behavior, not provider parity or evidence of live database verification.

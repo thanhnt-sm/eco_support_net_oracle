@@ -34,7 +34,7 @@ internal static class CliRunTimeoutHandler
         Func<string, Task> setStatus)
     {
         var termination = stopProcess(process);
-        await setStatus("DataGuard: Timed out");
+        await setStatus("StackAccord: Timed out");
         await writeOutput(DescribeTimeout(command, timeoutSeconds, termination));
 
         switch (termination)
@@ -82,11 +82,11 @@ internal static class CliRunTimeoutHandler
         switch (termination)
         {
             case ProcessStopOutcome.Terminated:
-                return "[DataGuard] " + command + " timed out after " + timeoutSeconds + " seconds and its process tree was terminated.\r\n";
+                return "[StackAccord] " + command + " timed out after " + timeoutSeconds + " seconds and its process tree was terminated.\r\n";
             case ProcessStopOutcome.AlreadyExited:
-                return "[DataGuard] " + command + " exceeded " + timeoutSeconds + " seconds but completed before termination was requested.\r\n";
+                return "[StackAccord] " + command + " exceeded " + timeoutSeconds + " seconds but completed before termination was requested.\r\n";
             default:
-                return "[DataGuard] " + command + " timed out, but its process tree could not be terminated. Stop it manually.\r\n";
+                return "[StackAccord] " + command + " timed out, but its process tree could not be terminated. Stop it manually.\r\n";
         }
     }
 

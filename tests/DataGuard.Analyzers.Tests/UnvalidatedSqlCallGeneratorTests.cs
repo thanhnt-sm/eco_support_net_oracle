@@ -38,7 +38,7 @@ public class UnvalidatedSqlCallGeneratorTests
             new DiagnosticResult(DiagnosticIds.UnvalidatedSqlCall, DiagnosticSeverity.Warning)
                 .WithLocation(0)
                 .WithArguments("ExecuteSqlRaw")
-                .WithMessage("SQL call 'ExecuteSqlRaw' not validated - run 'dataguard check' for full validation"));
+                .WithMessage("SQL call 'ExecuteSqlRaw' not validated - run 'dataguard validate' for full validation"));
         await test.RunAsync();
     }
 

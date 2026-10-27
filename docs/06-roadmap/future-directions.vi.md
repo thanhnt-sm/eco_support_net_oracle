@@ -1,5 +1,8 @@
 # Định Hướng Tương Lai & Lộ Trình
 
+> Bản kế hoạch lịch sử — ghi chú 2026-10-18: phiên bản, số liệu và dự báo bên dưới không phải inventory phát hành hiện tại. Giữ làm ngữ cảnh; xem [bản đồ nguồn](../product/source-map.md) và [mục lục chiến lược nháp](../product/README.vi.md).
+
+
 ## Trạng Thái Hiện Tại (v0.1.x)
 
 - ✅ 16+ rules validation (DG001-DG016, MY001-003, PG001-003)
@@ -108,7 +111,7 @@
 
 ### Nền Tảng .NET
 
-| Công nghệ | Trạng thái | Tác động DataGuard |
+| Công nghệ | Trạng thái | Tác động StackAccord |
 |-----------|-----------|-------------------|
 | .NET 10 Preview | Active | Theo dõi thay đổi EF Core 10 |
 | C# 14 | Preview | Cải thiện pattern matching |
@@ -117,7 +120,7 @@
 
 ### Nền Tảng Database
 
-| Nền tảng | Phiên bản | Tác động DataGuard |
+| Nền tảng | Phiên bản | Tác động StackAccord |
 |----------|----------|-------------------|
 | Oracle 23c | GA | JSON-Relational duality views |
 | SQL Server 2025 | Preview | Cải thiện hỗ trợ JSON |
@@ -126,11 +129,11 @@
 
 ### Cảnh Quan Đối Thủ
 
-| Công cụ | Trọng tâm | Điểm khác biệt DataGuard |
+| Công cụ | Trọng tâm | Điểm khác biệt StackAccord |
 |---------|----------|--------------------------|
-| dbt | Contracts kỹ thuật dữ liệu | DataGuard nhắm .NET SP/SQL, không phải ELT |
-| SQLFluff | Linting SQL | DataGuard validate contract entity↔SP |
-| sqlcheck | Anti-patterns SQL | DataGuard có validation ground-truth |
+| dbt | Contracts kỹ thuật dữ liệu | StackAccord nhắm .NET SP/SQL, không phải ELT |
+| SQLFluff | Linting SQL | StackAccord validate contract entity↔SP |
+| sqlcheck | Anti-patterns SQL | StackAccord có validation ground-truth |
 | EF Core | ORM | EF Core từ chối validation SP contract (issue #245) |
 
 ## Đóng Góp Cho Lộ Trình

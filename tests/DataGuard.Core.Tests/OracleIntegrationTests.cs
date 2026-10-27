@@ -170,6 +170,76 @@ public class OracleIntegrationTests : IAsyncLifetime
         nls.CharacterSet.Should().NotBe("UNKNOWN");
     }
 
+    [LiveDbFact(LiveDbTarget.Relational)]
+    public async Task IdeSafeValidate_RetainedCredentialReadsCatalogWithoutExecutingRefCursorProcedure()
+    {
+        Assert.NotNull(_container);
+        var connectionString = _container.GetConnectionString();
+        await ExecuteDdlAsync(
+            connectionString,
+            "CREATE TABLE DESCRIBE_INVOCATIONS (ID NUMBER)",
+            """
+            CREATE OR REPLACE PROCEDURE TRACKED_CURSOR(P_CURSOR OUT SYS_REFCURSOR) AS
+                PRAGMA AUTONOMOUS_TRANSACTION;
+            BEGIN
+                INSERT INTO DESCRIBE_INVOCATIONS VALUES (1);
+                COMMIT;
+                OPEN P_CURSOR FOR SELECT 1 AS ID FROM DUAL;
+            END;
+            """);
+
+        var directory = Directory.CreateTempSubdirectory("dg-oracle-ide-safe").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "Repo.cs"), "public class Repo { }");
+            var configPath = Path.Combine(directory, ".dataguard.yml");
+            var outputPath = Path.Combine(directory, "contracts.json");
+            foreach (var mode in new[] { "Full", "Snapshot" })
+            {
+                File.WriteAllText(configPath, $"""
+                    GroundTruthMode: {mode}
+                    DefaultSchema: DATAGUARD
+                    Oracle:
+                      Owner: DATAGUARD
+                      DescribeRefCursors: true
+                      UseRefCursorDescribe: true
+                    """);
+                var run = CliProcessTestRunner.Run(
+                    directory, null, connectionString,
+                    "validate", "--ide-safe", "--allow-env-connection", "--provider", "oracle",
+                    "--project", directory, "--config", configPath, "--format", "contracts", "--output", outputPath);
+                run.ExitCode.Should().Be(0, run.Stderr);
+                run.Stderr.Should().Contain("kept environment connection");
+                File.ReadAllText(outputPath).Should().Contain("TRACKED_CURSOR").And.Contain("DESCRIBE_INVOCATIONS");
+                (await CountInvocationsAsync(connectionString)).Should().Be(
+                    0,
+                    "IDE-safe validation must read metadata without executing the catalogued procedure in " + mode);
+                run.Stderr.Should().Contain("Oracle REF CURSOR describe disabled (procedure execution)");
+            }
+
+            // Positive control: ordinary trusted catalog extraction must still execute the fixture when opted in.
+            var contracts = await OracleCatalogBuilder.BuildAsync(
+                connectionString, "DATAGUARD",
+                new DataGuard.Core.Models.OracleConfiguration { DescribeRefCursors = true, UseRefCursorDescribe = true });
+            contracts.OfType<StoredProcedureDescriptor>().Single(p => p.Name == "TRACKED_CURSOR")
+                .ResultColumns.Should().ContainSingle(column => column.Name == "ID");
+            (await CountInvocationsAsync(connectionString)).Should().Be(1);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static async Task<int> CountInvocationsAsync(string connectionString)
+    {
+        await using var connection = new OracleConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM DESCRIBE_INVOCATIONS";
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
+    }
+
     private static async Task ExecuteDdlAsync(string connectionString, params string[] statements)
     {
         await using var connection = new OracleConnection(connectionString);

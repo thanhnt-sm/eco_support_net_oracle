@@ -87,7 +87,7 @@ internal static class SnapshotGuard
     {
         if (snapshot.Version > SnapshotFormat.LatestVersion)
         {
-            return $"snapshot format version {snapshot.Version} is newer than this DataGuard supports ({SnapshotFormat.LatestVersion})";
+            return $"snapshot format version {snapshot.Version} is newer than this StackAccord supports ({SnapshotFormat.LatestVersion})";
         }
 
         // Version 4 writers always record the provider, so an empty one is a mismatch, not a reason to skip the check;

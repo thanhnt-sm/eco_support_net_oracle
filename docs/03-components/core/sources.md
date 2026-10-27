@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/Sources/EfModelSource.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`; SQL Server sources in `src/DataGuard.SqlServer.Adapter/SqlServerParsers.cs` (namespace `DataGuard.SqlServer.Adapter`; Core references no database driver since red-team A1/R33)
 
-Contract sources are the data collection layer of DataGuard. They extract `ContractDescriptor` instances from various origins: EF Core models, database metadata, raw SQL text, and manual attribute annotations.
+Contract sources are the data collection layer of StackAccord. They extract `ContractDescriptor` instances from various origins: EF Core models, database metadata, raw SQL text, and manual attribute annotations.
 
 ## Source Extraction Flow
 
@@ -262,7 +262,7 @@ Placeholders are scanned after masking comments and literals: `@name`, `:name`, 
 ### Expected properties, ids, skips and diagnostics
 
 - `ExpectedProperties`: public instance properties with a setter or `init`, without `[NotMapped]`; empty for scalar targets (`string`, primitives, date/time types, `Guid`, `decimal`, enums, `byte[]`).
-- `Id` = `project-sql:{repo-relative path}:{span start}:{first 8 hex of SHA-256 of whitespace-normalized SQL}`.
+- `Id` = `project-sql:{repo-relative path}:{span start}:{first 8 hex of SHA-256 of whitespace-normalized SQL}`. Paths use the nearest ancestor containing a `.git` directory or file; without a marker they use the scan root. Scanning a nested folder retains its repository-relative prefix. Tests define their own repository boundary rather than assuming temporary-directory ancestors have no `.git` marker.
 - `[SkipContractCheck]` on the method, its type or an enclosing type (also on another partial part) skips the call site; `SkippedContractCount` counts them.
 - `Diagnostics` (`AcquisitionDiagnostic(Kind, Path, Message)`) lists `UnreadableFile`, `ParseFailed`, `OversizedLiteral` (> 256 KB) and `SkippedByAttribute` for the last run.
 - Compilation references come from the scanned project's `obj/project.assets.json` (compile assets under `NUGET_PACKAGES` or `~/.nuget/packages`, plus the running shared framework) when it was restored, else from the host's trusted platform assemblies, in sorted order.

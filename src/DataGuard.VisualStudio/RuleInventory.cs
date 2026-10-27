@@ -6,7 +6,6 @@ namespace DataGuard.VisualStudio;
 
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 /// <summary>One RuleExecuted progress event as recorded for the end-of-run banner.</summary>
 internal readonly struct RuleInventoryItem
@@ -75,26 +74,31 @@ internal sealed class RuleInventory
         return BuildRuleInventoryBanner(this.Snapshot());
     }
 
-    internal static string BuildRuleInventoryBanner(IReadOnlyList<RuleInventoryItem> inventory)
+    public IReadOnlyList<string> BuildLines() => BuildRuleInventoryLines(this.Snapshot());
+
+    internal static string BuildRuleInventoryBanner(IReadOnlyList<RuleInventoryItem> inventory) =>
+        string.Concat(BuildRuleInventoryLines(inventory).Select(line => line + System.Environment.NewLine));
+
+    internal static IReadOnlyList<string> BuildRuleInventoryLines(IReadOnlyList<RuleInventoryItem> inventory)
     {
         if (inventory == null || inventory.Count == 0)
         {
-            return string.Empty;
+            return System.Array.Empty<string>();
         }
 
         var evaluated = inventory.Where(r => !string.IsNullOrEmpty(r.RuleId) && r.ViolationCount >= 0).ToList();
         var withViolations = inventory.Where(r => !string.IsNullOrEmpty(r.RuleId) && r.ViolationCount > 0).ToList();
 
-        var banner = new StringBuilder();
-        banner.AppendLine("[DataGuard] ==================== Validation Summary ====================");
-        banner.AppendLine($"[DataGuard] Rules Evaluated: {evaluated.Count} ({string.Join(", ", evaluated.Select(r => r.RuleId))})");
+        var banner = new List<string>();
+        banner.Add("[StackAccord] ==================== Validation Summary ====================");
+        banner.Add($"[StackAccord] Rules Evaluated: {evaluated.Count} ({string.Join(", ", evaluated.Select(r => LogPrivacyPolicy.Redact(r.RuleId)))})");
         if (withViolations.Count > 0)
         {
-            banner.AppendLine($"[DataGuard] Rules with Findings: {string.Join(", ", withViolations.Select(r => $"{r.RuleId} ({r.ViolationCount})"))}");
+            banner.Add($"[StackAccord] Rules with Findings: {string.Join(", ", withViolations.Select(r => $"{LogPrivacyPolicy.Redact(r.RuleId)} ({r.ViolationCount})"))}");
         }
 
-        banner.AppendLine("[DataGuard] Double-click any Error List item to jump directly to code.");
-        banner.AppendLine("[DataGuard] ==========================================================");
-        return banner.ToString();
+        banner.Add("[StackAccord] Double-click any Error List item to jump directly to code.");
+        banner.Add("[StackAccord] ==========================================================");
+        return banner;
     }
 }

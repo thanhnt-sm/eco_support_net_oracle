@@ -2,7 +2,21 @@ import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as path from "path";
 import test from "node:test";
-import { buildIdeSafeFailureMessage, formatProgressLine, hasIdeSafeAck, isOldCliRejection, MIN_CLI_VERSION } from "./ide-safe-contract";
+import {
+    buildChildEnvironment,
+    buildIdeSafeFailureMessage,
+    createCliProgressSummary,
+    describeCliStatus,
+    describeGroundTruth,
+    explainCliExit,
+    formatProgressLine,
+    hasIdeSafeAck,
+    isGroundTruthMissingLine,
+    isOldCliRejection,
+    isPolicyLine,
+    MIN_CLI_VERSION,
+    recordProgressLine,
+} from "./ide-safe-contract";
 
 const ACK = "ide-safe: active";
 const OLD_CLI_LINE = "Unrecognized command or argument '--ide-safe'.";
@@ -34,7 +48,7 @@ test("MIN_CLI_VERSION names the first CLI that acknowledges ide-safe", () => {
 });
 
 test("buildIdeSafeFailureMessage adds the update hint only for an old-CLI rejection", () => {
-    const base = "DataGuard CLI did not confirm IDE-safe mode; results were discarded";
+    const base = "StackAccord CLI did not confirm IDE-safe mode; results were discarded";
     assert.equal(buildIdeSafeFailureMessage(undefined), base);
     assert.equal(buildIdeSafeFailureMessage(""), base);
     assert.equal(buildIdeSafeFailureMessage("Validation failed: boom"), base);
@@ -75,6 +89,196 @@ test("formatProgressLine keeps the existing rendering for other progress events 
     assert.equal(formatProgressLine("[ERROR] token=abc"), "[ERROR] token=[REDACTED]");
     assert.equal(formatProgressLine("random CLI chatter"), undefined);
     assert.equal(formatProgressLine("{not json}"), undefined);
+});
+
+test("formatProgressLine renders Warning:, UNEVALUATED:, ACQUISITION: and Rule not evaluated policy lines as [WARN]", () => {
+    const gtWarn = "Warning: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran";
+    assert.equal(formatProgressLine(gtWarn), `[WARN] ${gtWarn}`);
+    assert.equal(
+        formatProgressLine("UNEVALUATED: 3 contract(s) could not be evaluated"),
+        "[WARN] UNEVALUATED: 3 contract(s) could not be evaluated",
+    );
+    assert.equal(
+        formatProgressLine("ACQUISITION: src/Snapshot.cs: EF model not used: no entities"),
+        "[WARN] ACQUISITION: src/Snapshot.cs: EF model not used: no entities",
+    );
+    assert.equal(
+        formatProgressLine("Rule DG012 not evaluated: provider mismatch"),
+        "[WARN] Rule DG012 not evaluated: provider mismatch",
+    );
+    assert.equal(
+        formatProgressLine("UNEVALUATED: contract acquisition failed: Login failed for Password=Hunter2"),
+        "[WARN] UNEVALUATED: contract acquisition failed: Login failed for Password=[REDACTED]",
+    );
+    assert.equal(isPolicyLine(" Warning: indented"), false, "policy prefix must be anchored at line start");
+    assert.equal(isPolicyLine("[DG1290] C:\\x\\Warning: no ground truth.csproj"), false, "mid-line substring must not match");
+    assert.equal(isGroundTruthMissingLine(gtWarn), true);
+    assert.equal(isGroundTruthMissingLine("UNEVALUATED: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran"), true);
+    assert.equal(isGroundTruthMissingLine("[DG1290] C:\\x\\Warning: no ground truth.csproj: SQL literal skipped"), false);
+});
+
+test("recordProgressLine and formatProgressLine capture Summary counts, GroundTruth kind, and GroundTruthMissing", () => {
+    const richSummary = JSON.stringify({
+        Kind: "Summary",
+        Phase: "Validation complete",
+        Data: {
+            ErrorCount: 2,
+            WarningCount: 1,
+            ViolationCount: 3,
+            UnavailableRuleCount: 1,
+            UnevaluatedContractCount: 3,
+            AcquisitionDiagnosticCount: 0,
+            GroundTruth: "entities",
+        },
+    });
+    assert.equal(
+        formatProgressLine(richSummary),
+        "✔ Validation complete: 2 errors, 1 warnings; ground truth: entities; unevaluated 3; unavailable rules 1",
+    );
+
+    const summary = createCliProgressSummary();
+    recordProgressLine("ide-safe: active", summary);
+    recordProgressLine("Warning: no ground truth (snapshot, connection, manual assembly or EF model) was loaded; only syntactic rules ran", summary);
+    recordProgressLine(richSummary, summary);
+
+    assert.equal(summary.hasSummary, true);
+    assert.equal(summary.errorCount, 2);
+    assert.equal(summary.warningCount, 1);
+    assert.equal(summary.unevaluatedContractCount, 3);
+    assert.equal(summary.unavailableRuleCount, 1);
+    assert.equal(summary.acquisitionDiagnosticCount, 0);
+    assert.equal(summary.groundTruth, "entities");
+    assert.equal(summary.groundTruthMissing, true);
+    assert.equal(describeCliStatus(summary), "StackAccord: syntactic only (2 errors, 1 warnings)");
+    assert.equal(describeGroundTruth(summary), "Ground truth: not loaded (syntactic rules only)");
+});
+
+test("explainCliExit distinguishes exit codes 0/1/2/3/4 and GroundTruthMissing/Unevaluated matching Visual Studio Phase 2", () => {
+    const cleanSummary = { ...createCliProgressSummary(), hasSummary: true };
+    assert.equal(explainCliExit("validate", 0, cleanSummary, true), "[OK] No issues found.");
+
+    const syntacticSummary = { ...createCliProgressSummary(), hasSummary: true, groundTruthMissing: true };
+    const syntacticZero = explainCliExit("validate", 0, syntacticSummary, true);
+    assert.ok(syntacticZero.startsWith("[WARN] Ran syntactic rules only"));
+    assert.ok(syntacticZero.includes("database contract was NOT compared"));
+    assert.ok(!syntacticZero.includes("[OK]"));
+
+    const syntacticOne = explainCliExit("validate", 1, syntacticSummary, true);
+    assert.ok(syntacticOne.startsWith("[WARN] Validation found errors."));
+    assert.ok(syntacticOne.endsWith("Ground truth was not loaded (syntactic only)."));
+
+    const crashSummary = { ...createCliProgressSummary(), hasSummary: false, groundTruthMissing: true };
+    assert.ok(explainCliExit("validate", 1, crashSummary, false).includes("failed before producing a validation summary"));
+
+    const unevaluatedSummary = { ...createCliProgressSummary(), hasSummary: true, unevaluatedContractCount: 2 };
+    const unevaluatedZero = explainCliExit("validate", 0, unevaluatedSummary, true);
+    assert.ok(!unevaluatedZero.includes("syntactic"));
+    assert.ok(unevaluatedZero.includes("[WARN] 2 contract(s) could not be evaluated against the loaded ground truth (see UNEVALUATED lines)."));
+
+    assert.ok(explainCliExit("validate", 2, createCliProgressSummary(), false).startsWith("[ERROR] Invalid arguments or configuration."));
+    assert.ok(explainCliExit("validate", 3, createCliProgressSummary(), false).startsWith("[WARN] Validation incomplete:"));
+    assert.equal(
+        explainCliExit("validate", 4, createCliProgressSummary(), false),
+        "[ERROR] The CLI refused to write results to the output path (see [StackAccord CLI] lines above).",
+    );
+    assert.equal(
+        explainCliExit("assess", 1, createCliProgressSummary(), true),
+        "[WARN] Assessment found findings. See Error List.",
+    );
+    assert.equal(
+        explainCliExit("assess", 2, createCliProgressSummary(), false),
+        "[ERROR] Invalid arguments for assess. See the [StackAccord CLI] lines above.",
+    );
+    assert.equal(
+        explainCliExit("assess", 4, createCliProgressSummary(), true),
+        "[WARN] Assessment completed with tool errors (check config or permissions).",
+    );
+});
+
+test("acquisition gaps with loaded ground truth warn independently of rule counts", () => {
+    for (const warningCount of [0, 2]) {
+        const summary = createCliProgressSummary();
+        recordProgressLine(JSON.stringify({
+            Kind: "Summary", Phase: "Validation complete",
+            Data: { ErrorCount: 0, WarningCount: warningCount, AcquisitionDiagnosticCount: 2, UnevaluatedContractCount: 3, GroundTruth: "schema+entities" },
+        }), summary);
+        const explanation = explainCliExit("validate", 0, summary, true);
+        assert.ok(explanation.startsWith("[WARN] Validation incomplete: 2 source acquisition diagnostic(s)"));
+        assert.ok(explanation.includes("(see ACQUISITION lines)."));
+        assert.ok(explanation.includes("3 contract(s) could not be evaluated"));
+        assert.ok(!explanation.includes("[OK]"));
+        assert.ok(!explanation.includes("No issues found"));
+        assert.equal(describeCliStatus(summary), `StackAccord: 0 errors, ${warningCount} warnings; acquisition diagnostics 2`);
+    }
+});
+
+test("zero or absent acquisition count preserves clean and skipped-only results", () => {
+    for (const acquisitionDiagnosticCount of [undefined, 0]) {
+        const summary = { ...createCliProgressSummary(), hasSummary: true, acquisitionDiagnosticCount };
+        assert.equal(explainCliExit("validate", 0, summary, true), "[OK] No issues found.");
+        assert.equal(describeCliStatus(summary), "StackAccord: 0 errors, 0 warnings");
+    }
+});
+
+test("acquisition gaps preserve syntactic-only, cancellation, and error precedence", () => {
+    const summary = { ...createCliProgressSummary(), hasSummary: true, acquisitionDiagnosticCount: 2 };
+    const syntacticOnly = { ...summary, groundTruthMissing: true };
+    assert.ok(explainCliExit("validate", 0, syntacticOnly, true).startsWith("[WARN] Ran syntactic rules only"));
+    assert.equal(describeCliStatus(syntacticOnly), "StackAccord: syntactic only (0 errors, 0 warnings; acquisition diagnostics 2)");
+    for (const exitCode of [0, 1]) {
+        assert.ok(explainCliExit("validate", exitCode, summary, false).startsWith("[ERROR] The CLI reported a summary but failed to write results"));
+    }
+    for (const [exitCode, expected] of [
+        [1, "[WARN] Validation found errors."],
+        [2, "[ERROR] Invalid arguments or configuration."],
+        [3, "[WARN] Validation incomplete:"],
+        [4, "[ERROR] The CLI refused to write results"],
+        [130, "[CANCELLED] Cancelled by user."],
+    ] as const) {
+        assert.ok(explainCliExit("validate", exitCode, summary, true).startsWith(expected));
+    }
+    const missingSummary = { ...summary, hasSummary: false };
+    assert.ok(explainCliExit("validate", 1, missingSummary, false).startsWith("[ERROR] The CLI failed before producing a validation summary."));
+    assert.equal(describeCliStatus(missingSummary), "StackAccord: Result summary unavailable");
+});
+
+test("buildChildEnvironment strips DATAGUARD_CONNECTION_STRING and connectionEnv under --ide-safe without --allow-env-connection", () => {
+    const baseEnv: NodeJS.ProcessEnv = {
+        PATH: "/usr/bin",
+        DATAGUARD_CONNECTION_STRING: "Server=inherited;Password=secret",
+        DataGuard_Connection_String: "Server=mixed-case;Password=secret",
+        CUSTOM_DB_CONN: "Server=custom;Password=secret",
+    };
+
+    const validateNoAllow = buildChildEnvironment(baseEnv, {
+        args: ["validate", "--project", "/workspace", "--ide-safe"],
+        connectionEnv: "CUSTOM_DB_CONN",
+    });
+    assert.ok(validateNoAllow !== undefined);
+    assert.equal(validateNoAllow.PATH, "/usr/bin");
+    assert.equal("DATAGUARD_CONNECTION_STRING" in validateNoAllow, false);
+    assert.equal("DataGuard_Connection_String" in validateNoAllow, false);
+    assert.equal("CUSTOM_DB_CONN" in validateNoAllow, false);
+
+    const assessWithStoredCredential = buildChildEnvironment(baseEnv, {
+        args: ["assess", "--workspace", "/workspace", "--ide-safe"],
+        connectionString: "Server=stored;Password=secret",
+        connectionEnv: "custom_db_conn",
+    });
+    assert.ok(assessWithStoredCredential !== undefined);
+    assert.equal("DATAGUARD_CONNECTION_STRING" in assessWithStoredCredential, false);
+    assert.equal("CUSTOM_DB_CONN" in assessWithStoredCredential, false);
+
+    const validateWithAllow = buildChildEnvironment(baseEnv, {
+        args: ["validate", "--project", "/workspace", "--ide-safe", "--allow-env-connection"],
+        connectionString: "Server=stored;Password=secret",
+    });
+    assert.equal(validateWithAllow?.DATAGUARD_CONNECTION_STRING, "Server=stored;Password=secret");
+
+    const liveWithoutStored = buildChildEnvironment(baseEnv, {
+        args: ["snapshot", "refresh", "--provider", "sqlserver"],
+    });
+    assert.equal(liveWithoutStored, undefined, "live commands without stored secret inherit process.env");
 });
 
 function listTypeScriptFiles(directory: string): string[] {

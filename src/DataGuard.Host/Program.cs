@@ -13,7 +13,7 @@ if (!options.EnableHost)
 var urls = builder.Configuration["urls"] ?? "http://127.0.0.1:8080";
 if (!HealthHostBinding.IsLoopbackOnly(urls))
 {
-    throw new InvalidOperationException("DataGuard.Host only permits loopback binding. Remote health endpoints require a separately configured authenticated host.");
+    throw new InvalidOperationException("StackAccord health host only permits loopback binding. Remote health endpoints require a separately configured authenticated host.");
 }
 
 builder.WebHost.UseUrls(urls);

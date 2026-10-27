@@ -60,6 +60,11 @@ NETStandard.Library                            | github.com/dotnet/standard/blob
 #     All of them are MIT at the source (dotnet/corefx, microsoft/vs-validation); nothing here is shipped in a DataGuard package.
 Microsoft.VisualStudio.Validation              | githubusercontent.com/Microsoft/vs-validation/ | Legacy nuspec (15.0.82); licenseUrl is the MIT LICENSE of microsoft/vs-validation (test-only, via Microsoft.VisualStudio.Composition)
 System.ComponentModel.Composition              | github.com/dotnet/corefx/blob/master/license.txt | Legacy nuspec (4.5.0); licenseUrl is the MIT LICENSE.TXT of dotnet/corefx (test-only, via Microsoft.VisualStudio.Composition.NetFxAttributes)
+# --- Roslyn 4.12 line of the analyzer graph (DataGuard.Analyzers/CodeFixes pin Microsoft.CodeAnalysis 4.12.0, the compiler VS 2022 17.12+
+#     and the .NET 9.0.1xx SDK run; see CHANGELOG). Microsoft.CodeAnalysis.Common 4.12.0 depends on System.Threading.Tasks.Extensions 4.5.4,
+#     whose nuspec predates SPDX (4.6.x carries `MIT`). Not redistributed: Microsoft.CodeAnalysis.* is PrivateAssets=all in the analyzer
+#     graph and the compiler/IDE supplies it; the analyzer package ships only the three DataGuard DLLs (scripts/verify-analyzer-packaging.sh).
+System.Threading.Tasks.Extensions              | github.com/dotnet/corefx/blob/master/license.txt | Legacy nuspec (4.5.4); licenseUrl is the MIT LICENSE.TXT of dotnet/corefx (build-time only, via Microsoft.CodeAnalysis.Common 4.12.0)
 System.Collections                             | go.microsoft.com/fwlink/?linkid=329770   | Legacy nuspec; licenseUrl is the Microsoft .NET Library licence (dotnet/corefx is MIT); test-only shim via System.Threading.Tasks.Dataflow 4.6.0
 System.Collections.Concurrent                  | go.microsoft.com/fwlink/?linkid=329770   | Legacy nuspec; licenseUrl is the Microsoft .NET Library licence (dotnet/corefx is MIT); test-only shim via System.Threading.Tasks.Dataflow 4.6.0
 System.Diagnostics.Debug                       | go.microsoft.com/fwlink/?linkid=329770   | Legacy nuspec; licenseUrl is the Microsoft .NET Library licence (dotnet/corefx is MIT); test-only shim via System.Threading.Tasks.Dataflow 4.6.0

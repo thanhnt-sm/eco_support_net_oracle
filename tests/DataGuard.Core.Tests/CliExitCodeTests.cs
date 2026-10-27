@@ -380,7 +380,7 @@ public class CliExitCodeTests
         var (exitCode, output) = RunCli("version");
 
         exitCode.Should().Be(0);
-        output.Should().Contain("DataGuard CLI version");
+        output.Should().Contain("StackAccord CLI version");
     }
 
     [Fact]
@@ -399,7 +399,7 @@ public class CliExitCodeTests
 
             var (statusExitCode, statusOutput) = RunCliInDirectory(dir, null, "hook", "status");
             statusExitCode.Should().Be(0);
-            statusOutput.Should().Contain("DataGuard-managed");
+            statusOutput.Should().Contain("StackAccord-managed");
 
             var (uninstallExitCode, uninstallOutput) = RunCliInDirectory(dir, null, "hook", "uninstall");
             uninstallExitCode.Should().Be(0);
@@ -1133,7 +1133,8 @@ public class CliExitCodeTests
                 "--project", Path.Combine(dir, "Repo.cs"), "--ef-snapshot", snapshot);
 
             run.ExitCode.Should().Be(3, run.Stdout + run.Stderr);
-            run.Stderr.Should().Contain("UNEVALUATED: 1 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("UNEVALUATED: 2 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("DG019").And.Contain("raw SQL syntax was not validated");
             run.Stderr.Should().MatchRegex(@"DG020 project-sql:[^\s]*Repo\.cs:\d+(?::[0-9a-f]{8})?: Cannot determine result set shape for query \(describe failed\)");
             (run.Stdout + run.Stderr).Should().NotContain("[WARNING] DG020", "an undescribed shape is no longer a DG020 warning");
             (run.Stdout + run.Stderr).Should().NotContain("oracle-secret");
@@ -1156,7 +1157,8 @@ public class CliExitCodeTests
                 "validate", "--provider", "oracle", "--connection", UnreachableOracleConnection,
                 "--project", Path.Combine(dir, "Repo.cs"), "--ef-snapshot", snapshot, "--allow-unevaluated");
 
-            run.Stderr.Should().Contain("UNEVALUATED: 1 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("UNEVALUATED: 2 contract(s) could not be evaluated:");
+            run.Stderr.Should().Contain("DG019").And.Contain("raw SQL syntax was not validated");
             run.Stderr.Should().NotContain("pass --allow-unevaluated");
             var hasErrors = (run.Stdout + run.Stderr).Contains("[ERROR]", StringComparison.Ordinal);
             run.ExitCode.Should().Be(hasErrors ? 1 : 0, run.Stdout + run.Stderr);
@@ -1179,7 +1181,10 @@ public class CliExitCodeTests
             var allowed = CliProcessTestRunner.Run(dir, null, null, "validate", "--ef-snapshot", snapshot, "--allow-unevaluated");
 
             gated.ExitCode.Should().Be(3, gated.Stdout + gated.Stderr);
-            gated.Stderr.Should().Contain($"ACQUISITION: {snapshot}: DG1304 (line 3)");
+
+            // The path is echoed relative to the working directory (the workspace), never absolute.
+            gated.Stderr.Should().Contain("ACQUISITION: Migrations/AppModelSnapshot.cs: DG1304 (line 3)");
+            gated.Stderr.Should().NotContain(dir);
             allowed.Stderr.Should().Contain("ACQUISITION: ");
             allowed.ExitCode.Should().BeOneOf(new[] { 0, 1 }, allowed.Stdout + allowed.Stderr);
         }
@@ -1368,7 +1373,7 @@ public class CliExitCodeTests
         {
             var assembly = typeof(global::DataGuard.Contracts.ExpectedColumnAttribute).Assembly.Location;
             var config = Path.Combine(dir, "manual.yml");
-            File.WriteAllText(config, $"GroundTruthMode: Manual\nManualAssemblyPath: \"{assembly}\"\n");
+            File.WriteAllText(config, $"GroundTruthMode: Manual\nManualAssemblyPath: '{assembly.Replace("'", "''")}'\n");
 
             var validate = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "validate", "--config", config);
             var baseline = CliProcessTestRunner.RunWithEnvironment(dir, null, null, IsolatedEnvironment(dir), "baseline", "--config", config, "--output", Path.Combine(dir, "baseline.json"));

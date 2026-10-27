@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/Sources/EfModelSource.cs`, `ManualContractSource.cs`, `SqlKeywordMatcher.cs`; nguồn SQL Server nằm trong `src/DataGuard.SqlServer.Adapter/SqlServerParsers.cs` (namespace `DataGuard.SqlServer.Adapter`; từ red-team A1/R33 Core không tham chiếu driver database nào)
 
-Contract sources là lớp thu thập dữ liệu của DataGuard. Chúng trích xuất các thể hiện `ContractDescriptor` từ nhiều nguồn: mô hình EF Core, metadata database, văn bản SQL thô, và các annotation thuộc tính thủ công.
+Contract sources là lớp thu thập dữ liệu của StackAccord. Chúng trích xuất các thể hiện `ContractDescriptor` từ nhiều nguồn: mô hình EF Core, metadata database, văn bản SQL thô, và các annotation thuộc tính thủ công.
 
 ## Luồng Trích Xuất Source
 
@@ -261,7 +261,7 @@ Placeholder được quét sau khi che comment và literal: `@name`, `:name`, `$
 ### Thuộc tính kỳ vọng, id, bỏ qua và chẩn đoán
 
 - `ExpectedProperties`: thuộc tính public của instance có setter hoặc `init`, không có `[NotMapped]`; rỗng với kiểu đích vô hướng (`string`, kiểu nguyên thủy, kiểu ngày giờ, `Guid`, `decimal`, enum, `byte[]`).
-- `Id` = `project-sql:{đường dẫn tương đối repo}:{span start}:{8 ký tự hex đầu của SHA-256 của SQL đã chuẩn hóa khoảng trắng}`.
+- `Id` = `project-sql:{đường dẫn tương đối repo}:{span start}:{8 ký tự hex đầu của SHA-256 của SQL đã chuẩn hóa khoảng trắng}`. Đường dẫn lấy gốc là thư mục tổ tiên gần nhất có thư mục hoặc file `.git`; nếu không có marker thì dùng gốc quét. Quét thư mục con vẫn giữ tiền tố tương đối repo. Fixture kiểm thử định nghĩa ranh giới repo riêng, không giả định các thư mục cha của thư mục tạm không có marker `.git`.
 - `[SkipContractCheck]` trên method, kiểu chứa nó hoặc kiểu bao ngoài (kể cả ở phần partial khác) bỏ qua call-site; `SkippedContractCount` đếm số lần bỏ qua.
 - `Diagnostics` (`AcquisitionDiagnostic(Kind, Path, Message)`) liệt kê `UnreadableFile`, `ParseFailed`, `OversizedLiteral` (> 256 KB) và `SkippedByAttribute` của lần chạy gần nhất.
 - Reference biên dịch lấy từ `obj/project.assets.json` của project được quét (compile asset trong `NUGET_PACKAGES` hoặc `~/.nuget/packages`, cộng shared framework đang chạy) khi project đã restore, nếu không thì lấy trusted platform assemblies của host, theo thứ tự đã sắp xếp.

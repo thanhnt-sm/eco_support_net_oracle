@@ -8,14 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to package/publish (for example v0.2.0); empty uses package manifests."
+        description: "Release tag to package (for example v0.2.0); empty uses package manifests."
         required: false
         type: string
-      publish:
-        description: "Publish the two validated VSIX artifacts to Marketplace."
-        required: true
-        default: false
-        type: boolean
 
 # Least-privilege floor. id-token/attestations: write are granted only to the two packaging jobs
 # that attest, and their attest steps never run on pull_request.
@@ -28,6 +23,8 @@ env:
   VSCODE_DIR: src/DataGuard.VSCode
   VISUAL_STUDIO_DIR: src/DataGuard.VisualStudio
 
+# Marketplace publication is temporarily paused until product readiness approval.
+# Publish jobs are absent (not skipped on PRs). Re-enable via docs/marketplace-publishing.md.
 jobs:
   # Same C# test gate as ci.yml's build-and-test (LiveDb excluded). Both packaging jobs need it, so
   # nothing is attested or published from a red suite (scripts/check-workflow-policy.py rule f).
@@ -81,20 +78,15 @@ jobs:
 
       - name: Verify release ref
         env:
-          PUBLISH: ${{ inputs.publish }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          if [ "$PUBLISH" = "true" ] && [ -z "$RELEASE_TAG" ]; then
-            echo "::error::publish=true requires an immutable release tag"
-            exit 1
-          fi
           if [ -n "$RELEASE_TAG" ] && [ "$(git rev-list -n 1 "$RELEASE_TAG")" != "$(git rev-parse HEAD)" ]; then
             echo "::error::Checked-out commit does not match tag $RELEASE_TAG"
             exit 1
           fi
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -151,7 +143,7 @@ jobs:
           sbom-tool generate \
             -b "$GITHUB_WORKSPACE/$VSCODE_DIR" \
             -bc "$GITHUB_WORKSPACE/$VSCODE_DIR" \
-            -pn "DataGuard VS Code Extension" \
+            -pn "StackAccord VS Code Extension" \
             -pv "$VERSION" \
             -ps "$RUNNER_TEMP" \
             -m "$RUNNER_TEMP/dataguard-vscode-sbom"
@@ -160,7 +152,7 @@ jobs:
       # installable built from untrusted code must not be hosted under this repository.
       - name: Upload VS Code VSIX
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataguard-vscode-vsix
           path: |
@@ -194,12 +186,8 @@ jobs:
       - name: Verify release ref
         shell: pwsh
         env:
-          PUBLISH: ${{ inputs.publish }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          if ($env:PUBLISH -eq 'true' -and [string]::IsNullOrWhiteSpace($env:RELEASE_TAG)) {
-            throw 'publish=true requires an immutable release tag'
-          }
           if (-not [string]::IsNullOrWhiteSpace($env:RELEASE_TAG)) {
             $tagCommit = git rev-list -n 1 $env:RELEASE_TAG
             $headCommit = git rev-parse HEAD
@@ -295,7 +283,7 @@ jobs:
           & $sbomTool generate `
             -b "$env:GITHUB_WORKSPACE\$env:VISUAL_STUDIO_DIR" `
             -bc "$env:GITHUB_WORKSPACE\$env:VISUAL_STUDIO_DIR" `
-            -pn "DataGuard Visual Studio Extension" `
+            -pn "StackAccord Visual Studio Extension" `
             -pv "$env:VERSION" `
             -ps "$env:RUNNER_TEMP" `
             -m "$env:RUNNER_TEMP\dataguard-visualstudio-sbom"
@@ -304,7 +292,7 @@ jobs:
       # Same fork-PR guard as the VS Code upload above (scripts/check-workflow-policy.py rule b).
       - name: Upload Visual Studio VSIX
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataguard-visualstudio-vsix
           path: |
@@ -319,102 +307,3 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ runner.temp }}/DataGuard.VisualStudio.vsix
-
-  # vsce comes from the extension's package-lock.json (`npm ci` + `npx --no-install`), never an
-  # unpinned download inside the job that holds the Marketplace PAT. The VSIX is published only
-  # after its checksum and its build-provenance attestation (made by vscode-package in this
-  # repository) both verify.
-  publish-vscode:
-    name: Publish VS Code Marketplace
-    needs: [vscode-package, visual-studio-package]
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
-    runs-on: ubuntu-latest
-    environment: marketplace-production
-    permissions:
-      contents: read
-      attestations: read
-    steps:
-      - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.tag }}
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: ${{ env.VSCODE_DIR }}/package-lock.json
-
-      - name: Install pinned tooling from lockfile
-        working-directory: ${{ env.VSCODE_DIR }}
-        run: npm ci
-
-      - name: Download VS Code VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: dataguard-vscode-vsix
-          path: ${{ runner.temp }}/vsix
-
-      - name: Verify checksum and provenance attestation
-        id: verify
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/vsix"
-          shopt -s nullglob
-          vsix_files=(dataguard-vscode-*.vsix)
-          if (( ${#vsix_files[@]} != 1 )); then
-            echo "::error::Expected exactly one dataguard-vscode-*.vsix, found ${#vsix_files[@]}: ${vsix_files[*]}" >&2
-            exit 1
-          fi
-          vsix="${vsix_files[0]}"
-          test -f "$vsix.sha256" || { echo "::error::Missing $vsix.sha256" >&2; exit 1; }
-          sha256sum -c "$vsix.sha256"
-          gh attestation verify "$vsix" --repo "$GH_REPO"
-          echo "path=$RUNNER_TEMP/vsix/$vsix" >> "$GITHUB_OUTPUT"
-
-      # vsce reads the PAT from the VSCE_PAT environment variable, so it never appears on argv.
-      - name: Publish verified artifact
-        working-directory: ${{ env.VSCODE_DIR }}
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-          VSIX_PATH: ${{ steps.verify.outputs.path }}
-        run: |
-          set -euo pipefail
-          test -n "$VSCE_PAT" || { echo "::error::VSCE_PAT Marketplace Manage credential is required"; exit 1; }
-          npx --no-install @vscode/vsce publish --packagePath "$VSIX_PATH"
-
-  publish-visualstudio:
-    name: Publish Visual Studio Marketplace
-    needs: [vscode-package, visual-studio-package]
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
-    runs-on: windows-latest
-    environment: marketplace-production
-    steps:
-      - name: Checkout publish manifest
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
-
-      - name: Download Visual Studio VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: dataguard-visualstudio-vsix
-          path: artifacts
-
-      - name: Publish verified artifact
-        shell: pwsh
-        env:
-          VS_MARKETPLACE_PAT: ${{ secrets.VS_MARKETPLACE_PAT }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:VS_MARKETPLACE_PAT)) { throw "VS_MARKETPLACE_PAT is required" }
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $publisher = & $vswhere -latest -products * -find 'VSSDK\VisualStudioIntegration\Tools\Bin\VsixPublisher.exe' | Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($publisher)) { throw "VsixPublisher.exe was not found; install the Visual Studio extension development workload" }
-          & $publisher publish -payload "$PWD\artifacts\DataGuard.VisualStudio.vsix" -publishManifest "$env:VISUAL_STUDIO_DIR\vs-publish.json" -personalAccessToken $env:VS_MARKETPLACE_PAT
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,0 +1,358 @@
+name: Manual Marketplace Release
+
+# Separate from marketplace.yml: no PR/push publication jobs or checks are introduced there.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional for build-only; publication requires existing stable tag at least v0.4.0"
+        required: false
+        type: string
+      source_sha:
+        description: "Full 40-character commit SHA matching that tag and reviewed main ancestry"
+        required: true
+        type: string
+      target:
+        description: "Selected Marketplace(s); preparation always builds both packages"
+        required: true
+        default: both
+        type: choice
+        options: [vscode, visualstudio, both]
+      publish:
+        description: "Publish previously prepared and installed-tested bytes (default only prepares)"
+        required: true
+        default: false
+        type: boolean
+      prepared_run_id:
+        description: "Successful first-attempt preparation run of this same main workflow revision"
+        required: false
+        type: string
+      vscode_sha256:
+        description: "SHA-256 of the exact VS Code VSIX accepted by the owner"
+        required: false
+        type: string
+      visualstudio_sha256:
+        description: "SHA-256 of the exact Visual Studio VSIX accepted by the owner"
+        required: false
+        type: string
+      readiness_url:
+        description: "Repository issue or immutable blob recording editor, publisher, version/license and package acceptance"
+        required: false
+        type: string
+      confirm:
+        description: "For publication type exactly: PUBLISH <release_tag> <target>"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize all Marketplace writes; do not cancel an in-flight publication.
+concurrency:
+  group: manual-marketplace-release
+  cancel-in-progress: false
+
+env:
+  RELEASE_INPUTS: ${{ toJSON(inputs) }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      vscode_artifact_id: ${{ steps.validate.outputs.vscode_artifact_id }}
+      visualstudio_artifact_id: ${{ steps.validate.outputs.visualstudio_artifact_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate source, readiness and existing release environment
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tooling/scripts/marketplace_release.py source source
+
+  test:
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.319
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22.23.3
+      - name: Product tests
+        run: |
+          dotnet restore DataGuard.CrossPlatform.slnf --locked-mode
+          dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-restore --filter 'Category!=LiveDb'
+          python3 scripts/check-license-consistency.py
+      - name: Node tests
+        working-directory: src/DataGuard.VSCode
+        run: |
+          npm ci
+          npm test
+
+  windows-test:
+    runs-on: windows-latest
+    needs: validate
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.319
+      - name: Visual Studio tests
+        run: |
+          dotnet restore tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --locked-mode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test tests/DataGuard.VisualStudio.Tests/DataGuard.VisualStudio.Tests.csproj --configuration Release --no-restore
+
+  prepare-vscode:
+    if: ${{ !inputs.publish }}
+    needs: [validate, test, windows-test]
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.319
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22.23.3
+      - name: Package exact source without changing its version
+        working-directory: source/src/DataGuard.VSCode
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          npm ci
+          npm run prepare-lsp
+          npx --no-install @vscode/vsce package --out "$RUNNER_TEMP/release/package.vsix"
+      - name: Record inspected package
+        run: python3 tooling/scripts/marketplace_release.py record vscode "$RUNNER_TEMP/release"
+      - name: Generate SBOM
+        run: |
+          dotnet tool install --tool-path "$RUNNER_TEMP/sbom-tool" Microsoft.Sbom.DotNetTool --version 4.1.5
+          mkdir -p "$RUNNER_TEMP/release/sbom"
+          "$RUNNER_TEMP/sbom-tool/sbom-tool" generate -b "$RUNNER_TEMP/release" -bc "$GITHUB_WORKSPACE/source/src/DataGuard.VSCode" -pn "StackAccord VS Code Extension" -pv "$VERSION" -ps "thanhnt-sm" -m "$RUNNER_TEMP/release/sbom"
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+      - name: Attest package and source/run manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            ${{ runner.temp }}/release/package.vsix
+            ${{ runner.temp }}/release/manifest.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: marketplace-release-vscode
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  prepare-visualstudio:
+    if: ${{ !inputs.publish }}
+    needs: [validate, test, windows-test]
+    runs-on: windows-latest
+    env:
+      PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 9.0.319
+      - name: Test VSIX release identity rejection
+        shell: pwsh
+        run: ./tooling/scripts/tests/test-vsix-release-identity.ps1 -SourceRoot (Resolve-Path source).Path
+      - name: Package Visual Studio
+        shell: pwsh
+        working-directory: source
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild unavailable' }
+          & $msbuild src/DataGuard.VisualStudio/DataGuard.VisualStudio.csproj /restore /t:Build /p:Configuration=Release /p:CreateVsixContainer=true /p:DeployExtension=false /p:MinVerVersionOverride=$env:PACKAGE_VERSION /m /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Inspect and stage Visual Studio VSIX
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          $packages = @(Get-ChildItem source/src/DataGuard.VisualStudio/bin/Release -Filter '*.vsix' -Recurse)
+          if ($packages.Count -ne 1) { throw 'Expected exactly one VSIX' }
+          & ./tooling/scripts/assert-vsix.ps1 -VsixPath $packages[0].FullName -ExpectedVersion $env:VERSION -SourceRoot (Resolve-Path source).Path -RequireReleaseIdentity
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/release" | Out-Null
+          Copy-Item $packages[0].FullName "$env:RUNNER_TEMP/release/package.vsix"
+          Copy-Item source/src/DataGuard.VisualStudio/vs-publish.json "$env:RUNNER_TEMP/release/vs-publish.json"
+          Copy-Item source/src/DataGuard.VisualStudio/overview.md "$env:RUNNER_TEMP/release/overview.md"
+          python tooling/scripts/marketplace_release.py record visualstudio "$env:RUNNER_TEMP/release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Generate SBOM
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          dotnet tool install --tool-path "$env:RUNNER_TEMP/sbom-tool" Microsoft.Sbom.DotNetTool --version 4.1.5
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/release/sbom" | Out-Null
+          & "$env:RUNNER_TEMP/sbom-tool/sbom-tool.exe" generate -b "$env:RUNNER_TEMP/release" -bc "$env:GITHUB_WORKSPACE/source/src/DataGuard.VisualStudio" -pn 'StackAccord Visual Studio Extension' -pv $env:VERSION -ps 'thanhnt-sm' -m "$env:RUNNER_TEMP/release/sbom"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Attest package and source/run manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            ${{ runner.temp }}/release/package.vsix
+            ${{ runner.temp }}/release/manifest.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: marketplace-release-visualstudio
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-vscode:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish && (inputs.target == 'vscode' || inputs.target == 'both')
+    needs: [validate, test, windows-test]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22.23.3
+      - name: Install locked publisher tooling without lifecycle scripts
+        working-directory: tooling/src/DataGuard.VSCode
+        run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.validate.outputs.vscode_artifact_id }}
+          merge-multiple: true
+          run-id: ${{ inputs.prepared_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/release
+      - name: Verify accepted bytes and exact signer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 tooling/scripts/marketplace_release.py verify vscode "$RUNNER_TEMP/release"
+          for file in package.vsix manifest.json; do
+            gh attestation verify "$RUNNER_TEMP/release/$file" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/marketplace-release.yml" --signer-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          done
+      - name: Publish only the verified VS Code package
+        working-directory: tooling/src/DataGuard.VSCode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$VSCE_PAT" || { echo 'VSCE_PAT is not configured; no publication attempted'; exit 1; }
+          npx --no-install @vscode/vsce publish --packagePath "$RUNNER_TEMP/release/package.vsix"
+
+  publish-visualstudio:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish && (inputs.target == 'visualstudio' || inputs.target == 'both')
+    needs: [validate, test, windows-test]
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - name: Install version-pinned Microsoft publisher tooling
+        shell: pwsh
+        run: |
+          nuget install Microsoft.VSSDK.BuildTools -Version 18.5.40034 -Source https://api.nuget.org/v3/index.json -OutputDirectory "$env:RUNNER_TEMP/publisher" -NonInteractive -DirectDownload -DependencyVersion Ignore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tool = "$env:RUNNER_TEMP/publisher/Microsoft.VSSDK.BuildTools.18.5.40034/tools/vssdk/bin/VsixPublisher.exe"
+          if (-not (Test-Path $tool)) { throw 'Pinned VsixPublisher unavailable' }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.validate.outputs.visualstudio_artifact_id }}
+          merge-multiple: true
+          run-id: ${{ inputs.prepared_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/release
+      - name: Verify accepted bytes and exact signer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tooling/scripts/marketplace_release.py verify visualstudio "$env:RUNNER_TEMP/release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($file in @('package.vsix', 'manifest.json')) {
+            gh attestation verify "$env:RUNNER_TEMP/release/$file" --repo $env:GITHUB_REPOSITORY --signer-workflow "$env:GITHUB_REPOSITORY/.github/workflows/marketplace-release.yml" --signer-digest $env:GITHUB_SHA --deny-self-hosted-runners
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Publish only the verified Visual Studio package
+        working-directory: ${{ runner.temp }}/release
+        shell: pwsh
+        env:
+          VS_MARKETPLACE_PAT: ${{ secrets.VS_MARKETPLACE_PAT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VS_MARKETPLACE_PAT)) { throw 'VS_MARKETPLACE_PAT is not configured; no publication attempted' }
+          # Official VsixPublisher accepts PAT on argv; never echo it or enable process tracing.
+          & "$env:RUNNER_TEMP/publisher/Microsoft.VSSDK.BuildTools.18.5.40034/tools/vssdk/bin/VsixPublisher.exe" publish -payload "$env:RUNNER_TEMP/release/package.vsix" -publishManifest "$env:RUNNER_TEMP/release/vs-publish.json" -personalAccessToken $env:VS_MARKETPLACE_PAT
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

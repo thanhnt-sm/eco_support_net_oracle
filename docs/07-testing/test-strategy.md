@@ -7,7 +7,7 @@
 
 ## Test Philosophy
 
-DataGuard follows a **contract-first, evidence-based** testing approach:
+StackAccord follows a **contract-first, evidence-based** testing approach:
 
 1. **Every rule has tests**: Each DG/MY/PG rule has unit tests covering happy path, edge cases, and error conditions
 2. **Golden corpus**: Known-good and known-bad SQL/entity pairs for regression testing
@@ -216,3 +216,9 @@ public async Task OracleAdapter_ExtractsOverloadedProcedures()
     Assert.Equal(2, params.Count(p => p.Overload > 0));
 }
 ```
+
+## Process environment and audit regression isolation
+
+Credential tests that read or mutate process environment belong to the `Sequential` collection, defined with `DisableParallelization = true`. A shared collection name alone only serializes its members; unrelated collections can still overlap. `AuditChainTests` saves, clears, and restores its connection-string and audit-key overrides so synthetic configuration and key-file fixtures control the test. Never print inherited values.
+
+The mixed-writer regression must retain exactly five records and a valid keyed chain. A separate synthetic environment-override case expects exactly one additional rotation event, verifies salted old/new fingerprints, and rejects plaintext credentials. See `tests/DataGuard.Core.Tests/ProcessEnvironmentIsolationTests.cs` and `plans/2026-10-18-audit-chain-test-isolation.md`.

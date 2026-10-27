@@ -448,7 +448,7 @@ Nhánh: `docs/handoff-261006-alert19-branch-compare` (từ `main` @ `c9bfaf1`). 
 
 ## 🎯 VIỆC CẦN LÀM TIẾP THEO (owner)
 
-- [ ] **Alert #19 (Scorecard Branch-Protection)**: chọn một trong (a) dismiss *Won't fix* với lý do repo một maintainer; (b) thêm maintainer thứ hai rồi bỏ bypass actor + đặt approvals = 2 (→ 10/10); (c) chấp nhận 8/10. Xoá nhánh đã merge `docs/redteam-261004-source-vs-goals` trên PR #40 (và hai nhánh #45/#46 nếu muốn).
+- [x] **Alert #19 (Scorecard Branch-Protection)**: Đã giải quyết theo phương án (a) dismiss *Won't fix* (2026-10-13) qua GitHub API: Accepted risk cho repo một maintainer. Ruleset 24366111 duy trì 8/10 Scorecard Tier 3 (PR bắt buộc, 1 approval, strict CI checks, chặn force-push và xoá nhánh); giữ admin bypass và 1 approval để ngăn chặn merge deadlock cho solo maintainer cho đến khi có thêm co-maintainer. Hiện 0 open code scanning alerts.
 - [x] ~~Review nhánh và quyết định mở PR~~ → PR #40 merge `d0ec928`, PR #45 merge `170e40d` (2026-10-05). Lưu ý breaking đã lên `main`: Id SP Oracle đổi, DG002 analyzer → DG097, namespace SQL Server đổi gói, fingerprint baseline v2 (legacy vẫn khớp), `--offline` = Snapshot, lint-only CI cần `--allow-syntactic-only`.
 - [ ] Cài đặt GitHub: ruleset `main` hiện yêu cầu `Build and Test`, `Standards audit`, `Security Scan`; cân nhắc thêm `Live DB Integration`, `VS Code Extension Tests`, `Scripts Tests`; sửa quy tắc approval cho repo một maintainer (mục 7 ở trên); environment `release` có reviewer; NuGet trusted publishing (trust policy trên nuget.org đang 401 → release `v0.3.3` vẫn draft).
 - [ ] Pháp lý: GPL §7 (im lặng về plugin bên thứ ba), điều khoản thương mại; ký VSIX / NuGet author-signing; reserve `DataGuard.Cli` trên nuget.org.

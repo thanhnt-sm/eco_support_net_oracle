@@ -18,17 +18,18 @@ using Microsoft.VisualStudio.Shell.Settings;
 using Task = System.Threading.Tasks.Task;
 
 /// <summary>
-/// Hosts DataGuard CLI commands inside Visual Studio without loading database providers or credentials
+/// Hosts StackAccord CLI commands inside Visual Studio without loading database providers or credentials
 /// into devenv. Registration, lifetime and command wiring live here; command execution is in
 /// DataGuardPackage.Commands.cs, consent in DataGuardPackage.Consent.cs, result publishing in
-/// DataGuardPackage.Publishing.cs and run-stop paths in DataGuardPackage.Lifetime.cs.
+/// DataGuardPackage.Publishing.cs, run-stop paths in DataGuardPackage.Lifetime.cs and the live database
+/// commands (Refresh Snapshot, Verify SQL Shapes) in DataGuardPackage.LiveCommands.cs.
 /// </summary>
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("DataGuard", "Database contract validation for .NET code and stored procedures.", ExtensionVersion.Fallback)]
+[InstalledProductRegistration("StackAccord – .NET Database Contracts (Beta)", "Beta evaluation of supported .NET/database contracts; provider and mode limits apply.", ExtensionVersion.Fallback)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
-[ProvideOptionPage(typeof(DataGuardOptionsPage), "DataGuard", "General", 0, 0, true)]
-[ProvideOptionPage(typeof(DataGuardRulesOptionsPage), "DataGuard", "Validation Rules", 0, 0, true)]
+[ProvideOptionPage(typeof(DataGuardOptionsPage), "DataGuard", "General", 110, 0, true, ProvidesLocalizedCategoryName = true)]
+[ProvideOptionPage(typeof(DataGuardRulesOptionsPage), "DataGuard", "Validation Rules", 110, 0, true, ProvidesLocalizedCategoryName = true)]
 [System.Runtime.InteropServices.Guid(PackageGuidString)]
 public sealed partial class DataGuardPackage : AsyncPackage
 {
@@ -41,6 +42,9 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private const int ExportLogsCommandId = 0x0103;
     private const int ViewRulesCommandId = 0x0104;
     private const int ForgetConsentCommandId = 0x0105;
+    private const int RefreshSnapshotCommandId = 0x0106;
+    private const int VerifyShapeCommandId = 0x0107;
+    private const int SupportSummaryCommandId = 0x0108;
     private const string CommandSetGuidString = "a7ceccae-351c-4d13-9568-b2ba5370ea7d";
     private static readonly Guid CommandSet = new(CommandSetGuidString);
 
@@ -59,12 +63,12 @@ public sealed partial class DataGuardPackage : AsyncPackage
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
         await this.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-        this.output = new OutputPaneWriter(this);
+        this.output = new OutputPaneWriter(this.JoinableTaskFactory, this.GetServiceAsync);
 
         var options = (DataGuardOptionsPage)this.GetDialogPage(typeof(DataGuardOptionsPage));
         DataGuardLogger.Configure(options.EnableDetailedLogging, options.CustomLogDirectory);
         DataGuardLogger.EnsureInitialized(await this.DescribeHostAsync(), ExtensionVersion.Current);
-        DataGuardLogger.LogInfo("DataGuard Visual Studio Package initialized successfully.");
+        DataGuardLogger.LogInfo("StackAccord Visual Studio Package initialized successfully.");
         this.JoinableTaskFactory.RunAsync(async () =>
         {
             await Task.Yield();
@@ -89,6 +93,9 @@ public sealed partial class DataGuardPackage : AsyncPackage
             this.AddCommand(commandService, ExportLogsCommandId, this.ViewLogsAsync, "DataGuard/ViewLogs");
             this.AddCommand(commandService, ViewRulesCommandId, this.ViewRulesAsync, "DataGuard/ViewRules");
             this.AddCommand(commandService, ForgetConsentCommandId, this.ForgetSolutionConsentAsync, "DataGuard/ForgetConsent");
+            this.AddCommand(commandService, RefreshSnapshotCommandId, this.RefreshSnapshotAsync, "DataGuard/RefreshSnapshot");
+            this.AddCommand(commandService, VerifyShapeCommandId, this.VerifyShapesAsync, "DataGuard/VerifyShapes");
+            this.AddCommand(commandService, SupportSummaryCommandId, this.ExportSupportSummaryAsync, "DataGuard/SupportSummary");
         }
 
         if (await this.GetServiceAsync(typeof(SVsSolutionBuildManager)) is IVsSolutionBuildManager buildManager)
@@ -168,6 +175,7 @@ public sealed partial class DataGuardPackage : AsyncPackage
         {
             if (await this.GetServiceAsync(typeof(EnvDTE.DTE)) is EnvDTE.DTE dte)
             {
+                this.supportHostVersion = dte.Version;
                 return $"{dte.Name} {dte.Version} ({dte.Edition})";
             }
         }
@@ -189,9 +197,9 @@ public sealed partial class DataGuardPackage : AsyncPackage
     private async Task ViewLogsAsync()
     {
         await this.output!.ActivateAsync();
-        await this.output.WriteAsync("[DataGuard] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
-        await this.output.WriteAsync("[DataGuard] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
-        await this.output.WriteAsync("[DataGuard] Tip: Each DataGuard run is delimited by ================================================================================.\r\n");
+        await this.output.WriteAsync("[StackAccord] Opening diagnostic log: " + DataGuardLogger.LogFilePath + "\r\n");
+        await this.output.WriteAsync("[StackAccord] Tip: Search for [ERROR] or [WARN] to find issues.\r\n");
+        await this.output.WriteAsync("[StackAccord] Tip: Each StackAccord run is delimited by ================================================================================.\r\n");
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
         DataGuardLogger.OpenLog(this);
     }

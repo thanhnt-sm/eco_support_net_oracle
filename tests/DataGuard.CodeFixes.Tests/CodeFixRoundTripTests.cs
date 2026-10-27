@@ -260,7 +260,7 @@ public class CodeFixRoundTripTests
             """
             public class Repo
             {
-                public IEnumerable<Customer> Top(IDbConnection connection) => connection.Query<Customer>("SELECT TOP 10 Id, Name FROM Customers c");
+                public IEnumerable<Customer> Top(IDbConnection connection) => connection.Query<Customer>("SELECT TOP 10 c.Id, c.Name FROM Customers c");
             }
             """);
         await test.RunAsync();
@@ -410,7 +410,7 @@ public class CodeFixRoundTripTests
         };
         test.TestState.AdditionalReferences.Add(CodeFixTestHarness.ContractsReference);
         test.FixedState.AdditionalReferences.Add(CodeFixTestHarness.ContractsReference);
-        return test;
+        return CodeFixTestHarness.WithEditorConfig(test);
     }
 
     /// <summary>
@@ -428,7 +428,7 @@ public class CodeFixRoundTripTests
         };
         test.TestState.Sources.Add(("Model.cs", DapperModel));
         test.FixedState.Sources.Add(("Model.cs", DapperModel));
-        return test;
+        return CodeFixTestHarness.WithEditorConfig(test);
     }
 
     /// <summary>Code fix test whose diagnostics come from the IDE-layer DG001 generator.</summary>
@@ -443,6 +443,7 @@ public class CodeFixRoundTripTests
             this.TestState.AdditionalReferences.Add(CodeFixTestHarness.ContractsReference);
             this.FixedState.Sources.Add(("EfStubs.cs", EfStubs));
             this.FixedState.AdditionalReferences.Add(CodeFixTestHarness.ContractsReference);
+            CodeFixTestHarness.WithEditorConfig(this);
         }
 
         protected override IEnumerable<Type> GetSourceGenerators() => new[] { typeof(UnvalidatedSqlCallGenerator) };

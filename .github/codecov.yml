@@ -1,0 +1,112 @@
+# Codecov configuration for thanhnt-sm/eco_support_net_oracle (StackAccord)
+# Docs: https://docs.codecov.com/docs/codecovyml-reference
+
+codecov:
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "60...90"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: false
+    patch:
+      default:
+        target: 80%
+        informational: true
+
+parsers:
+  cobertura:
+    partials_as_hits: false
+    handle_missing_conditions: true
+
+github_checks:
+  annotations: true
+
+comment:
+  layout: "condensed_header, diff, flags, components, files, condensed_footer"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+
+flags:
+  dotnet-unit:
+    paths:
+      - "src/"
+    carryforward: true
+  live-db:
+    paths:
+      - "src/"
+    carryforward: true
+  visual-studio:
+    paths:
+      - "src/DataGuard.VisualStudio/"
+    carryforward: false
+  vscode-ext:
+    paths:
+      - "src/DataGuard.VSCode/"
+    carryforward: true
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 1%
+  individual_components:
+    - component_id: core_engine
+      name: "Core Engine & Contracts"
+      paths:
+        - "src/DataGuard.Core/**"
+        - "src/DataGuard.Contracts/**"
+        - "src/DataGuard.SqlClassification/**"
+    - component_id: db_adapters
+      name: "Database Adapters"
+      paths:
+        - "src/DataGuard.Oracle.Adapter/**"
+        - "src/DataGuard.SqlServer.Adapter/**"
+        - "src/DataGuard.PostgreSql.Adapter/**"
+        - "src/DataGuard.MySql.Adapter/**"
+    - component_id: roslyn_analyzers
+      name: "Roslyn Analyzers & CodeFixes"
+      paths:
+        - "src/DataGuard.Analyzers/**"
+        - "src/DataGuard.CodeFixes/**"
+    - component_id: cli_and_host
+      name: "CLI, Host, Build & LSP"
+      paths:
+        - "src/DataGuard.Cli/**"
+        - "src/DataGuard.Host/**"
+        - "src/DataGuard.Build/**"
+        - "src/DataGuard.LanguageServer/**"
+    - component_id: observability
+      name: "Enterprise Observability"
+      paths:
+        - "src/DataGuard.Observability/**"
+        - "src/DataGuard.Observability.AspNetCore/**"
+        - "src/DataGuard.Observability.Messaging/**"
+    - component_id: ide_extensions
+      name: "VS Code & Visual Studio Extensions"
+      paths:
+        - "src/DataGuard.VSCode/**"
+        - "src/DataGuard.VisualStudio/**"
+
+ignore:
+  - "tests/**"
+  - "samples/**"
+  - "scripts/**"
+  - "tools/**"
+  - "docs/**"
+  - "plans/**"
+  - "**/obj/**"
+  - "**/*.g.cs"
+  - "src/DataGuard.VSCode/test/**"
+  - "src/DataGuard.VSCode/src/**/*.test.ts"
+  - "src/DataGuard.VSCode/out/**/*.test.js"

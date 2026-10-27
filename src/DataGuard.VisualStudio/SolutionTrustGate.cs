@@ -45,6 +45,14 @@ internal sealed class SolutionTrustGate
     /// <summary>Forgets a recorded consent; false when none was stored for the key.</summary>
     public bool ForgetConsent(string consentKey) => this.store.Remove(consentKey);
 
+    /// <summary>Revokes validation and live consent, even when the first key existed.</summary>
+    public bool ForgetSolutionConsent(string validationConsentKey, string liveConsentKey)
+    {
+        var validationRemoved = this.store.Remove(validationConsentKey);
+        var liveRemoved = this.store.Remove(liveConsentKey);
+        return validationRemoved || liveRemoved;
+    }
+
     /// <summary>Consent key for a solution and the current content of its .dataguard.yml (if any). Reads the file; call off the UI thread.</summary>
     internal static string ComputeConsentKey(string solutionDirectory, string? solutionFilePath, string? configPath)
     {
@@ -72,10 +80,40 @@ internal sealed class SolutionTrustGate
         return Hex(Sha256(Encoding.UTF8.GetBytes(normalizedSolution + "|" + normalizedFile + "|" + configHash)));
     }
 
+    /// <summary>Suffix of the live-command consent key; the validate key for the same solution never grants it and vice versa.</summary>
+    internal const string LiveConsentSuffix = ":live";
+
+    /// <summary>
+    /// Consent key for the live database commands: solution directory and .sln path only. The
+    /// .dataguard.yml hash is not part of it because these commands never read that file.
+    /// </summary>
+    internal static string ComputeLiveConsentKey(string solutionDirectory, string? solutionFilePath)
+    {
+        return ComputeConsentKey(solutionDirectory, solutionFilePath, (byte[]?)null) + LiveConsentSuffix;
+    }
+
+    internal static string BuildLivePromptText(string solutionDirectory, string variableName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("StackAccord will run its command-line tool against a live database for this solution:");
+        sb.AppendLine();
+        sb.AppendLine("    " + solutionDirectory);
+        sb.AppendLine();
+        sb.AppendLine("This is not IDE-safe mode:");
+        sb.AppendLine("  • the CLI connects to the database named by the environment variable " + variableName + " with your own credential (Visual Studio never stores or logs its value);");
+        sb.AppendLine("  • Refresh Snapshot writes " + Path.Combine(solutionDirectory, LiveDatabaseCommands.SnapshotFileName) + "; Verify SQL Shapes describes every read SQL query of the solution against that database;");
+        sb.AppendLine("  • the solution's .dataguard.yml is never read for these commands; provider and schema come from Tools > Options > StackAccord.");
+        sb.AppendLine();
+        sb.AppendLine("Each run still asks you to confirm the target host. Your choice is remembered for this solution file (Tools > StackAccord (Beta) > Forget Solution Consent revokes it).");
+        sb.AppendLine();
+        sb.Append("Allow StackAccord database commands for this solution?");
+        return sb.ToString();
+    }
+
     internal static string BuildPromptText(string solutionDirectory, bool configExists)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("DataGuard will run its command-line validator against the files of this solution:");
+        sb.AppendLine("StackAccord will run its command-line validator against the files of this solution:");
         sb.AppendLine();
         sb.AppendLine("    " + solutionDirectory);
         sb.AppendLine();
@@ -86,9 +124,9 @@ internal sealed class SolutionTrustGate
         sb.AppendLine("  • connection strings and write paths from the config or environment are ignored;");
         sb.AppendLine("  • results are written to a private temp folder and shown in the Error List.");
         sb.AppendLine();
-        sb.AppendLine("Only continue if you trust the source of this solution. Your choice is remembered for this solution file until its .dataguard.yml changes (Tools > DataGuard > Forget Solution Consent revokes it).");
+        sb.AppendLine("Only continue if you trust the source of this solution. Your choice is remembered for this solution file until its .dataguard.yml changes (Tools > StackAccord (Beta) > Forget Solution Consent revokes it).");
         sb.AppendLine();
-        sb.Append("Run DataGuard for this solution?");
+        sb.Append("Run StackAccord for this solution?");
         return sb.ToString();
     }
 

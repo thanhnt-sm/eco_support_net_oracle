@@ -7,6 +7,7 @@ const int DiagnosticDebounceMilliseconds = 150;
 var pendingDiagnostics = new Dictionary<string, CancellationTokenSource>(StringComparer.Ordinal);
 using var shutdown = new CancellationTokenSource();
 var writeGate = new SemaphoreSlim(1, 1);
+var shutdownRequested = false;
 
 while (await ReadMessageAsync(Console.OpenStandardInput()) is { } message)
 {
@@ -20,10 +21,31 @@ while (await ReadMessageAsync(Console.OpenStandardInput()) is { } message)
     {
         await WriteAsync(new { jsonrpc = "2.0", id = root.GetProperty("id").Clone(), result = new { capabilities = new { textDocumentSync = 1 } } });
     }
+    else if (method.GetString() == "shutdown")
+    {
+        shutdownRequested = true;
+        shutdown.Cancel();
+        if (root.TryGetProperty("id", out var shutdownId))
+        {
+            await WriteAsync(new { jsonrpc = "2.0", id = shutdownId.Clone(), result = (object?)null });
+        }
+    }
+    else if (method.GetString() == "exit")
+    {
+        Environment.ExitCode = shutdownRequested ? 0 : 1;
+        break;
+    }
     else if (method.GetString() is "textDocument/didOpen" or "textDocument/didChange")
     {
         var textDocument = root.GetProperty("params").GetProperty("textDocument");
         var uri = new Uri(textDocument.GetProperty("uri").GetString()!);
+        if (method.GetString() == "textDocument/didChange" &&
+            root.GetProperty("params").GetProperty("contentChanges").GetArrayLength() == 0)
+        {
+            // No content was replaced; keep any pending diagnostic for the current text.
+            continue;
+        }
+
         var text = method.GetString() == "textDocument/didOpen"
             ? textDocument.GetProperty("text").GetString() ?? string.Empty
             : root.GetProperty("params").GetProperty("contentChanges").EnumerateArray().Last().GetProperty("text").GetString() ?? string.Empty;
@@ -51,7 +73,22 @@ while (await ReadMessageAsync(Console.OpenStandardInput()) is { } message)
 
         await WriteAsync(new { jsonrpc = "2.0", method = "textDocument/publishDiagnostics", @params = new { uri = uri.AbsoluteUri, diagnostics = Array.Empty<object>() } });
     }
+    else if (root.TryGetProperty("id", out var requestId) && requestId.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
+    {
+        await WriteAsync(new
+        {
+            jsonrpc = "2.0",
+            id = requestId.Clone(),
+            error = new
+            {
+                code = -32601,
+                message = $"Method not found: {method.GetString()}",
+            },
+        });
+    }
 }
+
+return Environment.ExitCode;
 
 async Task PublishDebouncedAsync(Uri uri, string text, string version, CancellationTokenSource pending)
 {
@@ -71,7 +108,7 @@ async Task PublishDebouncedAsync(Uri uri, string text, string version, Cancellat
                 range = new { start = Position(lineStarts, item.Start), end = Position(lineStarts, item.Start + item.Length) },
                 severity = item.IsSelectStar ? 2 : 3,
                 code = item.IsSelectStar ? "DG017" : "DGSQL001",
-                source = "DataGuard",
+                source = "StackAccord",
                 message = item.DetailMessage ?? $"SQL {item.Kind} statement requires offline contract validation.",
             });
         await WriteAsync(new { jsonrpc = "2.0", method = "textDocument/publishDiagnostics", @params = new { uri = uri.AbsoluteUri, diagnostics } });
@@ -96,7 +133,16 @@ static int[] ComputeLineStarts(string text)
     var starts = new List<int> { 0 };
     for (var index = 0; index < text.Length; index++)
     {
-        if (text[index] == '\n')
+        if (text[index] == '\r')
+        {
+            if (index + 1 < text.Length && text[index + 1] == '\n')
+            {
+                index++;
+            }
+
+            starts.Add(index + 1);
+        }
+        else if (text[index] == '\n')
         {
             starts.Add(index + 1);
         }

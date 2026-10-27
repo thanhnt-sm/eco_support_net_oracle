@@ -1,6 +1,6 @@
 # Oracle Adapter
 
-The Oracle Adapter is DataGuard's most feature-rich database adapter, providing deep integration with Oracle Database for contract validation between .NET Entity Framework Core entities and Oracle stored procedures, packages, and raw SQL.
+The Oracle Adapter is StackAccord's most feature-rich database adapter, providing deep integration with Oracle Database for contract validation between .NET Entity Framework Core entities and Oracle stored procedures, packages, and raw SQL.
 
 ## Architecture
 
@@ -53,18 +53,18 @@ graph TB
 
 ## Source Files
 
-| File | Size | Purpose |
-|------|------|---------|
-| `OracleReaders.cs` | ~830 lines | AllArgumentsReader, AllTabColumnsReader, NlsSessionReader, RefCursorDescriber |
-| `OracleCatalog.cs` | ~400 lines | OracleProcedureCatalogEntry, OracleCatalog (row grouping, ids), OracleDatabaseSchemaDescriptor, OracleCatalogBuilder |
-| `OracleDialectChecker.cs` | 380 lines | Dialect detection engine + 5 rules (DG010-DG014) |
-| `LengthMismatch.cs` | ~600 lines | EfCoreInferenceSimulator, LengthSemanticsResolver, OracleCharsets, LengthMismatchDetector + 3 rules (DG007-DG009) |
+| File | Purpose |
+|------|---------|
+| `OracleReaders.cs` | AllArgumentsReader, AllTabColumnsReader, NlsSessionReader, RefCursorDescriber |
+| `OracleCatalog.cs` | OracleProcedureCatalogEntry, OracleCatalog (row grouping, ids), OracleDatabaseSchemaDescriptor, OracleCatalogBuilder |
+| `OracleDialectChecker.cs` | Dialect detection engine + 5 rules (DG010-DG014) |
+| `LengthMismatch.cs` | EfCoreInferenceSimulator, LengthSemanticsResolver, OracleCharsets, LengthMismatchDetector + 3 rules (DG007-DG009) |
 
 ## Dependencies
 
 ```xml
-<PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.300" />
-<PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.102.0" />
+<PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" />
+<PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
 ```
 
@@ -181,7 +181,7 @@ Extracts version number (`19.0.0.0.0`) and edition (`Enterprise`/`Standard`/`Exp
 
 Describes `REF CURSOR` result sets with `DBMS_SQL.DESCRIBE_COLUMNS3`. **It executes the procedure or function** inside an anonymous PL/SQL block.
 
-By default the catalog never runs it: REF CURSOR subprograms are catalogued with `ReturnsRefCursor = true` and empty `ResultColumns`. Setting `Oracle.DescribeRefCursors: true` makes catalog extraction execute each subprogram that returns a REF CURSOR as its function result, or as its only OUT parameter. IN parameters are bound as NULL, or omitted when they have a default. A failing describe leaves the shape unknown. Enable it only with a read-only account on a database where running these procedures has no side effects. `UseRefCursorDescribe` is not honored for this purpose.
+By default the catalog never runs it: REF CURSOR subprograms are catalogued with `ReturnsRefCursor = true` and empty `ResultColumns`. Setting `Oracle.DescribeRefCursors: true` makes catalog extraction execute eligible subprograms: a function returning a REF CURSOR with no OUT/IN OUT parameters, or a procedure with exactly one OUT REF CURSOR and no other OUT/IN OUT parameters. IN parameters are bound as NULL, or omitted when they have a default. A failing describe leaves the shape unknown. Enable it only with a read-only account on a database where running these procedures has no side effects. `UseRefCursorDescribe` is not honored for this purpose.
 
 ```yaml
 Oracle:
@@ -394,3 +394,5 @@ The `oracle-check` command runs the full Oracle validation pipeline:
 2. Reads the complete schema (all tables, all columns)
 3. Runs dialect checks against column types
 4. Reports unmapped type usage
+
+Implementation reference: [OracleCatalog.cs](../../../src/DataGuard.Oracle.Adapter/OracleCatalog.cs). These limits describe current behavior, not provider parity or evidence of live database verification.

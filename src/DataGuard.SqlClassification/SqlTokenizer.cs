@@ -37,10 +37,22 @@ internal readonly struct SqlToken
     /// <summary>Gets a value indicating whether the token can be part of an object name.</summary>
     public bool IsName => Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier;
 
-    /// <summary>Gets the identifier with quoting removed (<c>[dbo]</c>, <c>"T"</c>, <c>`T`</c> become <c>dbo</c>, <c>T</c>).</summary>
-    public string Name => Kind == SqlTokenKind.QuotedIdentifier && Text.Length >= 2
-        ? Text.Substring(1, Text.Length - 2).Trim()
-        : Text;
+    /// <summary>Gets the identifier with quoting removed and doubled closing delimiters decoded.</summary>
+    public string Name
+    {
+        get
+        {
+            if (Kind != SqlTokenKind.QuotedIdentifier || Text.Length < 2)
+            {
+                return Text;
+            }
+
+            var delimiter = Text[0] == '[' ? "]" : Text[0].ToString();
+
+            // Preserve existing trimming: the C# scanner masks escaped quotes with padding.
+            return Text.Substring(1, Text.Length - 2).Trim().Replace(delimiter + delimiter, delimiter);
+        }
+    }
 
     public bool IsSymbol(char symbol) => Kind == SqlTokenKind.Symbol && Text.Length == 1 && Text[0] == symbol;
 }
@@ -93,8 +105,7 @@ internal static class SqlTokenizer
             }
             else if (current == '[')
             {
-                var end = text.IndexOf(']', index + 1);
-                index = end < 0 ? text.Length : end + 1;
+                index = SkipQuoted(text, index, ']');
                 tokens.Add(new SqlToken(SqlTokenKind.QuotedIdentifier, start, index - start, text.Substring(start, index - start)));
             }
             else if (char.IsDigit(current))

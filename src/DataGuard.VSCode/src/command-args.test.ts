@@ -43,7 +43,7 @@ test("CLI argument builder emits positional argv without shell interpolation", (
     );
     assert.deepEqual(
         buildCliArguments("assess", "/workspace with spaces", "mysql", undefined, "/tmp/result.sarif"),
-        ["assess", "--workspace", "/workspace with spaces", "--provider", "mysql", "--format", "sarif", "--output", "/tmp/result.sarif", "--ide-safe"],
+        ["assess", "--workspace", "/workspace with spaces", "--format", "sarif", "--output", "/tmp/result.sarif", "--ide-safe"],
     );
     assert.deepEqual(
         buildCliArguments("scan", "/workspace", "sqlserver", undefined, "/tmp/summary.json"),
@@ -82,6 +82,7 @@ test("validate carries --allow-env-connection only when the host supplies a user
 test("assess never carries --allow-env-connection even with a user credential", () => {
     const argv = buildCliArguments("assess", "/workspace", "sqlserver", undefined, "/tmp/out.sarif", { hasUserCredential: true });
     assert.ok(!argv.includes("--allow-env-connection"));
+    assert.ok(!argv.includes("--provider"), "AssessCommand.cs does not accept --provider");
     assert.ok(argv.includes("--ide-safe"));
 });
 

@@ -1,14 +1,14 @@
 # System Architecture
 
-> **DataGuard** — .NET 9 contract validation engine for Entity ↔ Stored Procedure / Raw SQL.
+> **StackAccord** — .NET 9 contract validation engine for Entity ↔ Stored Procedure / Raw SQL.
 
-This document describes the full system architecture of DataGuard, including component topology, layer design, data flow, security architecture, and CI/CD pipeline.
+This document describes the full system architecture of StackAccord, including component topology, layer design, data flow, security architecture, and CI/CD pipeline.
 
 ---
 
 ## 1. High-Level Component Topology
 
-DataGuard consists of **11 source projects** organized in a strict layered architecture. The Contracts layer targets `netstandard2.0` for maximum IDE compatibility; the Core engine and adapters target `net9.0`; IDE extensions target their respective host frameworks.
+StackAccord consists of **11 source projects** organized in a strict layered architecture. The Contracts layer targets `netstandard2.0` for maximum IDE compatibility; the Core engine and adapters target `net9.0`; IDE extensions target their respective host frameworks.
 
 ```mermaid
 graph TB
@@ -69,7 +69,7 @@ graph TB
 
 ## 2. Layer Architecture
 
-DataGuard follows a strict **bottom-up dependency model**. Each layer only depends on layers below it — never sideways or upward.
+StackAccord follows a strict **bottom-up dependency model**. Each layer only depends on layers below it — never sideways or upward.
 
 ```mermaid
 graph TB
@@ -192,7 +192,7 @@ flowchart LR
 
 ## 4. Security Architecture: Zero-Trust Credential Chain
 
-DataGuard implements a **zero-trust** security model. Credentials are never logged, never serialized in plain text, and are encrypted at rest when configured.
+StackAccord implements a **zero-trust** security model. Credentials are never logged, never serialized in plain text, and are encrypted at rest when configured.
 
 ```mermaid
 flowchart TB
@@ -251,7 +251,7 @@ flowchart TB
 
 ## 5. CI/CD Pipeline Architecture
 
-DataGuard uses GitHub Actions with a **defense-in-depth** pipeline: build → test → security scan → CodeQL → sign → publish.
+StackAccord uses GitHub Actions with a **defense-in-depth** pipeline: build → test → security scan → CodeQL → sign → publish.
 
 ```mermaid
 flowchart LR
@@ -291,7 +291,7 @@ flowchart LR
 | Stage | Tool | Purpose |
 |-------|------|---------|
 | **Build** | `dotnet build --configuration Release` | Compile all 11 projects with `TreatWarningsAsErrors` |
-| **Test** | `dotnet test` + XPlat Code Coverage | 291+ tests, 60% coverage gate |
+| **Test** | `dotnet test` + XPlat Code Coverage | Run-specific counts/scope; thresholds come from the selected workflow SHA |
 | **Format Gate** | `dotnet format --verify-no-changes` | Enforce consistent code style |
 | **Vulnerability Scan** | `dotnet restore -p:NuGetAuditMode=all` | Audits direct and transitive packages; NU1900–NU1905 fail the gate |
 | **Secret Scan** | TruffleHog v3.97.0 | Verified secrets only, exclude build artifacts |
@@ -386,7 +386,7 @@ graph TB
 
 ## 7. Extension Points
 
-DataGuard is designed for extensibility at every layer:
+StackAccord is designed for extensibility at every layer:
 
 | Extension Point | Mechanism | Use Case |
 |----------------|-----------|----------|

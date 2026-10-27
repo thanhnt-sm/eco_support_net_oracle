@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord Contracts</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
@@ -8,7 +11,7 @@
          (possibly closed-source) output and is read by DataGuard.Core through reflection, so it must not
          carry the GPL-3.0-only value set centrally in Directory.Build.props. -->
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <Description>Shared contract attributes for DataGuard analyzers (netstandard2.0, IDE-host compatible).</Description>
+    <Description>Shared contract attributes for StackAccord analyzers (netstandard2.0, IDE-host compatible).</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;analyzers</PackageTags>
     <IsPackable>true</IsPackable>
   </PropertyGroup>

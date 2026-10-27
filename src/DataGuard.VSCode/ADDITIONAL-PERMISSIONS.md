@@ -1,5 +1,7 @@
 # Additional permissions under GNU GPL version 3, section 7
 
+> **Product name:** StackAccord is the current product name for the DataGuard project. This note does not amend any licence terms or permissions. Existing technical identifiers, copyright and authorship notices, and historical release names remain unchanged.
+
 > **Not reviewed by a lawyer.** This text follows the Free Software Foundation's template for
 > GPL-incompatible libraries ([GPL FAQ, "GPLIncompatibleLibs"](https://www.gnu.org/licenses/gpl-faq.html#GPLIncompatibleLibs)).
 > The DataGuard owner accepted the risk of publishing it without legal review. It is not legal advice.

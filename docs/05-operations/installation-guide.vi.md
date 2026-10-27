@@ -1,113 +1,90 @@
-# Hướng Dẫn Cài Đặt
+# Hướng dẫn cài đặt
 
-## Yêu Cầu Tiên Quyết
+[English](installation-guide.md)
 
-| Yêu cầu | Phiên bản | Ghi chú |
-|---------|-----------|---------|
-| .NET SDK | 9.0+ | Cần cho CLI tool |
-| Database | Oracle 12c+, SQL Server 2016+, MySQL 8.0+, PostgreSQL 12+ | Chỉ cho chế độ Full |
-| IDE | VS Code 1.80+ hoặc Visual Studio 2022 17.8+ | Cho tích hợp IDE |
+Dùng bản build từ source hoặc artifact đã kiểm tra. Hướng dẫn này không xác nhận StackAccord đã có trên NuGet, GHCR hay Marketplace. StackAccord là tên sản phẩm đã chọn; [tên kỹ thuật DataGuard](../product/branding.vi.md) được giữ để tương thích.
 
-## Phương Pháp Cài Đặt
+## Điều kiện cần
 
-### 1. .NET Global Tool (Khuyến nghị)
+- .NET 9 SDK theo `global.json` để build; CLI/tool dạng framework-dependent cần runtime .NET 9. Archive RID self-contained mang theo runtime.
+- Node 22 và npm để build extension VS Code.
+- Windows cùng Visual Studio MSBuild/SDK để build VSIX Visual Studio.
+- VS Code và language client trong lock đều khai báo `^1.91.0`. Chênh lệch metadata nguồn đã được sửa; nghiệm thu trên editor đã cài vẫn chưa hoàn tất.
+- Manifest VS nhắm `[17.12,19.0)`; đây là phạm vi khai báo, không chứng minh mọi host đã được kiểm thử. Runbook yêu cầu nghiệm thu Visual Studio 18.10.2.
 
-```bash
-dotnet tool install -g DataGuard.Cli
-dataguard version
-```
+Validate offline cần snapshot phù hợp hoặc nguồn contract được chỉ định rõ. Truy cập metadata live cần provider và quyền database được duyệt; có adapter không chứng minh mọi phiên bản database/cú pháp SQL đều hoạt động.
 
-### 2. Local Tool (Từng Project)
+## Build CLI từ source
 
-```bash
-dotnet new tool-manifest
-dotnet tool install DataGuard.Cli
-dotnet dataguard version
-```
-
-### 3. Docker
-
-```bash
-docker pull ghcr.io/thanhnt-sm/dataguard:latest
-docker run --rm ghcr.io/thanhnt-sm/dataguard:latest dataguard version
-```
-
-### 4. Build Từ Source
+Sau khi clone, chạy tại root repository và ghi nhận commit dùng để build. Build riêng project CLI tránh các project chỉ dành cho Windows trong solution đầy đủ.
 
 ```bash
 git clone https://github.com/thanhnt-sm/eco_support_net_oracle.git
 cd eco_support_net_oracle
-dotnet build -c Release
-dotnet run --project src/DataGuard.Cli -- version
+dotnet restore src/DataGuard.Cli/DataGuard.Cli.csproj --locked-mode
+dotnet build src/DataGuard.Cli/DataGuard.Cli.csproj -c Release --no-restore
+dotnet run --project src/DataGuard.Cli -c Release --no-build -- version
 ```
 
-## Phần Mở Rộng IDE
-
-### VS Code
+Để cài lệnh cục bộ, đóng gói cùng source:
 
 ```bash
-code --install-extension dataguard-vscode-0.1.0.vsix
+dotnet pack src/DataGuard.Cli/DataGuard.Cli.csproj -c Release --no-restore --output ./artifacts/local-tools
+# Isolate this local tool feed from the repository's nuget.org source mapping.
+cat > ./artifacts/local-tools/NuGet.config <<'XML'
+<configuration>
+  <packageSources><clear /><add key="local" value="." /></packageSources>
+</configuration>
+XML
+# Use the exact version from the generated .nupkg filename.
+dotnet tool install --tool-path ./artifacts/tool --configfile ./artifacts/local-tools/NuGet.config DataGuard.Cli --version <package-version>
+./artifacts/tool/dataguard version
 ```
 
-Hoặc cài từ file VSIX trong `src/DataGuard.VSCode/`.
+Thay `<package-version>` bằng version chính xác trong tên `.nupkg` trước khi chạy. Các lệnh chỉ tạo artifact local, không công bố package. Với package tải xuống, dùng thư mục đã xác minh và version chính xác làm nguồn. Chỉ cài từ registry công khai sau khi kiểm tra danh tính và sự tồn tại của release đó.
 
-### Artifact theo version từ GitHub Actions
+## Artifact theo version từ GitHub Actions
 
-Với revision build thủ công, tải `dataguard-installers-<version>` từ workflow **Build Release Artifacts** đã thành công. Xác minh bundle trước khi cài:
+Nếu một lần chạy **Build Release Artifacts** được cho phép đã thành công, tải artifact `dataguard-installers-<version>`. Xác minh bundle:
 
 ```bash
 cd downloaded-bundle
 sha256sum -c SHA256SUMS.txt
 ```
 
-Xem `release-manifest.json` để kiểm tra version, commit, kích thước file và giá trị SHA-256. Giải nén CLI archive đúng RID rồi chạy `dataguard --help`; cài VSIX bằng VS Code hoặc Visual Studio; hoặc cài NuGet tool local bằng `dotnet tool install --global --add-source ./nuget DataGuard.Cli --version <version>`.
+Xem `release-manifest.json` để kiểm tra version, commit, kích thước và SHA-256. Giải nén CLI archive đúng RID, chạy `dataguard --help`. Thư mục `nuget` trong bundle dùng được làm nguồn tool local. Artifact lưu 30 ngày và có thể hết hạn; workflow này không công bố lên registry hay GitHub Release. Checksum xác định byte, không thay thế nghiệm thu sản phẩm.
 
-Các artifact này được lưu 30 ngày và không được publish lên registry hoặc GitHub Release.
+## Extension IDE
 
-### Visual Studio 2022
-
-1. Build VSIX: `dotnet build src/DataGuard.VisualStudio -c Release`
-2. Cài đặt: Double-click file `.vsix` → VS Extension Manager
-
-## Tích Hợp CI/CD
-
-### GitHub Actions
-
-```yaml
-- name: Cài DataGuard
-  run: dotnet tool install -g DataGuard.Cli
-
-- name: Validate contracts
-  run: dataguard validate --format sarif --output results.sarif
-  env:
-    CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
-```
-
-### Docker trong CI
-
-```yaml
-- name: Validate contracts
-  run: |
-    docker run --rm \
-      -v ${{ github.workspace }}:/workspace \
-      -e CONNECTION_STRING="${{ secrets.DB_CONNECTION_STRING }}" \
-      ghcr.io/thanhnt-sm/dataguard:latest \
-      dataguard validate --format sarif --output /workspace/results.sarif
-```
-
-## Xác Minh
+Theo [hướng dẫn build extension](extension-build-guide.vi.md) để tạo VSIX hoặc chọn artifact đã kiểm tra từ run thành công. Không giả định checkout source đã có sẵn VSIX.
 
 ```bash
-dataguard version          # Hiển thị phiên bản
-dataguard init             # Tạo .dataguard.yml
-dataguard validate --help  # Hiển thị tất cả tùy chọn
+code --install-extension /path/to/accepted-vscode-package.vsix
 ```
 
-## Khắc Phục Sự Cố
+Thay đường dẫn bằng gói VS Code đã nghiệm thu. Dùng **Install from VSIX...** của VS Code, không dùng installer Visual Studio. Với gói Visual Studio, đóng IDE và mở VSIX bằng installer tương ứng. Build bằng Visual Studio MSBuild như hướng dẫn, không thay bằng lệnh `dotnet build` chung.
 
-| Vấn đề | Giải pháp |
-|--------|-----------|
-| `dotnet tool` không tìm thấy | Đảm bảo .NET SDK 9.0+ đã cài và `~/.dotnet/tools` trong PATH |
-| Connection refused | Kiểm tra biến môi trường `CONNECTION_STRING` hoặc cờ `--connection` |
-| Permission denied (Docker) | Chạy với `--user $(id -u):$(id -g)` cho quyền file |
-| VSIX không tải | Đảm bảo VS 2022 17.8+ và khởi động lại VS sau khi cài |
+Kiểm thử activation, diagnostics và navigation trong editor đích. Cài local khác với có listing công khai; xem [gate công bố qua trình duyệt](../marketplace-publishing.vi.md) và [workflow thủ công riêng](../marketplace-automation.vi.md).
+
+## Build Docker local
+
+Dockerfile đã đặt entrypoint CLI. Build local thay vì giả định tag công khai `latest` tồn tại:
+
+```bash
+docker build -t dataguard:local .
+docker run --rm dataguard:local version
+```
+
+Khi validate, mount project đã kiểm tra và đặt working directory; truyền trực tiếp `validate`, không thêm đối số `dataguard`. Kiểm tra quyền filesystem và cấu hình kết nối trước khi dùng live.
+
+## Xác minh và tích hợp
+
+Sau khi đưa CLI đã nghiệm thu vào PATH:
+
+```bash
+dataguard version
+dataguard validate --help
+dataguard init --provider sqlserver
+```
+
+`init` ghi cấu hình ban đầu và từ chối ghi đè file có sẵn. Theo [quickstart](../01-overview/quickstart.md) để validate với snapshot và tích hợp CI. CI cần artifact/version chính xác đã review thay vì phụ thuộc package chưa xác minh hoặc image tag có thể đổi.

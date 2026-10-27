@@ -13,7 +13,7 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Threading;
 using Task = System.Threading.Tasks.Task;
 
-/// <summary>Command execution: run slot → CLI discovery → trust gate → ide-safe run → outcome handling.</summary>
+/// <summary>Command execution: run slot → CLI discovery → trust gate → ide-safe run → outcome handling. The live database commands reuse <see cref="ExecuteRunAsync"/> from DataGuardPackage.LiveCommands.cs.</summary>
 public sealed partial class DataGuardPackage
 {
     private const string ConfigFileName = ".dataguard.yml";
@@ -42,7 +42,7 @@ public sealed partial class DataGuardPackage
         var solution = await this.ReadSolutionInfoAsync();
         if (solution == null)
         {
-            await output.WriteAsync("[DataGuard] Open a solution before running " + command + ".\r\n");
+            await output.WriteAsync("[StackAccord] Open a solution before running " + command + ".\r\n");
             return;
         }
 
@@ -55,7 +55,7 @@ public sealed partial class DataGuardPackage
 
         if (!reserved)
         {
-            await output.WriteAsync("[DataGuard] A DataGuard command is already running for this solution.\r\n");
+            await output.WriteAsync("[StackAccord] A StackAccord command is already running for this solution.\r\n");
             return;
         }
 
@@ -113,14 +113,22 @@ public sealed partial class DataGuardPackage
             // Last check before the process exists: a Cancel that landed after consent must still win.
             if (!this.processRegistry.ShouldStartAfterConsent())
             {
-                await output.WriteAsync("[DataGuard] Cancel was requested before " + context.Command + " started; nothing was executed.\r\n");
+                await output.WriteAsync("[StackAccord] Cancel was requested before " + context.Command + " started; nothing was executed.\r\n");
                 return;
             }
 
-            await output.WriteCommandBannerAsync(context.Command, context.SolutionDirectory, context.ConfigPath, context.EnabledRuleCount, context.DisabledRuleIds.Count);
-            if (!context.ConfigExists)
+            if (context.LiveCommand is { } liveKind)
             {
-                await output.WriteAsync("[DataGuard] No " + ConfigFileName + " in the solution directory: only source-only rules run and no schema was compared. Run 'dataguard init' to create one.\r\n");
+                await output.WriteLiveCommandBannerAsync(liveKind, context.SolutionDirectory, context.LiveOptions.VariableName);
+            }
+            else
+            {
+                await output.WriteCommandBannerAsync(context.Command, context.SolutionDirectory, context.ConfigPath, context.EnabledRuleCount, context.DisabledRuleIds.Count);
+            }
+
+            if (!context.ConfigExists && context.LiveCommand == null)
+            {
+                await output.WriteAsync("[StackAccord] No " + ConfigFileName + " in the solution directory: only source-only rules run and no schema was compared. Run 'dataguard init' to create one.\r\n");
             }
 
             var session = new CliRunSession(this.processRegistry, this.ruleInventory, output.WriteAsync, output.WriteLinesAsync, output.SetStatusAsync);
@@ -129,7 +137,7 @@ public sealed partial class DataGuardPackage
         }
         catch (Exception ex)
         {
-            await output.WriteAsync("[DataGuard] Failed to run " + context.Command + ": " + DataGuardLogger.Redact(ex.Message) + "\r\n");
+            await output.WriteAsync("[StackAccord] Failed to run " + context.Command + ": " + DataGuardLogger.Redact(ex.Message) + "\r\n");
         }
         finally
         {

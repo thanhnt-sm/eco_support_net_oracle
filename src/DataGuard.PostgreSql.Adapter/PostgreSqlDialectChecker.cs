@@ -86,19 +86,21 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
         "ISNULL", "GETDATE", "GETUTCDATE", "DATEADD", "DATEDIFF",
         "DATEPART", "DATENAME", "DATETRUNC", "EOMONTH",
         "NEWID", "NEWSEQUENTIALID", // IDENTITY( is a dedicated check; "AS IDENTITY" is PostgreSQL syntax
-        "IIF", "CHOOSE", "FORMAT", "CONVERT", "TRY_CAST", "TRY_CONVERT", "TRY_PARSE",
+        "IIF", "CHOOSE", "CONVERT", "TRY_CAST", "TRY_CONVERT", "TRY_PARSE",
         "SCOPE_IDENTITY", "@@IDENTITY", "IDENT_CURRENT",
         "TOP", "WITH(NOLOCK)", "NOLOCK",
         "EXEC ", "EXECUTE ",
         "SUSER_SNAME", "SUSER_NAME", "SYSTEM_USER",
         "APP_NAME", "HOST_NAME", "HOST_ID",
         "RAISERROR", "THROW",
-        "REPLACE", // exists in PG too, but "REPLACE INTO" is MySQL
+
+        // REPLACE() and FORMAT() are native PostgreSQL functions; REPLACE INTO is checked in MySqlKeywords.
         "PIVOT", "UNPIVOT", // SQL Server specific syntax form
         "OPENQUERY", "OPENROWSET", "OPENDATASOURCE",
         "MERGE", // SQL Server MERGE syntax (PG 15+ has MERGE but different syntax)
         "OUTPUT", // SQL Server OUTPUT clause
-        "CUBE", "ROLLUP", "GROUPING SETS", // exist in PG too, but GROUPING_ID is SQL Server
+
+        // CUBE, ROLLUP and GROUPING SETS are native PostgreSQL grouping constructs.
         "GROUPING_ID",
         "STRING_SPLIT", "STRING_ESCAPE",
         "JSON_VALUE", "JSON_QUERY", "JSON_MODIFY", "OPENJSON",
@@ -119,8 +121,9 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
         "DECODE", "NVL", "NVL2", "DUAL", "ROWNUM", "CONNECT BY", "START WITH",
         "SYSDATE", "SYSTIMESTAMP", "NEXTVAL", "CURRVAL", "ROWID",
         "LISTAGG", "WM_CONCAT",
-        "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR", "REGEXP_INSTR",
-        "TO_CHAR", "TO_NUMBER", "TO_DATE", // Oracle-specific forms (PG has to_char but different syntax)
+        "REGEXP_LIKE", "REGEXP_SUBSTR", "REGEXP_INSTR",
+
+        // REGEXP_REPLACE, TO_CHAR, TO_NUMBER and TO_DATE are also native PostgreSQL functions.
         "SOUNDEX", // exists in PG too, but often an Oracle leak
         "UTL_FILE", "UTL_HTTP", "DBMS_OUTPUT", "DBMS_LOB",
         "BFILE", "LONG RAW", "RAW",
@@ -145,7 +148,8 @@ public sealed class PostgreSqlDialectChecker : IDialectAnalyzer
         "SLEEP",
         "FOUND_ROWS", "ROW_COUNT",
         "CONV", "ELT", "EXPORT_SET", "FIELD", "FIND_IN_SET",
-        "FORMAT", // MySQL FORMAT() function
+
+        // FORMAT() is native PostgreSQL too; its occurrence alone is not a dialect mismatch.
         "INET_ATON", "INET_NTOA",
         "UUID_SHORT",
     };

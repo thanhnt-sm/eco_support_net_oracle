@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/PublicApi/PublicApiSurface.cs`
 
-Public API surface cung cấp điểm vào ổn định, có phiên bản cho việc sử dụng DataGuard theo chương trình. Nó bao gồm facade `DataGuardApi` chính, `ValidationPipeline` fluent, các kiểu kết quả, phát hiện drift, và factory thân thiện DI.
+Public API surface cung cấp điểm vào ổn định, có phiên bản cho việc sử dụng StackAccord theo chương trình. Nó bao gồm facade `DataGuardApi` chính, `ValidationPipeline` fluent, các kiểu kết quả, phát hiện drift, và factory thân thiện DI.
 
 ## Luồng Sử Dụng API
 
@@ -75,6 +75,10 @@ public sealed class ValidationPipeline : IDisposable
     internal ValidationPipeline(DataGuardConfiguration config) { ... }
 
     public ValidationPipeline WithRules(params IContractRule[] rules) { ... }
+    public ValidationPipeline WithProviderRules(IEnumerable<IContractRule> providerRules) { ... }
+    public ValidationPipeline WithProviderRules(
+        IEnumerable<IContractRule> providerRules,
+        IEnumerable<RuleExecutionOutcome> unavailableOutcomes) { ... }
     public ValidationPipeline WithPlugins(string pluginDirectory) { ... }
     public ValidationPipeline WithPlugins(
         string pluginDirectory,
@@ -114,6 +118,20 @@ var pipeline = DataGuardApi.CreatePipeline(config)
     .WithBaselineFile(".dataguard-baseline.json");
 ```
 
+### Provider rules và khai báo availability
+
+Overload hiện có `WithProviderRules(providerRules)` được giữ nguyên. Overload bổ sung nhận các rule sẵn sàng chạy cùng `unavailableOutcomes`: chỉ chấp nhận record `RuleExecutionState.Unavailable` có `RuleId` và `PrerequisiteReason` không được rỗng hay chỉ chứa khoảng trắng, collection `Violations` rỗng và `FailureReason == null`. Metadata không hợp lệ bị từ chối. Các khai báo unavailable nằm ngoài đồ thị phụ thuộc; đồ thị chỉ chạy những rule sẵn sàng.
+
+`ProviderRuleCatalog.CreatePipeline(provider, configuration, connectionString)` truyền đồng thời các rule sẵn sàng và metadata unavailable từ catalog:
+
+| Provider | Rule được khai báo unavailable |
+|----------|--------------------------------|
+| `oracle` | `DG012` (thiếu metadata đăng ký provider) |
+| `postgres` / `postgresql` | `PG004` (thiếu metadata đăng ký provider) |
+| `sqlserver` / `mysql` | Không có |
+
+Gọi một trong hai overload `WithProviderRules` sẽ thay thế provider rules và các khai báo unavailable trước đó; overload hiện có xóa khai báo bằng cách không truyền khai báo nào. Các rule thêm qua `WithRules` hoặc plugin đã được chấp nhận vẫn được kết hợp, đồng thời giữ guard chống trùng ID giữa rule và khai báo. Việc caller chủ động bỏ một rule khỏi danh sách không tạo outcome `Unavailable` cho rule đó.
+
 ### ValidateAsync
 
 Chạy tất cả rules đã cấu hình với các contracts được cung cấp.
@@ -151,6 +169,8 @@ rule không chạy; chẳng hạn sequential validation ghi lý do violation cap
 các finding giữ lại đã đầy dung lượng. Khi đó `ExecutionStatus` bao quanh là
 incomplete. Cách tạo positional và các thành viên kết quả legacy vẫn không đổi.
 
+`ValidateAsync` gộp các outcome unavailable đã khai báo với outcome của rule đã thực thi trong `RuleOutcomes`. Thiếu coverage đã yêu cầu làm `ExecutionStatus = Incomplete` và `IsClean = false`, kể cả khi không có violation và bất kể `FailOnUnavailableRules`. Cờ này điều khiển chính sách exit của CLI; bản thân coverage unavailable không làm API ném exception hoặc tạo contract violation giả. Baseline chỉ lọc violations, không xóa trạng thái availability đã khai báo.
+
 Kết quả của một lần chạy validation.
 
 ```csharp
@@ -164,9 +184,16 @@ public sealed record ValidationResult(
     TimeSpan Duration,
     string SchemaVersion)
 {
+    public ValidationExecutionStatus ExecutionStatus { get; init; } = ValidationExecutionStatus.Complete;
+    public int? DroppedViolationCount { get; init; }
+    public IReadOnlyList<RuleExecutionOutcome> RuleOutcomes { get; init; } = Array.Empty<RuleExecutionOutcome>();
+    public IReadOnlyList<UnevaluatedContract> UnevaluatedContracts { get; init; } = Array.Empty<UnevaluatedContract>();
     public bool HasErrors => Errors > 0;
     public bool HasWarnings => Warnings > 0;
-    public bool IsClean => TotalViolations == 0;
+    public bool IsClean => TotalViolations == 0
+        && ExecutionStatus == ValidationExecutionStatus.Complete
+        && UnevaluatedContracts.Count == 0
+        && !RuleOutcomes.Any(outcome => outcome.MakesValidationIncomplete);
     public bool HasViolations => TotalViolations > 0;
     public double ViolationsPerContract => ContractsValidated > 0
         ? (double)TotalViolations / ContractsValidated : 0;
@@ -184,8 +211,11 @@ public sealed record ValidationResult(
 | `Infos` | `int` | Số lượng mức Info |
 | `Violations` | `ImmutableArray<ContractViolation>` | Tất cả violations |
 | `Duration` | `TimeSpan` | Thời gian validation |
+| `RuleOutcomes` | `IReadOnlyList<RuleExecutionOutcome>` | Outcome unavailable đã khai báo được gộp với outcome thực thi |
+| `ExecutionStatus` | `ValidationExecutionStatus` | `Complete` hoặc `Incomplete`; thiếu coverage đã yêu cầu là incomplete |
+| `UnevaluatedContracts` | `IReadOnlyList<UnevaluatedContract>` | Contract mà rule không đánh giá được; chúng cũng ngăn kết quả clean |
 | `HasErrors` | `bool` | True nếu có errors |
-| `IsClean` | `bool` | True nếu không có violations |
+| `IsClean` | `bool` | True khi không có violation hiển thị, contract chưa đánh giá hoặc rule outcome `Unavailable`/`Failed`, và execution complete |
 | `ViolationsPerContract` | `double` | Chỉ số mật độ violations |
 
 ## DriftReport
@@ -226,7 +256,7 @@ Mặc định là `Missing`; các đường chạy đã đánh giá sẽ gán t�
 
 ## DataGuardFactory
 
-Factory thân thiện DI để tạo các thành phần DataGuard.
+Factory thân thiện DI để tạo các thành phần StackAccord.
 
 ```csharp
 public static class DataGuardFactory

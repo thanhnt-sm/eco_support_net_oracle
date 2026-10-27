@@ -7,7 +7,7 @@
 
 ## Triết Lý Kiểm Thử
 
-DataGuard tuân theo phương pháp kiểm thử **contract-first, dựa trên bằng chứng**:
+StackAccord tuân theo phương pháp kiểm thử **contract-first, dựa trên bằng chứng**:
 
 1. **Mỗi rule có tests**: Mỗi rule DG/MY/PG có unit tests bao gồm happy path, edge cases, và điều kiện lỗi
 2. **Golden corpus**: Các cặp SQL/entity đã biết đúng/sai để kiểm thử hồi quy
@@ -214,3 +214,9 @@ public async Task OracleAdapter_ExtractsOverloadedProcedures()
     Assert.Equal(2, params.Count(p => p.Overload > 0));
 }
 ```
+
+## Cô lập môi trường tiến trình và kiểm thử chuỗi audit
+
+Các kiểm thử credential đọc hoặc sửa biến môi trường tiến trình thuộc collection `Sequential`, được định nghĩa với `DisableParallelization = true`. Chỉ dùng cùng tên collection không ngăn các collection khác chạy đồng thời. `AuditChainTests` lưu, xóa tạm và khôi phục biến connection string cùng khóa audit để cấu hình và tệp khóa giả lập quyết định đầu vào. Không in giá trị kế thừa.
+
+Kiểm thử nhiều nguồn ghi vẫn phải có đúng năm bản ghi và chuỗi có khóa hợp lệ. Ca ghi đè môi trường giả lập riêng yêu cầu đúng một sự kiện rotation bổ sung, kiểm tra fingerprint cũ/mới có salt và không chứa credential rõ. Xem `tests/DataGuard.Core.Tests/ProcessEnvironmentIsolationTests.cs` và `plans/2026-10-18-audit-chain-test-isolation.md`.

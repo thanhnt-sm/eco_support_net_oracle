@@ -1,0 +1,59 @@
+<?xml version='1.0' encoding='utf-8'?>
+<coverage branches-covered="7" branches-valid="14" branch-rate="0.5">
+  <!--Coverlet 10.1.0 line elements from retained PR63 raw reports; synthetic wrapper, source path and line numbering. Root includes two of four unrepresented branches to exercise distinct scopes.-->
+  <sources>
+    <source>SOURCE_ROOT</source>
+  </sources>
+  <packages>
+    <package branch-rate="0.5" name="Example">
+      <classes>
+        <class branch-rate="0.5" name="Example.A" filename="Example/A.cs">
+          <methods>
+            <method branch-rate="0.5" name="Run">
+              <lines>
+                <line number="1" hits="0" branch="True" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="1112" type="jump" coverage="0%" />
+                  </conditions>
+                </line>
+                <line number="2" hits="4" branch="True" condition-coverage="50% (3/6)">
+                  <conditions>
+                    <condition number="129" type="jump" coverage="50%" />
+                    <condition number="142" type="jump" coverage="50%" />
+                    <condition number="168" type="jump" coverage="50%" />
+                  </conditions>
+                </line>
+                <line number="3" hits="10019" branch="True" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="18" type="jump" coverage="100%" />
+                  </conditions>
+                </line>
+                <line number="4" hits="1" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="1" hits="0" branch="True" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="1112" type="jump" coverage="0%" />
+              </conditions>
+            </line>
+            <line number="2" hits="4" branch="True" condition-coverage="50% (3/6)">
+              <conditions>
+                <condition number="129" type="jump" coverage="50%" />
+                <condition number="142" type="jump" coverage="50%" />
+                <condition number="168" type="jump" coverage="50%" />
+              </conditions>
+            </line>
+            <line number="3" hits="10019" branch="True" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="18" type="jump" coverage="100%" />
+              </conditions>
+            </line>
+            <line number="4" hits="1" branch="False" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

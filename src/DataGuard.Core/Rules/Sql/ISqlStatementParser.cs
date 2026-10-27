@@ -13,7 +13,10 @@ public sealed record SqlStatementParseResult(
     IReadOnlyList<ParameterDescriptor> Parameters,
     IReadOnlyList<ColumnDescriptor> Columns)
 {
-    /// <summary>Gets a valid result with no parameters and no columns (also what the no-op parser returns).</summary>
+    /// <summary>Zero-based error offset in the original SQL input, before placeholder normalization.</summary>
+    public int? ErrorOffset { get; init; }
+
+    /// <summary>Gets an unchecked result with no findings; this is not evidence that a grammar validated the SQL.</summary>
     public static SqlStatementParseResult Unchecked { get; } =
         new(true, null, Array.Empty<ParameterDescriptor>(), Array.Empty<ColumnDescriptor>());
 
@@ -26,7 +29,7 @@ public sealed record SqlStatementParseResult(
 
 /// <summary>
 /// Dialect parser for raw SQL text. Core has no SQL grammar of its own: the default <see cref="NoOpSqlStatementParser"/>
-/// accepts everything, and an adapter (the SQL Server adapter's ScriptDOM parser) is injected by <c>ProviderRuleCatalog</c>
+/// returns an unchecked result, and an adapter (the SQL Server adapter's ScriptDOM parser) is injected by <c>ProviderRuleCatalog</c>
 /// for its provider, the same way as <see cref="IPhantomReferenceAnalyzer"/>. <see cref="RawSqlParseStatusRule"/> (DG019)
 /// reports texts the injected parser rejects. Implementations must be stateless, thread-safe and must not throw for
 /// malformed SQL.
@@ -42,7 +45,7 @@ public interface ISqlStatementParser
     SqlStatementParseResult Parse(string sql);
 }
 
-/// <summary>The default parser: accepts every text and extracts nothing (providers without a grammar in DataGuard).</summary>
+/// <summary>The default parser: checks no grammar and extracts nothing. DG019 reports these contracts as unevaluated.</summary>
 public sealed class NoOpSqlStatementParser : ISqlStatementParser
 {
     /// <summary>Gets the shared instance.</summary>

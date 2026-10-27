@@ -62,7 +62,7 @@ internal sealed class CliRunSession
         // Always yield: Process.Start must never run on the caller's (UI) context, whatever thread called us.
         await TaskScheduler.Default.SwitchTo(alwaysYield: true);
         this.registry.StartAndRegister(process, this.ProcessStarter);
-        await this.setStatus(command == "validate" ? "DataGuard: Validating..." : "DataGuard: Assessing...");
+        await this.setStatus(DescribeRunningStatus(command));
 
         var pump = new ProgressPump(this.flushOutput);
         var stdoutDrainTask = ProcessTerminator.DrainAsync(process.StandardOutput);
@@ -96,7 +96,7 @@ internal sealed class CliRunSession
         }
         catch (InvalidOperationException)
         {
-            await this.writeOutput("[DataGuard] Warning: Process output streams could not be completely drained upon cancellation.\r\n");
+            await this.writeOutput("[StackAccord] Warning: Process output streams could not be completely drained upon cancellation.\r\n");
             shouldSuppress = wasCancelled;
         }
 
@@ -110,6 +110,22 @@ internal sealed class CliRunSession
         outcome.ExitCode = process.ExitCode;
         outcome.ProceedToPublish = true;
         return outcome;
+    }
+
+    /// <summary>Status-bar text while the command runs.</summary>
+    internal static string DescribeRunningStatus(string command)
+    {
+        switch (command)
+        {
+            case "validate":
+                return "StackAccord: Validating...";
+            case "snapshot refresh":
+                return "StackAccord: Refreshing snapshot...";
+            case "verify-shape":
+                return "StackAccord: Verifying shapes...";
+            default:
+                return "StackAccord: Assessing...";
+        }
     }
 
     internal static bool DecideCancellationSuppression(bool cancellationRequested, bool streamsDrained)

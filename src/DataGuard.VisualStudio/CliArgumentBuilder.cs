@@ -103,6 +103,27 @@ internal static class CliArgumentBuilder
     }
 
     /// <summary>
+    /// <c>snapshot refresh</c> for the live Refresh Snapshot command. Never <c>--config</c> (a repository
+    /// .dataguard.yml could redirect the write or enable REF CURSOR execution), never <c>--ide-safe</c>
+    /// (the CLI would refuse the connection), never <c>--connection</c> (the secret stays in the environment).
+    /// </summary>
+    internal static string BuildSnapshotRefreshArguments(string variableName, string provider, string? schema)
+    {
+        return "snapshot refresh --connection-env " + Quote(variableName)
+            + " --provider " + Quote(provider)
+            + (string.IsNullOrEmpty(schema) ? string.Empty : " --schema " + Quote(schema!));
+    }
+
+    /// <summary><c>verify-shape</c> for the live Verify SQL Shapes command; same rules as <see cref="BuildSnapshotRefreshArguments"/>.</summary>
+    internal static string BuildVerifyShapeArguments(string solutionDirectory, string variableName, string provider, string summaryPath)
+    {
+        return "verify-shape --project " + Quote(solutionDirectory)
+            + " --connection-env " + Quote(variableName)
+            + " --provider " + Quote(provider)
+            + " --format json --output " + Quote(summaryPath);
+    }
+
+    /// <summary>
     /// True when a CLI stderr line <em>starts with</em> System.CommandLine's rejection of
     /// <c>--ide-safe</c>. Anchoring at the line start means a file name or diagnostic that merely
     /// contains the same words cannot masquerade as an old CLI. The extension never retries without the flag.

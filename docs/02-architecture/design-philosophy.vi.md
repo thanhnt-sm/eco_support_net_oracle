@@ -1,8 +1,8 @@
 # Triết Lý Thiết Kế
 
-> Các nguyên tắc định hình mọi dòng mã DataGuard.
+> Các nguyên tắc định hình mọi dòng mã StackAccord.
 
-DataGuard không chỉ là một linter — nó là một **hệ thống thực thi contract** cho ranh giới giữa mã ứng dụng .NET và stored procedures / raw SQL trong database. Mọi quyết định thiết kế đều bắt nguồn từ tám nguyên tắc cốt lõi.
+StackAccord không chỉ là một linter — nó là một **hệ thống thực thi contract** cho ranh giới giữa mã ứng dụng .NET và stored procedures / raw SQL trong database. Mọi quyết định thiết kế đều bắt nguồn từ tám nguyên tắc cốt lõi.
 
 ---
 
@@ -10,7 +10,7 @@ DataGuard không chỉ là một linter — nó là một **hệ thống thực 
 
 > **Mọi khẳng định phải được chứng minh bằng ground truth từ database.**
 
-DataGuard không bao giờ đoán. Khi nó báo cáo rằng một stored procedure mong đợi 5 tham số nhưng call site chỉ truyền 4, khẳng định đó được chứng minh bằng việc đọc `ALL_ARGUMENTS` (Oracle), `sys.parameters` (SQL Server), hoặc `information_schema` (MySQL/PostgreSQL). Khi nó nói một cột là `VARCHAR2(100)` nhưng entity map `MaxLength = 200`, bằng chứng đến từ `ALL_TAB_COLUMNS`.
+StackAccord không bao giờ đoán. Khi nó báo cáo rằng một stored procedure mong đợi 5 tham số nhưng call site chỉ truyền 4, khẳng định đó được chứng minh bằng việc đọc `ALL_ARGUMENTS` (Oracle), `sys.parameters` (SQL Server), hoặc `information_schema` (MySQL/PostgreSQL). Khi nó nói một cột là `VARCHAR2(100)` nhưng entity map `MaxLength = 200`, bằng chứng đến từ `ALL_TAB_COLUMNS`.
 
 Nguyên tắc này mở rộng sang định dạng output. Artifact `ContractEvidence` được versioned, sắp xếp và redacted — một bản ghi bền vững, máy có thể đọc được mà pipeline CI có thể dựa vào để ra quyết định.
 
@@ -40,7 +40,7 @@ flowchart LR
 
 > **Khi không chắc chắn, từ chối. Credentials không bao giờ lộ; fallback plaintext bị tắt mặc định.**
 
-Cài đặt `AllowPlaintextConfigFallback` mặc định là `false`. Điều này có nghĩa là nếu chuỗi kết nối duy nhất có sẵn nằm trong file `.config` plain và không có vault nào được cấu hình, DataGuard từ chối tiến hành thay vì im lặng hạ cấp sang đường dẫn credential không an toàn.
+Cài đặt `AllowPlaintextConfigFallback` mặc định là `false`. Điều này có nghĩa là nếu chuỗi kết nối duy nhất có sẵn nằm trong file `.config` plain và không có vault nào được cấu hình, StackAccord từ chối tiến hành thay vì im lặng hạ cấp sang đường dẫn credential không an toàn.
 
 Đây là sự khác biệt có chủ đích so với mặc định "tiện lợi cho developer". Trong pipeline CI/CD production, hạ cấp credential im lặng là lỗ hổng bảo mật, không phải tiện lợi.
 
@@ -101,7 +101,7 @@ flowchart LR
 
 > **Chế độ Snapshot không cần kết nối database.**
 
-DataGuard hỗ trợ ba chế độ ground truth:
+StackAccord hỗ trợ ba chế độ ground truth:
 
 | Chế Độ | Cần Database | Trường Hợp Sử Dụng |
 |--------|-------------|---------------------|
@@ -131,7 +131,7 @@ flowchart TD
 
 > **Kiến trúc plugin MEF cho rules tùy chỉnh.**
 
-DataGuard sử dụng MEF 2 (`System.Composition`) để khám phá plugin. Rules tùy chỉnh được khám phá bằng cách quét assemblies tìm attribute `[ExportRule]`. Không cần file cấu hình, không cần mã đăng ký — chỉ cần annotate và đặt assembly.
+StackAccord sử dụng MEF 2 (`System.Composition`) để khám phá plugin. Rules tùy chỉnh được khám phá bằng cách quét assemblies tìm attribute `[ExportRule]`. Không cần file cấu hình, không cần mã đăng ký — chỉ cần annotate và đặt assembly.
 
 ```csharp
 [ExportRule(
@@ -166,10 +166,10 @@ public sealed class CustomNamingConventionRule : IContractRule
 
 > **Audit logging, output SARIF, quản lý baseline, tạo SBOM.**
 
-DataGuard được thiết kế cho pipeline CI/CD doanh nghiệp:
+StackAccord được thiết kế cho pipeline CI/CD doanh nghiệp:
 
 - **Output SARIF 2.1.0**: Định dạng tiêu chuẩn ngành, được hỗ trợ native bởi GitHub Code Scanning, Azure DevOps và hầu hết các nền tảng SAST.
-- **Audit logging**: Các mục audit hash chuỗi cho tuân thủ (SOC 2, ISO 27001).
+- **Audit logging**: Các mục audit hash chuỗi hỗ trợ xem xét; không xác lập tuân thủ SOC 2/ISO 27001.
 - **Quản lý baseline**: Commit baselines vào source control cho onboard codebase cũ.
 - **Tạo SBOM**: SBOM CycloneDX qua `Microsoft.Sbom.DotNetTool` cho minh bạch chuỗi cung ứng.
 - **Ký Sigstore**: Ký keyless OIDC các gói NuGet để xác minh nguồn gốc.
@@ -179,7 +179,7 @@ DataGuard được thiết kế cho pipeline CI/CD doanh nghiệp:
 flowchart LR
     subgraph "Tính Năng Doanh Nghiệp"
         A["SARIF 2.1.0<br/>GitHub · Azure DevOps"]
-        B["Audit Log<br/>Hash chuỗi · SOC 2"]
+        B["Audit Log<br/>Hash chuỗi · bằng chứng xem xét"]
         C["Baseline<br/>Snapshots quản lý source"]
         D["SBOM<br/>CycloneDX · Chuỗi cung ứng"]
         E["Sigstore<br/>Ký keyless"]
@@ -197,12 +197,12 @@ flowchart LR
 
 > **Roslyn analyzers bắt vấn đề trên từng phím.**
 
-DataGuard sử dụng **kiến trúc analyzer tầng kép**:
+StackAccord sử dụng **kiến trúc analyzer tầng kép**:
 
 | Tầng | Công Nghệ | Tốc Độ | Phạm Vi |
 |------|-----------|--------|---------|
-| **IDE Nhẹ** | `IIncrementalGenerator` | ~ms mỗi phím | Chỉ syntax: calls SQL chưa validate, attributes thiếu |
-| **Heuristic IDE** | `DiagnosticAnalyzer` (syntax-node action) | ~ms mỗi call site | Heuristic SQL literal chỉ dùng syntax (DG004/DG017/DG097-DG099); không symbol, không database |
+| **IDE Nhẹ** | `IIncrementalGenerator` | Chưa đo latency | Chỉ syntax: calls SQL chưa validate, attributes thiếu |
+| **Heuristic IDE** | `DiagnosticAnalyzer` (syntax-node action) | Chưa đo latency | Heuristic SQL literal chỉ dùng syntax (DG004/DG017/DG097-DG099); không symbol, không database |
 | **CLI** | `dataguard validate` | Giây | Ground truth database (DG002-DG020, DG101); do operator chạy, không chạy từ build IDE |
 
 Tầng IDE chạy trên từng phím và đánh dấu SQL call chưa validate bằng gạch chân sóng. Nó dùng phân tích syntax local tăng dần. Allocation và GC được đo theo hot-path corpus đã khai báo; không có claim zero-allocation phổ quát cho compiler-host setup hay tài liệu tùy ý.
@@ -212,7 +212,7 @@ Analyzer CI chạy trong pipeline build chỉ với offline metadata. Full datab
 ```mermaid
 flowchart TD
     subgraph "IDE (Khi Gõ Phím)"
-        A["IIncrementalGenerator<br/>Chỉ syntax · ~ms"]
+        A["IIncrementalGenerator<br/>Chỉ syntax · chưa đo latency"]
         A --> B["DG001: Call chưa validate<br/>DG004/DG017/DG097-099: heuristic SQL literal"]
     end
 
@@ -233,11 +233,11 @@ flowchart TD
 
 > **Pattern model contracts được port sang .NET.**
 
-DataGuard mượn khái niệm **model contracts** từ dbt (data build tool). Trong dbt, bạn định nghĩa contracts chỉ định hình dạng của data models — tên cột, kiểu, nullability. DataGuard áp dụng cùng pattern cho .NET:
+StackAccord mượn khái niệm **model contracts** từ dbt (data build tool). Trong dbt, bạn định nghĩa contracts chỉ định hình dạng của data models — tên cột, kiểu, nullability. StackAccord áp dụng cùng pattern cho .NET:
 
 - **Entity contracts**: EF Core entities định nghĩa hình dạng mong đợi (properties, types, nullability).
 - **Stored procedure contracts**: Database stored procedures định nghĩa tham số và result sets.
-- **Thực thi contract**: DataGuard validate rằng hai bên khớp, bắt drift trước khi đến production.
+- **Thực thi contract**: StackAccord validate rằng hai bên khớp, bắt drift trước khi đến production.
 
 Đây là insight cốt lõi: **ranh giới giữa mã ứng dụng và database là một contract, và contracts nên được thực thi tự động.**
 
@@ -248,7 +248,7 @@ flowchart LR
         B1 --> C1["Thực Thi<br/>(dbt build)"]
     end
 
-    subgraph "Pattern DataGuard"
+    subgraph "Pattern StackAccord"
         A2["EF Core Entity"] --> B2["Contract<br/>(properties, types)"]
         A3["Stored Procedure"] --> B2
         B2 --> C2["Thực Thi<br/>(dataguard validate)"]
@@ -265,7 +265,7 @@ flowchart LR
 
 ```mermaid
 mindmap
-  root((DataGuard Triết Lý))
+  root((StackAccord Triết Lý))
     Bằng Chứng Là Trên Hết
       Ground truth database
       Artifacts versioned

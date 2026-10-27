@@ -1,18 +1,22 @@
+> **Thương hiệu sản phẩm:** [StackAccord](docs/product/strategy.vi.md) là tên sản phẩm đã chọn. [Tên kỹ thuật DataGuard](docs/product/branding.vi.md) được giữ để tương thích và nâng cấp. [Lộ trình](docs/product/roadmap.vi.md) và [bản nháp Marketplace](docs/product/marketplace-copy.vi.md) phân biệt hiện có/đã kiểm chứng/đã phát hành/kế hoạch. Phạm vi review và phần chưa xác minh được ghi trong [kiểm kê tài liệu](docs/product/documentation-inventory.md); không dùng số liệu lịch sử làm bằng chứng phát hành. Vẫn tạm dừng xuất bản.
+
 <div align="center">
   <p>
     <a href="README.md">English</a> | <b>Tiếng Việt</b>
   </p>
 </div>
 
-# DataGuard — Kiểm tra hợp đồng (Contract) giữa Entity ↔ Stored Procedure / Raw SQL
+# StackAccord — Kiểm tra hợp đồng (Contract) giữa Entity ↔ Stored Procedure / Raw SQL
 
 [![License: GPL-3.0-only + Commercial](https://img.shields.io/badge/license-GPL--3.0--only%20%2B%20Commercial-blue.svg)](LICENSE)
+[![Build](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/thanhnt-sm/eco_support_net_oracle/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/thanhnt-sm/eco_support_net_oracle/badge)](https://scorecard.dev/viewer/?uri=github.com/thanhnt-sm/eco_support_net_oracle)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15184/badge)](https://www.bestpractices.dev/projects/15184)
 
-**DataGuard** phát hiện lệch lạc (drift) giữa entity .NET và SQL mà chúng phụ thuộc — tham số stored procedure, hình dạng result set, nullability, ngữ nghĩa độ dài (CHAR/BYTE), lệch dialect — ngay tại thời điểm thiết kế và trong CI.
+**StackAccord** phát hiện lệch lạc (drift) giữa entity .NET và SQL mà chúng phụ thuộc — tham số stored procedure, hình dạng result set, nullability, ngữ nghĩa độ dài (CHAR/BYTE), lệch dialect — ngay tại thời điểm thiết kế và trong CI.
 
-> **Vì sao tồn tại:** EF Core đã ghi nhận khoảng trống kiểm tra contract cho stored procedure từ [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) và từ chối xây dựng. DataGuard đưa mẫu *model contracts* mà **dbt** đã chứng minh cho data engineering (preflight kiểm tra cột/tham số lúc compile, từ Core v1.5, 2023) vào thế giới stored-procedure/.NET.
+> **Vì sao tồn tại:** EF Core đã ghi nhận khoảng trống kiểm tra contract cho stored procedure từ [Microsoft EF issue #245 (2014)](https://github.com/dotnet/efcore/issues/245) và từ chối xây dựng. StackAccord đưa mẫu *model contracts* mà **dbt** đã chứng minh cho data engineering (preflight kiểm tra cột/tham số lúc compile, từ Core v1.5, 2023) vào thế giới stored-procedure/.NET.
 
 ## Bắt đầu nhanh
 
@@ -21,10 +25,13 @@
 # SHA-256 với file .sha256 đi kèm (DataGuard.Cli chưa được publish lên nuget.org):
 # https://github.com/thanhnt-sm/eco_support_net_oracle/releases
 cd YourProject
-dataguard init            # tạo .dataguard.yml + .dataguard-snapshot.json
+dataguard init            # tạo .dataguard.yml (snapshot refresh tạo .dataguard-snapshot.json)
 dataguard validate        # chạy rule contract với ground truth
 dataguard snapshot diff   # phát hiện schema drift so với snapshot đã commit
 ```
+
+[Hướng dẫn cấu hình và mẫu Oracle có chú thích](docs/guides/configuration.vi.md)
+
 
 ## Ba chế độ ground truth
 
@@ -125,27 +132,70 @@ Rule adapter nào chạy tùy `--provider` (`src/DataGuard.Cli/ProviderRuleCatal
 
 <!-- rule-table:end -->
 
+## Hỗ trợ Visual Studio
+
+Extension `DataGuard.VisualStudio` dùng menu **Tools → StackAccord (Beta)** để chạy CLI đi kèm. Validation/assessment dùng `--ide-safe` với consent theo solution; lệnh database live cần consent riêng và xác nhận host đích. Kết quả SARIF hiển thị trong Error List. Đường settings hiển thị là **Tools → Options → StackAccord**. ID category Options/automation vẫn là `DataGuard`; các technical ID không đổi. CI Windows kiểm tra đóng gói; nghiệm thu cài đặt/UI vẫn là bước riêng. Xem [hướng dẫn Visual Studio](docs/03-components/tooling/visual-studio-extension.vi.md).
+
 ## Tài liệu
 
-- [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/PRODUCT.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/architecture/architecture.md) · [Bảo mật](SECURITY.md)
+- [Tổng quan giải pháp](docs/SOLUTION.md) · [Sản phẩm](docs/01-overview/product-overview.vi.md) · [Cách dùng](docs/USAGE.md) · [Kiến trúc](docs/02-architecture/system-architecture.vi.md) · [Bảo mật](SECURITY.md)
+
+## Độ phủ Kiểm thử & Chỉ số Chất lượng
+
+Các báo cáo độ phủ được kiểm tra và tải lên bằng danh sách tệp tường minh; tắt tự động dò tìm.
+Ngưỡng 60% cục bộ là hợp các dòng đã đo của bộ kiểm thử .NET, không phải toàn bộ sản phẩm.
+`dotnet-unit` và `live-db` chồng lấp nên không cộng các tỷ lệ. Tiến trình con CLI/LSP chạy
+bản sao đã được collector đo trong thư mục kiểm thử; `visual-studio` đo bộ kiểm thử Windows thật.
+VS Code tính mọi mô-đun TypeScript sản xuất, kể cả mô-đun chưa chạy. Các cờ hiện có có thể
+carryforward dữ liệu cũ; build xanh không chứng minh Codecov đã nhận báo cáo của commit này.
+Số nhánh được lưu theo báo cáo, không cộng sai giữa các bộ chồng lấp. Xem
+[phạm vi, số liệu nền và giới hạn](plans/2026-10-15-coverage-integrity.md).
+
+
+Dữ liệu độ phủ dòng lệnh (line), nhánh (branch) và phân tích kiểm thử (Test Analytics) được công bố liên tục lên [Codecov](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) qua OIDC (`codecov/codecov-action@v7.1.1`) theo cấu hình tại [`.github/codecov.yml`](.github/codecov.yml).
+
+### Cờ Bộ Kiểm thử (Test Suite Flags)
+
+| Flag | Phạm vi bộ kiểm thử | Độ phủ |
+|---|---|---|
+| `dotnet-unit` | Kiểm thử đơn vị & hợp đồng .NET 9 đa nền tảng (`DataGuard.CrossPlatform.slnf`) | [![dotnet-unit](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=dotnet-unit)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `live-db` | Kiểm thử tích hợp CSDL thực qua Testcontainers (Oracle, SQL Server, PostgreSQL, MySQL) | [![live-db](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=live-db)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+| `vscode-ext` | Kiểm thử đơn vị TypeScript & bảo mật giao diện của VS Code Extension (Node 22) | [![vscode-ext](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&flag=vscode-ext)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/flags) |
+
+### Thành phần Kiến trúc (Components)
+
+| Component ID | Phân hệ | Đường dẫn theo dõi | Độ phủ |
+|---|---|---|---|
+| `core_engine` | Core Engine & Contracts | `src/DataGuard.Core/**`, `src/DataGuard.Contracts/**`, `src/DataGuard.SqlClassification/**` | [![core_engine](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=core_engine)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `db_adapters` | Database Adapters | `src/DataGuard.{Oracle,SqlServer,PostgreSql,MySql}.Adapter/**` | [![db_adapters](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=db_adapters)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `roslyn_analyzers` | Roslyn Analyzers & CodeFixes | `src/DataGuard.Analyzers/**`, `src/DataGuard.CodeFixes/**` | [![roslyn_analyzers](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=roslyn_analyzers)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `cli_and_host` | CLI, Host, Build & LSP | `src/DataGuard.{Cli,Host,Build,LanguageServer}/**` | [![cli_and_host](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=cli_and_host)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `observability` | Enterprise Observability | `src/DataGuard.Observability*/**` | [![observability](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=observability)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+| `ide_extensions` | VS Code & Visual Studio Extensions | `src/DataGuard.VSCode/**`, `src/DataGuard.VisualStudio/**` | [![ide_extensions](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graph/badge.svg?branch=main&component_id=ide_extensions)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle/components) |
+
+### Biểu đồ Kiến trúc Độ phủ
+
+| Biểu đồ Phân cấp Sunburst | Lưới Độ phủ Tệp (Grid) |
+|---|---|
+| [![Codecov Sunburst](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/sunburst.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) | [![Codecov Grid](https://codecov.io/gh/thanhnt-sm/eco_support_net_oracle/graphs/grid.svg?branch=main)](https://app.codecov.io/gh/thanhnt-sm/eco_support_net_oracle) |
 
 ## Giấy phép kép & FAQ
 
-Từ **v0.4.0**, DataGuard được phát hành theo hai giấy phép:
+Từ **v0.4.0**, StackAccord được phát hành theo hai giấy phép:
 
 1. **GNU GPL phiên bản 3 (chỉ v3)** (`GPL-3.0-only`, xem [`LICENSE`](LICENSE)), kèm một quyền bổ sung (additional
-   permission) cho driver cơ sở dữ liệu và IDE host mà DataGuard chạy cùng ([`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md)).
-2. **Giấy phép thương mại** cho doanh nghiệp muốn nhúng DataGuard vào sản phẩm mã đóng mà họ phân phối. Liên hệ
+   permission) cho driver cơ sở dữ liệu và IDE host mà StackAccord chạy cùng ([`docs/legal/ADDITIONAL-PERMISSIONS.md`](docs/legal/ADDITIONAL-PERMISSIONS.md)).
+2. **Giấy phép thương mại** cho doanh nghiệp muốn nhúng StackAccord vào sản phẩm mã đóng mà họ phân phối. Liên hệ
    `<contact email placeholder>`. Điều khoản được thỏa thuận riêng với từng bên được cấp phép; không có bảng giá hay biểu mẫu công khai.
 
 > **Tình trạng pháp lý:** văn bản quyền bổ sung và điều khoản thương mại **chưa được luật sư xem xét**. Nội dung ở đây
 > không phải tư vấn pháp lý. Nếu vấn đề giấy phép quan trọng với bạn, hãy hỏi luật sư của bạn.
 
-**GPL-3.0 có cấm doanh nghiệp dùng DataGuard thương mại không?** Không. GPL-3.0 cho phép dùng thương mại, sao chép và
+**GPL-3.0 có cấm doanh nghiệp dùng StackAccord thương mại không?** Không. GPL-3.0 cho phép dùng thương mại, sao chép và
 sửa đổi. Chạy `dataguard validate` trong CI hoặc dùng analyzer khi build sản phẩm của bạn tự nó không đòi hỏi giấy phép thương mại.
 
-**Copyleft áp dụng khi nào?** Khi bạn *phân phối* một tác phẩm dựa trên DataGuard, ví dụ đóng mã hoặc binary của
-DataGuard vào sản phẩm. Khi đó bạn phải cung cấp tác phẩm đó theo GPL-3.0, hoặc mua giấy phép thương mại. Dùng một công cụ
+**Copyleft áp dụng khi nào?** Khi bạn *phân phối* một tác phẩm dựa trên StackAccord, ví dụ đóng mã hoặc binary của
+StackAccord vào sản phẩm. Khi đó bạn phải cung cấp tác phẩm đó theo GPL-3.0, hoặc mua giấy phép thương mại. Dùng một công cụ
 nội bộ không phải là phân phối.
 
 **Có thể làm repository không cho sao chép được không?** Không. Repository công khai và điều khoản GitHub cho phép fork.
@@ -153,11 +203,11 @@ Các bản đến hết v0.3.0 đã phát hành theo giấy phép MIT và **gi�
 
 **Phần nào không thuộc GPL?**
 
-- `DataGuard.Contracts` được cấp phép theo giấy phép MIT có chủ đích. Gói này nằm trong ứng dụng của bạn và được DataGuard đọc
+- `DataGuard.Contracts` được cấp phép theo giấy phép MIT có chủ đích. Gói này nằm trong ứng dụng của bạn và được StackAccord đọc
   bằng reflection nên không được kéo mã của bạn vào GPL.
 - `Oracle.ManagedDataAccess.Core` và `Microsoft.Data.SqlClient.SNI.runtime` đi kèm CLI, file zip theo RID, container image
   và extension IDE theo điều khoản riêng của nhà cung cấp. Văn bản giấy phép nằm ở
-  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), đi kèm mọi bản tải DataGuard.
+  [`docs/legal/THIRD-PARTY-NOTICES.md`](docs/legal/THIRD-PARTY-NOTICES.md), đi kèm mọi bản tải StackAccord.
 
 **Gói analyzer để lại gì trong output của tôi?** `DataGuard.Analyzers` là development dependency chỉ chạy lúc build: assembly
 analyzer nạp trong compiler từ `analyzers/dotnet/cs` và gói không có `lib/`, nên `DataGuard.Analyzers.dll` và

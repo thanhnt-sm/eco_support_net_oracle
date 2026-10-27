@@ -1,5 +1,6 @@
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Rules.Sql;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace DataGuard.SqlServer.Adapter;
@@ -29,7 +30,8 @@ public sealed class TSqlStatementParser : ISqlStatementParser
         var parser = new TSql160Parser(initialQuotedIdentifiers: true);
         TSqlFragment? fragment;
         IList<ParseError> errors;
-        using (var reader = new StringReader(TSqlPhantomAnalyzer.NormalizePlaceholders(sql)))
+        var sourceOffsets = new List<int>();
+        using (var reader = new StringReader(TSqlPhantomAnalyzer.NormalizePlaceholders(sql, sourceOffsets)))
         {
             fragment = parser.Parse(reader, out errors);
         }
@@ -37,9 +39,17 @@ public sealed class TSqlStatementParser : ISqlStatementParser
         if (errors.Count > 0 || fragment is null)
         {
             var first = errors.Count > 0 ? errors[0] : null;
-            return SqlStatementParseResult.Invalid(first is null
-                ? "T-SQL parser returned no fragment"
-                : $"Line {first.Line}, column {first.Column}: {first.Message}");
+            if (first is null)
+            {
+                return SqlStatementParseResult.Invalid("T-SQL parser returned no fragment");
+            }
+
+            var offset = sourceOffsets[Math.Clamp(first.Offset, 0, sourceOffsets.Count - 1)];
+            var position = SourceText.From(sql).Lines.GetLinePosition(offset);
+            return SqlStatementParseResult.Invalid($"Line {position.Line + 1}, column {position.Character + 1}: {first.Message}") with
+            {
+                ErrorOffset = offset,
+            };
         }
 
         return new SqlStatementParseResult(true, null, SqlParameterVisitor.Extract(fragment), SelectColumns(fragment));

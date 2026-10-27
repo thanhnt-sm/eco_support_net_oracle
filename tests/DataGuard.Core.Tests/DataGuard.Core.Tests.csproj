@@ -12,30 +12,56 @@
     <ProjectReference Include="..\..\src\DataGuard.MySql.Adapter\DataGuard.MySql.Adapter.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.PostgreSql.Adapter\DataGuard.PostgreSql.Adapter.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.Oracle.Adapter\DataGuard.Oracle.Adapter.csproj" />
+    <ProjectReference Include="..\..\src\DataGuard.LanguageServer\DataGuard.LanguageServer.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.Cli\DataGuard.Cli.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.Host\DataGuard.Host.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.Build\DataGuard.Build.csproj" />
     <ProjectReference Include="..\..\src\DataGuard.SqlClassification\DataGuard.SqlClassification.csproj" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageReference Include="coverlet.collector" Version="10.1.0">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeInBuildOutput>false</IncludeInBuildOutput>
     </PackageReference>
     <!-- Property-based testing (FsCheck): generative robustness tests for pure
          parsers/classifiers. Also satisfies OSSF Scorecard Fuzzing detection
          for C# (FsCheck usage in *.cs). -->
-    <PackageReference Include="FsCheck.Xunit" Version="3.4.0" />
+    <PackageReference Include="FsCheck.Xunit" Version="3.5.0" />
     <PackageReference Include="Moq" Version="4.21.0" />
     <PackageReference Include="FluentAssertions" Version="7.2.2" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.20" />
-    <PackageReference Include="Testcontainers.MsSql" Version="4.15.0" />
-    <PackageReference Include="Testcontainers.MySql" Version="4.15.0" />
-    <PackageReference Include="Testcontainers.Oracle" Version="4.15.0" />
-    <PackageReference Include="Testcontainers.PostgreSql" Version="4.15.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.21" />
+    <PackageReference Include="Testcontainers.MsSql" Version="4.16.0" />
+    <PackageReference Include="Testcontainers.MySql" Version="4.16.0" />
+    <PackageReference Include="Testcontainers.Oracle" Version="4.16.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../docs/guides/oracle-snapshot.*.yml" Link="ConfigurationExamples/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../src/DataGuard.VisualStudio/BoundedLogFile.cs" Link="VisualStudio/BoundedLogFile.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/OutputBlockFormatter.cs" Link="VisualStudio/OutputBlockFormatter.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/LogPrivacyPolicy.cs" Link="VisualStudio/LogPrivacyPolicy.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/SupportSummary.cs" Link="VisualStudio/SupportSummary.cs" />
+    <!-- Exercise the real IDE completion formatter and its pure model dependencies on non-Windows CI. -->
+    <AdditionalFiles Include="../../src/DataGuard.VisualStudio/stylecop.json" Link="stylecop.json" />
+    <Compile Include="../../src/DataGuard.VisualStudio/ExitCodeExplainer.cs" Link="VisualStudio/ExitCodeExplainer.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/ProgressReadModels.cs" Link="VisualStudio/ProgressReadModels.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/CliRunModels.cs" Link="VisualStudio/CliRunModels.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/RuleInventory.cs" Link="VisualStudio/RuleInventory.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/CliProcessRegistry.cs" Link="VisualStudio/CliProcessRegistry.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/ProcessTerminator.cs" Link="VisualStudio/ProcessTerminator.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/LiveDatabaseCommands.cs" Link="VisualStudio/LiveDatabaseCommands.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/SolutionTrustGate.cs" Link="VisualStudio/SolutionTrustGate.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/PathNormalization.cs" Link="VisualStudio/PathNormalization.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/DocumentNavigation.cs" Link="VisualStudio/DocumentNavigation.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/NavigationTests.MissingDocument.cs" Link="VisualStudio/NavigationTests.MissingDocument.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/LiveDatabaseCommandsTests.Prompts.cs" Link="VisualStudio/LiveDatabaseCommandsTests.Prompts.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/SolutionTrustGateTests.Prompts.cs" Link="VisualStudio/SolutionTrustGateTests.Prompts.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/AcquisitionSummaryTests.cs" Link="VisualStudio/AcquisitionSummaryTests.cs" />
   </ItemGroup>
 </Project>

@@ -18,6 +18,7 @@ public class CliArgumentBuilderTests
         args.Should().StartWith("validate --config \"D:\\s\\.dataguard.yml\" --format sarif --output \"C:\\t\\v.sarif\" --project \"D:\\s\" --progress --ide-safe");
         args.Should().EndWith(" --skip-rules \"DG002,DG017\"");
         args.Should().NotContain("bad id");
+        args.Should().NotContain("--provider").And.NotContain("--connection-env", "snapshot validation uses YAML provider selection, not live options");
     }
 
     [Fact]
@@ -55,7 +56,7 @@ public class CliArgumentBuilderTests
         result.IdeSafeUnsupported.Should().BeTrue();
         result.HasSummary.Should().BeTrue();
         result.ErrorCount.Should().Be(1);
-        written.ToString().Should().Contain("[DataGuard CLI] Unrecognized command or argument '--ide-safe'.");
+        written.ToString().Should().Contain("[StackAccord CLI] Unrecognized command or argument '--ide-safe'.");
     }
 
     [Theory]
@@ -85,9 +86,9 @@ public class CliArgumentBuilderTests
     public void ExitCodeExplainer_SummaryWithoutSarif_ReportsWriteFailure()
     {
         ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(1, hasSummary: true), sarifExists: false)
-            .Should().Be("[ERROR] The CLI reported a summary but failed to write results (see [DataGuard CLI] lines)");
+            .Should().Be("[ERROR] The CLI reported a summary but failed to write results (see [StackAccord CLI] lines)");
         ExitCodeExplainer.Explain("validate", CliRunOutcomes.Create(3), sarifExists: false)
-            .Should().Contain("previous Error List items were preserved");
+            .Should().Contain("Error List publication is reported separately.").And.NotContain("previous Error List items were preserved");
     }
 
     [Fact]
@@ -154,7 +155,7 @@ public class CliArgumentBuilderTests
     [Fact]
     public void Redact_CoversConnectionStringAndJwtForms()
     {
-        DataGuardLogger.Redact("Server=x;User Id=sa;Password=Hunter2;Encrypt=true").Should().Be("Server=x;User Id=sa;Password=[REDACTED];Encrypt=true");
+        DataGuardLogger.Redact("Server=x;User Id=sa;Password=Hunter2;Encrypt=true").Should().Be("Server=[REDACTED];User Id=[REDACTED];Password=[REDACTED];Encrypt=true");
         DataGuardLogger.Redact("Authorization: Bearer abc.def").Should().NotContain("abc.def");
 
         // JWT-shaped fixture assembled at runtime (three base64url segments) so no token literal exists in source.

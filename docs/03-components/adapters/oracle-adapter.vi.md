@@ -1,6 +1,6 @@
 # Bộ Adapter Oracle
 
-Bộ Adapter Oracle là adapter giàu tính năng nhất của DataGuard, cung cấp tích hợp sâu với Oracle Database để xác thực contract giữa các entity Entity Framework Core và stored procedure, package, raw SQL của Oracle.
+Bộ Adapter Oracle là adapter giàu tính năng nhất của StackAccord, cung cấp tích hợp sâu với Oracle Database để xác thực contract giữa các entity Entity Framework Core và stored procedure, package, raw SQL của Oracle.
 
 ## Kiến trúc
 
@@ -62,8 +62,8 @@ graph TB
 ## Phụ thuộc
 
 ```xml
-<PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.300" />
-<PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.102.0" />
+<PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" />
+<PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
 <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
 ```
 
@@ -172,7 +172,7 @@ Trích xuất số phiên bản (`19.0.0.0.0`) và edition (`Enterprise`/`Standa
 
 Mô tả bộ kết quả `REF CURSOR` sử dụng package `DBMS_SQL`. Đây là cơ chế của Oracle để mô tả các cột output của con trỏ động.
 
-Validation metadata thông thường không gọi describer này hoặc thực thi procedure. `OracleConfiguration.UseRefCursorDescribe` mặc định là `false`; metadata catalog có thể nhận diện REF CURSOR trong khi result shape vẫn unknown. Mọi lần gọi describe nâng cao cần một path riêng được ủy quyền tường minh với account chỉ đọc phù hợp và typed samples.
+Mặc định catalog không gọi describer: chương trình con REF CURSOR có `ReturnsRefCursor = true` nhưng `ResultColumns` rỗng. `Oracle.DescribeRefCursors: true` cho phép **thực thi** function trả REF CURSOR không có tham số OUT/IN OUT, hoặc procedure có đúng một OUT REF CURSOR và không có OUT/IN OUT khác. Tham số IN được gán NULL hoặc bỏ qua nếu có giá trị mặc định. Describe thất bại để lại shape unknown. Chỉ bật trên cơ sở dữ liệu nơi việc chạy các chương trình con này không gây tác dụng phụ và với tài khoản phù hợp. `UseRefCursorDescribe` không điều khiển path này.
 
 ## EfCoreInferenceSimulator
 
@@ -367,9 +367,11 @@ Lệnh `oracle-check` chạy toàn bộ pipeline xác thực Oracle:
 - `ALL_PROCEDURES` không có cột `PACKAGE_NAME`, nên subprogram trong package được nhận diện bằng `OBJECT_TYPE = 'PACKAGE'` và `PROCEDURE_NAME`; filter cũ gây lỗi ORA-00904. Với `GetParametersAsync`/`GetOverloadsAsync`/`GetProcedureNamesAsync`, package rỗng nghĩa là procedure độc lập (`package_name IS NULL`).
 - `StoredProcedureDescriptor.Id = oracle:{OWNER}.{PACKAGE hoặc _}.{NAME}#{SUBPROGRAM_ID}`, có `PackageName`. CLI gọi `OracleCatalogBuilder.BuildAsync`, và `DefaultPackage` không còn lọc catalog.
 - `NlsSessionReader.GetNlsParametersAsync()` đọc `NLS_CHARACTERSET`/`NLS_NCHAR_CHARACTERSET` từ `nls_database_parameters`. `MAX_STRING_SIZE` được đọc từ `v$parameter`, mặc định `STANDARD` nếu không có quyền. Các giá trị này nằm trong `OracleDatabaseSchemaDescriptor`, và mỗi cột ký tự có `ColumnDescriptor.Charset`.
-- `Oracle.DescribeRefCursors: true` (mặc định `false`) **thực thi** từng procedure/function trả REF CURSOR, với tham số IN bằng NULL, để `RefCursorDescriber` lấy `ResultColumns`. Chỉ bật với tài khoản chỉ đọc. `ReturnsRefCursor` luôn lấy từ catalog.
+- `Oracle.DescribeRefCursors: true` (mặc định `false`) **thực thi** các procedure/function đủ điều kiện mô tả ở trên, với tham số IN bằng NULL hoặc bỏ qua nếu có giá trị mặc định, để `RefCursorDescriber` lấy `ResultColumns`. Chỉ bật với tài khoản chỉ đọc. `ReturnsRefCursor` luôn lấy từ catalog.
 - DG008 tính số byte phía entity bằng `MaxLength × BytesPerUtf16Unit(charset, IsUnicode)`: AL32UTF8/UTF8 = 3, AL16UTF16 = 2, single-byte (`WE8*`, `US7*`...) = 1, không rõ = 3. `IsUnicode` lấy từ `Annotations["IsUnicode"]` do `EfModelSource` sinh, mặc định true.
   - Cột BYTE dùng dung lượng `DATA_LENGTH`.
   - Cột CHAR dùng dung lượng `min(CHAR_LENGTH × maxBytesPerChar, 2000|4000|32767)`.
   - Tìm cột theo thứ tự: tên cột EF, rồi `CUSTOMERID`, rồi `CUSTOMER_ID`. Tìm bảng theo `(schema, name)`.
 
+
+Nguồn triển khai được đối chiếu: [OracleCatalog.cs](../../../src/DataGuard.Oracle.Adapter/OracleCatalog.cs). Các giới hạn mô tả ở đây là hành vi hiện tại, không phải cam kết parity giữa provider hay bằng chứng kiểm thử cơ sở dữ liệu live.

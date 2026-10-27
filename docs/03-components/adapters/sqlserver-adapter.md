@@ -1,6 +1,6 @@
 # SQL Server Adapter
 
-The SQL Server Adapter is DataGuard's primary adapter, providing contract validation between .NET entities and SQL Server stored procedures, raw SQL, and ScriptDOM-based SQL parsing.
+The SQL Server Adapter is StackAccord's primary adapter, providing contract validation between .NET entities and SQL Server stored procedures, raw SQL, and ScriptDOM-based SQL parsing.
 
 ## Architecture
 
@@ -53,8 +53,6 @@ graph TB
 
 ## Source Files
 
-| File | Location | Lines | Purpose |
-|------|----------|-------|---------|
 All files live in `src/DataGuard.SqlServer.Adapter/` (namespace `DataGuard.SqlServer.Adapter`). Since red-team A1/R33, `DataGuard.Core` references neither `Microsoft.Data.SqlClient` nor ScriptDOM.
 
 | File | Purpose |
@@ -82,7 +80,7 @@ Implements `IContractSource` to extract stored procedure contracts from SQL Serv
 
 ```mermaid
 sequenceDiagram
-    participant CLI as DataGuard CLI
+    participant CLI as StackAccord CLI
     participant Parser as SqlServerStoredProcedureParser
     participant DB as SQL Server
 
@@ -227,11 +225,11 @@ internal record SqlParameterInfo(
 
 ### No CHAR/BYTE Semantics
 
-Unlike Oracle, SQL Server does not have CHAR vs BYTE length semantics. The `CharUsed` field is always `null` for SQL Server columns, and `CharLength` equals `MaxLength`.
+Unlike Oracle, SQL Server does not have CHAR vs BYTE length semantics. The catalog parser sets `CharUsed` to `null` and `CharLength` to the normalized `MaxLength`; see the separate live-provider limitation below.
 
 ### Direction Mapping
 
-SQL Server's `OUTPUT` keyword maps to `ParameterDirection.InputOutput` in DataGuard's model. There is no pure `Output` direction in SQL Server — `OUTPUT` parameters can also receive input values.
+SQL Server's `OUTPUT` keyword maps to `ParameterDirection.InputOutput` in StackAccord's model. There is no pure `Output` direction in SQL Server — `OUTPUT` parameters can also receive input values.
 
 ### MAX Types
 
@@ -267,17 +265,22 @@ provider-neutral defaults:
 | Core seam | Core default | SQL Server adapter implementation |
 |-----------|--------------|-----------------------------------|
 | `ILiveQuerySchemaProvider` (DG018/DG020) | none: a connection without a provider is reported unevaluated (DG020) | `SqlServerLiveQuerySchemaProvider` |
-| `ITypeCompatibility` + `TypeCompatibilityRegistry` | `UnknownTypeCompatibility` (no findings) | `SqlServerTypeCompatibility` (registered for `sqlserver`) |
+| `ITypeCompatibility` + `TypeCompatibilityRegistry` | `UnknownTypeCompatibility` (Unknown; applicable checks are unevaluated) | `SqlServerTypeCompatibility` (registered for `sqlserver`) |
 | `IPhantomReferenceAnalyzer` (DG015/DG016) | `PhantomSqlAnalyzer` (tokenizer) | `TSqlPhantomAnalyzer` |
-| `ISqlStatementParser` (DG019) | `NoOpSqlStatementParser` (accepts everything) | `TSqlStatementParser` |
+| `ISqlStatementParser` (DG019) | `NoOpSqlStatementParser` (no grammar; DG019 marks raw SQL unevaluated) | `TSqlStatementParser` |
 
 DG019 (`RawSqlParseStatusRule`) parses each raw SQL contract with the injected parser and reports the first ScriptDOM error
 (`Line L, column C: message`) as an Error. Client placeholders (`:name`, `?`, `{0}`) are rewritten to `@` variables before
-parsing; stored-procedure call sites and raw SQL whose connection hint names another provider are not parsed. Other
-providers have no parser, so DG019 only reports a parse status set by an acquisition source.
+parsing; stored-procedure call sites and raw SQL whose connection hint names another provider are not parsed. Without an injected grammar, DG019 reports acquisition errors and marks other applicable raw SQL unevaluated; absence of a parser is not syntax validation.
 
 Library callers that used `DataGuard.Core.Sources.SqlServerStoredProcedureParser`, `RawSqlParser`,
 `DataGuard.Core.Rules.SqlServerLiveQuerySchemaProvider` or `DataGuard.Core.Rules.TypeCompatibility.SqlServerTypeCompatibility`
 reference the `DataGuard.SqlServer.Adapter` package and change the `using` to `DataGuard.SqlServer.Adapter` (no type
 forwarders). Code that resolved the SQL Server table through `TypeCompatibilityRegistry` without registering it now gets
 `UnknownTypeCompatibility`; call `TypeCompatibilityRegistry.Register(SqlServerTypeCompatibility.Instance)` or inject the table.
+
+## Live raw SQL description limits
+
+`SqlServerLiveQuerySchemaProvider` invokes `EXEC sys.sp_describe_first_result_set @tsql = @tsql, @params = NULL, @browse_information_mode = 0`, binds SQL as `NVarChar(MAX)`, and uses a five-second command timeout. This is separate from catalog procedure description above. Description/connection failures do not establish query validity; live rules record unevaluated work. Unknown types are not treated as compatible. Unicode/MAX length normalization above applies to `SqlServerStoredProcedureParser`; the live provider currently copies `max_length` into `MaxLength`/`CharLength`, so equivalent length metadata must not be assumed across the two paths.
+
+Implementation reference: [SqlServerLiveQuerySchemaProvider.cs](../../../src/DataGuard.SqlServer.Adapter/SqlServerLiveQuerySchemaProvider.cs). These limits describe current behavior, not provider parity or evidence of live database verification.

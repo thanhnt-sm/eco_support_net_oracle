@@ -59,6 +59,11 @@ public class ParameterCountRule : StoredProcedureContractRuleBase
         var resolution = Resolve(call, allContracts);
         switch (resolution.Status)
         {
+            case StoredProcedureResolutionStatus.Ambiguous:
+                // The static resolver supplies a nonempty reason for every Ambiguous result.
+                MarkUnevaluated(call, resolution.Note!);
+                break;
+
             case StoredProcedureResolutionStatus.NoCandidate:
                 var nearest = resolution.NearestCandidate is null
                     ? string.Empty

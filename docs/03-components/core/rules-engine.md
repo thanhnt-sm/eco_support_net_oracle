@@ -2,7 +2,7 @@
 
 > Source: `src/DataGuard.Core/Rules/ (one file per rule; `ContractRuleBase.cs`, `ParameterCountRule.cs`, …)`, `PhantomTableRule.cs`, `PhantomColumnRule.cs`, `Sql/`, `RuleDependencyGraph.cs`
 
-The rules engine is the heart of DataGuard. It contains 11 built-in validation rules (DG001–DG009, DG015–DG016), a dependency graph for optimal execution ordering, and the abstract base class that all rules extend.
+The rules engine is the heart of StackAccord. It contains 11 built-in validation rules (DG001–DG009, DG015–DG016), a dependency graph for optimal execution ordering, and the abstract base class that all rules extend.
 
 ## Architecture
 
@@ -66,7 +66,11 @@ public abstract class ContractRuleBase : IContractRule
 
 The base class also provides a static `CreateViolation` helper for consistent violation construction.
 
-`ContractRuleBase` implements `IContractEvaluationStatusReporter`. A rule that cannot obtain ground truth for a contract (for example a failed live describe) calls `protected void MarkUnevaluated(ContractDescriptor contract, string reason)`; the entry is neither a finding nor a pass. Override `UnevaluatedRuleId` (default `RuleId`) and `NormalizeUnevaluatedReason` (default: one trimmed line) when needed; `LiveSqlShapeValidationRule` reports `DG020` and sanitizes driver text. Every executor drains these entries after each run (see [One validation pipeline](#one-validation-pipeline)).
+`ContractRuleBase` implements `IContractEvaluationStatusReporter`. A rule that cannot obtain ground truth for a contract (for example a failed live describe) calls `protected void MarkUnevaluated(ContractDescriptor contract, string reason)`; the entry is neither a finding nor a pass. Override `UnevaluatedRuleId` (default `RuleId`) and `NormalizeUnevaluatedReason` (default: one trimmed line) when needed; `LiveSqlShapeValidationRule` reports `DG020` and sanitizes driver text. Executors drain entries when returning a completed result (see [One validation pipeline](#one-validation-pipeline)).
+
+Sequential graph execution and the detailed concurrent engine give each registered base-rule instance a separate status collection for the current invocation. Cancellation still propagates, and disposal clears that invocation's unreturned statuses and source locations. Reusing the graph or public `ValidationPipeline` therefore does not import those canceled statuses into a later result. Overlapping and nested invocations keep separate collections; successful result objects continue to own their returned locations. Child work that outlives a closed collection cannot append to a later run or the direct-call queue. Managed memory is reclaimed by the GC after references are released; there is no forced collection in validation.
+
+Calling a rule directly outside an engine scope retains the public `ValidateAsync` / `DrainUnevaluatedContracts` contract. Engine drains still dispatch through `IContractEvaluationStatusReporter`, including explicit implementations on derived rules. Custom reporter queues that bypass `MarkUnevaluated` manage their own cancellation and concurrency lifetime. This change does not make arbitrary mutable rule state safe for overlapping calls, or change `StreamAsync` producer cleanup when a consumer stops early. Default source scope, rule selection, concurrency and resource ceilings remain unchanged. See the [ownership regression plan](../../../plans/2026-10-21-run-owned-unevaluated-statuses.md) for evidence and limits.
 
 ## Built-in Rules
 
@@ -74,6 +78,8 @@ The base class also provides a static `CreateViolation` helper for consistent vi
 
 **Severity:** Error
 **Scope:** `RawSqlDescriptor`
+
+With a procedure catalog, ambiguous calls are recorded as unevaluated without a fabricated violation. DG101 preserves the resolver's reason: every ambiguous schema/package match, unobserved-argument overload set and equally ranked overload set supplies a nonempty note.
 
 Validates that stored procedure calls have the expected number of parameters. For raw SQL text starting with `EXEC`/`EXECUTE`, it counts `@`-prefixed parameter tokens and flags when zero parameters are detected.
 
@@ -175,6 +181,8 @@ flowchart LR
 5. Treat as unknown (never phantom, columns not checked): CTEs, derived tables, table-valued functions (`name(`), `#temp`, `@table` variables, three-part cross-database names, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`
 6. Check qualified `alias.column` against the nearest table reference in scope (innermost subquery first, so an alias reused in a subquery resolves to the subquery's table)
 7. Check single-identifier items of each `SELECT` list (parenthesis-aware split) against the union of all tables that `SELECT` references; `AS alias` and implicit trailing aliases are output names, never column references
+
+DG016 compares PostgreSQL and Oracle column references using provider folding for unquoted SQL and exact case for quoted SQL. Catalog column names remain verbatim, including case-distinct names such as `total` and `Total`. This applies to qualified references, simple SELECT items, and enclosing/correlated scopes. The public canonical `SchemaTable.Columns` map, neutral-provider comparisons, unknown-source suppression, and legacy schema-to-bare-table fallback remain unchanged.
 
 Both rules take an optional `IPhantomReferenceAnalyzer` (default: the tokenizer above); one result per raw SQL contract is cached and shared by DG015 and DG016. `ProviderRuleCatalog` passes `TSqlPhantomAnalyzer` for `--provider sqlserver`; every other provider keeps the tokenizer (AST parsing of non-T-SQL dialects is out of scope).
 

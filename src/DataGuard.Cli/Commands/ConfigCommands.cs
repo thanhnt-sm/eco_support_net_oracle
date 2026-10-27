@@ -11,7 +11,7 @@ internal static class ConfigCommands
     {
         var configOption = options.ConfigOption;
 
-        var configCommand = new Command("config", "Manage DataGuard configuration");
+        var configCommand = new Command("config", "Manage StackAccord configuration");
         var configShowCommand = new Command("show", "Show current configuration")
         {
             configOption,
@@ -52,7 +52,23 @@ internal static class ConfigCommands
                         return;
                     }
 
+                    var provider = TryNormalizeProviderOrFail(CliConfigurationResolver.ResolveProvider(config, null), "config DefaultProvider");
+                    if (provider is null)
+                    {
+                        return;
+                    }
+
+                    if ((config.Oracle is not null && provider != "oracle") || (config.SqlServer is not null && provider != "sqlserver"))
+                    {
+                        Console.Error.WriteLine("Warning: provider-specific settings do not select the dialect; DefaultProvider selects " + provider + ". Remove unused provider blocks or correct DefaultProvider.");
+                    }
+
                     Console.WriteLine("Configuration is valid");
+                    Console.WriteLine($"  DefaultProvider (effective): {provider}");
+                    if (provider != "sqlserver")
+                    {
+                        Console.WriteLine("  Raw SQL grammar: unavailable (unevaluated); no syntax-validation guarantee.");
+                    }
                     Console.WriteLine($"  GroundTruthMode: {config.GroundTruthMode}");
                     Console.WriteLine($"  NamingConvention: {config.NamingConvention}");
                     Console.WriteLine($"  EnableBaseline: {config.EnableBaseline}");

@@ -10,14 +10,16 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using DataGuard.Contracts;
+using DataGuard.SqlComposition;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 /// <summary>
-/// IDE layer: syntax-only heuristics over the literal SQL of each recognised SQL call (no symbol binding, no
-/// database, no IO). Reports DG099 (injection markers; concatenation/interpolation into a raw SQL API), DG098
+/// IDE layer: syntax heuristics with bounded semantic constant-Concat resolution for direct EF SQL arguments
+/// (no database or IO). Reports DG099 (injection markers; concatenation/interpolation into a raw SQL API), DG098
 /// (SELECT without FROM), DG097 (stored-procedure command text form), DG017 (SELECT *) and DG004 (literal SELECT
 /// list vs. the properties of the mapped type, when that type is declared in this compilation). Every diagnostic is
 /// reported at the SQL argument. Database-backed checks (DG002-DG016) run in the CLI rules engine; their descriptors
@@ -66,6 +68,13 @@ public sealed class ContractValidationAnalyzer : DiagnosticAnalyzer
 
         var location = call.SqlArgument.Expression.GetLocation();
         var sql = call.Sql.Text;
+        if (sql is null && call.Kind is SqlCallType.EfCore or SqlCallType.ExecuteSql &&
+            call.SqlArgument.Expression is InvocationExpressionSyntax composition &&
+            SqlCallSyntax.GetMethodName(composition) == "Concat" &&
+            context.SemanticModel.GetOperation(composition, context.CancellationToken) is IInvocationOperation operation)
+        {
+            sql = ConstantStringConcatResolver.Resolve(operation, context.CancellationToken);
+        }
 
         // DG099: injection markers in the text, or values spliced into a raw (non-parameterizing) SQL API.
         if (sql != null && SqlTextHeuristics.ContainsInjectionPattern(sql))

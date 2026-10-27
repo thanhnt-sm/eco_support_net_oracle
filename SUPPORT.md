@@ -18,7 +18,7 @@
 
 ## Commercial / enterprise support
 
-DataGuard is open source under GPL-3.0-only (from v0.4.0), with a commercial
+StackAccord is open source under GPL-3.0-only (from v0.4.0), with a commercial
 licence available for closed-source distribution (`<contact email placeholder>`;
 see the README licence FAQ). Enterprise and banking
 deployments should read `docs/marketplace-publishing.md` and the banking

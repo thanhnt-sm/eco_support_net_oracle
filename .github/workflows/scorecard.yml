@@ -12,13 +12,56 @@ on:
 
 permissions: read-all
 
+# Serializes active runs per ref; GitHub may replace a pending run (not FIFO).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  readiness:
+    name: Wait for sampled PR head scans
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      sample_sha: ${{ steps.wait.outputs.sample_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Observe bounded CodeQL service-suite readiness
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/scorecard_readiness.py
+          --repo "$GITHUB_REPOSITORY" --branch main --timeout 900 --grace 900
+          --output "$RUNNER_TEMP/scorecard-readiness.json"
+      - name: Retain readiness evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scorecard-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/scorecard-readiness.json
+          if-no-files-found: error
+          retention-days: 7
+
   analysis:
     name: Scorecard analysis
+    timeout-minutes: 20
+    needs: readiness
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
+    outputs:
+      artifact_id: ${{ steps.scan.outcome == 'success' && steps.report.outputs.artifact-id || steps.retry_report.outputs.artifact-id }}
+      scan_outcome: ${{ steps.scan.outcome == 'success' && steps.scan.outcome || steps.retry.outcome }}
     runs-on: ubuntu-latest
     permissions:
-      # Needed for Code scanning upload.
-      security-events: write
       # Needed for GitHub OIDC token if publish_results is true.
       id-token: write
       contents: read
@@ -26,24 +69,134 @@ jobs:
 
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Run analysis
-        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+      # Native bounded retry: no shell or unapproved retry action in this OIDC job.
+      - name: Run analysis (attempt 1 of 2)
+        id: scan
+        continue-on-error: true
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
         with:
           results_file: results.sarif
           results_format: sarif
           # Publish results to the Scorecard REST API (public repo badge).
           publish_results: true
 
-      - name: Upload SARIF to code scanning
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - name: Retain original scan reports
+        id: report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          sarif_file: results.sarif
+          name: scorecard-report-${{ github.run_id }}-${{ github.run_attempt }}-scan-1
+          path: |
+            results.json
+            results.sarif
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Checkout removes untracked reports only AFTER originals have been retained.
+      # success() prevents retry from hiding a failed evidence upload or checkout.
+      - name: Clean workspace for the final attempt
+        id: retry_checkout
+        if: ${{ success() && steps.scan.outcome == 'failure' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          clean: true
+
+      - name: Run analysis (attempt 2 of 2)
+        id: retry
+        if: ${{ success() && steps.scan.outcome == 'failure' }}
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Retain final attempt reports
+        id: retry_report
+        if: ${{ !cancelled() && steps.retry.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scorecard-report-${{ github.run_id }}-${{ github.run_attempt }}-scan-2
+          path: |
+            results.json
+            results.sarif
+          if-no-files-found: ignore
+          retention-days: 7
+
+  verify-report:
+    name: Verify actual scanned revision
+    needs: [readiness, analysis]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      valid: ${{ steps.metadata.outputs.valid }}
+      sha: ${{ steps.metadata.outputs.sha }}
+      ref: ${{ steps.metadata.outputs.ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - if: ${{ needs.analysis.outputs.artifact_id != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.analysis.outputs.artifact_id }}
+          path: ${{ runner.temp }}/scorecard-report
+          merge-multiple: true
+          digest-mismatch: error
+      - name: Validate metadata without rewriting reports
+        id: metadata
+        env:
+          SCAN_OUTCOME: ${{ needs.analysis.outputs.scan_outcome }}
+          EXPECTED_SHA: ${{ needs.readiness.outputs.sample_sha }}
+        run: >-
+          python3 scripts/verify_scorecard_report.py
+          --repo "$GITHUB_REPOSITORY" --expected-sha "$EXPECTED_SHA" --scan-outcome "$SCAN_OUTCOME"
+          --directory "$RUNNER_TEMP/scorecard-report"
+
+  upload-sarif:
+    name: Upload report at actual scanned revision
+    needs: [analysis, verify-report]
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.analysis.result == 'success' && needs.verify-report.result == 'success' && needs.verify-report.outputs.valid == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.verify-report.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.analysis.outputs.artifact_id }}
+          path: ${{ runner.temp }}/scorecard-report
+          merge-multiple: true
+          digest-mismatch: error
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: ${{ runner.temp }}/scorecard-report/results.sarif
+          sha: ${{ needs.verify-report.outputs.sha }}
+          ref: ${{ needs.verify-report.outputs.ref }}

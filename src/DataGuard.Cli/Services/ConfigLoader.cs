@@ -48,14 +48,16 @@ internal static class ConfigLoader
 
         if (unknownKeys.Count > 0)
         {
+            // Keys come from the repository's YAML; a quoted key holding a line break must stay on this one line.
+            var echoedKeys = OutputSinks.EscapeControlCharacters(string.Join(", ", unknownKeys));
             if (config.StrictConfig)
             {
-                Console.Error.WriteLine($"Error: unknown configuration keys: {string.Join(", ", unknownKeys)} (StrictConfig: true)");
+                Console.Error.WriteLine($"Error: unknown configuration keys: {echoedKeys} (StrictConfig: true)");
                 Environment.ExitCode = 2;
                 return null;
             }
 
-            Console.Error.WriteLine($"Warning: unknown configuration keys: {string.Join(", ", unknownKeys)}");
+            Console.Error.WriteLine($"Warning: unknown configuration keys: {echoedKeys}");
         }
 
         return config;
@@ -180,108 +182,36 @@ internal static class ConfigLoader
             ExcludedEntities = Array.Empty<string>(),
         };
 
-        // Typed binding via YamlDotNet: handles comments, quotes, lists and nested blocks, and preserves every
-        // configuration field. An empty document keeps the defaults.
+        var stream = new YamlDotNet.RepresentationModel.YamlStream();
+        stream.Load(new StringReader(yaml));
+        var root = stream.Documents.FirstOrDefault()?.RootNode;
+        if (root is YamlDotNet.RepresentationModel.YamlMappingNode mapping)
+        {
+            foreach (var key in new[] { "Oracle", "SqlServer", "Plugins" })
+            {
+                if (mapping.Children.TryGetValue(new YamlDotNet.RepresentationModel.YamlScalarNode(key), out var value)
+                    && value is not YamlDotNet.RepresentationModel.YamlMappingNode
+                    && value is not YamlDotNet.RepresentationModel.YamlScalarNode { Value: null or "" or "~" or "null" or "Null" or "NULL" })
+                {
+                    throw new FormatException($"{key} must be a mapping block or null, not a boolean/scalar."
+                        + (key == "Plugins" ? string.Empty : " Use DefaultProvider to select the database provider."));
+                }
+            }
+        }
+
+        // Never recover from a binding failure by silently dropping nested settings or exclusion lists.
         try
         {
             return TypedConfigDeserializer.Deserialize<ConfigDocument?>(yaml)?.ToConfiguration() ?? config;
         }
-        catch (YamlDotNet.Core.YamlException)
+        catch (YamlDotNet.Core.YamlException ex)
         {
-            // Last resort for files the typed binding rejects (e.g. a scalar where a block is expected): map the
-            // top-level scalars below, which reports an invalid value with the offending key's parse error.
+            throw new FormatException($"Invalid configuration value or shape at line {ex.Start.Line}, column {ex.Start.Column}; check scalar types, lists and nested mappings.", ex);
         }
-
-        var stream = new YamlDotNet.RepresentationModel.YamlStream();
-        stream.Load(new StringReader(yaml));
-        var root = stream.Documents.FirstOrDefault()?.RootNode as YamlDotNet.RepresentationModel.YamlMappingNode;
-        if (root == null)
-        {
-            return config;
-        }
-
-        foreach (var entry in root.Children)
-        {
-            // Nested Plugins block: only AllowUnsignedLocal is mapped (the typed path above maps the whole record).
-            if (entry.Key is YamlDotNet.RepresentationModel.YamlScalarNode { Value: "Plugins" } &&
-                entry.Value is YamlDotNet.RepresentationModel.YamlMappingNode pluginsNode)
-            {
-                var allowUnsignedLocal = pluginsNode.Children
-                    .Where(child => child.Key is YamlDotNet.RepresentationModel.YamlScalarNode { Value: "AllowUnsignedLocal" })
-                    .Select(child => child.Value)
-                    .OfType<YamlDotNet.RepresentationModel.YamlScalarNode>()
-                    .Select(value => bool.Parse(value.Value ?? string.Empty))
-                    .LastOrDefault();
-                config = config with { Plugins = new PluginConfiguration { AllowUnsignedLocal = allowUnsignedLocal } };
-                continue;
-            }
-
-            if (entry.Key is not YamlDotNet.RepresentationModel.YamlScalarNode keyNode ||
-                entry.Value is not YamlDotNet.RepresentationModel.YamlScalarNode valueNode)
-            {
-                continue;
-            }
-
-            var key = keyNode.Value ?? "";
-            var value = valueNode.Value ?? "";
-
-            bool B() => bool.Parse(value);
-            int I() => int.Parse(value);
-
-            config = key switch
-            {
-                "GroundTruthMode" => config with { GroundTruthMode = Enum.Parse<GroundTruthMode>(value) },
-                "NamingConvention" => config with { NamingConvention = Enum.Parse<NamingConvention>(value) },
-                "EnableBaseline" => config with { EnableBaseline = B() },
-                "DefaultSchema" => config with { DefaultSchema = value },
-                "DefaultPackage" => config with { DefaultPackage = value },
-                "DefaultProvider" => config with { DefaultProvider = value },
-                "SnapshotFilePath" => config with { SnapshotFilePath = value },
-                "BaselineFilePath" => config with { BaselineFilePath = value },
-                "ConnectionString" => config with { ConnectionString = value },
-                "EnableConcurrentValidation" => config with { EnableConcurrentValidation = B() },
-                "MaxDegreeOfParallelism" => config with { MaxDegreeOfParallelism = I() },
-                "MaxViolationQueueSize" => config with { MaxViolationQueueSize = I() },
-                "ValidationTimeoutSeconds" => config with { ValidationTimeoutSeconds = I() },
-                "EnableCredentialRotationDetection" => config with { EnableCredentialRotationDetection = B() },
-                "CredentialRotationWarningDays" => config with { CredentialRotationWarningDays = I() },
-                "EncryptConnectionStringAtRest" => config with { EncryptConnectionStringAtRest = B() },
-                "KeyVaultUri" => config with { KeyVaultUri = value },
-                "AwsRegion" => config with { AwsRegion = value },
-                "VaultAddress" => config with { VaultAddress = value },
-                "EnableAuditLogging" => config with { EnableAuditLogging = B() },
-                "AuditLogPath" => config with { AuditLogPath = value },
-                "AllowPlaintextConfigFallback" => config with { AllowPlaintextConfigFallback = B() },
-                "ManualAssemblyPath" => config with { ManualAssemblyPath = value },
-                "AutoDetectProvider" => config with { AutoDetectProvider = B() },
-                "AutoDetectEFContext" => config with { AutoDetectEFContext = B() },
-                "AutoDetectDapper" => config with { AutoDetectDapper = B() },
-                "EnableSmartDefaults" => config with { EnableSmartDefaults = B() },
-                "EnableTelemetry" => config with { EnableTelemetry = B() },
-                "TelemetryFileDirectory" => config with { TelemetryFileDirectory = value },
-                "TelemetryServiceName" => config with { TelemetryServiceName = value },
-                "TelemetryServiceVersion" => config with { TelemetryServiceVersion = value },
-                "IncludeTelemetryEventDetails" => config with { IncludeTelemetryEventDetails = B() },
-                "FailOnUnavailableRules" => config with { FailOnUnavailableRules = B() },
-                "StrictConfig" => config with { StrictConfig = B() },
-                "SnapshotMaxAgeDays" => config with { SnapshotMaxAgeDays = I() },
-                "StrictProcedureContracts" => config with { StrictProcedureContracts = B() },
-                "AuditKeyFile" => config with { AuditKeyFile = value },
-                "RequireEncryptedCredentialStore" => config with { RequireEncryptedCredentialStore = B() },
-                _ => config
-            };
-        }
-
-        return config;
     }
 
     internal static string SerializeConfig(DataGuardConfiguration config)
     {
-        // Full round-trip via YamlDotNet: serializes every configuration field,
-        // including nested Oracle/SqlServer blocks and excluded lists.
-        var serializer = new YamlDotNet.Serialization.SerializerBuilder()
-            .WithIndentedSequences()
-            .Build();
-        return serializer.Serialize(config);
+        return ConfigurationYamlWriter.Serialize(config);
     }
 }

@@ -28,4 +28,10 @@ public enum AcquisitionDiagnosticKind
 
     /// <summary>An EF Core ModelSnapshot parsed only partially; the entity configurations that failed were skipped.</summary>
     ModelSnapshotPartialParse,
+
+    /// <summary>A SQL argument depends on a local whose initializer is not a stable value proof.</summary>
+    UnstableSqlValue,
+
+    /// <summary>A recognized SQL argument or its role cannot be resolved by the supported source model.</summary>
+    UnresolvedSqlValue,
 }

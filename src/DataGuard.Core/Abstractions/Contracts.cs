@@ -232,6 +232,9 @@ public record RawSqlDescriptor(
     public RawSqlParseStatus ParseStatus { get; init; } = RawSqlParseStatus.Parsed;
     public string? ParseError { get; init; }
 
+    /// <summary>Maps extracted SQL offsets to C# source; empty when acquisition cannot preserve provenance.</summary>
+    public IReadOnlyList<SqlSourceSegment> SourceMap { get; init; } = Array.Empty<SqlSourceSegment>();
+
     /// <summary>True when this descriptor represents a stored-procedure call rather than raw SQL.</summary>
     public bool IsStoredProcedure { get; init; } = false;
 

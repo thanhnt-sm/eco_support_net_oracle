@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/AutoDetection/AutoDetectionEngine.cs`
 
-Engine tự động phát hiện quét project .NET để gợi ý cấu hình DataGuard: database provider, ORM, connection string, quy ước đặt tên và tên EF Core context. Caller CLI của nó là wizard `dataguard init --wizard` (`InteractiveConfigBuilder`); `dataguard init` thường chỉ ghi cấu hình mặc định và không quét.
+Engine tự động phát hiện quét project .NET để gợi ý cấu hình StackAccord: database provider, ORM, connection string, quy ước đặt tên và tên EF Core context. Caller CLI của nó là wizard `dataguard init --wizard` (`InteractiveConfigBuilder`); `dataguard init` thường chỉ ghi cấu hình mặc định và không quét.
 
 ## Luồng Tự Động Phát Hiện
 

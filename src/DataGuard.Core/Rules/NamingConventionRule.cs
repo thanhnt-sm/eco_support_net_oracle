@@ -24,7 +24,7 @@ public class NamingConventionRule : ContractRuleBase
         _convention = convention;
     }
 
-    protected override async Task ValidateCoreAsync(
+    protected override Task ValidateCoreAsync(
         ContractDescriptor contract,
         IReadOnlyList<ContractDescriptor> allContracts,
         List<ContractViolation> violations,
@@ -35,27 +35,47 @@ public class NamingConventionRule : ContractRuleBase
         {
             foreach (var prop in entityDesc.Properties)
             {
-                var pascalCaseName = ToPascalCase(prop.Name);
-                var snakeCaseName = ToSnakeCase(prop.Name);
-
+                cancellationToken.ThrowIfCancellationRequested();
                 var columnName = prop.ColumnName;
                 if (string.IsNullOrEmpty(columnName))
                 {
                     continue;
                 }
 
+                if (_convention == NamingConvention.ExactMatch)
+                {
+                    // Exact means no naming transformation; retain the rule's case-insensitive identifier policy.
+                    if (!columnName.Equals(prop.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        violations.Add(CreateViolation(
+                            RuleId,
+                            $"Property '{prop.Name}' doesn't match database column '{columnName}' under ExactMatch naming convention",
+                            Severity,
+                            entityDesc.Location));
+                    }
+
+                    continue;
+                }
+
+                var pascalCaseName = ToPascalCase(prop.Name);
+                var snakeCaseName = ToSnakeCase(prop.Name);
                 var matchesSnake = columnName.Equals(snakeCaseName, StringComparison.OrdinalIgnoreCase);
                 var matchesPascal = columnName.Equals(pascalCaseName, StringComparison.OrdinalIgnoreCase);
 
                 if (!matchesSnake && !matchesPascal)
                 {
+                    // The entity's own location (the Entity<T> call of a parsed ModelSnapshot): IDE hosts drop a result
+                    // without one. The fingerprint includes the file path, so baselines of entity-derived DG006 change.
                     violations.Add(CreateViolation(
                         RuleId,
                         $"Property '{prop.Name}' (PascalCase: '{pascalCaseName}', snake_case: '{snakeCaseName}') doesn't match database column '{columnName}'",
-                        Severity));
+                        Severity,
+                        entityDesc.Location));
                 }
             }
         }
+
+        return Task.CompletedTask;
     }
 
     public static string ToSnakeCase(string pascalCase)

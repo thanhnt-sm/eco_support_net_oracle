@@ -1,5 +1,8 @@
 # Product Vision & Niche Domination Strategy
 
+> Historical concept — 2026-10-18 annotation: this Rust/MCP EcoSupport vision is not the current .NET product definition. Its body and former license description are retained as history. See [current source mapping](../docs/product/source-map.md) and [workspace governance](../rules/workspace_governance.md).
+
+
 **Product Codename**: `EcoSupport Native (eco-support-rs)`  
 **Target Program**: Anthropic "Claude for Open Source" - Ecosystem Impact Track  
 **License**: PolyForm Noncommercial 1.0.0 (Strict Source-Available / Private IP Protected)

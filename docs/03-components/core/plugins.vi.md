@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/Plugins/RulePluginManager.cs`
 
-Hệ thống plugin của DataGuard cho phép các assembly bên ngoài mở rộng rules engine. Nó sử dụng MEF 2 (Managed Extensibility Framework) để khám phá và tải, với cô lập `AssemblyLoadContext` để unload plugin an toàn.
+Hệ thống plugin của StackAccord cho phép các assembly bên ngoài mở rộng rules engine. Nó sử dụng MEF 2 (Managed Extensibility Framework) để khám phá và tải, với cô lập `AssemblyLoadContext` để unload plugin an toàn.
 
 ## Luồng Tải Plugin
 
@@ -72,7 +72,7 @@ public sealed class RulePluginManager : IDisposable
 
 ### Thư Mục Plugin
 
-Chỉ thư mục plugin được cung cấp rõ ràng mới được quét. Vị trí mặc định (`%APPDATA%/DataGuard/Plugins`) có thể ghi bởi người dùng và không bao giờ tự động tải code. Trước khi tạo `AssemblyLoadContext`, DataGuard yêu cầu manifest `.dataguard-plugin.json` kề DLL để bind plugin ID, rule ID, version, host API version và SHA-256 digest. Policy mặc định cũng yêu cầu provenance verifier do operator cung cấp; verifier nhận manifest cùng snapshot copy của main/dependency bytes đã admission thay vì tự đọc lại path. Plugin thiếu, malformed, symlinked, incompatible, unsigned, sai digest, trùng rule hoặc xung đột rule built-in bị từ chối trước load và được ghi thành admission result. Admission giữ lại managed bytes đã hash, gồm từng entry `managedDependencies` đã khai báo. Collectible context chỉ resolve các dependency đã khai báo từ bytes đã xác thực và không probe lại thư mục plugin. Native dependency bị từ chối. Admission đọc metadata PE của DLL chính và mọi dependency đã khai báo: reference managed ngoài framework/host allowlist phải có entry manifest với assembly identity khớp. Vẫn còn acceptance work về one-handle/no-follow và signed provenance. Load context chỉ cô lập lifecycle, không sandbox code đã được nhận. Interface provenance verifier là điểm tích hợp, không phải bằng chứng signed provenance đã được xác minh.
+Chỉ thư mục plugin được cung cấp rõ ràng mới được quét. Vị trí mặc định (`%APPDATA%/DataGuard/Plugins`) có thể ghi bởi người dùng và không bao giờ tự động tải code. Trước khi tạo `AssemblyLoadContext`, StackAccord yêu cầu manifest `.dataguard-plugin.json` kề DLL để bind plugin ID, rule ID, version, host API version và SHA-256 digest. Policy mặc định cũng yêu cầu provenance verifier do operator cung cấp; verifier nhận manifest cùng snapshot copy của main/dependency bytes đã admission thay vì tự đọc lại path. Plugin thiếu, malformed, symlinked, incompatible, unsigned, sai digest, trùng rule hoặc xung đột rule built-in bị từ chối trước load và được ghi thành admission result. Admission giữ lại managed bytes đã hash, gồm từng entry `managedDependencies` đã khai báo. Collectible context chỉ resolve các dependency đã khai báo từ bytes đã xác thực và không probe lại thư mục plugin. Native dependency bị từ chối. Admission đọc metadata PE của DLL chính và mọi dependency đã khai báo: reference managed ngoài framework/host allowlist phải có entry manifest với assembly identity khớp. Vẫn còn acceptance work về one-handle/no-follow và signed provenance. Load context chỉ cô lập lifecycle, không sandbox code đã được nhận. Interface provenance verifier là điểm tích hợp, không phải bằng chứng signed provenance đã được xác minh.
 
 ```csharp
 var dir = pluginDirectory;
@@ -215,7 +215,7 @@ public sealed record PluginMetric(
 
 ## Tương Thích Phiên Bản
 
-Plugins khai báo phiên bản DataGuard tối thiểu qua `MinDataGuardVersion`:
+Plugins khai báo phiên bản StackAccord tối thiểu qua `MinDataGuardVersion`:
 
 ```csharp
 internal static bool IsCompatible(IRuleMetadata metadata, Version? hostVersion, ILogger? logger = null)
@@ -261,7 +261,7 @@ tham chiếu plugin.
     <TargetFramework>net9.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="DataGuard.Core" Version="1.0.0" />
+    <PackageReference Include="DataGuard.Core" Version="<verified-compatible-package-version>" />
   </ItemGroup>
 </Project>
 ```

@@ -46,6 +46,8 @@ public sealed class AzureKeyVaultSecretStore : ISecretStore
 {
     private readonly HttpClient _httpClient;
 
+    /// <summary>Initializes a new instance of the <see cref="AzureKeyVaultSecretStore"/> class.
+    /// The supplied client must disable automatic redirects to protect credentials.</summary>
     public AzureKeyVaultSecretStore(HttpClient httpClient)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -60,7 +62,7 @@ public sealed class AzureKeyVaultSecretStore : ISecretStore
         ArgumentNullException.ThrowIfNull(configuration);
         if (!IsAzureKeyVaultUri(configuration.KeyVaultUri))
         {
-            throw new SecretStoreException("KeyVaultUri must be an https://*.vault.azure.net address.");
+            throw new SecretStoreException("KeyVaultUri must be an https://name.vault.azure.net root address on the default HTTPS port.");
         }
 
         using var tokenRequest = new HttpRequestMessage(
@@ -100,10 +102,24 @@ public sealed class AzureKeyVaultSecretStore : ISecretStore
         return string.IsNullOrEmpty(value) ? null : value;
     }
 
-    internal static bool IsAzureKeyVaultUri(string? uri) =>
-        Uri.TryCreate(uri, UriKind.Absolute, out var u)
-        && u.Scheme == Uri.UriSchemeHttps
-        && u.Host.EndsWith("vault.azure.net", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsAzureKeyVaultUri(string? uri)
+    {
+        const string suffix = ".vault.azure.net";
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out var address)
+            || address.Scheme != Uri.UriSchemeHttps
+            || !address.IsDefaultPort
+            || address.UserInfo.Length != 0
+            || address.AbsolutePath != "/"
+            || address.Query.Length != 0
+            || address.Fragment.Length != 0
+            || !address.Host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var vaultName = address.Host[..^suffix.Length];
+        return vaultName.Length > 0 && !vaultName.Contains('.');
+    }
 }
 
 /// <summary>HashiCorp Vault KV v2 (<c>/v1/secret/data/&lt;name&gt;</c>, field <c>value</c>) authenticated by <c>VAULT_TOKEN</c>.</summary>
@@ -112,6 +128,8 @@ public sealed class HashiCorpVaultSecretStore : ISecretStore
     private readonly HttpClient _httpClient;
     private readonly Func<string, string?> _getEnvironmentVariable;
 
+    /// <summary>Initializes a new instance of the <see cref="HashiCorpVaultSecretStore"/> class.
+    /// The supplied client must disable automatic redirects to protect credentials.</summary>
     public HashiCorpVaultSecretStore(HttpClient httpClient, Func<string, string?>? getEnvironmentVariable = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -125,9 +143,19 @@ public sealed class HashiCorpVaultSecretStore : ISecretStore
     public async Task<string?> GetSecretAsync(string secretName, DataGuardConfiguration configuration, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        if (!Uri.TryCreate(configuration.VaultAddress, UriKind.Absolute, out var address) || address.Scheme != Uri.UriSchemeHttps)
+        if (!Uri.TryCreate(configuration.VaultAddress, UriKind.Absolute, out var address) || !IsHttpsRoot(address))
         {
-            throw new SecretStoreException("VaultAddress must be an https:// address.");
+            throw new SecretStoreException("VaultAddress must be an HTTPS root address without user information, query or fragment.");
+        }
+
+        // Repository configuration cannot authorize a destination for the operator's ambient token.
+        // Validate the independently supplied trusted origin before even reading VAULT_TOKEN.
+        if (!Uri.TryCreate(_getEnvironmentVariable("VAULT_ADDR"), UriKind.Absolute, out var trustedAddress)
+            || !IsHttpsRoot(trustedAddress)
+            || !string.Equals(address.IdnHost, trustedAddress.IdnHost, StringComparison.OrdinalIgnoreCase)
+            || address.Port != trustedAddress.Port)
+        {
+            throw new SecretStoreException("VaultAddress must match the trusted HTTPS root address in VAULT_ADDR.");
         }
 
         var token = _getEnvironmentVariable("VAULT_TOKEN");
@@ -164,4 +192,11 @@ public sealed class HashiCorpVaultSecretStore : ISecretStore
 
         return null;
     }
+
+    private static bool IsHttpsRoot(Uri address) =>
+        address.Scheme == Uri.UriSchemeHttps
+        && address.UserInfo.Length == 0
+        && address.AbsolutePath == "/"
+        && address.Query.Length == 0
+        && address.Fragment.Length == 0;
 }

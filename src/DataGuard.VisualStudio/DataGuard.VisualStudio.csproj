@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord VisualStudio</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>DataGuard.VisualStudio</AssemblyName>
     <RootNamespace>DataGuard.VisualStudio</RootNamespace>
@@ -17,6 +20,15 @@
     <RuntimeIdentifiers />
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(BuildingForTesting)' == 'true'">
+    <!-- The full solution also builds the normal VSIX instance. Different global properties create
+         separate MSBuild instances, so generated resources and assemblies must not share paths.
+         Keep MSBuildProjectExtensionsPath unchanged: both instances use the same locked NuGet graph. -->
+    <IntermediateOutputPath>$(BaseIntermediateOutputPath)$(Configuration)\testing\</IntermediateOutputPath>
+    <BaseOutputPath Condition="'$(BaseOutputPath)' == ''">bin\</BaseOutputPath>
+    <OutputPath>$(BaseOutputPath)$(Configuration)\testing\</OutputPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" PrivateAssets="all" />
@@ -24,12 +36,16 @@
          2.5.192, which is affected by 11 OSV advisories (fixed in 2.5.301).
          The direct reference wins the version conflict within the 2.x line. -->
     <PackageReference Include="MessagePack" Version="2.5.307" />
-    <PackageReference Include="System.Text.Json" Version="10.0.12" />
+    <PackageReference Include="System.Text.Json" Version="10.0.13" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Update="VSPackage.resx">
+      <LogicalName>VSPackage.resources</LogicalName>
+    </EmbeddedResource>
     <ProjectCapability Include="CreateVsixContainer" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 
   <ItemGroup>
@@ -107,6 +123,13 @@
     <ItemGroup>
       <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\bin\$(Configuration)\netstandard2.0\DataGuard.Analyzers.dll" />
       <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.CodeFixes\bin\$(Configuration)\netstandard2.0\DataGuard.CodeFixes.dll" />
+      <!-- The analyzer references DataGuard.Contracts and DataGuard.SqlClassification (both netstandard2.0,
+           copied next to it by CopyLocalLockFileAssemblies); VS resolves no NuGet graph for analyzer assets,
+           so they ship in the VSIX exactly as the NuGet package bundles them under analyzers/dotnet/cs.
+           Declared as Microsoft.VisualStudio.Analyzer assets in source.extension.vsixmanifest and required
+           by scripts/assert-vsix.ps1 and VsixAnalyzerPackagingTests. -->
+      <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\bin\$(Configuration)\netstandard2.0\DataGuard.Contracts.dll" />
+      <VSIXSourceItem Include="$(MSBuildThisFileDirectory)..\DataGuard.Analyzers\bin\$(Configuration)\netstandard2.0\DataGuard.SqlClassification.dll" />
     </ItemGroup>
   </Target>
 
@@ -118,7 +141,7 @@
     <!-- NuGetLockFilePath (relative → resolved per project) keeps the win-x64 self-contained restore from
          rewriting the committed packages.lock.json files of the CLI and its 8 referenced projects, which
          otherwise breaks the next locked-mode restore with NU1004 (see CHANGELOG 2026-09-29). -->
-    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true /p:NuGetLockFilePath=obj\cli-publish.packages.lock.json /p:RestoreLockedMode=false -o &quot;$(DataGuardCliPublishDir)&quot;" />
+    <Exec Command="dotnet publish &quot;$(MSBuildThisFileDirectory)..\DataGuard.Cli\DataGuard.Cli.csproj&quot; -c $(Configuration) -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishBundledCli=true /p:MinVerVersionOverride=&quot;$(MinVerVersionOverride)&quot; /p:NuGetLockFilePath=obj\cli-publish.packages.lock.json /p:RestoreLockedMode=false -o &quot;$(DataGuardCliPublishDir)&quot;" />
   </Target>
 
   <Target Name="IncludeBundledCliInVsix"
@@ -126,7 +149,7 @@
           BeforeTargets="GetVsixSourceItems"
           DependsOnTargets="PublishDataGuardCli">
     <Error Condition="!Exists('$(DataGuardCliPublishDir)dataguard.exe')"
-           Text="DataGuard CLI publish failed or dataguard.exe was not found at $(DataGuardCliPublishDir). Refusing to build empty VSIX." />
+           Text="StackAccord CLI publish failed or dataguard.exe was not found at $(DataGuardCliPublishDir). Refusing to build empty VSIX." />
     <ItemGroup>
       <VSIXSourceItem Include="$(DataGuardCliPublishDir)dataguard.exe">
         <VSIXSubPath>cli</VSIXSubPath>

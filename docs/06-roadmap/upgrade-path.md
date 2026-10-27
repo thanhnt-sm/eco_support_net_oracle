@@ -1,10 +1,12 @@
+> **2026-10-18 — Historical document: the Rust runtime/architecture or old version forecasts below are not current operation/release instructions. The record is retained; do not execute old commands as current product guidance.** [Canonical product documentation](../product/README.md).
+
 # Upgrade Path & Feature Evolution
 
 ## Version History
 
 ```mermaid
 timeline
-    title DataGuard Evolution
+    title StackAccord Evolution
     section v0.1.x (Current)
         Core validation engine : 16+ rules : 4 DB adapters
         CLI tool : Roslyn analyzers : IDE extensions

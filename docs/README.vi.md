@@ -1,13 +1,15 @@
-# Trung Tâm Tài Liệu DataGuard
+# Trung Tâm Tài Liệu StackAccord
 
-> **DataGuard** — Xác thực contract giữa .NET Entity ↔ Stored Procedure / Raw SQL.
+[Thương hiệu và tên kỹ thuật tương thích](product/branding.vi.md)
+
+> **StackAccord** — Xác thực contract giữa .NET Entity ↔ Stored Procedure / Raw SQL.
 
 ## Bản Đồ Tài Liệu
 
 | Phần | Mô tả | Liên kết |
 |------|-------|----------|
 | **Cây Thư Mục** | Bảng kê toàn bộ workspace với mô tả | [EN](00-directory-tree/directory-tree.md) · [VI](00-directory-tree/directory-tree.vi.md) |
-| **Tổng Quan Sản Phẩm** | DataGuard là gì, tại sao tồn tại | [EN](01-overview/product-overview.md) · [VI](01-overview/product-overview.vi.md) |
+| **Tổng Quan Sản Phẩm** | StackAccord là gì, tại sao tồn tại | [EN](01-overview/product-overview.md) · [VI](01-overview/product-overview.vi.md) |
 | **Showcase Tính Năng** | Tất cả tính năng và khả năng | [EN](01-overview/feature-showcase.md) · [VI](01-overview/feature-showcase.vi.md) |
 | **Pain Points Được Giải Quyết** | Vấn đề lập trình viên .NET/C# được giải quyết | [EN](01-overview/pain-points-solved.md) · [VI](01-overview/pain-points-solved.vi.md) |
 | **Bắt Đầu Nhanh** | Hướng dẫn 5 phút | [EN](01-overview/quickstart.md) |
@@ -27,7 +29,7 @@
 
 ## Bản Ghi Quyết Định Kiến Trúc (ADR)
 
-Quyết định cho từng thành phần, đối chiếu với mục tiêu gốc ([mục lục](adr/README.md)):
+Khuyến nghị Proposed cho từng thành phần, đang chờ chủ sở hữu quyết định, đối chiếu với mục tiêu gốc ([mục lục](adr/README.md)):
 
 - [ADR-0000](adr/ADR-0000-adr-process.md): quy trình và mẫu ADR
 - [ADR-0001](adr/ADR-0001-visual-studio-extension.md): extension Visual Studio (`freeze`)
@@ -50,3 +52,13 @@ Quyết định cho từng thành phần, đối chiếu với mục tiêu gốc
 - [Tham Chiếu CLI](03-components/tooling/cli.md)
 - [Hướng Dẫn Cấu Hình](05-operations/configuration-guide.md)
 - [Bảng Tra Cứu OpenSSF Best Practices (CII)](guides/openssf-best-practices-answers.md)
+- [Tài Liệu Nghiên Cứu Codecov Free-Tier & TypeSafe Judge](guides/codecov-and-typesafe-research.vi.md) · [EN](guides/codecov-and-typesafe-research.md)
+
+- [DG019: chọn phương ngữ và vị trí mã nguồn](guides/dg019-dialect-and-locations.vi.md)
+- [Cấu hình và mẫu Oracle snapshot có chú thích](guides/configuration.vi.md)
+
+## Đối chiếu chiến lược sản phẩm (nháp)
+
+[Mục lục StackAccord](product/README.vi.md) tách nguồn hiện tại, tính năng đề xuất và claim lịch sử. Không đổi tên kỹ thuật hoặc cho phép phát hành.
+
+[Kiểm kê toàn bộ tài liệu và trạng thái review](product/documentation-inventory.md).

@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="DataGuard.VisualStudio" Version="0.3.0" Language="en-US" Publisher="thanhnt-sm" />
-    <DisplayName>DataGuard</DisplayName>
-    <Description xml:space="preserve">Database contract validation for .NET code, stored procedures, and raw SQL.</Description>
+    <Identity Id="DataGuard.VisualStudio" Version="0.4.0" Language="en-US" Publisher="thanhnt-sm" />
+    <DisplayName>StackAccord – .NET Database Contracts (Beta)</DisplayName>
+    <Description xml:space="preserve">Beta evaluation of supported .NET/database contracts with diagnostics and local support summaries. Provider and mode limits apply; unknown results require review.</Description>
     <MoreInfo>https://github.com/thanhnt-sm/eco_support_net_oracle</MoreInfo>
     <License>LICENSE.txt</License>
     <Tags>database;sql;stored-procedure;dapper;entity-framework;schema-drift;sarif;devsecops</Tags>
   </Metadata>
   <Installation>
-    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,19.0)">
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.12,19.0)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
-    <InstallationTarget Id="Microsoft.VisualStudio.Professional" Version="[17.0,19.0)">
+    <InstallationTarget Id="Microsoft.VisualStudio.Professional" Version="[17.12,19.0)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
-    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[17.0,19.0)">
+    <InstallationTarget Id="Microsoft.VisualStudio.Enterprise" Version="[17.12,19.0)">
       <ProductArchitecture>amd64</ProductArchitecture>
     </InstallationTarget>
   </Installation>
@@ -23,7 +23,8 @@
     <Dependency Id="Microsoft.Framework.NDP" DisplayName=".NET Framework 4.7.2" Version="[4.7.2,)" />
   </Dependencies>
   <Prerequisites>
-    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" DisplayName="Visual Studio core editor" Version="[17.0,)" />
+    <!-- 17.12 is the first VS 2022 release whose Roslyn (4.12) loads the bundled analyzer; 17.0-17.11 refuse it (CS9057). -->
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" DisplayName="Visual Studio core editor" Version="[17.12,)" />
   </Prerequisites>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
@@ -33,5 +34,12 @@
     <Asset Type="Microsoft.VisualStudio.Analyzer"
            d:Source="File"
            Path="DataGuard.CodeFixes.dll" />
+    <!-- Loaded by DataGuard.Analyzers.dll at runtime (same bundle as the NuGet package's analyzers/dotnet/cs). -->
+    <Asset Type="Microsoft.VisualStudio.Analyzer"
+           d:Source="File"
+           Path="DataGuard.Contracts.dll" />
+    <Asset Type="Microsoft.VisualStudio.Analyzer"
+           d:Source="File"
+           Path="DataGuard.SqlClassification.dll" />
   </Assets>
 </PackageManifest>

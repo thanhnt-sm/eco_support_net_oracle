@@ -126,18 +126,18 @@ export function mapSarifLevelToSeverity(level?: string): FindingSeverity {
 }
 
 /**
- * Determines whether an automated Quick-Fix is available for a given rule ID.
+ * Determines whether a manual-review action is available for a given rule ID.
  */
 export function getQuickFixInfo(ruleId: string): { available: boolean; title?: string } {
     switch (ruleId) {
         case "DG001":
-            return { available: true, title: "DataGuard: Synchronize parameter count with SQL definition" };
+            return { available: true, title: "StackAccord: Review parameter count against SQL definition" };
         case "DG002":
-            return { available: true, title: "DataGuard: Align C# parameter types with database column types" };
+            return { available: true, title: "StackAccord: Review C# parameter types against database column types" };
         case "DG017":
-            return { available: true, title: "DataGuard: Replace SELECT * with explicit column projection" };
+            return { available: true, title: "StackAccord: Review SELECT * and choose schema-verified columns" };
         case "DG018":
-            return { available: true, title: "DataGuard: Update entity contract to match schema snapshot" };
+            return { available: true, title: "StackAccord: Review entity contract against schema snapshot" };
         default:
             return { available: false };
     }
@@ -181,7 +181,7 @@ export function parseSarifToFindings(
             const startLine = Math.max(1, region?.startLine ?? 1);
             const startColumn = Math.max(1, region?.startColumn ?? 1);
             const endLine = Math.max(startLine, region?.endLine ?? startLine);
-            const endColumn = Math.max(startColumn, region?.endColumn ?? startColumn);
+            const endColumn = Math.max(endLine === startLine ? startColumn : 1, region?.endColumn ?? startColumn);
 
             const rawSnippet = region?.snippet?.text ? redactForUi(region.snippet.text) : undefined;
             const qfInfo = getQuickFixInfo(ruleId);

@@ -1,5 +1,9 @@
 # Operations Playbook
 
+These examples assume an exact reviewed CLI build/artifact is already installed and on PATH; `dataguard version` checks the command, not installation. See the [installation guide](installation-guide.md). Public NuGet availability is not assumed.
+
+Live examples use `DATAGUARD_DB` supplied by an approved session/CI secret mechanism; do not put its value in command arguments. Source checked at `ca68a3159425495f771da866188df75a8237ab4b`: YAML uses PascalCase as defined by `ConfigDocument`. Runtime checks still needed are the actual database/schema, audit/secret backend and CI upload on the target host.
+
 ## Daily Operations
 
 ### Morning Check (CI Pipeline)
@@ -21,10 +25,10 @@ flowchart TD
     C --> D{"Drift detected?"}
     D -->|Yes| E["Review changes"]
     E --> F["dataguard snapshot refresh"]
-    F --> G["dataguard validate"]
+    F --> G["dataguard validate --offline"]
     G --> H{"New violations?"}
-    H -->|Yes| I["Fix code or update baseline"]
-    H -->|No| J["✅ Ready to commit"]
+    H -->|Yes| I["Fix code; review any baseline change"]
+    H -->|No| J["Review coverage and remaining evidence"]
     I --> G
     D -->|No| J
 ```
@@ -33,13 +37,13 @@ flowchart TD
 
 ```bash
 # Create baseline for legacy codebase
-dataguard baseline --connection "..." --provider oracle
+dataguard baseline --connection-env DATAGUARD_DB --provider oracle
 
 # Check what's baselined
-cat .dataguard-baseline.json | jq '.violations | length'
+cat .dataguard-baseline.json | jq '.Violations | length'
 
 # Re-baseline after fixing violations
-dataguard baseline --connection "..." --provider oracle
+dataguard baseline --connection-env DATAGUARD_DB --provider oracle
 
 # Migrate v1 baseline to v2
 dataguard migrate --baseline .dataguard-baseline.json
@@ -49,13 +53,13 @@ dataguard migrate --baseline .dataguard-baseline.json
 
 ```bash
 # Refresh snapshot from database
-dataguard snapshot refresh --connection "..." --provider oracle
+dataguard snapshot refresh --connection-env DATAGUARD_DB --provider oracle
 
 # Show snapshot info
 dataguard snapshot show
 
 # Check for drift
-dataguard snapshot diff --connection "..." --provider oracle --fail-on-drift
+dataguard snapshot diff --connection-env DATAGUARD_DB --provider oracle --fail-on-drift
 ```
 
 ## Team Workflows
@@ -63,24 +67,23 @@ dataguard snapshot diff --connection "..." --provider oracle --fail-on-drift
 ### New Project Onboarding
 
 ```bash
-# 1. Install DataGuard
-dotnet tool install -g DataGuard.Cli
+# 1. Check the previously provisioned CLI
+dataguard version
 
 # 2. Initialize config
 dataguard init --provider oracle
 
 # 3. Create initial snapshot
-dataguard snapshot refresh --connection "..." --provider oracle
+dataguard snapshot refresh --connection-env DATAGUARD_DB --provider oracle
 
 # 4. Run first validation
-dataguard validate --verbose
+dataguard validate --offline --verbose
 
 # 5. Create baseline for existing violations
-dataguard baseline --connection "..." --provider oracle
+dataguard baseline --connection-env DATAGUARD_DB --provider oracle
 
 # 6. Commit config files
-git add .dataguard.yml .dataguard-snapshot.json .dataguard-baseline.json
-git commit -m "chore: initialize DataGuard contract validation"
+# Review metadata and permissions before committing; no commit is automatic.
 ```
 
 ### PR Review Checklist
@@ -104,8 +107,7 @@ dataguard snapshot diff --fail-on-drift
 dataguard assess --format json --output assessment.json
 
 # 4. Commit artifacts
-git add release-validation.sarif assessment.json
-git commit -m "chore: release validation artifacts"
+# Retain approved reports in an access-controlled evidence location.
 ```
 
 ## Environment-Specific Configs
@@ -113,40 +115,42 @@ git commit -m "chore: release validation artifacts"
 ### Development
 
 ```yaml
-groundTruthMode: Manual
-allowPlaintextConfigFallback: true
-enableAuditLogging: false
+GroundTruthMode: Manual
+AllowPlaintextConfigFallback: true
+EnableAuditLogging: false
 ```
 
 ### Staging
 
 ```yaml
-groundTruthMode: Full
-connectionString: null  # Use CONNECTION_STRING env var
-enableAuditLogging: true
-auditLogPath: "/var/log/dataguard/audit.jsonl"
+GroundTruthMode: Full
+ConnectionString: null  # Use DATAGUARD_DATAGUARD_CONNECTION_STRING env var
+EnableAuditLogging: true
+AuditLogPath: "/var/log/dataguard/audit.jsonl"
 ```
 
 ### Production CI
 
 ```yaml
-groundTruthMode: Snapshot
-snapshotFilePath: ".dataguard-snapshot.json"
-enableAuditLogging: true
-enableCredentialRotationDetection: true
+GroundTruthMode: Snapshot
+SnapshotFilePath: ".dataguard-snapshot.json"
+EnableAuditLogging: true
+EnableCredentialRotationDetection: true
 ```
 
 ## Monitoring
 
-### Key Metrics
+### Suggested monitoring checks
 
 | Metric | Source | Alert Threshold |
 |--------|--------|-----------------|
-| Validation duration | TelemetryCollector | > 60s |
+| Validation duration | TelemetryCollector | Team-defined; measure first |
 | Violation count | Validation output | New violations beyond baseline |
 | Schema drift | snapshot diff | Any drift |
-| Credential rotation | CredentialManager | < 30 days remaining |
+| Credential rotation | CredentialManager | Review available credential metadata |
 | Audit log integrity | FileAuditLogger | Chain break |
+
+These are monitoring proposals, not preconfigured alerts. A configured rotation warning is not proof that a credential has an issuer expiry date.
 
 ### Health Checks
 
@@ -158,5 +162,5 @@ dataguard version
 dataguard config validate
 
 # Verify database connectivity
-dataguard validate --verbose 2>&1 | head -20
+dataguard validate --verbose --connection-env DATAGUARD_DB
 ```

@@ -1,20 +1,22 @@
-# DataGuard Extension Testing Guide
+# StackAccord Extension Testing Guide
 
 ## 1. Installation
 
-1. Open Visual Studio.
-2. Go to **Extensions** -> **Manage Extensions**.
-3. Install the newly built VSIX located at `src\DataGuard.VisualStudio\bin\Debug\net472\DataGuard.VisualStudio.vsix` (you may need to uninstall the old one first).
-4. Restart Visual Studio.
+1. Build or select a verified VSIX using the [extension build guide](../05-operations/extension-build-guide.md); do not assume a Debug output already exists.
+2. Close Visual Studio and launch the Visual Studio VSIX installer for that package.
+3. Restart the intended supported host and record the package hash and host version.
 
-## 2. CLI Executable Auto-Discovery & Auto-Installation
+## 2. CLI Executable Discovery
 
-* **Auto-installation**: The extension will automatically look for `dataguard.exe`. If it is missing, it will run `dotnet tool install -g DataGuard.Cli` in the background (using the local `src/DataGuard.Cli/nupkg` directory if available).
-* **Roll-forward behavior**: The extension sets `DOTNET_ROLL_FORWARD=LatestMajor` when executing the CLI. This safely mitigates the .NET 9 dependency, permitting the tool to run correctly on .NET 10 without crashes.
+The VSIX bundles a self-contained `cli\dataguard.exe`. `CliLocator` checks an explicit custom absolute executable path first, then the bundled CLI, `DATAGUARD_CLI_PATH`, standard install directories and filtered PATH candidates. An invalid explicit custom path fails instead of silently selecting another executable.
+
+The extension does not install a NuGet global tool when discovery fails. Test the missing-CLI error; reinstall a verified VSIX or configure an accepted executable via **Tools → Options → StackAccord → General → Custom CLI Executable Path**. See the [installation guide](../05-operations/installation-guide.md).
+
+`CliArgumentBuilder` sets `DOTNET_ROLL_FORWARD=LatestMajor`; this setting is not proof that a framework-dependent override works on every later .NET version. Exercise the actual executable/runtime combination and retain its diagnostics.
 
 ## 3. Options & Configuration
 
-You can access the configuration settings at: **Tools** -> **Options** -> **DataGuard**.
+You can access the configuration settings at: **Tools** -> **Options** -> **StackAccord**. The canonical Options/automation category remains `DataGuard`; existing settings and automation keep that identifier.
 * **General**:
   * **Diagnostics & Logging**: Toggle `Enable Detailed Logging` and specify a custom `Log Directory`.
   * **CLI Configuration**: Specify a `Custom CLI Executable Path` to override auto-discovery.
@@ -27,20 +29,20 @@ You can access the configuration settings at: **Tools** -> **Options** -> **Data
 ## 4. Validating Projects
 
 1. Open a solution that has a `.dataguard.yml` configuration file.
-2. Under the **Tools** menu, locate the **DataGuard** sub-menu and click **Run Validation**.
+2. Under the **Tools** menu, locate the **StackAccord (Beta)** sub-menu and click **Run Validation**.
 3. Output Window:
-   * Navigate to the **Output** window and select **DataGuard** from the "Show output from:" dropdown.
-   * You should see progress logs such as `[DataGuard] validate started...` and `[DataGuard] CLI successfully auto-installed` (if it was freshly installed).
+   * Navigate to the **Output** window and select **StackAccord (Beta)** from the "Show output from:" dropdown.
+   * Review the command status, CLI diagnostics and exit outcome. Missing executables produce an error; no auto-install success message is expected.
 4. The generated validation violations will automatically populate the Visual Studio **Error List**.
 
 ## 5. Filtering Validation Results
 
-1. Go to **Tools** -> **Options** -> **DataGuard** -> **Validation Rules**.
+1. Go to **Tools** -> **Options** -> **StackAccord** -> **Validation Rules**.
 2. Uncheck any rule (e.g., *DG016: Phantom Column Reference*).
-3. Run validation again (via **Tools** -> **DataGuard** -> **Run Validation**).
+3. Run validation again (via **Tools** -> **StackAccord (Beta)** -> **Run Validation**).
 4. The extension passes the disabled rule IDs to the CLI via `validate --skip-rules <ids>` (for example `--skip-rules DG016`), so the CLI never emits those violations.
 5. Check the **Error List**: you will notice that the violations for the disabled rule are no longer present.
 
 ## 6. Validation Rules & Descriptions Catalog
 
-Under **Tools** -> **DataGuard**, you can click **Validation Rules & Descriptions** to output a detailed list of all rules and their current enabled/disabled state to the Output window. This is highly useful for sharing the exact configuration during a team review.
+Under **Tools** -> **StackAccord (Beta)**, you can click **Validation Rules & Descriptions** to output a detailed list of all rules and their current enabled/disabled state to the Output window. This is highly useful for sharing the exact configuration during a team review.

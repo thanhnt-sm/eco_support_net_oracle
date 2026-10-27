@@ -6,7 +6,6 @@ namespace DataGuard.VisualStudio;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -48,11 +47,13 @@ internal sealed class ErrorListPresenter
     internal ErrorListPresenter(
         Func<string, IVsHierarchy?> hierarchyResolver,
         IServiceProvider? serviceProvider = null,
-        JoinableTaskFactory? joinableTaskFactory = null)
+        JoinableTaskFactory? joinableTaskFactory = null,
+        Func<string, Task>? writeOutput = null)
     {
         this.hierarchyResolver = hierarchyResolver ?? throw new ArgumentNullException(nameof(hierarchyResolver));
         this.serviceProvider = serviceProvider;
         this.joinableTaskFactory = joinableTaskFactory;
+        this.writeOutput = writeOutput;
     }
 
     /// <summary>
@@ -116,10 +117,10 @@ internal sealed class ErrorListPresenter
         var task = new ErrorTask
         {
             Category = TaskCategory.BuildCompile,
-            Column = diagnostic.Column,
+            Column = Math.Max(1, diagnostic.Column) - 1,
             Document = diagnostic.Document,
             ErrorCategory = MapLevel(diagnostic.Level),
-            Line = diagnostic.Line,
+            Line = Math.Max(1, diagnostic.Line) - 1,
             Text = diagnostic.Message,
             HierarchyItem = this.ResolveHierarchy(diagnostic.Document, hierarchyCache),
         };
@@ -133,13 +134,8 @@ internal sealed class ErrorListPresenter
             this.joinableTaskFactory.RunAsync(async () =>
             {
                 await this.joinableTaskFactory.SwitchToMainThreadAsync();
-                if (!File.Exists(task.Document))
+                if (!await DocumentNavigation.CanNavigateAsync(task.Document, this.writeOutput))
                 {
-                    if (this.writeOutput != null)
-                    {
-                        await this.writeOutput($"[DataGuard] Cannot navigate: file not found '{task.Document}'.\r\n");
-                    }
-
                     return;
                 }
 
@@ -157,11 +153,9 @@ internal sealed class ErrorListPresenter
                     frame?.Show();
                     if (view != null)
                     {
-                        // Convert 1-based ErrorTask to 0-based buffer position
-                        var zeroBasedLine = Math.Max(0, task.Line - 1);
-                        var zeroBasedCol = Math.Max(0, task.Column - 1);
-                        view.SetCaretPos(zeroBasedLine, zeroBasedCol);
-                        view.CenterLines(zeroBasedLine, 1);
+                        // CreateTask already converted SARIF to zero-based VS coordinates.
+                        view.SetCaretPos(task.Line, task.Column);
+                        view.CenterLines(task.Line, 1);
                     }
                 }
                 else if (this.provider != null)
@@ -170,7 +164,7 @@ internal sealed class ErrorListPresenter
                     {
                         if (this.writeOutput != null)
                         {
-                            await this.writeOutput($"[DataGuard] Cannot navigate to '{task.Document}' line {task.Line}.\r\n");
+                            await this.writeOutput($"[StackAccord] Cannot navigate to '{task.Document}' line {task.Line + 1}.\r\n");
                         }
                     }
                 }

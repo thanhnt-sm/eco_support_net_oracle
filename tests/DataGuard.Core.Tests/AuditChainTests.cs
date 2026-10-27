@@ -11,18 +11,37 @@ namespace DataGuard.Core.Tests;
 /// Keyed audit chain, single writer path and salted fingerprints (red-team D2): mixed writers stay valid, tampering is
 /// detected, keyed and unkeyed chains are distinguishable, and the credential manager never appends raw lines.
 /// </summary>
+[Collection(SequentialCollection.Name)]
 public sealed class AuditChainTests : IDisposable
 {
+    private const string ConnectionVariable = "DATAGUARD_CONNECTION_STRING";
     private static readonly byte[] Key = Encoding.UTF8.GetBytes("unit-test-audit-key-0123456789");
     private readonly string _directory = Directory.CreateTempSubdirectory("dg-audit-chain").FullName;
+    private readonly string? _originalConnection = Environment.GetEnvironmentVariable(ConnectionVariable);
+    private readonly string? _originalAuditKey = Environment.GetEnvironmentVariable(AuditHashing.AuditKeyEnvironmentVariable);
+
+    public AuditChainTests()
+    {
+        // These tests exercise synthetic configuration/key files, independently of inherited process overrides.
+        Environment.SetEnvironmentVariable(ConnectionVariable, null);
+        Environment.SetEnvironmentVariable(AuditHashing.AuditKeyEnvironmentVariable, null);
+    }
 
     private string LogPath => Path.Combine(_directory, "audit.log");
 
     public void Dispose()
     {
-        if (Directory.Exists(_directory))
+        try
         {
-            Directory.Delete(_directory, recursive: true);
+            if (Directory.Exists(_directory))
+            {
+                Directory.Delete(_directory, recursive: true);
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(ConnectionVariable, _originalConnection);
+            Environment.SetEnvironmentVariable(AuditHashing.AuditKeyEnvironmentVariable, _originalAuditKey);
         }
     }
 
@@ -147,6 +166,39 @@ public sealed class AuditChainTests : IDisposable
 
         (await File.ReadAllTextAsync(LogPath)).Should().NotContain("Server=mixed");
         (await direct.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Valid);
+    }
+
+    [Fact]
+    public async Task MixedWriters_EnvironmentOverride_RecordsOneRealRotationInValidChain()
+    {
+        const string configured = "Server=mixed;Password=synthetic-old";
+        const string overridden = "Server=override;Password=synthetic-new";
+        var logger = new FileAuditLogger(LogPath, Key);
+        var manager = new CredentialManager(
+            AuditConfig() with { ConnectionString = configured },
+            credentialStorePath: NewStorePath(),
+            auditLogger: logger);
+
+        (await manager.GetConnectionStringAsync()).Should().Be(configured);
+        await logger.LogCredentialAccessAsync("direct-1", "test", logger.HashSensitiveValue(configured));
+        await manager.StoreConnectionStringAsync(configured);
+        await logger.LogDatabaseOperationAsync("query", "sqlserver", "h", "SELECT 1", true);
+
+        Environment.SetEnvironmentVariable(ConnectionVariable, overridden);
+        (await manager.GetConnectionStringAsync()).Should().Be(overridden);
+
+        var text = await File.ReadAllTextAsync(LogPath);
+        var entries = (await File.ReadAllLinesAsync(LogPath)).Select(line => JsonSerializer.Deserialize<AuditEntry>(line)!).ToArray();
+        entries.Select(entry => entry.Operation).Should().Equal(
+            "ConnectionStringAccessed", "direct-1", "ConnectionStringStored", "query",
+            "CredentialRotationDetected", "ConnectionStringAccessed");
+        var rotation = entries.Single(entry => entry.Operation == "CredentialRotationDetected");
+        using var details = JsonDocument.Parse(rotation.Details!);
+        details.RootElement.GetProperty("OldHash").GetString().Should().Be(logger.HashSensitiveValue(configured));
+        details.RootElement.GetProperty("NewHash").GetString().Should().Be(logger.HashSensitiveValue(overridden));
+        text.Should().NotContain("synthetic-old").And.NotContain("synthetic-new");
+        text.Should().NotContain(AuditHashing.UnsaltedFingerprint(configured)).And.NotContain(AuditHashing.UnsaltedFingerprint(overridden));
+        (await logger.VerifyIntegrityAsync()).Status.Should().Be(AuditIntegrityStatus.Valid);
     }
 
     [Fact]

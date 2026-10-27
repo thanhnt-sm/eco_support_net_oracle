@@ -214,37 +214,50 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
             return;
         }
 
-        // 1. Index DB columns
-        var dbColMap = new Dictionary<string, ColumnDescriptor>(StringComparer.OrdinalIgnoreCase);
-        var dbColNormalizedMap = new Dictionary<string, ColumnDescriptor>(StringComparer.OrdinalIgnoreCase);
-        foreach (var col in dbColumns)
-        {
-            dbColMap.TryAdd(col.Name, col);
-            dbColNormalizedMap.TryAdd(NormalizeName(col.Name), col);
-        }
+        // Preserve every candidate and use list positions: providers may leave every ColumnId at zero.
+        var indexedColumns = dbColumns.Select((column, index) => (Column: column, Index: index)).ToArray();
+        var dbColMap = indexedColumns.GroupBy(item => item.Column.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Index).ToArray(), StringComparer.OrdinalIgnoreCase);
+        var dbColNormalizedMap = indexedColumns.GroupBy(item => NormalizeName(item.Column.Name), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Index).ToArray(), StringComparer.OrdinalIgnoreCase);
 
         // 2. Check for missing columns and type mismatches
-        var matchedDbColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var accountedDbColumns = new HashSet<int>();
 
         foreach (var prop in rawSql.ExpectedProperties)
         {
             var expectedColName = !string.IsNullOrWhiteSpace(prop.ColumnName) ? prop.ColumnName : prop.Name;
             var normalizedPropName = NormalizeName(prop.Name);
 
-            ColumnDescriptor? matchedCol = null;
-            if (dbColMap.TryGetValue(expectedColName, out var exactCol))
+            int[]? candidates;
+            string matchTier;
+            if (dbColMap.TryGetValue(expectedColName, out candidates))
             {
-                matchedCol = exactCol;
+                matchTier = "column name";
             }
-            else if (dbColMap.TryGetValue(prop.Name, out var nameCol))
+            else if (dbColMap.TryGetValue(prop.Name, out candidates))
             {
-                matchedCol = nameCol;
+                matchTier = "property name";
             }
-            else if (dbColNormalizedMap.TryGetValue(normalizedPropName, out var normCol))
+            else if (dbColNormalizedMap.TryGetValue(normalizedPropName, out candidates))
             {
-                matchedCol = normCol;
+                matchTier = "normalized property name";
+            }
+            else
+            {
+                matchTier = string.Empty;
             }
 
+            if (candidates is { Length: > 1 })
+            {
+                // These columns cannot be classified as mapped or extra. Do not invent a mismatch or fall back
+                // to a lower tier, but continue checking properties whose mapping is independently known.
+                accountedDbColumns.UnionWith(candidates);
+                MarkUnevaluated(rawSql, $"Cannot determine result set shape for query: ambiguous {matchTier} match for C# property '{prop.Name}' ({candidates.Length} candidate columns).");
+                continue;
+            }
+
+            var matchedCol = candidates is { Length: 1 } ? dbColumns[candidates[0]] : null;
             if (matchedCol == null)
             {
                 violations.Add(CreateViolation(
@@ -255,29 +268,37 @@ public class LiveSqlShapeValidationRule : ContractRuleBase
             }
             else
             {
-                matchedDbColumns.Add(matchedCol.Name);
+                accountedDbColumns.Add(candidates![0]);
 
-                // Type compatibility check
-                if (!string.IsNullOrEmpty(matchedCol.DataType) && !string.IsNullOrEmpty(prop.ClrTypeName))
+                // Missing database type metadata must flow through Unknown to DG020, never count as a pass.
+                if (!string.IsNullOrEmpty(prop.ClrTypeName))
                 {
                     var normalizedClr = NormalizeClrType(prop.ClrTypeName);
-                    if (!string.IsNullOrEmpty(normalizedClr) &&
-                        TypeCompatibility.TypeCompatibilityRegistry.Resolve(_provider)
-                            .Check(normalizedClr, matchedCol.DataType, matchedCol.Precision, matchedCol.Scale, matchedCol.MaxLength) == TypeCompatibility.TypeCompatibilityResult.Incompatible)
+                    if (!string.IsNullOrEmpty(normalizedClr))
                     {
-                        violations.Add(CreateViolation(
-                            MismatchRuleId,
-                            $"Column '{matchedCol.Name}' has database type '{matchedCol.DataType}' which is not compatible with C# property '{prop.Name}' of type '{prop.ClrTypeName}'.",
-                            Severity,
-                            rawSql.Location));
+                        var compatibility = TypeCompatibility.TypeCompatibilityRegistry.Resolve(_provider)
+                            .Check(normalizedClr, matchedCol.DataType, matchedCol.Precision, matchedCol.Scale, matchedCol.MaxLength);
+                        if (compatibility == TypeCompatibility.TypeCompatibilityResult.Unknown)
+                        {
+                            MarkUnevaluated(rawSql, $"Cannot determine type compatibility for column '{matchedCol.Name}' and property '{prop.Name}': CLR type '{prop.ClrTypeName}', database type '{matchedCol.DataType}'.");
+                        }
+                        else if (compatibility == TypeCompatibility.TypeCompatibilityResult.Incompatible)
+                        {
+                            violations.Add(CreateViolation(
+                                MismatchRuleId,
+                                $"Column '{matchedCol.Name}' has database type '{matchedCol.DataType}' which is not compatible with C# property '{prop.Name}' of type '{prop.ClrTypeName}'.",
+                                Severity,
+                                rawSql.Location));
+                        }
                     }
                 }
             }
         }
 
         // 3. Check for extra unmapped columns
-        var extraColumns = dbColumns
-            .Where(c => !matchedDbColumns.Contains(c.Name))
+        var extraColumns = indexedColumns
+            .Where(item => !accountedDbColumns.Contains(item.Index))
+            .Select(item => item.Column)
             .ToList();
 
         if (extraColumns.Count > 0 && extraColumns.Count > rawSql.ExpectedProperties.Count / 2)

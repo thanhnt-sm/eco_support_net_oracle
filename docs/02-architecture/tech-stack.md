@@ -1,8 +1,8 @@
 # Technology Stack
 
-> Every dependency in DataGuard, why it was chosen, and what it does.
+> Every dependency in StackAccord, why it was chosen, and what it does.
 
-This document evaluates the complete technology stack of DataGuard: runtime, frameworks, libraries, tooling, and infrastructure. Versions are pinned in `Directory.Build.props` and per-project `.csproj` files with lock files (`packages.lock.json`) restored in `--locked-mode` for reproducible builds.
+This document evaluates the complete technology stack of StackAccord: runtime, frameworks, libraries, tooling, and infrastructure. Versions are pinned in `Directory.Build.props` and per-project `.csproj` files with lock files (`packages.lock.json`) restored in `--locked-mode` for reproducible builds.
 
 ---
 
@@ -76,7 +76,7 @@ graph TB
 - `Parallel.ForEachAsync` — the backbone of `ConcurrentValidationEngine`'s bounded parallelism.
 - `System.Diagnostics.Metrics` — modern native metrics API powering `TelemetryCollector`.
 - Records, pattern matching, and nullable reference types across the domain model.
-- Current STS release; the assessment engine's `LegacySupportTable` tracks which TFMs DataGuard itself recommends to consumers.
+- Current STS release; the assessment engine's `LegacySupportTable` tracks which TFMs StackAccord itself recommends to consumers.
 
 **Trade-offs:** .NET 9 is an STS (18-month support) release, not LTS. The Contracts/Analyzers/CodeFixes projects deliberately target `netstandard2.0` so IDE-hosted components are decoupled from the engine runtime choice.
 
@@ -91,7 +91,7 @@ graph TB
 - Design-time `ModelSnapshot.cs` parsing allows contract extraction without booting the app or a database.
 - Relational metadata APIs expose annotations needed by length/nullability rules.
 
-**Evaluation:** EF Core is used read-only — DataGuard never registers providers or opens connections through it. This keeps vendor drivers out of the Core dependency graph.
+**Evaluation:** EF Core is used read-only — StackAccord never registers providers or opens connections through it. This keeps vendor drivers out of the Core dependency graph.
 
 ---
 
@@ -106,7 +106,7 @@ graph TB
 
 **Design decision:** Each provider lives in its **own adapter project**. `DataGuard.Core` has zero vendor driver dependencies; the CLI composition root references all four. Consumers embedding only one database stack take only that adapter.
 
-**Oracle licensing note:** `Oracle.ManagedDataAccess.Core` ships under the Oracle Free Distribution, Hosting, and Use Terms and Conditions, not under DataGuard's own licence. The licence text ships in `docs/legal/THIRD-PARTY-NOTICES.md` (copied into every download) and DataGuard's GPL section 7 additional permission covers it (`docs/legal/ADDITIONAL-PERMISSIONS.md`, not lawyer-reviewed).
+**Oracle licensing note:** `Oracle.ManagedDataAccess.Core` ships under the Oracle Free Distribution, Hosting, and Use Terms and Conditions, not under StackAccord's own licence. The licence text ships in `docs/legal/THIRD-PARTY-NOTICES.md` (copied into every download) and StackAccord's GPL section 7 additional permission covers it (`docs/legal/ADDITIONAL-PERMISSIONS.md`, not lawyer-reviewed).
 
 ### Oracle specifics
 
@@ -152,7 +152,7 @@ The Oracle adapter is the deepest integration because Oracle semantics are the m
 **Where:** `DataGuard.Cli/Program.cs`.
 
 **Why chosen:**
-- Composable command/root/symbol model maps cleanly onto DataGuard's command tree (`validate`, `baseline`, `snapshot`, `assess`, …).
+- Composable command/root/symbol model maps cleanly onto StackAccord's command tree (`validate`, `baseline`, `snapshot`, `assess`, …).
 - Built-in help generation, parsing, and exit-code conventions reduce hand-written plumbing.
 
 **Trade-offs:** Still beta after years — API churn risk exists. Isolated to the CLI project; the engine API surface (`DataGuardApi`) never leaks System.CommandLine types, so a future migration touches exactly one project.

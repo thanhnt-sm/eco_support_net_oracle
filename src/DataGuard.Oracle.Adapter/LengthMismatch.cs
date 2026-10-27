@@ -362,7 +362,11 @@ public class LengthMismatchDetector
             }
 
             // 3. Inferred NVARCHAR2(2000) fallback risk (mirrors dotnet/efcore#33218)
-            if (!property.MaxLength.HasValue && IsUnicodeType(property.ClrTypeName))
+            if (!property.MaxLength.HasValue &&
+                IsUnicodeType(property.ClrTypeName) &&
+                IsUnicode(property) &&
+                !string.Equals(property.ColumnType?.Trim(), "CLOB", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(property.ColumnType?.Trim(), "NCLOB", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.Equals(column.DataType, "CLOB", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(column.DataType, "NCLOB", StringComparison.OrdinalIgnoreCase))

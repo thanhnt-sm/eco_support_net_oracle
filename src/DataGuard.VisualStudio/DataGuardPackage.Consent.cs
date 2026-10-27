@@ -56,27 +56,27 @@ public sealed partial class DataGuardPackage
 
         if (fromBuild)
         {
-            await this.output!.WriteAsync("[DataGuard] Run Validation on Build skipped: this solution file (or its " + ConfigFileName + ") has not been approved yet. Run Tools > DataGuard > Run Validation once to approve it.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Run Validation on Build skipped: this solution file (or its " + ConfigFileName + ") has not been approved yet. Run Tools > StackAccord (Beta) > Run Validation once to approve it.\r\n");
             return false;
         }
 
         var answer = VsShellUtilities.ShowMessageBox(
             this,
             SolutionTrustGate.BuildPromptText(solution.Directory, configExists),
-            "DataGuard — run validation for this solution file?",
+            "StackAccord (Beta) — run validation for this solution file?",
             OLEMSGICON.OLEMSGICON_QUERY,
             OLEMSGBUTTON.OLEMSGBUTTON_YESNO,
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_SECOND);
         if (answer != (int)VSConstants.MessageBoxResult.IDYES)
         {
-            await this.output!.WriteAsync("[DataGuard] Run declined; nothing was executed for this solution.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Run declined; nothing was executed for this solution.\r\n");
             return false;
         }
 
         // A Cancel issued while the prompt was open aborts the run and must not record consent.
         if (!this.processRegistry.ShouldStartAfterConsent())
         {
-            await this.output!.WriteAsync("[DataGuard] Cancel was requested while waiting for consent; the run was not started and consent was not recorded.\r\n");
+            await this.output!.WriteAsync("[StackAccord] Cancel was requested while waiting for consent; the run was not started and consent was not recorded.\r\n");
             return false;
         }
 
@@ -84,24 +84,25 @@ public sealed partial class DataGuardPackage
         return true;
     }
 
-    /// <summary>Tools > DataGuard > Forget Solution Consent: the next run for this solution file asks again.</summary>
+    /// <summary>Tools > StackAccord (Beta) > Forget Solution Consent: the next run for this solution file asks again.</summary>
     private async Task ForgetSolutionConsentAsync()
     {
         var output = this.output!;
         var solution = await this.ReadSolutionInfoAsync();
         if (solution == null)
         {
-            await output.WriteAsync("[DataGuard] Open a solution before forgetting its consent.\r\n");
+            await output.WriteAsync("[StackAccord] Open a solution before forgetting its consent.\r\n");
             return;
         }
 
         await TaskScheduler.Default;
         var consentKey = SolutionTrustGate.ComputeConsentKey(solution.Directory, solution.FilePath, Path.Combine(solution.Directory, ConfigFileName));
+        var liveConsentKey = SolutionTrustGate.ComputeLiveConsentKey(solution.Directory, solution.FilePath);
 
         await this.JoinableTaskFactory.SwitchToMainThreadAsync();
-        var removed = this.trustGate!.ForgetConsent(consentKey);
+        var removed = this.trustGate!.ForgetSolutionConsent(consentKey, liveConsentKey);
         await output.WriteAsync(removed
-            ? "[DataGuard] Consent for this solution file was forgotten; the next run will ask again.\r\n"
-            : "[DataGuard] No stored consent was found for this solution file with its current " + ConfigFileName + ".\r\n");
+            ? "[StackAccord] Consent for this solution file was forgotten; the next run will ask again.\r\n"
+            : "[StackAccord] No stored consent was found for this solution file with its current " + ConfigFileName + ".\r\n");
     }
 }

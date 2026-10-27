@@ -291,8 +291,10 @@ public class AutoDetectionEngineTests : IDisposable
             BaselineFilePath = ".dataguard-baseline.json",
         });
         var yaml = await File.ReadAllTextAsync(configPath);
+        DataGuard.Cli.Services.ConfigLoader.DeserializeConfig(yaml).DefaultProvider.Should().Be(config.DefaultProvider);
+        yaml.Should().Contain("# SQL dialect:");
         yaml.Should().Contain("NamingConvention: ExactMatch")
-            .And.Contain("EnableBaseline: True")
+            .And.Contain("EnableBaseline: true")
             .And.Contain("DefaultProvider: postgresql")
             .And.NotContain("Password", "the wizard never persists a connection string");
     }
@@ -303,12 +305,12 @@ public class AutoDetectionEngineTests : IDisposable
         var root = CreateProject();
         var config = await InteractiveConfigBuilder.RunWizardAsync(
             root,
-            new ScriptedConsole("Server=db;Port=3306;Database=shop;Uid=app;Pwd=secret", "1", "1"),
+            new ScriptedConsole("Server=db;Port=3306;Database=shop;Uid=app;Pwd=fixture-only-value-7c", "1", "1"),
             Path.Combine(root, "wizard.yml"));
 
         config.DefaultProvider.Should().Be("mysql");
         config.EnableBaseline.Should().BeFalse("choice 1 is a snapshot without a frozen baseline");
-        (await File.ReadAllTextAsync(Path.Combine(root, "wizard.yml"))).Should().NotContain("secret");
+        (await File.ReadAllTextAsync(Path.Combine(root, "wizard.yml"))).Should().NotContain("fixture-only-value-7c");
     }
 
     private sealed class ScriptedConsole : IConsole

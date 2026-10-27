@@ -1,10 +1,12 @@
+> **2026-10-18 — Tài liệu lịch sử: kiến trúc/runtime Rust hoặc dự báo phiên bản cũ bên dưới không phải hướng dẫn vận hành/phát hành hiện hành. Giữ nguyên bản ghi; không chạy lệnh cũ như hướng dẫn sản phẩm hiện tại.** [Canonical product documentation](../product/README.vi.md).
+
 # Lộ Trình Nâng Cấp & Phát Triển Tính Năng
 
 ## Lịch Sử Phiên Bản
 
 ```mermaid
 timeline
-    title DataGuard Evolution
+    title StackAccord Evolution
     section v0.1.x (Hiện tại)
         Core validation engine : 16+ rules : 4 DB adapters
         CLI tool : Roslyn analyzers : IDE extensions

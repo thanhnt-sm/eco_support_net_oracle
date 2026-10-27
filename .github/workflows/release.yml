@@ -182,7 +182,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results
           path: "**/TestResults/*.trx"
@@ -201,7 +201,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate-version.outputs.release_version }}
 
       - name: Upload NuGet packages (un-signed)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nupkgs
           path: ./artifacts/*.nupkg
@@ -229,7 +229,7 @@ jobs:
           '-p:WarningsAsErrors=NU1900%3BNU1901%3BNU1902%3BNU1903%3BNU1904%3BNU1905'
 
       - name: Check for secrets with TruffleHog (commit range + working tree, fail on verified)
-        uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
+        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
         with:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -254,7 +254,7 @@ jobs:
           fetch-depth: 0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: csharp
           config-file: ./.github/codeql-config.yml
@@ -271,7 +271,7 @@ jobs:
         run: dotnet build ${{ env.CROSS_PLATFORM_SOLUTION }} --configuration Release --no-restore
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: "/language:csharp"
 
@@ -284,26 +284,26 @@ jobs:
       contents: read
     steps:
       - name: Download NuGet packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: nupkgs
           path: ./artifacts
 
       - name: Download CLI packages (all RIDs)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: dataguard-cli-*
           path: ./artifacts
           merge-multiple: true
 
       - name: Download VS Code VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dataguard-vscode-vsix
           path: ./artifacts
 
       - name: Download Visual Studio VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dataguard-visualstudio-vsix
           path: ./artifacts
@@ -370,7 +370,7 @@ jobs:
           done
 
       - name: Upload signed packages and signature bundles
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signed-nupkgs
           path: |
@@ -404,7 +404,7 @@ jobs:
           sbom-tool --version
 
       - name: Download NuGet packages to supply to the SBOM tool
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: nupkgs
           path: ./artifacts
@@ -438,7 +438,7 @@ jobs:
           ls -la ./sbom || true
 
       - name: Upload SBOMs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sboms
           path: ./sbom/**/*
@@ -455,7 +455,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -489,7 +489,7 @@ jobs:
           (cd "$RUNNER_TEMP" && sha256sum "dataguard-vscode-$VERSION.vsix" > "dataguard-vscode-$VERSION.vsix.sha256")
 
       - name: Upload VS Code VSIX
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataguard-vscode-vsix
           path: |
@@ -552,7 +552,7 @@ jobs:
           (cd ./artifacts && sha256sum "$asset" > "$asset.sha256" && cat "$asset.sha256")
 
       - name: Upload CLI package
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataguard-cli-${{ matrix.rid }}
           path: |
@@ -640,7 +640,7 @@ jobs:
             Set-Content "$env:RUNNER_TEMP/DataGuard.VisualStudio.vsix.sha256"
 
       - name: Upload Visual Studio VSIX
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataguard-visualstudio-vsix
           path: |
@@ -662,32 +662,32 @@ jobs:
       contents: write
     steps:
       - name: Download signed packages & signature bundles
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signed-nupkgs
           path: ./artifacts
 
       - name: Download CLI packages (all RIDs)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: dataguard-cli-*
           path: ./artifacts
           merge-multiple: true
 
       - name: Download SBOMs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sboms
           path: ./sbom
 
       - name: Download VS Code VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dataguard-vscode-vsix
           path: ./artifacts
 
       - name: Download Visual Studio VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dataguard-visualstudio-vsix
           path: ./artifacts
@@ -736,7 +736,7 @@ jobs:
             --target "$TARGET_SHA" \
             "${release_flags[@]}" \
             --title "$RELEASE_TAG" \
-            --notes "Release $RELEASE_TAG of DataGuard (NuGet packages, CLI packages per RID with SHA-256, Visual Studio Extension, and VS Code Extension)." \
+            --notes "Release $RELEASE_TAG of StackAccord (NuGet packages, CLI packages per RID with SHA-256, Visual Studio Extension, and VS Code Extension). DataGuard technical identifiers and artifact filenames are retained for upgrade/configuration compatibility." \
             ./artifacts/*.nupkg \
             ./artifacts/*.sigstore.json \
             ./artifacts/dataguard-*.zip \
@@ -763,7 +763,7 @@ jobs:
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - name: Download signed packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signed-nupkgs
           path: ./artifacts
@@ -824,25 +824,25 @@ jobs:
       attestations: write
     steps:
       - name: Download signed packages
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signed-nupkgs
           path: ./artifacts
 
       - name: Download VS Code VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dataguard-vscode-vsix
           path: ./artifacts
 
       - name: Download Visual Studio VSIX
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dataguard-visualstudio-vsix
           path: ./artifacts
 
       - name: Download CLI packages (all RIDs)
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: dataguard-cli-*
           path: ./artifacts

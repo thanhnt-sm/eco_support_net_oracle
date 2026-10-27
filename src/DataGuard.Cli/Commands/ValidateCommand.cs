@@ -1,4 +1,5 @@
 using System.CommandLine;
+using DataGuard.Cli.Services;
 using DataGuard.Core.Abstractions;
 using DataGuard.Core.Models;
 using DataGuard.Core.Plugins;
@@ -34,6 +35,7 @@ internal static class ValidateCommand
         var skipRulesOption = options.SkipRulesOption;
         var progressOption = options.ProgressOption;
         var projectOption = options.ProjectOption;
+        var scopeFileOption = new Option<string>("--scope-file") { Description = "Report findings for one C# file relative to --project; full context still validated (text only)" };
         var ideSafeOption = options.IdeSafeOption;
         var failOnUnavailableOption = options.FailOnUnavailableOption;
         var allowSyntacticOnlyOption = options.AllowSyntacticOnlyOption;
@@ -45,7 +47,7 @@ internal static class ValidateCommand
 
         var validateCommand = new Command("validate", "Validate contracts against database")
         {
-            connectionOption, connectionEnvOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, allowAssemblyFromConfigOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption, pluginsDirOption,
+            scopeFileOption, connectionOption, connectionEnvOption, configOption, outputOption, formatOption, offlineOption, verboseOption, providerOption, schemaOption, assemblyOption, allowAssemblyFromConfigOption, efSnapshotOption, efProjectOption, efContextOption, skipRulesOption, progressOption, projectOption, ideSafeOption, allowEnvConnectionOption, failOnUnavailableOption, allowSyntacticOnlyOption, allowUnevaluatedOption, pluginsDirOption,
         };
 
         validateCommand.SetAction(async (ParseResult result, System.Threading.CancellationToken ct) =>
@@ -85,6 +87,12 @@ internal static class ValidateCommand
                     Environment.ExitCode = 2;
                     return;
                 }
+            }
+
+            if (!ScopedReporting.TryResolve(result.GetValue(scopeFileOption), projectPath, format, verbose, out var scopeFile))
+            {
+                Environment.ExitCode = 2;
+                return;
             }
 
             if (!string.IsNullOrWhiteSpace(pluginsDirectory) && !Directory.Exists(pluginsDirectory))
@@ -184,7 +192,7 @@ internal static class ValidateCommand
 
             if (normalizedFormat is not "text" && string.IsNullOrWhiteSpace(output))
             {
-                Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; DataGuard never writes machine-readable output to stdout.");
+                Console.Error.WriteLine($"--format {normalizedFormat} requires --output <path>; StackAccord never writes machine-readable output to stdout.");
                 Environment.ExitCode = 2;
                 return;
             }
@@ -227,6 +235,38 @@ internal static class ValidateCommand
                 var acquisitionDiagnostics = new List<AcquisitionDiagnostic>(
                     acquisition.Diagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.SkippedByAttribute));
                 var skippedByAttribute = acquisition.Diagnostics.Count(d => d.Kind == AcquisitionDiagnosticKind.SkippedByAttribute);
+
+                // IDE-safe EF ground truth: the design-time *ModelSnapshot.cs already under --project is parsed as source
+                // (Roslyn syntax only; no assembly, no option; --ef-* stay rejected by the policy). The repository opts out
+                // with AutoDetectEFContext: false. A locator or parse problem is an ACQUISITION line, never a failed run.
+                if (ideSafe && config.AutoDetectEFContext && string.IsNullOrWhiteSpace(efSnapshotPath) && !string.IsNullOrWhiteSpace(projectPath))
+                {
+                    var located = EfModelSnapshotLocator.TryLocate(
+                        ResolveProjectRoot(projectPath),
+                        ProjectCSharpSqlSource.DiscoverSourceFiles(projectPath),
+                        new ModelSnapshotParseOptions().MaximumSourceBytes);
+                    foreach (var diagnostic in located.Diagnostics)
+                    {
+                        Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(diagnostic)}");
+                    }
+
+                    if (located.Found)
+                    {
+                        try
+                        {
+                            // The absolute path gives every entity a Location in the snapshot file (DG004/DG006 positions).
+                            var modelExtraction = EfModelSource.ParseModelSnapshotWithDiagnostics(located.Source!, config, located.FullPath);
+                            contracts.AddRange(modelExtraction.Entities);
+                            acquisitionDiagnostics.AddRange(modelExtraction.Diagnostics);
+                            Console.Error.WriteLine($"ide-safe: ef model {EscapeControlCharacters(located.RelativePath)} (source parse)");
+                        }
+                        catch (EfModelExtractionException ex)
+                        {
+                            Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(located.RelativePath)}: EF model not used: {EscapeControlCharacters(ex.Message)}");
+                        }
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(efSnapshotPath))
                 {
                     var snapshotExtraction = await EfModelSource.ExtractFromModelSnapshotWithDiagnosticsAsync(efSnapshotPath, config, ct);
@@ -263,7 +303,7 @@ internal static class ValidateCommand
 
                 if (verbose)
                 {
-                    Console.WriteLine("=== DataGuard Scan Report ===");
+                    Console.WriteLine("=== StackAccord Scan Report ===");
                     if (!string.IsNullOrWhiteSpace(projectPath))
                     {
                         Console.WriteLine($"Scanned C# project/directory: {projectPath}");
@@ -304,17 +344,26 @@ internal static class ValidateCommand
                     Console.WriteLine();
                 }
 
-                if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0)
+                if (acquisition.Status != ContractAcquisitionStatus.Complete && contracts.Count == 0 && acquisitionDiagnostics.Count == 0)
                 {
                     Console.Error.WriteLine($"UNEVALUATED: contract acquisition {acquisition.Status.ToString().ToLowerInvariant()}: {acquisition.Message}");
                     Environment.ExitCode = 3;
                     return;
                 }
 
+                // Print source gaps even when no query could be extracted or an export format returns early.
+                // Repository-controlled paths are escaped before entering the line-oriented host protocol.
+                var workspaceRoot = Directory.GetCurrentDirectory();
+                foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
+                {
+                    Console.Error.WriteLine($"ACQUISITION: {EscapeControlCharacters(RelativizeToWorkspace(workspaceRoot, diagnostic.Path))}: {EscapeControlCharacters(diagnostic.Message)}");
+                }
+
                 if (normalizedFormat == "contracts")
                 {
                     await ContractExportWriter.WriteJsonAsync(output!, provider, contracts, ct);
                     Console.WriteLine($"Contracts exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -322,6 +371,7 @@ internal static class ValidateCommand
                 {
                     await ContractExportWriter.WriteYamlAsync(output!, provider, contracts, ct);
                     Console.WriteLine($"Contracts exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
@@ -329,12 +379,23 @@ internal static class ValidateCommand
                 {
                     await TypeScriptContractWriter.WriteAsync(output!, contracts.OfType<EntityDescriptor>(), ct);
                     Console.WriteLine($"TypeScript DTOs exported to {output}.");
+                    Environment.ExitCode = acquisitionDiagnostics.Count > 0 && !allowUnevaluated ? 3 : 0;
                     return;
                 }
 
                 // Ground-truth gate (red-team C4): inline SQL alone is not a validation; without a schema, procedure or entity
                 // model the database-backed rules have nothing to compare against and a clean result would be an empty PASS.
-                if (!contracts.Any(contract => contract is DatabaseSchemaDescriptor or StoredProcedureDescriptor or EntityDescriptor))
+                // The kind (none | entities | schema | schema+entities) is reported in the Summary event for IDE hosts.
+                var hasSchemaGroundTruth = contracts.Any(contract => contract is DatabaseSchemaDescriptor or StoredProcedureDescriptor);
+                var hasEntityGroundTruth = contracts.Any(contract => contract is EntityDescriptor);
+                var groundTruthKind = (hasSchemaGroundTruth, hasEntityGroundTruth) switch
+                {
+                    (true, true) => "schema+entities",
+                    (true, false) => "schema",
+                    (false, true) => "entities",
+                    _ => "none",
+                };
+                if (groundTruthKind == "none")
                 {
                     if (!allowSyntacticOnly)
                     {
@@ -353,7 +414,8 @@ internal static class ValidateCommand
                     progress: null,
                     config.StrictProcedureContracts,
                     config.DefaultSchema,
-                    config.DefaultPackage);
+                    config.DefaultPackage,
+                    config.NamingConvention);
                 var unavailableOutcomes = catalog
                     .Where(registration => registration.Availability == RuleAvailability.Unavailable)
                     .Where(registration => skipRuleIds is null || !skipRuleIds.Contains(registration.Rule.RuleId))
@@ -407,11 +469,19 @@ internal static class ValidateCommand
                     new Dictionary<string, object?> { ["ContractCount"] = contracts.Count }));
                 var validation = await ValidateContractsDetailedAsync(contracts, config, provider, rulesConnectionString, ct, skipRuleIds, progress, pluginRules);
                 var violations = validation.Violations;
+                if (scopeFile is not null && !contracts.Any(c => ScopedReporting.Matches(c.Location, scopeFile)))
+                {
+                    Console.Error.WriteLine("--scope-file matched no extracted contract location; no scoped report was produced.");
+                    Environment.ExitCode = 2;
+                    return;
+                }
+
+                var reportedViolations = ScopedReporting.Select(violations, scopeFile);
                 if (normalizedFormat == "text")
                 {
                     var emitter = new DiagnosticEmitter();
                     emitter.AddDiagnosticSink(new ConsoleDiagnosticSink());
-                    await emitter.EmitAsync(violations, ct);
+                    await emitter.EmitAsync(reportedViolations, ct);
                 }
                 else if (normalizedFormat == "sarif")
                 {
@@ -462,13 +532,6 @@ internal static class ValidateCommand
 
                 WriteUnevaluated(unevaluated, string.Empty);
 
-                // An oversized literal was already reported once by the extractor ("[WARN] DG1291 ..."); it still makes
-                // the result incomplete below, but is not printed a second time.
-                foreach (var diagnostic in acquisitionDiagnostics.Where(d => d.Kind != AcquisitionDiagnosticKind.OversizedLiteral))
-                {
-                    Console.Error.WriteLine($"ACQUISITION: {diagnostic.Path}: {diagnostic.Message}");
-                }
-
                 if (verbose)
                 {
                     Console.WriteLine($"Validation complete: {violations.Count} issues ({violations.Count(v => v.Severity == DiagnosticSeverity.Error)} errors, {violations.Count(v => v.Severity == DiagnosticSeverity.Warning)} warnings, {unavailableOutcomes.Count} rules not evaluated, {unevaluated.Count} contracts not evaluated)");
@@ -485,6 +548,27 @@ internal static class ValidateCommand
                     Environment.ExitCode = hasErrors ? 1 : 0;
                 }
 
+                if (scopeFile is not null)
+                {
+                    Console.Error.WriteLine(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        kind = "scopeReport",
+                        version = 1,
+                        file = Path.GetRelativePath(Directory.GetCurrentDirectory(), scopeFile),
+                        analysisBoundary = "full-configured-context",
+                        reportingBoundary = "selected-file-and-unlocated-findings",
+                        dependencyCompleteness = "not-established",
+                        exitCodeScope = "full-context",
+                        reportedFindings = reportedViolations.Count,
+                        fullContextFindings = violations.Count,
+                        hiddenLocatedFindings = violations.Count - reportedViolations.Count,
+                        hasUnevaluated,
+                        unavailableRules = unavailableOutcomes.Count,
+                        groundTruth = groundTruthKind,
+                        exitCode = Environment.ExitCode,
+                    }));
+                }
+
                 progress?.Emit(new ProgressEvent(
                     ProgressEventKind.Summary,
                     "Validation complete",
@@ -497,6 +581,7 @@ internal static class ValidateCommand
                         ["UnavailableRuleCount"] = unavailableOutcomes.Count,
                         ["UnevaluatedContractCount"] = unevaluated.Count,
                         ["AcquisitionDiagnosticCount"] = acquisitionDiagnostics.Count,
+                        ["GroundTruth"] = groundTruthKind,
                     }));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -522,6 +607,13 @@ internal static class ValidateCommand
         });
 
         return validateCommand;
+    }
+
+    // The directory the auto-detected ModelSnapshot must live under: --project itself, or the directory of a .sln/.csproj/.cs.
+    private static string ResolveProjectRoot(string projectPath)
+    {
+        var fullPath = Path.GetFullPath(projectPath);
+        return File.Exists(fullPath) ? Path.GetDirectoryName(fullPath) ?? fullPath : fullPath;
     }
 
     private static (bool Success, string? Path, string? Error) ResolveEfSnapshotSource(

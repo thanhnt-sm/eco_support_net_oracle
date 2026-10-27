@@ -8,7 +8,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Text.RegularExpressions;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -21,13 +20,6 @@ public static class DataGuardLogger
 {
     private static readonly object FileGate = new();
     private static readonly Guid OutputPaneGuid = new("b85dce85-998f-4f6a-a4fd-c2b6867d0c2a");
-
-    // Covers key=value / key: value forms (incl. "User Id=x;Password=y" connection strings),
-    // bearer headers, and JWT-shaped tokens. Bounded quantifiers keep it linear on hostile input.
-    private static readonly Regex SensitiveRegex = new(
-        @"(?i)(password|pwd|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|authorization|sas)\s*[:=]\s*(?:bearer\s+)?[^\s;,]{1,512}|(?i)(bearer)\s+[^\s;,]{1,512}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
-        RegexOptions.Compiled,
-        TimeSpan.FromMilliseconds(250));
 
     private static string? logFilePath;
     private static bool initialized;
@@ -117,31 +109,22 @@ public static class DataGuardLogger
             try
             {
                 var cliInPath = CliLocator.FindCliExecutable(null);
-                var header = string.Format(
-                    "================================================================================\r\n" +
-                    "[{0:yyyy-MM-dd HH:mm:ss.fff} UTC] DataGuard Visual Studio Extension Initialized\r\n" +
-                    "Extension Version : {1}\r\n" +
-                    "Host Process      : {2} (PID: {3})\r\n" +
-                    "Visual Studio     : {4}\r\n" +
-                    "Operating System  : {5}\r\n" +
-                    "CLR Runtime       : {6}\r\n" +
-                    "Detected CLI Path : {7}\r\n" +
-                    "Log File Path     : {8}\r\n" +
-                    "================================================================================\r\n",
-                    DateTime.UtcNow,
-                    extensionVersion,
-                    Process.GetCurrentProcess().ProcessName,
-                    Process.GetCurrentProcess().Id,
-                    vsVersion,
-                    Environment.OSVersion.VersionString,
-                    Environment.Version,
-                    string.IsNullOrEmpty(cliInPath) ? "Not found in standard paths" : cliInPath,
-                    LogFilePath);
+                LogInfoBatch(new[]
+                {
+                    "================================================================================",
+                    $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] StackAccord Visual Studio Extension Initialized",
+                    "Extension Version : " + extensionVersion,
+                    $"Host Process      : {Process.GetCurrentProcess().ProcessName} (PID: {Process.GetCurrentProcess().Id})",
+                    "Visual Studio     : " + vsVersion,
+                    "Operating System  : " + Environment.OSVersion.VersionString,
+                    "CLR Runtime       : " + Environment.Version,
+                    "Detected CLI Path : " + (string.IsNullOrEmpty(cliInPath) ? "Not found in standard paths" : cliInPath),
+                    "Log File Path     : " + LogFilePath,
+                    "================================================================================",
+                });
 
-                File.AppendAllText(LogFilePath, header);
-
-                // Attempt to auto-harvest relevant ActivityLog entries if Visual Studio was run with /log
-                HarvestActivityLogEntries();
+                // Record availability only; never read another application log into this one.
+                RecordActivityLogAvailability();
             }
             catch
             {
@@ -173,6 +156,11 @@ public static class DataGuardLogger
         foreach (var message in messages)
         {
             text.Append(FormatEntry("INFO", message));
+            if (text.Length >= LogPrivacyPolicy.MaximumRecordBytes)
+            {
+                AppendToLog(text.ToString());
+                text.Clear();
+            }
         }
 
         if (text.Length > 0)
@@ -219,25 +207,7 @@ public static class DataGuardLogger
     /// <summary>
     /// Redacts sensitive keywords (passwords, tokens, keys) from text.
     /// </summary>
-    public static string Redact(string input)
-    {
-        if (string.IsNullOrEmpty(input))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            return SensitiveRegex.Replace(input, match =>
-                match.Groups[1].Success ? match.Groups[1].Value + "=[REDACTED]"
-                : match.Groups[2].Success ? match.Groups[2].Value + " [REDACTED]"
-                : "[REDACTED]");
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return "[REDACTED: input too complex to scan]";
-        }
-    }
+    public static string Redact(string input) => LogPrivacyPolicy.Redact(input);
 
     /// <summary>
     /// Opens the diagnostic log file directly in Visual Studio or Windows Explorer.
@@ -251,7 +221,7 @@ public static class DataGuardLogger
         {
             try
             {
-                File.WriteAllText(path, $"[DataGuard] Log initialized at {DateTime.UtcNow:u}\r\n");
+                WriteEntry("INFO", "Log initialized.");
             }
             catch
             {
@@ -290,7 +260,7 @@ public static class DataGuardLogger
     }
 
     /// <summary>
-    /// Records the outcome of a Visual Studio initiated DataGuard operation.
+    /// Records the outcome of a Visual Studio initiated StackAccord operation.
     /// </summary>
     public static void LogValidationRun(
         string command,
@@ -302,18 +272,19 @@ public static class DataGuardLogger
         int diagnosticCount)
     {
         var disabledRuleList = disabledRules.Count == 0 ? "(none)" : string.Join(", ", disabledRules);
-        var entry =
-            "================================================================================\r\n" +
-            $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] DATAGUARD RUN\r\n" +
-            $"Command       : {command}\r\n" +
-            $"Solution      : {solutionDirectory}\r\n" +
-            $"Config        : {configPath}\r\n" +
-            $"Disabled Rules: {disabledRuleList}\r\n" +
-            $"Exit Code     : {exitCode}\r\n" +
-            $"Duration      : {elapsedMs} ms\r\n" +
-            $"Diagnostics   : {diagnosticCount} loaded into Error List\r\n" +
-            "================================================================================";
-        LogInfo(entry);
+        LogInfoBatch(new[]
+        {
+            "================================================================================",
+            $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] DATAGUARD RUN",
+            $"Command       : {command}",
+            $"Solution      : {solutionDirectory}",
+            $"Config        : {configPath}",
+            $"Disabled Rules: {disabledRuleList}",
+            $"Exit Code     : {exitCode}",
+            $"Duration      : {elapsedMs} ms",
+            $"Diagnostics   : {diagnosticCount} loaded into Error List",
+            "================================================================================",
+        });
     }
 
     private static void WriteEntry(string level, string message)
@@ -333,11 +304,7 @@ public static class DataGuardLogger
         {
             try
             {
-                using (var stream = new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
-                using (var writer = new StreamWriter(stream, Encoding.UTF8))
-                {
-                    writer.Write(formatted);
-                }
+                BoundedLogFile.Append(LogFilePath, formatted);
             }
             catch
             {
@@ -346,7 +313,7 @@ public static class DataGuardLogger
         }
     }
 
-    private static void HarvestActivityLogEntries()
+    private static void RecordActivityLogAvailability()
     {
         try
         {
@@ -360,18 +327,12 @@ public static class DataGuardLogger
                 return;
             }
 
-            foreach (var versionDir in Directory.GetDirectories(vsAppData))
+            foreach (var versionDir in Directory.EnumerateDirectories(vsAppData))
             {
                 var activityLog = Path.Combine(versionDir, "ActivityLog.xml");
                 if (File.Exists(activityLog))
                 {
-                    var content = File.ReadAllText(activityLog);
-                    if (content.IndexOf("DataGuard", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        File.AppendAllText(
-                            LogFilePath,
-                            $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} UTC] [ACTIVITY_LOG_FOUND] Detected ActivityLog.xml at: {activityLog}\r\n");
-                    }
+                    WriteEntry("INFO", "Visual Studio ActivityLog.xml is available locally; contents were not collected.");
 
                     break;
                 }

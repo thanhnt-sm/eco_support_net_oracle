@@ -42,7 +42,20 @@ public static class ModelSnapshotCSharpParser
 
     private static readonly string[] StringOnlyFacets = { "HasMaxLength", "IsUnicode", "IsFixedLength" };
 
+    /// <summary>Parses <paramref name="source"/> without a file identity: every <c>EntityDescriptor.Location</c> is null.</summary>
     public static DesignTimeExtractionResult Parse(string source, ModelSnapshotParseOptions? options = null, CancellationToken cancellationToken = default)
+        => Parse(source, sourcePath: null, options, cancellationToken);
+
+    /// <summary>
+    /// Parses <paramref name="source"/> read from <paramref name="sourcePath"/>. When a path is given, each entity carries the
+    /// <see cref="Location"/> of its <c>modelBuilder.Entity&lt;T&gt;</c> call in that file, so entity-derived findings (DG004
+    /// entity branch, DG006) can be shown at a position by IDE hosts.
+    /// </summary>
+    /// <param name="source">ModelSnapshot.cs source text.</param>
+    /// <param name="sourcePath">File the source was read from; null or empty leaves every <c>EntityDescriptor.Location</c> null.</param>
+    /// <param name="options">Size, node and strictness limits.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public static DesignTimeExtractionResult Parse(string source, string? sourcePath, ModelSnapshotParseOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         options ??= new ModelSnapshotParseOptions();
@@ -51,7 +64,8 @@ public static class ModelSnapshotCSharpParser
             return Failure("DG1301", "ModelSnapshot source exceeds the configured size limit.");
         }
 
-        var tree = CSharpSyntaxTree.ParseText(source, cancellationToken: cancellationToken);
+        var hasPath = !string.IsNullOrWhiteSpace(sourcePath);
+        var tree = CSharpSyntaxTree.ParseText(source, path: hasPath ? sourcePath! : string.Empty, cancellationToken: cancellationToken);
         var root = tree.GetRoot(cancellationToken);
         if (root.DescendantNodesAndSelf().Take(options.MaximumSyntaxNodes + 1).Count() > options.MaximumSyntaxNodes)
         {
@@ -89,7 +103,8 @@ public static class ModelSnapshotCSharpParser
                 continue;
             }
 
-            entities.Add(ParseEntity(entityName, parameter, block));
+            // The Entity<T>(...) member access (one line) rather than the whole block lambda: hosts highlight the call.
+            entities.Add(ParseEntity(entityName, parameter, block, hasPath ? invocation.Expression.GetLocation() : null));
         }
 
         if (entities.Count == 0)
@@ -100,7 +115,7 @@ public static class ModelSnapshotCSharpParser
         return new DesignTimeExtractionResult(entities.OrderBy(entity => entity.Name, StringComparer.Ordinal).ToArray(), diagnostics);
     }
 
-    private static EntityDescriptor ParseEntity(string entityName, string parameter, BlockSyntax block)
+    private static EntityDescriptor ParseEntity(string entityName, string parameter, BlockSyntax block, Location? location)
     {
         var table = entityName;
         var properties = new Dictionary<string, PropertyDescriptor>(StringComparer.Ordinal);
@@ -127,7 +142,8 @@ public static class ModelSnapshotCSharpParser
         }
 
         return new EntityDescriptor($"snapshot:{entityName}", entityName, entityName, table,
-            properties.Values.Select(property => property with { IsPrimaryKey = keys.Contains(property.Name) }).OrderBy(property => property.Name, StringComparer.Ordinal).ToArray());
+            properties.Values.Select(property => property with { IsPrimaryKey = keys.Contains(property.Name) }).OrderBy(property => property.Name, StringComparer.Ordinal).ToArray(),
+            location);
     }
 
     /// <summary>Parses one <c>b.Property&lt;T&gt;("Name")</c> or <c>b.Property(x =&gt; x.Name)</c> fluent chain.</summary>

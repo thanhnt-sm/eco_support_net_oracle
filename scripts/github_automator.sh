@@ -26,8 +26,12 @@ RED='\033[0;31m'    GREEN='\033[0;32m'   YELLOW='\033[1;33m'
 CYAN='\033[0;36m'   BLUE='\033[0;34m'    BOLD='\033[1m'
 NC='\033[0m'
 
-if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
-    export PATH="$HOME/.dotnet:$PATH"
+if ! dotnet --version >/dev/null 2>&1; then
+    if [[ -x "$HOME/.dotnet/dotnet" ]] && "$HOME/.dotnet/dotnet" --version >/dev/null 2>&1; then
+        export PATH="$HOME/.dotnet:$PATH"
+    elif [[ -x "$HOME/.dotnet/dotnet.exe" ]] && "$HOME/.dotnet/dotnet.exe" --version >/dev/null 2>&1; then
+        export PATH="$HOME/.dotnet:$PATH"
+    fi
 fi
 if [[ -d "$HOME/.act/bin" ]]; then
     export PATH="$PATH:$HOME/.act/bin"

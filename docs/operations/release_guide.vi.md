@@ -1,39 +1,31 @@
 [Tiếng Việt](release_guide.vi.md) | [English](release_guide.md)
 
+> Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;
+> `--publish-marketplaces` / `PUBLISH_MARKETPLACES=true` fail before release side effects.
+> See [legacy pause and separate manual route](../marketplace-publishing.md).
+> Existing settings are preserved; this guide does not authorize credential/protection changes.
+
 # Hướng dẫn phát hành an toàn
 
-`tools/git-tools/dg-release` là một điểm vào rõ ràng để phát hành. Tool tạo một Git tag annotated bất biến, chờ workflow GitHub **Release** hoàn tất, sau đó tùy chọn gọi workflow phát hành Marketplace đã được bảo vệ.
+`tools/git-tools/dg-release` là helper release bằng tag. Tool tạo/push tag annotated; chỉ chờ workflow **Release** khi có `DG_RELEASE_GITHUB_TOKEN`. Không dispatch Marketplace. Push tag khi không theo dõi API không chứng minh job release đã thành công.
 
-Tool không nhận secret qua command line, không đọc file chứa secret và không in credential ra log.
+Helper nhận `DG_RELEASE_GITHUB_TOKEN` từ environment hoặc, để tương thích, từ `.release.env`
+khi environment chưa có giá trị. Tool có đọc file cấu hình đó; không đặt token vào ví dụ dưới
+đây, ưu tiên cơ chế session đã được duyệt. Upload Marketplace qua trình duyệt không cần PAT
+hay token dispatch GitHub. Xem [đường trình duyệt và gate](../marketplace-publishing.vi.md).
 
-## 1. Cấu hình GitHub một lần
+## 1. Cấu hình và xác thực hiện có
 
-### Tạo environment bảo vệ Marketplace
+Hướng dẫn không cho phép tạo credential hay đổi bảo vệ repository. Kiểm tra workflow được chọn và cấu hình owner đã duyệt trước khi release thật.
 
-Vào **Settings → Environments**, tạo `marketplace-production`.
-
-- Bắt buộc maintainer duyệt deployment.
-- Nếu gói GitHub hỗ trợ, chỉ cho phép protected tag khớp `v*` deploy vào environment này.
-- Không thêm tài khoản bypass trừ khi có quy trình incident được ghi nhận.
-
-Hai job publish Marketplace đã nhắm tới environment này. Package có thể build xong, nhưng publish sẽ dừng để chờ duyệt.
-
-### Tạo Actions repository secrets
-
-Vào **Settings → Secrets and variables → Actions**, tạo các repository secret sau. Không đưa giá trị thật vào `.env`, `.dg-git.yml`, source code, issue/comment hay shell history.
-
-| Secret | Workflow dùng | Giá trị và nguyên tắc tối thiểu quyền |
-|---|---|---|
-| `NUGET_USER` | NuGet Trusted Publishing | Tên profile NuGet.org. Đây là đường xác thực ưu tiên, không cần API key khi trust policy đã cấu hình. |
-| `NUGET_API_KEY` | Chỉ fallback NuGet | Scoped key chỉ cho package ID DataGuard và quyền push. Đặt hạn ngắn, xóa khi Trusted Publishing hoạt động ổn định. |
-| `VSCE_PAT` | VS Code Marketplace | Azure DevOps Marketplace PAT chỉ có quyền **Marketplace Manage** của publisher DataGuard. |
-| `VS_MARKETPLACE_PAT` | Visual Studio Marketplace | PAT của Visual Studio Marketplace publisher, chỉ có quyền publish cần thiết. |
-
-Trước production release đầu tiên, cấu hình NuGet Trusted Publishing cho repository này và `.github/workflows/release.yml`. Workflow chỉ dùng `NUGET_API_KEY` khi OIDC login không trả credential.
+- `release.yml` dùng environment `release`; tên đó không chứng minh đã có reviewer/branch protection.
+- `marketplace.yml` cũ không có job publish. [Workflow Marketplace thủ công riêng](../marketplace-automation.vi.md) cũng dùng `release`; không tạo `marketplace-production` để làm theo hướng dẫn này.
+- NuGet dùng `NUGET_USER` cho Trusted Publishing khi có cấu hình, fallback `NUGET_API_KEY`. Nếu thiếu cả hai, workflow cảnh báo rồi bỏ qua NuGet push: run xanh không chứng minh package đã có trên NuGet.
+- `VSCE_PAT`/`VS_MARKETPLACE_PAT` thuộc đường Marketplace opt-in riêng, không phải `dg-release`. Upload browser không cần PAT. Tuân thủ gate xác thực/nghiệm thu của đường đó; không tạo secret rộng chỉ để vượt lỗi.
 
 ### Tạo token dispatch ở máy local
 
-Vào **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**, tạo fine-grained PAT.
+Nếu cần theo dõi qua API và owner đã cho phép tạo token riêng, vào **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens** để tạo fine-grained PAT.
 
 - Resource owner: chủ repository.
 - Repository access: **Only select repositories** → chỉ repository này.
@@ -41,7 +33,7 @@ Vào **GitHub → Settings → Developer settings → Personal access tokens →
 - Expiration: 30 ngày hoặc ngắn nhất phù hợp.
 - Không cấp Administration, Secrets, Workflows ở repository khác, Packages, hoặc quyền toàn organization.
 
-Token này chỉ được dùng để theo dõi/gọi GitHub workflow. Credential NuGet và Marketplace vẫn chỉ nằm trong GitHub Actions secrets, không tồn tại trên máy local.
+Trong đường helper hiện tại, token dùng theo dõi workflow; push tag dùng credential Git transport có sẵn. Không bật dispatch Marketplace. Workflow tham chiếu credential NuGet/Marketplace bằng tên secret; không chứng minh đã cấu hình hay không có bản sao ở máy khác. Không chép credential vào máy chỉ để upload qua trình duyệt.
 
 Nhập token vào shell hiện tại, không ghi vào file:
 
@@ -78,14 +70,13 @@ Remove-Item Env:DG_RELEASE_GITHUB_TOKEN
 2. Mở `.release.env` và điền các thông tin:
    ```env
    RELEASE_TAG=v1.0.0
-   PUBLISH_MARKETPLACES=true
-   DG_RELEASE_GITHUB_TOKEN=github_pat_...
-   DRY_RUN=false
-   CONFIRM_RELEASE=true
+   PUBLISH_MARKETPLACES=false
+   DRY_RUN=true
+   CONFIRM_RELEASE=false
    ```
-   *Lưu ý bảo mật*: File `.release.env` được quản lý nghiêm ngặt trong `.gitignore`, không bao giờ bị commit lên GitHub.
+   *Lưu ý bảo mật*: `.gitignore` bỏ qua `.release.env` nhưng không mã hóa hay bảo đảm tránh lộ file. Không đặt token vào ví dụ này.
 
-3. Chạy 1 lệnh duy nhất để toàn bộ hệ thống tự động chạy:
+3. Chạy helper để kiểm tra cấu hình dry-run này:
    ```bash
    bash tools/git-tools/dg-release
    ```
@@ -106,28 +97,27 @@ bash tools/git-tools/dg-release --dry-run
 ```
 Tool sẽ kiểm tra toàn diện:
 - Thư mục làm việc sạch sẽ (chặn nếu còn code chưa commit).
-- Nhánh hiện tại là `main` và đã khớp hoàn toàn với `origin/main`.
+- Nhánh hiện tại khớp `origin/HEAD` (fallback `main`) và commit remote-tracking tương ứng sau fetch.
 - Tag đúng chuẩn SemVer có tiền tố `v`.
 - Tag chưa từng tồn tại ở cả local lẫn GitHub (bảo đảm tính bất biến).
 - Bộ phân tích JSON (`jq` hoặc `python`) sẵn sàng.
 
-## 4. Phát hành tất cả nền tảng
+## 4. Bắt đầu tag release được cho phép
 
-Sau khi dry-run pass và maintainer bảo vệ environment đã sẵn sàng:
+Sau khi dry-run pass và owner đã xác minh reviewer/bảo vệ environment thực tế đã sẵn sàng:
 
 ```bash
 bash tools/git-tools/dg-release \
   --tag v1.2.3 \
-  --publish-marketplaces \
+  --no-marketplaces \
   --yes
 ```
 
 Tool chạy tuần tự:
 
 1. Tạo/push immutable annotated tag `v1.2.3`.
-2. Chờ `release.yml`: build, test, scan, package, sign, SBOM, publish NuGet, tạo GitHub Release, attest package và push image GHCR.
-3. Chỉ khi Release pass mới dispatch `marketplace.yml` với `publish=true` cho đúng immutable tag.
-4. Chờ Marketplace package/publish hoàn tất. Environment `marketplace-production` vẫn yêu cầu approval đã cấu hình.
+2. Có token thì chờ `release.yml`; thiếu token thì trả về sau push tag. Workflow có job build/test/sign/SBOM, GitHub Release, NuGet và GHCR, phụ thuộc gate và credential; NuGet có thể bị bỏ qua.
+3. Marketplace publication is paused; no Marketplace dispatch occurs.
 
 Nếu cần thời gian dài chủ động, dùng `--timeout-seconds 10800` cho ba giờ. Mặc định là hai giờ.
 
@@ -155,14 +145,28 @@ Version phải là SemVer không có tiền tố `v`. Workflow build từ revisi
 
 Đây là đường bàn giao riêng với production tag release ở trên: `dg-release` vẫn là entry point rõ ràng cho phát hành/publish.
 
-Dry-run không tạo tag, không dispatch workflow, không publish package, không tạo release và không push image.
+`--dry-run` của helper không tạo/push tag mới hay dispatch/publish. Preflight vẫn fetch refs/tags với prune/force và kiểm tra tag remote, nên không offline và có thể đổi local refs. Khác với dry-run hosted của `release.yml` vẫn build/ký/upload artifact. Không bypass fetch để tuyên bố sẵn sàng release.
 
 ## 6. Xử lý lỗi
 - **Preflight fail:** sửa local state được báo. Chưa có remote state nào thay đổi.
 - **Release workflow fail sau khi push tag:** không dùng lại, xóa hoặc force-move tag. Sửa lỗi, tăng version SemVer và tạo tag immutable mới.
-- **Marketplace fail:** core release đã được publish. Sửa lỗi riêng Marketplace, sau đó chạy lại workflow `Marketplace Extensions` với cùng tag và `publish=true`; không tạo package version mới chỉ để retry VSIX.
+- **Legacy Marketplace paused:** helper từ chối bật Marketplace. Chỉ dùng runbook thủ công riêng khi có quyền công bố rõ và artifact đã nghiệm thu.
 - **Lộ credential:** revoke ngay tại issuer, rotate GitHub Actions secret liên quan, xem GitHub audit log và scan lịch sử repository trước khi retry.
 
 ## 6. Điều tool không được tự động hóa ở máy local
 
-`dg-release` không nhận credential write của NuGet, VS Code Marketplace, Visual Studio Marketplace hay GitHub Release. Các thao tác đó chỉ chạy trên GitHub-hosted runners, với secret scope hẹp, OIDC, build attestation và protected environment.
+`dg-release` không nhận credential write của NuGet, VS Code Marketplace, Visual Studio Marketplace hay GitHub Release. Các thao tác đó chỉ chạy trên GitHub-hosted runners, với tham chiếu secret/OIDC và attestation. Tên environment trong YAML không chứng minh có bảo vệ; phải xác minh reviewer và giới hạn branch thực tế trước khi dựa vào gate phê duyệt.
+
+## Nightly khác Marketplace
+
+`installers.yml` có thể công bố GitHub nightly khi push main đủ điều kiện; dispatch mặc định
+cũng công bố. Job xóa/tạo lại release và tag nightly, không công bố Marketplace. Chọn rõ
+`publish_prerelease=false` khi chỉ cần artifact. Xem [trigger, paths-ignore và yêu cầu gói bất biến](../marketplace-publishing.vi.md#nightly-là-kênh-công-bố-khác).
+
+## Bằng chứng cần sau release
+
+Helper báo từng kênh dựa trên đúng tag/SHA và run attempt của workflow Release push. `succeeded` yêu cầu job và bước publish đều completed/success; `skipped` là job/bước bị bỏ qua rõ ràng (hoặc Marketplace đang tạm dừng); `failed` là failure/cancelled/timed_out; `unverified` là bằng chứng thiếu, trùng, không đầy đủ hoặc không truy cập được. Job NuGet xanh nhưng bước push bị skip được báo `skipped`. GitHub Release dùng bước publish cuối, không dùng bước tạo draft. Provenance chỉ xác nhận bước tạo attestation, không tự xác minh bundle trong release.
+
+Exit code `0` giữ tương thích với cách chỉ gửi tag: thiếu token thì chỉ xác nhận push tag. Workflow hoàn tất thành công vẫn có thể có kênh `skipped` hoặc `unverified`. Lỗi Git/API/JSON, hết thời gian chờ, workflow không thành công hoặc kênh failed trả nonzero (`1` cho lỗi theo dõi/báo cáo). `dg-git release` chuyển tiếp exit code; launcher Windows vẫn gọi Bash. Helper không còn banner tuyên bố mọi nền tảng đã phát hành thành công.
+
+Helper đọc trang tối đa 100 job của đúng run attempt. Nếu response không đầy đủ (kể cả tổng job lớn hơn số trả về), kênh giữ `unverified`; job/bước bắt buộc đổi tên hoặc trùng cũng không chứng minh thành công. Hết thời gian theo dõi giữ kênh `unverified`, vì chưa quan sát được kết quả không chứng minh publish thất bại. Kiểm tra URL workflow, chữ ký artifact và từng registry/listing riêng. Test synthetic không xác minh push tag có xác thực, hosted signing, registry hay nghiệm thu editor. Marketplace vẫn tạm dừng phát hành.

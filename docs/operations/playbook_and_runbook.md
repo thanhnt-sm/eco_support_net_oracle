@@ -1,4 +1,11 @@
+> **2026-10-18 — Historical document: the Rust runtime/architecture or old version forecasts below are not current operation/release instructions. The record is retained; do not execute old commands as current product guidance.** [Canonical product documentation](../product/README.md).
+
 [English](playbook_and_runbook.md) | [Tiếng Việt](playbook_and_runbook.vi.md)
+
+> Marketplace publication is temporarily paused (2026-10-15). Use `--no-marketplaces`;
+> `--publish-marketplaces` / `PUBLISH_MARKETPLACES=true` fail before release side effects.
+> See [pause and re-enablement](../marketplace-publishing.md). Marketplace environment/secret
+> setup below is future preparation only; existing settings are preserved.
 
 # SRE Playbook & Operational Runbook
 
@@ -36,7 +43,7 @@ LOG_LEVEL=info
 Follow the [Secure Release Guide](release_guide.md). The only release entry point is:
 
 ```bash
-bash tools/git-tools/dg-release --tag v1.2.3 --publish-marketplaces --dry-run
+bash tools/git-tools/dg-release --tag v1.2.3 --no-marketplaces --dry-run
 ```
 
 The documented production command requires an explicit confirmation and never stores marketplace, NuGet, or GitHub credentials in the repository.

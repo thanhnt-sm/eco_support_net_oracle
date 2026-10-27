@@ -7,7 +7,7 @@
 
 > Source: `src/DataGuard.Core/Baseline/BaselineManager.cs`
 
-Baseline management enables DataGuard to work with legacy codebases that already have known violations. Instead of failing on every existing issue, the baseline captures the current state and only reports **new** violations (drift).
+Baseline management enables StackAccord to work with legacy codebases that already have known violations. Instead of failing on every existing issue, the baseline captures the current state and only reports **new** violations (drift).
 
 ## Baseline Lifecycle
 
@@ -153,7 +153,7 @@ public record SnapshotColumn(
     int? ColumnId = null);
 ```
 
-When a baseline includes `schema`, DataGuard can validate against the snapshot without connecting to the database — useful for CI/CD pipelines that don't have database access. The schema hash includes default values and ordinal positions when present.
+When a baseline includes `schema`, StackAccord can validate against the snapshot without connecting to the database — useful for CI/CD pipelines that don't have database access. The schema hash includes default values and ordinal positions when present.
 
 ## Schema Hash Computation
 

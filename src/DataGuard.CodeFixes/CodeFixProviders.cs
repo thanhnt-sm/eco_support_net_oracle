@@ -37,11 +37,30 @@ public class DataGuardCodeFixProvider : CodeFixProvider
     /// <summary>Diagnostic property containing a verifier-approved positive maximum length.</summary>
     public const string VerifiedMaxLengthProperty = "DataGuard.VerifiedMaxLength";
 
-    // Same select-list shapes the analyzer reports: SELECT *, SELECT DISTINCT|ALL *, SELECT TOP n [PERCENT] *,
-    // SELECT t.* (the qualifier is dropped together with the star). COUNT(*) never matches.
+    // Only a leading, single wildcard projection is eligible. More complex SQL is left for manual review.
     private static readonly System.Text.RegularExpressions.Regex SelectStarPattern = new(
-        @"\bSELECT(\s+(?:(?:DISTINCT|ALL)\s+|TOP\s*(?:\(\s*\d+\s*\)|\d+)\s+(?:PERCENT\s+)?)*)(?:(?:\w+|\[[^\]]+\]|""[^""]+"")\.)?\*",
+        @"^\s*SELECT(\s+(?:(?:DISTINCT|ALL)\s+|TOP\s*(?:\(\s*\d+\s*\)|\d+)\s+(?:PERCENT\s+)?)*)(?<qualifier>[A-Za-z_][\w$#]*\.)?\*(?=\s+FROM\s+[A-Za-z_])",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static readonly System.Text.RegularExpressions.Regex UnsafeSelectStarContext = new(
+        @"\b(?:JOIN|APPLY|UNION|INTERSECT|EXCEPT|SELECT)\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static readonly System.Text.RegularExpressions.Regex SimpleColumnList = new(
+        @"^[A-Za-z_][\w$#]*(?:\s*,\s*[A-Za-z_][\w$#]*)*$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    // Conservative cross-dialect exclusions for unquoted projection names, not a complete SQL validator.
+    // Without provider evidence this fix must not guess how to quote a keyword-shaped mapped column.
+    private static readonly ImmutableHashSet<string> ReservedProjectionNames = (
+        "ALL ALTER AND ANY AS ASC AUTHORIZATION BEGIN BETWEEN BOTH BY CASE CHECK COLUMN CONSTRAINT CREATE CROSS "
+        + "CURRENT CURRENT_DATE CURRENT_TIME CURRENT_TIMESTAMP CURRENT_USER DATABASE DEFAULT DELETE DESC DISTINCT "
+        + "DROP ELSE END ESCAPE EXCEPT EXEC EXECUTE EXISTS FALSE FETCH FOR FOREIGN FROM FULL GRANT GROUP HAVING "
+        + "IDENTITY IN INDEX INNER INSERT INTERSECT INTO IS JOIN KEY LEADING LEFT LIKE LIMIT NATURAL NOT NULL "
+        + "OFFSET ON ONLY OR ORDER OUTER OVER PARTITION PRIMARY PROCEDURE REFERENCES RETURN RETURNING REVOKE "
+        + "RIGHT ROW ROWNUM ROWS SCHEMA SELECT SESSION_USER SET SOME TABLE THEN TOP TRAILING TRIGGER TRUE "
+        + "TRUNCATE UNION UNIQUE UPDATE USER USING VALUES VIEW WHEN WHERE WINDOW WITH")
+        .Split(' ').ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Gets the diagnostic IDs this provider can fix.</summary>
     public sealed override ImmutableArray<string> FixableDiagnosticIds
@@ -89,54 +108,59 @@ public class DataGuardCodeFixProvider : CodeFixProvider
         var diagnosticSpan = diagnostic.Location.SourceSpan;
         var literal = FindStringLiteral(root, diagnosticSpan);
 
-        if (literal == null)
+        if (literal == null || !literal.Span.Contains(diagnosticSpan))
         {
+            // A diagnostic over composed SQL cannot safely rewrite one contained literal.
             return;
         }
 
         // The analyzer sets ExplicitColumns property if it successfully extracted columns from the entity shape.
         diagnostic.Properties.TryGetValue("ExplicitColumns", out var explicitColumns);
-
-        var title = !string.IsNullOrEmpty(explicitColumns)
-            ? "Replace SELECT * with explicit columns"
-            : "Replace SELECT * with column placeholder";
+        if (string.IsNullOrWhiteSpace(explicitColumns)
+            || !SimpleColumnList.IsMatch(explicitColumns!)
+            || explicitColumns!.Split(',').Any(column => ReservedProjectionNames.Contains(column.Trim()))
+            || !TryReplaceSelectStar(literal.Token.ValueText, explicitColumns!, out var replacement))
+        {
+            return;
+        }
 
         context.RegisterCodeFix(
             CodeAction.Create(
-                title: title,
-                createChangedDocument: c => this.ReplaceSelectStarAsync(context.Document, literal, explicitColumns, c),
-                equivalenceKey: nameof(ReplaceSelectStarAsync) + title),
+                title: "Replace SELECT * with explicit columns",
+                createChangedDocument: c => this.ReplaceSelectStarAsync(context.Document, literal, replacement, c),
+                equivalenceKey: nameof(ReplaceSelectStarAsync)),
             diagnostic);
     }
 
-    private async Task<Document> ReplaceSelectStarAsync(Document document, LiteralExpressionSyntax literal, string? explicitColumns, CancellationToken cancellationToken)
+    private static bool TryReplaceSelectStar(string text, string explicitColumns, out string replacement)
     {
-        var text = literal.Token.ValueText;
-        var replacementColumns = !string.IsNullOrEmpty(explicitColumns) ? explicitColumns : "/* TODO: Replace with specific columns */";
+        replacement = text;
 
-        string ReplaceStar(string value) => SelectStarPattern.Replace(value, match => "SELECT" + match.Groups[1].Value + replacementColumns);
-        var newText = ReplaceStar(text);
-        if (newText == text)
+        // Without a SQL parser there is no safe source mapping through quotes, comments, joins or batches.
+        // Decline these cases rather than rewriting SQL data or guessing which table supplies a column.
+        if (text.IndexOfAny(new[] { '\'', '"', '`', '[', ']', ',', ';' }) >= 0
+            || text.Contains("--") || text.Contains("/*") || text.Contains("*/"))
         {
-            return document;
-        }
-
-        var tokenText = literal.Token.Text;
-        SyntaxToken newToken;
-        if (tokenText.StartsWith("\"\"\"", StringComparison.Ordinal))
-        {
-            // Raw string literal: the content is verbatim, so the token text is rewritten in place.
-            newToken = SyntaxFactory.ParseToken(ReplaceStar(tokenText));
-        }
-        else if (tokenText.StartsWith("@\"", StringComparison.Ordinal))
-        {
-            newToken = SyntaxFactory.Literal("@\"" + newText.Replace("\"", "\"\"") + "\"", newText);
-        }
-        else
-        {
-            newToken = SyntaxFactory.Literal(newText);
+            return false;
         }
 
+        var match = SelectStarPattern.Match(text);
+        if (!match.Success || UnsafeSelectStarContext.IsMatch(text.Substring(match.Index + match.Length)))
+        {
+            return false;
+        }
+
+        var qualifier = match.Groups["qualifier"].Value;
+        var columns = string.Join(", ", explicitColumns.Split(',').Select(column => qualifier + column.Trim()));
+        var star = match.Index + match.Length - 1;
+        replacement = text.Substring(0, star - qualifier.Length) + columns + text.Substring(star + 1);
+        return true;
+    }
+
+    private async Task<Document> ReplaceSelectStarAsync(Document document, LiteralExpressionSyntax literal, string replacement, CancellationToken cancellationToken)
+    {
+        // Re-encode the decoded SQL value so escaped, verbatim and raw C# tokens have identical SQL semantics.
+        var newToken = SyntaxFactory.Literal(replacement);
         var newLiteral = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, newToken).WithTriviaFrom(literal);
         var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
         var newRoot = root!.ReplaceNode(literal, newLiteral);

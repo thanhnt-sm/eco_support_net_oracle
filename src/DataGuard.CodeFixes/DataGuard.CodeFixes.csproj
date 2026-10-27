@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Product>StackAccord</Product>
+    <Title>StackAccord CodeFixes</Title>
+    <Authors>StackAccord Contributors</Authors>
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <PackageId>DataGuard.CodeFixes</PackageId>
-    <Description>Roslyn code fixes for DataGuard contract validation.</Description>
+    <Description>Roslyn code fixes for StackAccord contract validation.</Description>
     <PackageTags>efcore;stored-procedure;contract-validation;codefix;roslyn</PackageTags>
     <IsRoslynComponent>true</IsRoslynComponent>
     <IncludeBuildOutput>false</IncludeBuildOutput>
@@ -13,7 +16,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" PrivateAssets="all" />
+    <!-- Same Roslyn line as DataGuard.Analyzers (4.12 = VS 2022 17.12+ / .NET 9.0.1xx SDK); see the note there. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.12.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

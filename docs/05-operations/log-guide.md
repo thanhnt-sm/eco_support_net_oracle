@@ -4,7 +4,7 @@
 
 ### 1. Console Output (Default)
 
-DataGuard outputs validation results to stdout by default.
+StackAccord outputs validation results to stdout by default.
 
 ```bash
 # Standard output
@@ -54,6 +54,22 @@ Security audit trail with hash chain.
 {"timestamp":"2026-01-15T10:30:00Z","eventType":"DatabaseOperation","operation":"Validate","provider":"oracle","connectionStringHash":"abc123","details":"Full validation","success":true,"hash":"sha256:...","previousHash":"sha256:..."}
 {"timestamp":"2026-01-15T10:30:05Z","eventType":"CredentialAccess","operation":"GetConnection","provider":"oracle","connectionStringHash":"abc123","hash":"sha256:...","previousHash":"sha256:..."}
 ```
+
+## Visual Studio Output and Local Log
+
+Tools → StackAccord (Beta) writes command banners, result blocks, and rule inventory as separate logical lines in the Output pane. The local diagnostic file mirrors each line with its own UTC timestamp and level. The existing privacy policy redacts recognized credential, private-path, and SQL patterns and removes control characters before the extension adds line breaks. Redaction is best effort, not a guarantee of anonymity. A newline inside one logical record or decoded field cannot create an additional output record; raw CLI stderr still uses physical lines as message framing.
+
+A zero exit code describes the CLI policy result; it does not prove every configured rule or contract was evaluated. For example, a run may report:
+
+```text
+Result: 0 errors, 0 warnings
+Ground truth: schema+entities
+Coverage: incomplete; unavailable rules 1. Review Rule ... not evaluated, UNEVALUATED and ACQUISITION lines above.
+```
+
+Follow the `Rule ... not evaluated`, `UNEVALUATED`, and `ACQUISITION` lines to identify missing prerequisites and retry after resolving them. When no ground truth was loaded, the extension reports syntactic-only validation and suggests Refresh Snapshot or an EF model snapshot. Counts absent from an older CLI summary are unknown, not evidence of full coverage. Rule inventory remains an execution-event list, not a per-contract coverage certificate.
+
+Exit code 3 reports incomplete validation. The exit explanation does not determine Error List publication: the extension separately reports loaded diagnostics, missing or unreadable SARIF, discarded results, or an unavailable Error List provider. A valid SARIF with the IDE-safe handshake can replace previous tasks, including clearing them when it has no diagnostics.
 
 ## Understanding Output
 

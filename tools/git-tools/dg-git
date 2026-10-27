@@ -22,8 +22,12 @@ DG_YES_MODE="${DG_YES_MODE:-false}"
 DG_STRICT_MODE="${DG_STRICT_MODE:-false}"
 # Support a per-user SDK installed by dotnet-install so direct `bash dg-git`
 # works as reliably as the Windows dg-git.cmd wrapper.
-if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
-    export PATH="$HOME/.dotnet:$PATH"
+if ! dotnet --version >/dev/null 2>&1; then
+    if [[ -x "$HOME/.dotnet/dotnet" ]] && "$HOME/.dotnet/dotnet" --version >/dev/null 2>&1; then
+        export PATH="$HOME/.dotnet:$PATH"
+    elif [[ -x "$HOME/.dotnet/dotnet.exe" ]] && "$HOME/.dotnet/dotnet.exe" --version >/dev/null 2>&1; then
+        export PATH="$HOME/.dotnet:$PATH"
+    fi
 fi
 # `act` is a portable GitHub Actions runner. Docker Desktop remains the only
 # container runtime; neither tool is installed project-wide.

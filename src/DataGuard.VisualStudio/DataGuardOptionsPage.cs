@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Shell;
 
 /// <summary>
-/// Options dialog page for DataGuard extension under Tools -&gt; Options -&gt; DataGuard -&gt; General.
+/// Options dialog page for StackAccord extension under Tools -&gt; Options -&gt; StackAccord -&gt; General.
 /// Allows enabling/disabling detailed diagnostics and configuring custom log and CLI paths.
 /// </summary>
 [ComVisible(true)]
@@ -49,7 +49,7 @@ public class DataGuardOptionsPage : DialogPage
     /// </summary>
     [Category("Automation")]
     [DisplayName("Run Validation on Build")]
-    [Description("Automatically trigger the DataGuard 'validate' command when a solution build or rebuild finishes successfully.")]
+    [Description("Automatically trigger the StackAccord 'validate' command when a solution build or rebuild finishes successfully.")]
     public bool RunValidationOnBuild { get; set; } = false;
 
     /// <summary>
@@ -79,6 +79,28 @@ public class DataGuardOptionsPage : DialogPage
         get => this.assessmentTimeoutSeconds;
         set => this.assessmentTimeoutSeconds = ClampTimeout(value);
     }
+
+    /// <summary>
+    /// Gets or sets the name of the environment variable that holds the connection string for the live
+    /// database commands (Refresh Snapshot, Verify SQL Shapes). Only the name is stored; the CLI reads the value.
+    /// </summary>
+    [Category("Live Database")]
+    [DisplayName("Connection Environment Variable")]
+    [Description("Name of an environment variable (for example DATAGUARD_CONNECTION_STRING) whose value is the connection string used by Tools > StackAccord (Beta) > Refresh Snapshot and Verify SQL Shapes Against Database. Visual Studio stores only the name; the CLI reads the value (--connection-env). Restart Visual Studio after changing environment variables.")]
+    public string ConnectionEnvironmentVariable { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the database provider for the live commands (sqlserver, oracle, mysql, postgresql).</summary>
+    [Category("Live Database")]
+    [DisplayName("Live Provider")]
+    [Description("Database provider passed as --provider to the live commands: sqlserver (default), oracle, mysql or postgresql. The solution's .dataguard.yml is not read by these commands.")]
+    [DefaultValue(LiveDatabaseOptions.DefaultProvider)]
+    public string LiveProvider { get; set; } = LiveDatabaseOptions.DefaultProvider;
+
+    /// <summary>Gets or sets the optional schema passed as --schema to Refresh Snapshot.</summary>
+    [Category("Live Database")]
+    [DisplayName("Live Schema")]
+    [Description("Optional schema identifier passed as --schema to Refresh Snapshot (for example HR or dbo). Leave empty for the provider default.")]
+    public string LiveSchema { get; set; } = string.Empty;
 
     internal static int ClampTimeout(int value)
     {

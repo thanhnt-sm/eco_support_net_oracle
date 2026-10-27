@@ -2,7 +2,7 @@
 
 > Nguồn: `src/DataGuard.Core/Rules/ (one file per rule; `ContractRuleBase.cs`, `ParameterCountRule.cs`, …)`, `PhantomTableRule.cs`, `PhantomColumnRule.cs`, `Sql/`, `RuleDependencyGraph.cs`
 
-Rules engine là trái tim của DataGuard. Nó chứa 11 rules tích hợp (DG001–DG009, DG015–DG016), đồ thị phụ thuộc để tối ưu thứ tự thực thi, và lớp trừu tượng mà mọi rules kế thừa.
+Rules engine là trái tim của StackAccord. Nó chứa 11 rules tích hợp (DG001–DG009, DG015–DG016), đồ thị phụ thuộc để tối ưu thứ tự thực thi, và lớp trừu tượng mà mọi rules kế thừa.
 
 ## Kiến Trúc
 
@@ -66,12 +66,20 @@ public abstract class ContractRuleBase : IContractRule
 
 Lớp cơ sở cũng cung cấp helper tĩnh `CreateViolation` để tạo violation nhất quán.
 
+`ContractRuleBase` triển khai `IContractEvaluationStatusReporter`. Rule thiếu ground truth gọi `MarkUnevaluated`; đây là kết quả chưa đánh giá, không phải finding hoặc pass. `LiveSqlShapeValidationRule` dùng mã `DG020` và làm sạch thông báo driver. Executor drain các bản ghi khi trả kết quả đã hoàn tất.
+
+Executor graph tuần tự và engine concurrent chi tiết tạo collection trạng thái riêng cho từng instance base rule trong mỗi lượt gọi. Cancellation vẫn được truyền ra; dispose xóa trạng thái và source location chưa trả về của lượt bị hủy. Vì vậy, dùng lại graph hoặc `ValidationPipeline` không đưa các trạng thái bị hủy đó vào kết quả sau. Các lượt lồng nhau hoặc chồng thời gian có collection riêng; kết quả thành công vẫn sở hữu location đã trả về. Child work sống lâu hơn collection đã đóng không thể ghi sang lượt sau hoặc queue của direct caller. Việc bỏ reference cho phép GC thu hồi managed memory; validation không ép GC chạy.
+
+Gọi trực tiếp rule ngoài scope engine vẫn giữ contract công khai `ValidateAsync` / `DrainUnevaluatedContracts`. Engine vẫn drain qua interface `IContractEvaluationStatusReporter`, kể cả explicit implementation trên lớp kế thừa. Custom reporter không dùng `MarkUnevaluated` phải tự quản lý queue khi hủy hoặc chạy đồng thời. Thay đổi này không bảo đảm mọi mutable state của custom rule an toàn khi chạy chồng, và không đổi cleanup producer của `StreamAsync` khi consumer dừng sớm. Phạm vi source mặc định, rule, concurrency và các ngưỡng bảo vệ tài nguyên không đổi. Xem [kế hoạch regression ownership](../../../plans/2026-10-21-run-owned-unevaluated-statuses.md) để biết bằng chứng và giới hạn.
+
 ## Các Rules Tích Hợp
 
 ### DG101 — ParameterCountRule
 
 **Mức độ:** Error
 **Phạm vi:** `RawSqlDescriptor`
+
+Khi có procedure catalog, lời gọi mơ hồ được ghi nhận là chưa đánh giá, không tạo violation giả. DG101 giữ nguyên lý do của resolver: mọi trường hợp trùng schema/package, nhiều overload chưa quan sát được arguments hoặc nhiều overload đồng hạng đều cung cấp note có nội dung.
 
 Kiểm tra rằng các lệnh gọi stored procedure có đúng số lượng tham số. Đối với văn bản SQL bắt đầu bằng `EXEC`/`EXECUTE`, nó đếm các token tham số tiền tố `@` và cảnh báo khi phát hiện 0 tham số.
 
@@ -171,6 +179,8 @@ flowchart LR
 5. Coi là không xác định (không bao giờ phantom, không kiểm tra cột): CTE, derived table, table-valued function (`name(`), `#temp`, biến `@table`, tên ba phần cross-database, `table@dblink`, `DUAL`, `sys.*`, `INFORMATION_SCHEMA.*`, `pg_catalog.*`
 6. Kiểm tra `alias.column` qualified với tham chiếu bảng gần nhất trong scope (subquery trong cùng trước, nên alias dùng lại trong subquery resolve về bảng của subquery)
 7. Kiểm tra các item một identifier của từng danh sách `SELECT` (tách theo ngoặc) với hợp cột của mọi bảng mà `SELECT` đó tham chiếu; `AS alias` và alias ngầm phía sau là tên output, không bao giờ là tham chiếu cột
+
+DG016 so sánh cột PostgreSQL và Oracle bằng folding theo provider cho SQL không quote và exact case cho SQL có quote. Tên cột catalog được giữ nguyên, kể cả `total` và `Total` cùng tồn tại. Quy tắc áp dụng cho tham chiếu qualified, SELECT item đơn giản và scope enclosing/correlated. Public map canonical `SchemaTable.Columns`, so sánh provider trung lập, suppression nguồn unknown và fallback schema sang tên bảng bare được giữ nguyên.
 
 Cả hai rule nhận `IPhantomReferenceAnalyzer` tùy chọn (mặc định: tokenizer ở trên); một kết quả cho mỗi raw SQL contract được cache và dùng chung cho DG015 và DG016. `ProviderRuleCatalog` truyền `TSqlPhantomAnalyzer` cho `--provider sqlserver`; mọi provider khác giữ tokenizer (parse AST cho dialect không phải T-SQL nằm ngoài phạm vi).
 

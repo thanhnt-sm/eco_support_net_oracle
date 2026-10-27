@@ -7,7 +7,7 @@
 
 > Nguồn: `src/DataGuard.Core/Baseline/BaselineManager.cs`
 
-Quản lý baseline cho phép DataGuard làm việc với codebase legacy đã có các violations đã biết. Thay vì thất bại trên mọi vấn đề hiện có, baseline chụp trạng thái hiện tại và chỉ báo cáo các violations **mới** (drift).
+Quản lý baseline cho phép StackAccord làm việc với codebase legacy đã có các violations đã biết. Thay vì thất bại trên mọi vấn đề hiện có, baseline chụp trạng thái hiện tại và chỉ báo cáo các violations **mới** (drift).
 
 ## Vòng Đời Baseline
 
@@ -152,7 +152,7 @@ public record SnapshotColumn(
     int? ColumnId = null);
 ```
 
-Khi baseline bao gồm `schema`, DataGuard có thể kiểm tra với snapshot mà không cần kết nối database — hữu ích cho CI/CD pipeline không có quyền truy cập database. Schema hash bao gồm giá trị mặc định và thứ tự cột khi có dữ liệu.
+Khi baseline bao gồm `schema`, StackAccord có thể kiểm tra với snapshot mà không cần kết nối database — hữu ích cho CI/CD pipeline không có quyền truy cập database. Schema hash bao gồm giá trị mặc định và thứ tự cột khi có dữ liệu.
 
 ## Tính Toán Schema Hash
 

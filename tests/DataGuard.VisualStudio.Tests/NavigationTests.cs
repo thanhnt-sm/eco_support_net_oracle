@@ -10,7 +10,8 @@ using Xunit;
 
 namespace DataGuard.VisualStudio.Tests;
 
-public class NavigationTests
+/// <summary>Unit contracts for diagnostic presentation and navigation guards; no live IDE acceptance.</summary>
+public partial class NavigationTests
 {
     [Fact]
     public void TryFormatProgress_RuleExecutedWithViolations_FormatsCorrectly()
@@ -31,7 +32,7 @@ public class NavigationTests
     public void Navigate_SarifOneBased_LineColumnConversion()
     {
         // SARIF positions are 1-based (startLine=5, startColumn=3).
-        // Visual Studio ErrorTask Line and Column preserve 1-based numbers for Error List UI display.
+        // Internal diagnostics preserve SARIF positions until CreateTask converts them.
         var position = SarifErrorListPublisher.ConvertSarifPosition(5, 3);
 
         position.Line.Should().Be(5);
@@ -77,8 +78,8 @@ public class NavigationTests
         var task = presenter.CreateTask(diag, cache);
 
         // VS Error List displays 1-based line/col numbers in the grid UI
-        task.Line.Should().Be(42);
-        task.Column.Should().Be(12);
+        task.Line.Should().Be(41);
+        task.Column.Should().Be(11);
         task.Document.Should().Be(@"C:\repo\Models\User.cs");
         task.Text.Should().Be("Avoid SELECT *");
         task.ErrorCategory.Should().Be(TaskErrorCategory.Warning);
@@ -88,26 +89,46 @@ public class NavigationTests
     [InlineData(1, 1, 0, 0)]
     [InlineData(42, 12, 41, 11)]
     [InlineData(0, 0, 0, 0)]
-    public void Navigation_CaretCalculation_ConvertsOneBasedToZeroBasedBufferPosition(int taskLine, int taskCol, int expectedBufferLine, int expectedBufferCol)
+    [InlineData(-1, -12, 0, 0)]
+    [InlineData(int.MinValue, int.MinValue, 0, 0)]
+    [InlineData(int.MaxValue, int.MaxValue, int.MaxValue - 1, int.MaxValue - 1)]
+    public void Load_CreateTask_ExposesZeroBasedVsTaskCoordinates(int line, int column, int expectedLine, int expectedColumn)
     {
-        // Line and column indexing translation:
-        // ErrorTask uses 1-based indexing for UI grid display.
-        // IVsTextView.SetCaretPos requires 0-based buffer line and column offsets.
-        var zeroBasedLine = Math.Max(0, taskLine - 1);
-        var zeroBasedCol = Math.Max(0, taskCol - 1);
+        var json = "{\"runs\":[{\"results\":[{\"message\":{\"text\":\"Finding\"},\"locations\":[{\"physicalLocation\":{\"artifactLocation\":{\"uri\":\"Models/User.cs\",\"uriBaseId\":\"%SRCROOT%\"},\"region\":{\"startLine\":" + line + ",\"startColumn\":" + column + "}}}]}]}]}";
+        var loaded = SarifErrorListPublisher.Load(json, Path.GetTempPath());
+        loaded.Diagnostics.Should().ContainSingle();
+        var diagnostic = loaded.Diagnostics[0];
+        diagnostic.Line.Should().Be(Math.Max(0, line));
+        diagnostic.Column.Should().Be(Math.Max(0, column));
 
-        zeroBasedLine.Should().Be(expectedBufferLine);
-        zeroBasedCol.Should().Be(expectedBufferCol);
+        var presenter = new ErrorListPresenter(_ => null, joinableTaskFactory: ThreadHelper.JoinableTaskFactory);
+        var task = presenter.CreateTask(diagnostic, new Dictionary<string, IVsHierarchy?>());
+        AssertTaskCoordinates(task, expectedLine, expectedColumn);
     }
-    [Fact(Skip = "VS SDK integration — requires experimental instance (ErrorListProvider.Navigate needs a live shell)")]
-    public void Navigate_WhenFileMissing_WritesOutputMessage()
+
+    [Theory]
+    [InlineData(int.MinValue, 0)]
+    [InlineData(-1, 0)]
+    [InlineData(0, 0)]
+    [InlineData(1, 0)]
+    [InlineData(int.MaxValue, int.MaxValue - 1)]
+    public void CreateTask_NormalizesDirectDiagnosticCoordinatesWithoutOverflow(int position, int expected)
     {
-        // Documented integration test (ErrorListPresenter.CreateTask):
-        // When an ErrorTask with a non-existent Document path has its Navigate event raised,
-        // it checks File.Exists(task.Document). When false, it must write
-        // "[DataGuard] Cannot navigate: file not found '{task.Document}'.\r\n"
-        // to the DataGuard output pane; when true it calls ErrorListProvider.Navigate(task, LOGVIEWID_Code),
-        // which opens the document and positions the caret at task.Line/task.Column.
+        var presenter = new ErrorListPresenter(_ => null, joinableTaskFactory: ThreadHelper.JoinableTaskFactory);
+        var diagnostic = new SarifDiagnostic { Line = position, Column = position };
+        var task = presenter.CreateTask(diagnostic, new Dictionary<string, IVsHierarchy?>());
+        AssertTaskCoordinates(task, expected, expected);
+    }
+
+    private static void AssertTaskCoordinates(ErrorTask task, int expectedLine, int expectedColumn)
+    {
+        task.Line.Should().Be(expectedLine);
+        task.Column.Should().Be(expectedColumn);
+        var item = (IVsTaskItem)task;
+        item.Line(out var line).Should().Be(0);
+        item.Column(out var column).Should().Be(0);
+        line.Should().Be(expectedLine);
+        column.Should().Be(expectedColumn);
     }
 
     [Fact]
@@ -146,8 +167,8 @@ public class NavigationTests
 
         var task = presenter.CreateTask(diag, cache);
         task.HierarchyItem.Should().BeSameAs(dummyHierarchy);
-        task.Line.Should().Be(10);
-        task.Column.Should().Be(5);
+        task.Line.Should().Be(9);
+        task.Column.Should().Be(4);
     }
 
     private sealed class DummyHierarchy : IVsHierarchy

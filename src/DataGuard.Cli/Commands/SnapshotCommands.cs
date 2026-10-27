@@ -51,6 +51,15 @@ internal static class SnapshotCommands
                     DefaultPackage = package ?? config.DefaultPackage
                 };
 
+                // Defence in depth for hosts that run this live command without --ide-safe (the IDE extensions):
+                // a repository .dataguard.yml must not redirect the write outside the working/config directory.
+                // Checked before any connection is opened.
+                var snapshotPath = config.SnapshotFilePath ?? CliConfigurationResolver.DefaultSnapshotFileName;
+                if (RefuseUncontainedSnapshotPath(snapshotPath, configPath))
+                {
+                    return;
+                }
+
                 if (string.IsNullOrWhiteSpace(config.ConnectionString))
                 {
                     Console.Error.WriteLine("UNEVALUATED: snapshot refresh requires a database connection for fresh acquisition.");
@@ -72,7 +81,6 @@ internal static class SnapshotCommands
                     var (violations, unevaluated) = await ValidateContractsDetailedAsync(acquisition.Contracts, config, provider, config.ConnectionString, ct);
                     WriteUnevaluated(unevaluated, " and are not recorded in the snapshot");
 
-                    var snapshotPath = config.SnapshotFilePath ?? CliConfigurationResolver.DefaultSnapshotFileName;
                     var baselineManager = new BaselineManager(snapshotPath);
 
                     var dbVersion = await GetDatabaseVersionAsync(config, provider, ct);
@@ -94,6 +102,8 @@ internal static class SnapshotCommands
                         SnapshotConversion.ResolveUniformCharset(liveSchema),
                         ct);
 
+                    // Host contract (IDE extensions discard stdout): the written path, relative to the working directory.
+                    Console.Error.WriteLine("snapshot: wrote " + DescribeWrittenSnapshotPath(snapshotPath));
                     Console.WriteLine($"Snapshot refreshed with {baseline.Violations.Count} violations");
                     Console.WriteLine($"Snapshot format version: {baseline.Version} ({snapshotSchema?.Count ?? 0} tables, {snapshotProcedures.Count} stored procedures)");
                     Console.WriteLine($"Database version: {dbVersion}");
@@ -221,7 +231,7 @@ internal static class SnapshotCommands
 
                 if (baseline.Version > SnapshotFormat.LatestVersion)
                 {
-                    Console.Error.WriteLine($"UNEVALUATED: snapshot format version {baseline.Version} is newer than this DataGuard supports ({SnapshotFormat.LatestVersion}).");
+                    Console.Error.WriteLine($"UNEVALUATED: snapshot format version {baseline.Version} is newer than this StackAccord supports ({SnapshotFormat.LatestVersion}).");
                     Environment.ExitCode = 3;
                     return;
                 }
@@ -457,5 +467,58 @@ internal static class SnapshotCommands
         snapshotCommand.Add(snapshotDiffCommand);
 
         return snapshotCommand;
+    }
+
+    /// <summary>
+    /// True when the resolved snapshot path lies under <paramref name="workingDirectory"/> or under the directory of
+    /// <paramref name="configPath"/> (when given). A sibling directory that merely shares the prefix is outside.
+    /// </summary>
+    internal static bool IsSnapshotPathContained(string snapshotPath, string workingDirectory, string? configPath)
+    {
+        try
+        {
+            var full = Path.GetFullPath(snapshotPath, Path.GetFullPath(workingDirectory));
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (full.StartsWith(RootPrefix(workingDirectory), comparison))
+            {
+                return true;
+            }
+
+            var configDirectory = string.IsNullOrWhiteSpace(configPath) ? null : Path.GetDirectoryName(Path.GetFullPath(configPath));
+            return configDirectory is not null && full.StartsWith(RootPrefix(configDirectory), comparison);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        static string RootPrefix(string directory) =>
+            Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+    }
+
+    // Writes the reason, sets exit 4 (the operational tool-error code every output sink uses) and returns true when refused.
+    private static bool RefuseUncontainedSnapshotPath(string snapshotPath, string? configPath)
+    {
+        var cwd = Directory.GetCurrentDirectory();
+        if (IsSnapshotPathContained(snapshotPath, cwd, configPath) && Services.OutputSinks.IsSafeWritablePath(snapshotPath))
+        {
+            return false;
+        }
+
+        Console.Error.WriteLine("Refusing to write snapshot outside the working/config directory or through a symbolic link or invalid path.");
+        Environment.ExitCode = 4;
+        return true;
+    }
+
+    private static string DescribeWrittenSnapshotPath(string snapshotPath)
+    {
+        var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), Path.GetFullPath(snapshotPath));
+        var builder = new System.Text.StringBuilder(relative.Length);
+        foreach (var c in relative)
+        {
+            builder.Append(char.IsControl(c) ? '?' : c);
+        }
+
+        return builder.ToString();
     }
 }

@@ -1,0 +1,32 @@
+using System.Collections.Generic;
+using System.Data;
+using Dapper;
+using DataGuard.Contracts;
+
+namespace Shop.Data;
+
+public class Order
+{
+    [ExpectedColumn("ORDER_ID", "int", IsNullable = false)]
+    public int OrderId { get; set; }
+
+    [ExpectedColumn("CUST_REF", "int", IsNullable = false)]
+    public int CustomerId { get; set; }
+
+    [ExpectedColumn("TOTAL_AMOUNT", "decimal")]
+    public decimal TotalAmount { get; set; }
+}
+
+public class OrderRepository
+{
+    private readonly IDbConnection _connection;
+
+    public OrderRepository(IDbConnection connection) => _connection = connection;
+
+    public IEnumerable<Order> GetAll()
+        => _connection.Query<Order>("SELECT ORDER_ID, CUST_REF, TOTAL_AMOUNT FROM ORDERS");
+
+    // Drifts from the entity: CUST_REF (CustomerId) is not selected.
+    public IEnumerable<Order> GetLargeOrders()
+        => _connection.Query<Order>("SELECT ORDER_ID, TOTAL_AMOUNT FROM ORDERS WHERE TOTAL_AMOUNT > 100");
+}

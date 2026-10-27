@@ -11,7 +11,7 @@ namespace DataGuard.VisualStudio.Tests;
 /// Consent is keyed by solution directory + .dataguard.yml content so a repository update that
 /// changes the config re-prompts; a solution without a config gets a distinct, stable key.
 /// </summary>
-public class SolutionTrustGateTests
+public partial class SolutionTrustGateTests
 {
     private sealed class MemoryConsentStore : ITrustConsentStore
     {
@@ -78,6 +78,43 @@ public class SolutionTrustGateTests
     }
 
     [Fact]
+    public void ConfigChangeAndDeletion_RequireCurrentValidationConsentWithoutGrantingLiveAccess()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dg_trust_lifecycle_" + System.Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var config = Path.Combine(directory, ".dataguard.yml");
+        var solution = Path.Combine(directory, "App.sln");
+        var gate = new SolutionTrustGate(new MemoryConsentStore());
+        try
+        {
+            File.WriteAllText(config, "GroundTruthMode: Snapshot\n");
+            var original = SolutionTrustGate.ComputeConsentKey(directory, solution, config);
+            var live = SolutionTrustGate.ComputeLiveConsentKey(directory, solution);
+            gate.RecordConsent(original);
+            gate.IsConsented(original).Should().BeTrue();
+            gate.IsConsented(live).Should().BeFalse();
+
+            File.WriteAllText(config, "GroundTruthMode: Manual\n");
+            var changed = SolutionTrustGate.ComputeConsentKey(directory, solution, config);
+            gate.IsConsented(changed).Should().BeFalse();
+            gate.RecordConsent(changed);
+            File.Delete(config);
+            var absent = SolutionTrustGate.ComputeConsentKey(directory, solution, config);
+            gate.IsConsented(absent).Should().BeFalse();
+            SolutionTrustGate.ComputeLiveConsentKey(directory, solution).Should().Be(live);
+
+            gate.RecordConsent(live);
+            gate.ForgetSolutionConsent(changed, live).Should().BeTrue();
+            gate.IsConsented(changed).Should().BeFalse();
+            gate.IsConsented(live).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Gate_RecordsAndRecallsConsentThroughStore()
     {
         var store = new MemoryConsentStore();
@@ -120,22 +157,43 @@ public class SolutionTrustGateTests
         gate.ForgetConsent(key).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void ForgetSolutionConsent_RemovesBothKeysAndPreservesOtherSolutions(bool validation, bool live)
+    {
+        var store = new MemoryConsentStore();
+        var gate = new SolutionTrustGate(store);
+        var config = Encoding.UTF8.GetBytes("GroundTruthMode: Snapshot\n");
+        var validationKey = SolutionTrustGate.ComputeConsentKey(@"D:\repo", Sln, config);
+        var liveKey = SolutionTrustGate.ComputeLiveConsentKey(@"D:\repo", Sln);
+        var otherValidation = SolutionTrustGate.ComputeConsentKey(@"D:\repo", @"D:\repo\Other.sln", config);
+        var otherLive = SolutionTrustGate.ComputeLiveConsentKey(@"D:\repo", @"D:\repo\Other.sln");
+        gate.RecordConsent(otherValidation);
+        gate.RecordConsent(otherLive);
+        if (validation)
+        {
+            gate.RecordConsent(validationKey);
+        }
+
+        if (live)
+        {
+            gate.RecordConsent(liveKey);
+        }
+
+        gate.ForgetSolutionConsent(validationKey, liveKey).Should().Be(validation || live);
+        gate.IsConsented(validationKey).Should().BeFalse();
+        gate.IsConsented(liveKey).Should().BeFalse();
+        gate.ForgetSolutionConsent(validationKey, liveKey).Should().BeFalse();
+        store.Keys.Should().BeEquivalentTo(new[] { otherValidation, otherLive });
+    }
+
     [Fact]
     public void BuildPromptText_SaysConsentIsPerSolutionFile()
     {
         SolutionTrustGate.BuildPromptText(@"D:\repo\solution", configExists: true).Should().Contain("this solution file");
-    }
-
-    [Fact]
-    public void BuildPromptText_NamesSolutionAndIdeSafeGuarantees()
-    {
-        var text = SolutionTrustGate.BuildPromptText(@"D:\repo\solution", configExists: true);
-
-        text.Should().Contain(@"D:\repo\solution");
-        text.Should().Contain("--ide-safe");
-        text.Should().Contain("no assemblies are loaded");
-        text.Should().Contain(".dataguard.yml");
-        text.Should().EndWith("Run DataGuard for this solution?");
     }
 
     [Fact]

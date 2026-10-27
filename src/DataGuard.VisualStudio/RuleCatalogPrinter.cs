@@ -7,16 +7,16 @@ namespace DataGuard.VisualStudio;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-/// <summary>Prints the rule catalog (Tools → DataGuard → Validation Rules &amp; Descriptions) to the Output pane.</summary>
+/// <summary>Prints the rule catalog (Tools → StackAccord (Beta) → Validation Rules &amp; Descriptions) to the Output pane.</summary>
 internal static class RuleCatalogPrinter
 {
-    private const string Separator = "========================================================================\r\n";
-    private const string Divider = "------------------------------------------------------------------------\r\n";
+    private const string Separator = "========================================================================";
+    private const string Divider = "------------------------------------------------------------------------";
 
     public static async Task PrintAsync(IReadOnlyList<DataGuardRulesOptionsPage.RuleDescriptor> rules, OutputPaneWriter output)
     {
         await output.ActivateAsync();
-        await output.WriteAsync(Separator + "DataGuard Validation Rules — Current Configuration\r\n" + Separator);
+        await output.WriteLinesAsync(new[] { Separator, "StackAccord Validation Rules — Current Configuration", Separator });
 
         var grouped = new Dictionary<string, List<DataGuardRulesOptionsPage.RuleDescriptor>>();
         var order = new List<string>();
@@ -34,18 +34,21 @@ internal static class RuleCatalogPrinter
 
         foreach (var category in order)
         {
-            await output.WriteAsync($"\r\nCategory: {category}\r\n" + Divider);
+            await output.WriteLinesAsync(new[] { string.Empty, $"Category: {category}", Divider });
             foreach (var rule in grouped[category])
             {
                 var status = rule.IsEnabled ? "[ENABLED] " : "[DISABLED]";
-                await output.WriteAsync($"{status} {rule.Id}: {rule.Name}\r\n           {rule.Description}\r\n");
+                await output.WriteLinesAsync(new[] { $"{status} {rule.Id}: {rule.Name}", $"           {rule.Description}" });
             }
         }
 
-        await output.WriteAsync(
-            "\r\n" + Separator +
-            "[ENABLED] = enabled    [DISABLED] = disabled\r\n" +
-            "To change rules: Tools -> Options -> DataGuard -> Validation Rules.\r\n" +
-            Separator);
+        await output.WriteLinesAsync(new[]
+        {
+            string.Empty,
+            Separator,
+            "[ENABLED] = enabled    [DISABLED] = disabled",
+            "To change rules: Tools -> Options -> StackAccord -> Validation Rules.",
+            Separator,
+        });
     }
 }

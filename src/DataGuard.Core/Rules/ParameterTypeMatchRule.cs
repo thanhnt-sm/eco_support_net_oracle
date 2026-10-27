@@ -9,7 +9,8 @@ namespace DataGuard.Core.Rules;
 /// Rule DG002: the CLR type passed for a stored-procedure parameter must be compatible with the parameter's database type,
 /// using the provider's <see cref="ITypeCompatibility"/> table. With a catalog, every argument bound by
 /// <see cref="StoredProcedureCallResolver"/> that carries a CLR type is checked; without one, descriptor parameters that
-/// carry both a CLR and a database type (manual contracts) are checked. Unknown CLR or database types never produce a finding.
+/// carry both a CLR and a database type (manual contracts) are checked. Unknown CLR or database types are reported as
+/// unevaluated, never as a mismatch finding.
 /// </summary>
 public class ParameterTypeMatchRule : StoredProcedureContractRuleBase
 {
@@ -71,7 +72,12 @@ public class ParameterTypeMatchRule : StoredProcedureContractRuleBase
                 foreach (var binding in resolution.Bindings.Where(b => !string.IsNullOrEmpty(b.Argument.ClrType)))
                 {
                     var parameter = binding.Parameter;
-                    if (table.Check(binding.Argument.ClrType, parameter.DataType, parameter.Precision, parameter.Scale, parameter.MaxLength) == TypeCompatibilityResult.Incompatible)
+                    var compatibility = table.Check(binding.Argument.ClrType, parameter.DataType, parameter.Precision, parameter.Scale, parameter.MaxLength);
+                    if (compatibility == TypeCompatibilityResult.Unknown)
+                    {
+                        MarkUnevaluated(call, $"Cannot determine type compatibility for parameter '{parameter.Name}': CLR type '{binding.Argument.ClrType}', database type '{parameter.DataType}'.");
+                    }
+                    else if (compatibility == TypeCompatibilityResult.Incompatible)
                     {
                         violations.Add(CreateViolation(
                             RuleId,
@@ -100,7 +106,12 @@ public class ParameterTypeMatchRule : StoredProcedureContractRuleBase
                 continue;
             }
 
-            if (table.Check(param.ClrType, param.DataType, param.Precision, param.Scale, param.MaxLength) == TypeCompatibilityResult.Incompatible)
+            var compatibility = table.Check(param.ClrType, param.DataType, param.Precision, param.Scale, param.MaxLength);
+            if (compatibility == TypeCompatibilityResult.Unknown)
+            {
+                MarkUnevaluated(call, $"Cannot determine type compatibility for parameter '{param.Name}': CLR type '{param.ClrType}', database type '{param.DataType}'.");
+            }
+            else if (compatibility == TypeCompatibilityResult.Incompatible)
             {
                 violations.Add(CreateViolation(
                     RuleId,

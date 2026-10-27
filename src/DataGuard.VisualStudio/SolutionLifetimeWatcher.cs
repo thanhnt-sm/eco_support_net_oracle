@@ -76,7 +76,7 @@ internal sealed class SolutionLifetimeWatcher : IVsSolutionEvents, IDisposable
             return null;
         }
 
-        return "[DataGuard] The solution changed or closed while " + command + " was running; its results were discarded.\r\n";
+        return "[StackAccord] The solution changed or closed while " + command + " was running; its results were discarded.\r\n";
     }
 
     internal static bool IsSameSolutionDirectory(string capturedDirectory, string? currentDirectory)

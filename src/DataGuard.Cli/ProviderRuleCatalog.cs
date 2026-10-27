@@ -52,11 +52,22 @@ public static class ProviderRuleCatalog
         ProgressEmitter? progress = null,
         bool strictProcedureContracts = false,
         string? defaultSchema = null,
-        string? defaultPackage = null)
+        string? defaultPackage = null) =>
+        Get(provider, connectionString, progress, strictProcedureContracts, defaultSchema, defaultPackage, NamingConvention.SnakeCaseToPascalCase);
+
+    /// <summary>Builds the inventory with the configured naming comparison; the original overload retains its default.</summary>
+    public static IReadOnlyList<ProviderRuleRegistration> Get(
+        string provider,
+        string? connectionString,
+        ProgressEmitter? progress,
+        bool strictProcedureContracts,
+        string? defaultSchema,
+        string? defaultPackage,
+        NamingConvention namingConvention)
     {
         var rules = new List<ProviderRuleRegistration>();
 
-        AddCoreRules(rules, connectionString, provider, progress, new ProcedureRuleSettings(strictProcedureContracts, defaultSchema, defaultPackage));
+        AddCoreRules(rules, connectionString, provider, progress, new ProcedureRuleSettings(strictProcedureContracts, defaultSchema, defaultPackage), namingConvention);
         if (provider.Equals("oracle", StringComparison.OrdinalIgnoreCase))
         {
             Add(rules, new NonOracleFunctionInOracleContextRule());
@@ -96,7 +107,7 @@ public static class ProviderRuleCatalog
 
     /// <summary>
     /// The rules the CLI executes for <paramref name="provider"/>: every <see cref="RuleAvailability.Ready"/> registration
-    /// of <see cref="Get"/>, in catalog order. <see cref="CreatePipeline"/> composes the same list.
+    /// of <see cref="Get(string, string?, ProgressEmitter?, bool, string?, string?)"/>, in catalog order. <see cref="CreatePipeline"/> composes the same list.
     /// </summary>
     public static IReadOnlyList<IContractRule> GetReadyRules(
         string provider,
@@ -110,22 +121,41 @@ public static class ProviderRuleCatalog
             .Select(registration => registration.Rule)
             .ToList();
 
+    /// <summary>Returns executable rules with the configured naming comparison.</summary>
+    public static IReadOnlyList<IContractRule> GetReadyRules(
+        string provider,
+        string? connectionString,
+        ProgressEmitter? progress,
+        bool strictProcedureContracts,
+        string? defaultSchema,
+        string? defaultPackage,
+        NamingConvention namingConvention) =>
+        Get(provider, connectionString, progress, strictProcedureContracts, defaultSchema, defaultPackage, namingConvention)
+            .Where(registration => registration.Availability == RuleAvailability.Ready)
+            .Select(registration => registration.Rule)
+            .ToList();
+
     /// <summary>
     /// Library entry point with the CLI's rule composition: a <see cref="ValidationPipeline"/> whose rules are
-    /// <see cref="GetReadyRules"/> for <paramref name="provider"/> configured from <paramref name="configuration"/>
-    /// (<c>StrictProcedureContracts</c>, <c>DefaultSchema</c>, <c>DefaultPackage</c>). It runs through the same
-    /// <see cref="GraphValidationExecutor"/> as <c>dataguard validate</c>.
+    /// <see cref="GetReadyRules(string, string?, ProgressEmitter?, bool, string?, string?)"/> for <paramref name="provider"/> configured from <paramref name="configuration"/>
+    /// (<c>StrictProcedureContracts</c>, <c>DefaultSchema</c>, <c>DefaultPackage</c>, <c>NamingConvention</c>). It runs through the same
+    /// <see cref="GraphValidationExecutor"/> as <c>dataguard validate</c>. Unavailable registrations are retained
+    /// as rule outcomes, so incomplete provider coverage is visible even when there are no contracts or findings.
     /// </summary>
     public static ValidationPipeline CreatePipeline(string provider, DataGuardConfiguration configuration, string? connectionString = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        return DataGuardApi.CreatePipeline(configuration).WithProviderRules(GetReadyRules(
+        var registrations = Get(
             provider,
             connectionString,
             progress: null,
             configuration.StrictProcedureContracts,
             configuration.DefaultSchema,
-            configuration.DefaultPackage));
+            configuration.DefaultPackage,
+            configuration.NamingConvention);
+        return DataGuardApi.CreatePipeline(configuration).WithProviderRules(
+            registrations.Where(registration => registration.Availability == RuleAvailability.Ready).Select(registration => registration.Rule),
+            registrations.Where(registration => registration.Availability == RuleAvailability.Unavailable).Select(registration => registration.CreateUnavailableOutcome()));
     }
 
     /// <summary>
@@ -139,7 +169,8 @@ public static class ProviderRuleCatalog
         string? connectionString = null,
         string? provider = null,
         ProgressEmitter? progress = null,
-        ProcedureRuleSettings? procedures = null)
+        ProcedureRuleSettings? procedures = null,
+        NamingConvention namingConvention = NamingConvention.SnakeCaseToPascalCase)
     {
         var sp = procedures ?? new ProcedureRuleSettings(false, null, null);
         var typeCompatibility = CreateTypeCompatibility(provider);
@@ -149,7 +180,7 @@ public static class ProviderRuleCatalog
         Add(rules, new ParameterDirectionRule(providerKey, typeCompatibility, sp.Strict, sp.DefaultSchema, sp.DefaultPackage));
         Add(rules, new ColumnShapeMatchRule());
         Add(rules, new NullableMismatchRule());
-        Add(rules, new NamingConventionRule());
+        Add(rules, new NamingConventionRule(namingConvention));
         var isSqlServer = string.Equals(provider, "sqlserver", StringComparison.OrdinalIgnoreCase);
         Add(rules, new PhantomTableRule(isSqlServer ? new TSqlPhantomAnalyzer() : null));
         Add(rules, new PhantomColumnRule(isSqlServer ? new TSqlPhantomAnalyzer() : null));

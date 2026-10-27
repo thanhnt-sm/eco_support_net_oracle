@@ -7,8 +7,12 @@ cd "$ROOT"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dataguard-verify.XXXXXX")"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-if [[ -x "$HOME/.dotnet/dotnet" || -x "$HOME/.dotnet/dotnet.exe" ]]; then
-    export PATH="$HOME/.dotnet:$PATH"
+if ! dotnet --version >/dev/null 2>&1; then
+    if [[ -x "$HOME/.dotnet/dotnet" ]] && "$HOME/.dotnet/dotnet" --version >/dev/null 2>&1; then
+        export PATH="$HOME/.dotnet:$PATH"
+    elif [[ -x "$HOME/.dotnet/dotnet.exe" ]] && "$HOME/.dotnet/dotnet.exe" --version >/dev/null 2>&1; then
+        export PATH="$HOME/.dotnet:$PATH"
+    fi
 fi
 find_python() {
     for cmd in python3 python py; do

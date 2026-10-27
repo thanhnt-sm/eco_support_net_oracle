@@ -7,7 +7,7 @@
       <Menu guid="guidDataGuardCommandSet" id="DataGuardMenu" priority="0x0100" type="Menu">
         <Parent guid="guidDataGuardCommandSet" id="TopLevelMenuGroup" />
         <Strings>
-          <ButtonText>DataGuard</ButtonText>
+          <ButtonText>StackAccord (Beta)</ButtonText>
           <CommandName>DataGuard</CommandName>
         </Strings>
       </Menu>
@@ -63,11 +63,25 @@
           <CommandName>DataGuardForgetSolutionConsent</CommandName>
         </Strings>
       </Button>
-      <Button guid="guidDataGuardCommandSet" id="InitCommand" priority="0x0106" type="Button">
+      <Button guid="guidDataGuardCommandSet" id="RefreshSnapshotCommand" priority="0x0106" type="Button">
         <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
         <Strings>
-          <ButtonText>Initialize DataGuard</ButtonText>
-          <CommandName>DataGuardInit</CommandName>
+          <ButtonText>Refresh Snapshot</ButtonText>
+          <CommandName>DataGuardRefreshSnapshot</CommandName>
+        </Strings>
+      </Button>
+      <Button guid="guidDataGuardCommandSet" id="VerifyShapeCommand" priority="0x0107" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>Verify SQL Shapes Against Database</ButtonText>
+          <CommandName>DataGuardVerifyShapes</CommandName>
+        </Strings>
+      </Button>
+      <Button guid="guidDataGuardCommandSet" id="SupportSummaryCommand" priority="0x0108" type="Button">
+        <Parent guid="guidDataGuardCommandSet" id="DataGuardGroup" />
+        <Strings>
+          <ButtonText>Export Support Summary</ButtonText>
+          <CommandName>DataGuardSupportSummary</CommandName>
         </Strings>
       </Button>
     </Buttons>
@@ -84,7 +98,9 @@
       <IDSymbol name="ExportLogsCommand" value="0x0103" />
       <IDSymbol name="ViewRulesCommand" value="0x0104" />
       <IDSymbol name="ForgetConsentCommand" value="0x0105" />
-      <IDSymbol name="InitCommand" value="0x0106" />
+      <IDSymbol name="RefreshSnapshotCommand" value="0x0106" />
+      <IDSymbol name="VerifyShapeCommand" value="0x0107" />
+      <IDSymbol name="SupportSummaryCommand" value="0x0108" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

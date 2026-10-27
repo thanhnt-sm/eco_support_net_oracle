@@ -1,362 +1,99 @@
 # Tiện ích mở rộng Visual Studio 2022
 
-Tiện ích mở rộng Visual Studio 2022 của DataGuard tích hợp xác thực contract vào VS IDE qua mô hình mở rộng VSSDK. Chạy CLI DataGuard như tiến trình bên ngoài và hiển thị kết quả trong Error List và Output pane.
-
-## Kiến trúc
-
-```mermaid
-graph TB
-    subgraph "VS 2022 Extension (C#)"
-        PKG[DataGuardPackage]
-        CMD[VSCommandHandler]
-        CLR[CLI Runner]
-        SARIF[SARIF Parser]
-        ERR[Error List Integration]
-        OUT[Output Pane]
-        PG[Process Gate]
-    end
-
-    subgraph "DataGuard CLI (tiến trình ngoài)"
-        DG[dataguard validate]
-    end
-
-    subgraph "VS APIs"
-        EL[Error List]
-        OP[Output Window]
-        SC[Solution Context]
-    end
-
-    PKG -->|AsyncPackage.InitializeAsync| CMD
-    CMD --> CLR
-    CLR -->|Process.Start| DG
-    DG -->|SARIF file| SARIF
-    SARIF --> ERR
-    ERR --> EL
-    CLR --> OUT
-    OUT --> OP
-    PG -->|cancel| CLR
-```
-
-## Quyết định thiết kế chính: Tiến trình CLI bên ngoài
-
-Tiện ích VS **không** tải database provider bên trong `devenv.exe`. Thay vào đó, nó gọi ra CLI `dataguard`:
-
-**Lý do:**
-- Assembly provider database (ví dụ: `Oracle.ManagedDataAccess.Core`) có phụ thuộc native xung đột với assembly đã tải của VS
-- CLI là ứng dụng .NET 9 tự chứa với ngữ cảnh tải assembly riêng
-- Cô lập tiến trình ngăn crash trong IDE do lỗi provider
-- CLI có thể được cập nhật độc lập với tiện ích VS
-
-## DataGuardPackage
-
-Điểm vào là `AsyncPackage` đăng ký lệnh và khởi tạo tiện ích:
-
-```csharp
-[ProvideBindingPath]
-[PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[ProvideAutoLoad(UIContextGuids80.SolutionExists, PackageAutoLoadFlags.BackgroundLoad)]
-[Guid("dataguard-package-guid")]
-[ProvideMenuResource("Menus.ctmenu", 1)]
-public sealed class DataGuardPackage : AsyncPackage
-{
-    protected override async Task InitializeAsync(
-        CancellationToken cancellationToken,
-        IProgress<ServiceProgressData> progress)
-    {
-        await base.InitializeAsync(cancellationToken, progress);
-        await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-        await DataGuardCommand.InitializeAsync(this);
-    }
-}
-```
-
-### Attributes
-
-| Attribute | Mục đích |
-|-----------|----------|
-| `PackageRegistration` | Đăng ký package với VS |
-| `ProvideAutoLoad` | Tự động tải khi solution tồn tại |
-| `Guid` | Định danh package duy nhất |
-| `ProvideMenuResource` | Liên kết với định nghĩa menu lệnh |
-| `ProvideBindingPath` | Thêm thư mục cài đặt tiện ích vào đường dò assembly của Visual Studio cho các dependency đi kèm |
-
-## Lệnh VSSDK Tools
-
-Lệnh được định nghĩa trong file `.vsct` (Visual Studio Command Table):
-
-| Lệnh | ID | Vị trí menu |
-|------|----|-------------|
-| Chạy xác thực | `ValidateCommand` (`0x0100`) | Tools menu |
-| Hủy xác thực | `CancelCommand` (`0x0101`) | Tools menu |
-| Đánh giá workspace | `AssessCommand` (`0x0102`) | Tools menu; chạy assessment local-first không có remote advisory consent |
-
-### Command Handler
-
-```csharp
-public sealed class DataGuardCommand
-{
-    public static async Task InitializeAsync(AsyncPackage package)
-    {
-        var commandService = await package.GetServiceAsync<IMenuCommandService>();
-        var runCommand = new CommandID(GuidList.guidDataGuardCmdSet,
-            (int)PkgCmdIDList.cmdidRunValidation);
-        commandService.AddCommand(new MenuCommand(ExecuteValidation, runCommand));
-    }
-
-    private static void ExecuteValidation(object sender, EventArgs e)
-    {
-        // Chạy trên UI thread; spawn tiến trình CLI
-    }
-}
-```
-
-## CLI Runner
-
-CLI runner quản lý tiến trình `dataguard` bên ngoài:
-
-### Vòng đời tiến trình
-
-```mermaid
-sequenceDiagram
-    participant User as Developer
-    participant VS as Tiện ích VS
-    participant CLI as dataguard.exe
-    participant FS as File System
-
-    User->>VS: Tools → Run Validation
-    VS->>VS: Giải quyết config + connection + rule bị tắt
-    VS->>FS: Ghi đường dẫn SARIF tạm
-    VS->>CLI: Process.Start(validate --format sarif --output tmp [--skip-rules ids])
-    VS->>User: Output pane: "Running validation..."
-    CLI-->>FS: Ghi output SARIF
-    CLI-->>VS: Tiến trình thoát (0 hoặc 1)
-    VS->>FS: Đọc file SARIF
-    VS->>VS: Phân tích SARIF → Error List entries
-    VS->>User: Error List được điền
-```
-
-### Khởi chạy tiến trình
-
-```csharp
-var psi = new ProcessStartInfo
-{
-    FileName = "dataguard",
-    Arguments = $"validate --format sarif --output \"{sarifPath}\" --provider {provider}{skipArg}",
-    UseShellExecute = false,
-    RedirectStandardOutput = true,
-    RedirectStandardError = true,
-    CreateNoWindow = true,
-};
-var process = Process.Start(psi);
-```
-
-`skipArg` là `" --skip-rules " + string.Join(",", disabledRuleIds)` khi trang Validation Rules có rule bị tắt; nếu không thì rỗng. Các rule bị tắt được CLI loại trừ nên không bao giờ tới SARIF/Error List.
-
-### Capture output
-
-Cả stdout và stderr được capture bất đồng bộ và ghi vào Output pane VS:
-
-```csharp
-process.OutputDataReceived += (s, e) =>
-{
-    if (e.Data != null)
-        OutputPane.WriteLine(e.Data);
-};
-```
-
-## Tích hợp SARIF vào Error List
-
-Tiện ích phân tích output SARIF 2.1.0 và tạo entries `ErrorTask` cho VS Error List:
-
-### Ánh xạ
-
-| Trường SARIF | Thuộc tính ErrorTask |
-|--------------|---------------------|
-| `result.ruleId` | `Category` |
-| `result.level` | `ErrorCategory` (Error/Warning/Message) |
-| `result.message.text` | `Text` |
-| `result.locations[].physicalLocation.artifactLocation.uri` | `Document` |
-| `result.locations[].physicalLocation.region.startLine` | `Line` |
-| `result.locations[].physicalLocation.region.startColumn` | `Column` |
-
-### Điều hướng Error List (Error List Navigation)
-
-Mỗi `ErrorTask` gắn một bộ lắng nghe sự kiện `Navigate` bất đồng bộ để chuyển sang luồng chính Visual Studio và thực thi:
-```csharp
-VsShellUtilities.OpenDocument(
-    this,
-    task.Document,
-    Microsoft.VisualStudio.VSConstants.LOGVIEWID_Code,
-    out _,
-    out _,
-    out IVsWindowFrame windowFrame,
-    out IVsTextView textView);
-windowFrame?.Show();
-if (textView != null)
-{
-    textView.SetCaretPos(task.Line, task.Column);
-    textView.CenterLines(task.Line, 1);
-}
-```
-Nhấp đúp vào bất kỳ mục nào trong Error List sẽ tự động mở tệp mã nguồn mục tiêu, đặt con trỏ tại đúng vị trí dòng (`Line`) và cột (`Column`), đồng thời căn giữa dòng trong trình chỉnh sửa văn bản đang hoạt động. Nếu tệp không tồn tại, một thông báo chẩn đoán sẽ được ghi vào Output pane.
-
-### Danh mục lỗi
-
-| Mức SARIF | ErrorCategory VS |
-|-----------|-----------------|
-| `error` | `TaskErrorCategory.Error` |
-| `warning` | `TaskErrorCategory.Warning` |
-| `note` | `TaskErrorCategory.Message` |
-
-## Output Pane và Banner Tóm tắt Rule Inventory
-
-Output pane chuyên dụng "DataGuard" hiển thị:
-
-- Lệnh đang được thực thi
-- CLI stdout (streaming tiến độ thời gian thực)
-- CLI stderr (lỗi)
-- Tóm tắt xác thực và Banner tổng hợp Rule Inventory:
-
-```text
-[DataGuard] ==================== Validation Summary ====================
-[DataGuard] Rules Evaluated: 12 (DG001, DG002, DG010, ...)
-[DataGuard] Rules with Findings: DG010 (2)
-[DataGuard] Double-click any Error List item to jump directly to code.
-[DataGuard] ==========================================================
-```
-
-Bộ tích luỹ danh mục (`_ruleInventory`) theo dõi rule ID, tiêu đề rule và số lượng vi phạm với cơ chế đồng bộ khoá (`lock`) qua các sự kiện tiến độ JSON của CLI và được xoá sạch trước mỗi phiên chạy xác thực.
-
-Pane được tạo qua `IVsOutputWindow`:
-
-```csharp
-var outputWindow = await GetServiceAsync<SVsOutputWindow, IVsOutputWindow>();
-outputWindow.CreatePane(ref guidDataGuardOutputPane, "DataGuard", 1, 1);
-outputWindow.GetPane(ref guidDataGuardOutputPane, out var pane);
-```
-
-## Đóng gói Roslyn Analyzers và Code Fixes bên trong VSIX
-
-Tiện ích đóng gói trực tiếp các bộ phân tích mã và sửa nhanh Roslyn vào gói VSIX:
-- `DataGuard.Analyzers.dll`
-- `DataGuard.CodeFixes.dll`
-
-Các assembly này được biên dịch trong target đóng gói VSIX (`BuildAnalyzers`) và đăng ký dưới dạng asset Analyzer trong `source.extension.vsixmanifest`:
-```xml
-<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.Analyzers.dll" />
-<Asset Type="Microsoft.VisualStudio.Analyzer" Path="DataGuard.CodeFixes.dll" />
-```
-Nhờ đó, người dùng mở solution trên Visual Studio 2022 sẽ nhận được chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (quick-fixes) trực tiếp mà không bắt buộc phải cài đặt thêm gói NuGet riêng lẻ vào từng project.
-
-## Process Gate cho hủy bỏ
-
-Tiện ích duy trì `CancellationTokenSource` điều khiển tiến trình đang chạy:
-
-```csharp
-private CancellationTokenSource? _validationCts;
-
-public void CancelValidation()
-{
-    _validationCts?.Cancel();
-    // Process.Kill() được gọi nếu hủy graceful thất bại
-}
-```
-
-Khi người dùng kích hoạt "Cancel Validation":
-1. `CancellationTokenSource.Cancel()` được gọi
-2. Nếu tiến trình không thoát trong 5 giây, `Process.Kill()` được gọi
-3. Error List không được cập nhật với kết quả một phần
-4. Output pane hiển thị "Validation cancelled"
-
-## Cấu hình
-
-Tiện ích đọc cấu hình từ:
-
-1. **`.dataguard.yml`** trong solution root (chính)
-2. **VS Options page** (Tools → Options → DataGuard)
-3. **Biến môi trường** (`DATAGUARD_CONNECTION_STRING`)
-
-### Options Page (Tools → Options → DataGuard → General)
-
-| Cài đặt | Kiểu | Phân nhóm | Mặc định | Mô tả |
-|---------|------|-----------|----------|-------|
-| Enable Detailed Logging | `bool` | Diagnostics & Logging | `true` | Tự động ghi lại sự kiện vòng đời tiện ích, thực thi lệnh, CLI output và lỗi |
-| Log Directory | `string` | Diagnostics & Logging | `""` (trống) | Thư mục lưu log tùy chỉnh (mặc định `%APPDATA%\DataGuard\logs`) |
-| Custom CLI Executable Path | `string` | CLI Configuration | `""` (trống) | Đường dẫn tuyệt đối đến `dataguard.exe` (fallback về `DATAGUARD_CLI_PATH`, `~/.dotnet/tools`, hoặc PATH) |
-| Run Validation on Build | `bool` | Automation | `false` | Tự động kích hoạt lệnh xác thực khi build/rebuild solution thành công |
-| Validation Timeout (seconds) | `int` | Automation | `300` | Thời gian chờ tối đa trước khi dừng tiến trình CLI `validate` (giới hạn trong khoảng 5 đến 900 giây) |
-| Assessment Timeout (seconds) | `int` | Automation | `60` | Thời gian chờ tối đa trước khi dừng tiến trình CLI `assess` (giới hạn trong khoảng 5 đến 900 giây) |
-### Tùy chọn Validation Rules
-
-`Tools → Options → DataGuard → Validation Rules` cung cấp một toggle cho mỗi nhóm rule. `GetDisabledRuleIds()` ánh xạ mỗi toggle bị tắt sang các rule ID cụ thể (ví dụ tắt dialect leakage loại trừ `DG010-DG013,MY001-MY003,PG001-PG002`). `Run Validation` chuyển tiếp danh sách đó thành `validate --skip-rules <ids>`.
-### Tin cậy Solution & Hộp thoại xác nhận (`SolutionTrustGate`)
-
-Do Visual Studio không có cơ chế workspace-trust tích hợp sẵn cho tiện ích mở rộng, DataGuard hiện thực `SolutionTrustGate` nhằm bảo vệ nhà phát triển khỏi việc thực thi các tệp chưa được xác thực trong repository:
-
-1. **Xác nhận người dùng lần đầu:** Trong lần chạy đầu tiên của `Run Validation` hoặc `Run Assessment`, tiện ích sẽ hiển thị hộp thoại xác nhận native của VS:
-   > *"DataGuard — run validation for this solution file? This will invoke the DataGuard CLI to inspect contracts and queries."*
-2. **Khóa xác nhận bằng mật mã (Consent Keying):** Quyết định đồng ý được lưu vào kho cài đặt nội bộ của Visual Studio, định danh theo:
-   - Thư mục Solution
-   - Đường dẫn tệp `.sln`
-   - Mã băm SHA-256 của tệp `.dataguard.yml`
-   Nếu mã nguồn cập nhật làm thay đổi nội dung `.dataguard.yml` hoặc mở một solution khác trong cùng thư mục, DataGuard sẽ hiển thị lại hộp thoại để người dùng cấp phép.
-3. **An toàn khi build ngầm:** Các lần xác thực được kích hoạt bởi sự kiện build solution không bao giờ hiển thị hộp thoại pop-up. Các solution chưa được cấp phép sẽ tự động được bỏ qua.
-4. **Hủy bỏ quyền tin cậy:** Nhà phát triển có thể hủy bỏ quyền đã cấp bất kỳ lúc nào qua menu `Tools → Forget Solution Consent`.
-
-### Chế độ thực thi an toàn cho IDE (IDE-Safe Mode)
-
-Mỗi khi tiện ích Visual Studio khởi chạy tiến trình CLI, chế độ `--ide-safe` luôn được bật tự động:
-- **Cô lập tiến trình (Process Containment):** CLI chạy dưới các quy tắc sandbox zero-trust nghiêm ngặt.
-- **Ngăn nạp Assembly:** Không cho phép nạp các binary/assembly hoặc plugin ngoài từ repository vào không gian tiến trình.
-- **Chặn Database & Secrets:** Chặn việc mở kết nối cơ sở dữ liệu ngầm hoặc kết nối đến các trình quản lý secret được cấu hình trong repo.
-- **Bảo vệ ghi tệp:** CLI không thể ghi tệp tùy ý ra bên ngoài đường dẫn tệp tạm (temporary artifact) do tiện ích chỉ định.
-- **Bắt tay xác nhận:** Tiện ích kiểm tra dòng thông điệp xác nhận `ide-safe: active` từ stderr trước khi tiếp nhận và công bố kết quả chẩn đoán.
-
-### Ghi nhật ký thực thi & Chẩn đoán (`DataGuardLogger`)
-
-Tiện ích duy trì tệp nhật ký ghi nối tiếp phục vụ chẩn đoán:
-- **Vị trí tệp Log:** `%APPDATA%\DataGuard\logs\dataguard-vs.log` (hoặc thư mục do người dùng thiết lập trong Tools → Options → DataGuard). Tự động fallback về `%TEMP%\DataGuard\logs\dataguard-vs.log` nếu quyền truy cập thư mục AppData bị hạn chế.
-- **Xoay vòng Log:** Duy trì hoạt động phiên hiện tại và thông tin môi trường khởi động (phiên bản VS, CLR runtime, đường dẫn CLI phát hiện).
-- **Khử trùng dữ liệu nhạy cảm (Redaction):** `DataGuardLogger.Redact()` tự động che giấu mật khẩu chuỗi kết nối, token JWT, header Bearer authorization, và API key khớp với các mẫu regex entropy cao trước khi ghi vào đĩa hoặc cửa sổ Output.
-- **Mã thoát tiến trình (Exit Codes):**
-  - `0`: Thành công (không có lỗi hoặc cảnh báo nằm trong ngưỡng cho phép).
-  - `1`: Vi phạm contract / vượt ngưỡng cảnh báo cho phép.
-  - `2`: Lỗi nội bộ trong quá trình CLI thực thi.
-  - `137` / Process Termination: Bị hủy bởi người dùng qua token hủy hoặc timeout ép buộc tắt tiến trình.
-
-### Schema cấu hình `.dataguard.yml`
-
-DataGuard tự động nhận diện `.dataguard.yml` ở thư mục gốc của solution:
-
-```yaml
-version: "1.0"
-provider: sqlserver # hoặc oracle, postgresql, mysql
-
-rules:
-  DG017: # Tránh SELECT *
-    enabled: true
-    severity: warning
-  DG016: # Phát hiện query N+1
-    enabled: true
-    severity: warning
-  DG001: # Lệch kiểu dữ liệu/cột
-    enabled: true
-    severity: error
-
-thresholds:
-  maxWarnings: 50
-  failOnError: true
-
-offline:
-  csharpProject: "src/MyApp/MyApp.csproj"
-```
-
-Các quy tắc như `DG017` ("Avoid SELECT *") chỉ phân tích các câu lệnh truy vấn cơ sở dữ liệu thực sự, bỏ qua khai báo constructor hoặc property của các lớp Entity.
-
-
-## Giới hạn
-
-- Yêu cầu cài đặt CLI `dataguard` và nằm trong PATH để chạy kiểm tra toàn bộ solution dạng batch
-- Chẩn đoán gạch chân cảnh báo (squiggles) và gợi ý sửa nhanh (code fixes) trong trình soạn thảo C# được cung cấp sẵn bởi các bộ Roslyn analyzer đi kèm (`DataGuard.Analyzers.dll` và `DataGuard.CodeFixes.dll`)
-- Đường dẫn file SARIF phải nằm trong thư mục solution để điều hướng Error List
-- Một xác thực tại một thời điểm; yêu cầu đồng thời xếp hàng
+StackAccord chạy CLI đi kèm bên ngoài `devenv.exe` và đưa kết quả kiểm tra theo đợt vào Error List. Roslyn analyzer đi kèm cung cấp diagnostic trong trình soạn thảo qua luồng riêng. Analyzer dùng Roslyn 4.12, cần Visual Studio 2022 **17.12 trở lên**; manifest VSIX chấp nhận `[17.12,19.0)` trên Windows amd64. Đây không phải extension cho Visual Studio for Mac.
+
+## Các lệnh và cách sử dụng
+
+Mở solution, lưu mã nguồn/cấu hình rồi chọn **Tools > StackAccord (Beta)**:
+
+| Lệnh | Hành vi |
+|---|---|
+| Run Validation | Kiểm tra các file đã lưu với `.dataguard.yml` ở gốc solution; công bố kết quả SARIF hợp lệ. |
+| Cancel Validation | Hủy lệnh StackAccord đang chạy và yêu cầu kết thúc cây tiến trình CLI do extension sở hữu. |
+| Assess Workspace | Chạy `assess` ưu tiên cục bộ, không bật quyền truy vấn advisory từ xa. |
+| Export Support Summary | Xem trước summary theo danh sách cho phép, sau đó chủ động lưu cục bộ; không tự tải lên. |
+| View Diagnostic Logs | Mở vị trí log chẩn đoán. |
+| Validation Rules & Descriptions | Hiển thị danh mục rule. |
+| Forget Solution Consent | Xóa consent validation hiện tại và consent riêng cho lệnh live của file solution này. |
+| Refresh Snapshot | Kết nối database đã chọn và ghi `.dataguard-snapshot.json` vào thư mục solution. |
+| Verify SQL Shapes Against Database | Mô tả các truy vấn SQL đọc trên database đã chọn, báo truy vấn chưa xác minh kèm `file:line`. |
+
+Run Validation truyền đường dẫn `.dataguard.yml` ở gốc solution cùng `--ide-safe`. Nếu thiếu file, CLI cảnh báo và dùng giá trị mặc định: `ValidateCommand` truyền `allowMissingConfig: ideSafe` qua bộ phân giải cấu hình tới `ConfigLoader`. Vì vậy, chỉ riêng việc thiếu file không làm lượt chạy IDE này thất bại. File cấu hình có tồn tại nhưng không hợp lệ vẫn có thể gây lỗi validation.
+
+Các lệnh theo đợt đọc file trên đĩa. Lưu rồi chạy lại sau khi sửa; kết quả Error List cũ được giữ đến khi có kết quả thay thế hợp lệ hoặc đóng solution. Khi đã có lệnh chạy, yêu cầu thứ hai bị từ chối bằng thông báo “already running”, không xếp hàng. `Run Validation on Build` cần bật chủ động và bỏ qua solution chưa cấp consent.
+
+Đọc đồng thời **View > Output > StackAccord (Beta)**, thanh trạng thái và Error List. Kết quả syntactic-only nghĩa là chưa tải snapshot, EF model hoặc dữ liệu chuẩn từ database; không có finding lúc đó chưa chứng minh tương thích database. Summary cho biết ground truth và contract chưa đánh giá khi có thông tin. Dùng schema snapshot đã commit hoặc nguồn EF ModelSnapshot được hỗ trợ để so sánh offline; luồng IDE-safe không tải assembly manual đã biên dịch.
+
+## Tìm CLI
+
+VSIX có sẵn `cli\dataguard.exe` self-contained; không bắt buộc cài CLI riêng trên PATH. `CliLocator` tìm theo thứ tự:
+
+1. **Tools > Options > StackAccord > General > Custom CLI Executable Path**: đường dẫn đầy đủ tới executable. Nếu người dùng đặt đường dẫn không hợp lệ, việc tìm CLI thất bại, không tự chuyển sang lựa chọn khác.
+2. `cli\dataguard.exe` đi kèm.
+3. `DATAGUARD_CLI_PATH`.
+4. `%USERPROFILE%\.dotnet\tools`, rồi thư mục cài đặt chuẩn trong Program Files và LocalAppData.
+5. PATH.
+
+Khởi động lại Visual Studio sau khi đổi biến môi trường. Nếu thiếu executable đi kèm, cài lại VSIX hoặc chọn executable tùy chỉnh đã xác minh. Extension chạy executable trực tiếp, không qua shell.
+
+## Consent và chế độ thực thi
+
+**Run Validation** và **Assess Workspace** truyền `--ide-safe`. Công bố kết quả đòi hỏi handshake IDE-safe dương tính và kết quả hoàn tất hợp lệ. Khóa consent validation gồm thư mục solution, file solution và hash `.dataguard.yml` hiện tại; đổi cấu hình hoặc mở file solution khác sẽ hỏi lại. Lượt chạy từ build không hiện hộp thoại.
+
+IDE-safe là chính sách CLI, không phải sandbox của hệ điều hành. Nó vô hiệu hóa việc tải assembly/plugin từ cấu hình và một số thiết lập kết nối, secret manager, output. `IdeSafePolicy` hiện cũng tắt cả hai tùy chọn mô tả Oracle REF CURSOR (`DescribeRefCursors` và `UseRefCursorDescribe`), kể cả khi giữ credential từ môi trường. Ghi chú audit cũ về việc giữ các tùy chọn này thuộc lịch sử, không phản ánh triển khai hiện tại. Handshake xác nhận lựa chọn chính sách, không chứng minh cô lập hoàn toàn tiến trình hoặc mạng.
+
+**Refresh Snapshot** và **Verify SQL Shapes Against Database** là lệnh live rõ ràng. Đặt **Connection Environment Variable**, **Live Provider** và tùy chọn **Live Schema** trong **Tools > Options > StackAccord > General**. Extension lưu tên biến, không lưu credential, và hiện host đích trích xuất để xác nhận **mỗi lần chạy**. Các lệnh này dùng `--connection-env`, không truyền `--config`, `--ide-safe`, `--connection` và không đọc `.dataguard.yml` của solution.
+
+Consent live dùng thư mục và file solution, độc lập với nội dung cấu hình. **Forget Solution Consent** xóa cả khóa validation hiện tại lẫn khóa live, không dừng sau lần xóa đầu tiên; gọi lặp lại an toàn và không ảnh hưởng consent của file solution khác. Lệnh này không hủy lượt đang chạy. Dùng **Cancel Validation** để hủy.
+
+## Ánh xạ SARIF sang Error List
+
+`SarifErrorListPublisher.Load` giữ tọa độ SARIF bắt đầu từ một trong nội bộ (giá trị âm không hợp lệ được đưa về không). Loader nhận file URI không phải UNC, đường dẫn tuyệt đối và đường dẫn tương đối có `uriBaseId: "%SRCROOT%"`; loại đường dẫn sai hoặc ngoài solution sau chuẩn hóa chuỗi. Kiểm tra này không phân giải junction hoặc symbolic link của hệ thống file. Mỗi lượt giữ tối đa 2.000 diagnostic. `ErrorListPresenter.CreateTask` đổi từng tọa độ đúng một lần bằng `Math.Max(1, value) - 1`.
+
+| Giá trị SARIF | Giá trị task / caret VS | Vị trí hiển thị |
+|---|---|---|
+| Dòng 1, cột 1 | 0, 0 | 1:1 |
+| Dòng 42, cột 12 | 41, 11 | 42:12 |
+| Tọa độ thiếu, bằng không hoặc âm | 0 | Dòng/cột đầu tiên |
+
+`ErrorTask` và `IVsTaskItem` trả tọa độ bắt đầu từ không. Điều hướng truyền nguyên giá trị đó vào `IVsTextView.SetCaretPos` và `CenterLines`; log cho người đọc vẫn bắt đầu từ một. Nhấp đúp finding để mở vị trí nguồn. Finding chỉ vị trí trong file đã lưu ở thời điểm kiểm tra, nên hãy lưu và chạy lại nếu sửa đổi làm dịch dòng. File không tồn tại tạo thông báo Output. Level ánh xạ Error/Warning/Message; category của task là BuildCompile và text là thông báo diagnostic.
+
+## Kết quả và exit code
+
+`ExitCodeExplainer` diễn giải đồng thời lệnh, summary, SARIF và trạng thái kết thúc:
+
+| Mã / trạng thái | Ý nghĩa |
+|---|---|
+| 0 | Hoàn tất; đọc warning, ground truth và số contract chưa đánh giá trước khi coi là sạch. |
+| 1 | Có lỗi validation nếu có summary; nếu không có summary thì CLI lỗi trước khi hoàn tất. Với assess: có finding. |
+| 2 | Tham số/cấu hình không hợp lệ. |
+| 3 (validate) | Validation chưa hoàn chỉnh, ví dụ thiếu rule khả dụng hoặc nguồn contract; giữ Error List cũ. |
+| 4 | Validate: từ chối ghi output. Assess: lỗi công cụ. |
+| 130 | Người dùng hủy, theo mã extension ghi nhận. |
+| -1 / timeout | Giá trị timeout do extension ghi, không phải kết luận bình thường của CLI. Nếu tiến trình bị kết thúc sau khi đã ghi kết quả, exit code tiến trình không có ý nghĩa kết luận; đọc giải thích timeout. |
+
+`137` không phải contract mã hủy của extension. Lệnh live có xử lý kết quả riêng; đọc Output tương ứng thay vì áp dụng máy móc bảng validation. Hủy không công bố finding dở dang. Việc kết thúc trước hết dùng `taskkill /T /F`; nếu thất bại, phương án dự phòng chỉ kill tiến trình trực tiếp. Yêu cầu kill thành công chưa chứng minh mọi tiến trình con đã thoát.
+
+## Cấu hình và log
+
+General có log chi tiết (mặc định bật), thư mục log tùy chỉnh, đường dẫn CLI tùy chỉnh, validation khi build (mặc định tắt), timeout validation 300 giây và assessment 60 giây; timeout giới hạn 5–900 giây. **Validation Rules** ánh xạ nhóm rule bị tắt thành `validate --skip-rules`.
+
+Log mặc định là `%APPDATA%\DataGuard\logs\dataguard-vs.log`, có phương án dự phòng trong thư mục tạm. `DataGuardLogger` che các mẫu credential được hỗ trợ. Output hiển thị tiến độ đã phân tích, cảnh báo chính sách, summary và vòng đời lệnh. Dùng **View Diagnostic Logs** để chẩn đoán thiếu finding hoặc lỗi tìm CLI.
+
+## Roslyn analyzer và code fix đi kèm
+
+VSIX chứa `DataGuard.Analyzers.dll`, `DataGuard.CodeFixes.dll`, `DataGuard.Contracts.dll` và `DataGuard.SqlClassification.dll`. Chúng được đăng ký làm analyzer asset và kiểm tra bằng `scripts/assert-vsix.ps1` cùng test đóng gói. Diagnostic trong editor và kết quả CLI theo đợt là hai luồng riêng; CLI chạy thành công chưa chứng minh analyzer được tải.
+
+## Giới hạn kiểm chứng
+
+Đợt rà soát tài liệu này chỉ đối chiếu mã nguồn, không chạy editor Windows hoặc cài gói. Test hồi quy bao phủ Load → CreateTask → IVsTaskItem, biên tọa độ và cô lập consent. Chạy test Windows `net472`, đóng gói VSIX và nghiệm thu điều hướng thủ công tại 1:1, 42:12 là các bước riêng. Khi báo lỗi IDE, ghi phiên bản Visual Studio chính xác, nguồn đã lưu và cách tái hiện. Xem [bằng chứng bảo trì](../../../plans/261015-vs-maintenance/plan.md) để biết trạng thái chạy thực tế.
+
+Đổi tên hiển thị Beta: menu/Output là **StackAccord (Beta)**; đường settings hiển thị là **Tools > Options > StackAccord**. ID category Options/automation vẫn là `DataGuard`; command ID, CLI/config, diagnostic và tên file không đổi. Cần kiểm chứng giữ identity/settings trên đúng artifact Windows.
+
+## Ghép SQL hằng
+
+Run Validation và validate-on-build dùng bộ trích xuất project của CLI. Với CLI được build tương ứng, `System.String.Concat` hằng được hỗ trợ sẽ có SQL và vị trí nguồn. Roslyn analyzer cũng dùng chung evaluator có giới hạn cho đối số trực tiếp của API raw SQL EF: hai đến bốn parameter string, hằng/null của compiler và lồng được hỗ trợ. Không chạy code ứng dụng. Diagnostic bao trọn biểu thức; không cung cấp quickfix SELECT-star để tránh sửa riêng một mảnh.
+
+Hỗ trợ lúc gõ chưa bao gồm Dapper Concat, luồng biến local, overload động/object/array/enumerable hoặc tính tương đương với generator. Không phân giải được SQL không phải bằng chứng validation thành công. Chưa có trạng thái Unknown mới trên UI. Độ phản hồi editor host và hành vi VSIX đã cài cần kiểm chứng trên Windows; test compiler/analyzer không thay thế kiểm chứng này.
+
+Evaluator dùng chung kiểm tra hủy giữa các đối số, fragment ánh xạ và trước khi trả SQL. Thứ tự đối số dùng tìm kiếm giới hạn tối đa bốn phần tử, không có cache lâu dài. Hủy không ngắt một lần sao chép string hoặc hoàn tác callback đã chạy; đây không phải bảo đảm độ trễ editor host.
