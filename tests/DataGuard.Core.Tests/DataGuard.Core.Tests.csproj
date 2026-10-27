@@ -58,6 +58,8 @@
     <Compile Include="../../src/DataGuard.VisualStudio/LiveDatabaseCommands.cs" Link="VisualStudio/LiveDatabaseCommands.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/SolutionTrustGate.cs" Link="VisualStudio/SolutionTrustGate.cs" />
     <Compile Include="../../src/DataGuard.VisualStudio/PathNormalization.cs" Link="VisualStudio/PathNormalization.cs" />
+    <Compile Include="../../src/DataGuard.VisualStudio/DocumentNavigation.cs" Link="VisualStudio/DocumentNavigation.cs" />
+    <Compile Include="../DataGuard.VisualStudio.Tests/NavigationTests.MissingDocument.cs" Link="VisualStudio/NavigationTests.MissingDocument.cs" />
     <Compile Include="../DataGuard.VisualStudio.Tests/LiveDatabaseCommandsTests.Prompts.cs" Link="VisualStudio/LiveDatabaseCommandsTests.Prompts.cs" />
     <Compile Include="../DataGuard.VisualStudio.Tests/SolutionTrustGateTests.Prompts.cs" Link="VisualStudio/SolutionTrustGateTests.Prompts.cs" />
     <Compile Include="../DataGuard.VisualStudio.Tests/AcquisitionSummaryTests.cs" Link="VisualStudio/AcquisitionSummaryTests.cs" />

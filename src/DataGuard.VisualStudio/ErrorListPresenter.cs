@@ -6,7 +6,6 @@ namespace DataGuard.VisualStudio;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -48,11 +47,13 @@ internal sealed class ErrorListPresenter
     internal ErrorListPresenter(
         Func<string, IVsHierarchy?> hierarchyResolver,
         IServiceProvider? serviceProvider = null,
-        JoinableTaskFactory? joinableTaskFactory = null)
+        JoinableTaskFactory? joinableTaskFactory = null,
+        Func<string, Task>? writeOutput = null)
     {
         this.hierarchyResolver = hierarchyResolver ?? throw new ArgumentNullException(nameof(hierarchyResolver));
         this.serviceProvider = serviceProvider;
         this.joinableTaskFactory = joinableTaskFactory;
+        this.writeOutput = writeOutput;
     }
 
     /// <summary>
@@ -133,13 +134,8 @@ internal sealed class ErrorListPresenter
             this.joinableTaskFactory.RunAsync(async () =>
             {
                 await this.joinableTaskFactory.SwitchToMainThreadAsync();
-                if (!File.Exists(task.Document))
+                if (!await DocumentNavigation.CanNavigateAsync(task.Document, this.writeOutput))
                 {
-                    if (this.writeOutput != null)
-                    {
-                        await this.writeOutput($"[StackAccord] Cannot navigate: file not found '{task.Document}'.\r\n");
-                    }
-
                     return;
                 }
 

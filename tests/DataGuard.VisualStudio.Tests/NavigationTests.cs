@@ -10,7 +10,8 @@ using Xunit;
 
 namespace DataGuard.VisualStudio.Tests;
 
-public class NavigationTests
+/// <summary>Unit contracts for diagnostic presentation and navigation guards; no live IDE acceptance.</summary>
+public partial class NavigationTests
 {
     [Fact]
     public void TryFormatProgress_RuleExecutedWithViolations_FormatsCorrectly()
@@ -128,17 +129,6 @@ public class NavigationTests
         item.Column(out var column).Should().Be(0);
         line.Should().Be(expectedLine);
         column.Should().Be(expectedColumn);
-    }
-
-    [Fact(Skip = "VS SDK integration — requires experimental instance (ErrorListProvider.Navigate needs a live shell)")]
-    public void Navigate_WhenFileMissing_WritesOutputMessage()
-    {
-        // Documented integration test (ErrorListPresenter.CreateTask):
-        // When an ErrorTask with a non-existent Document path has its Navigate event raised,
-        // it checks File.Exists(task.Document). When false, it must write
-        // "[StackAccord] Cannot navigate: file not found '{task.Document}'.\r\n"
-        // to the DataGuard output pane; when true it calls ErrorListProvider.Navigate(task, LOGVIEWID_Code),
-        // which opens the document and positions the caret at task.Line/task.Column.
     }
 
     [Fact]
