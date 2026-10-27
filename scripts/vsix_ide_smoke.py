@@ -14,6 +14,11 @@ import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 
+if __package__:
+    from .vsix_installer_receipt import Receipt, ReceiptBlocked, log_argument
+else:
+    from vsix_installer_receipt import Receipt, ReceiptBlocked, log_argument
+
 
 class Blocked(RuntimeError):
     pass
@@ -30,16 +35,16 @@ def select_host(hosts):
     return host
 
 
-def install_arguments(help_text, instance, suffix, vsix):
+def install_arguments(help_text, instance, suffix, vsix, log_name):
     if not re.fullmatch(r'DGSmoke[0-9a-f]{32}', suffix) or not re.fullmatch(r'[A-Za-z0-9]+', instance):
         raise Blocked('unsafe-target')
     # Demand actual switch syntax in this installation's help, never prose or
     # instanceIds alone (that would target the normal user profile).
-    for switch in ('quiet', 'instanceIds', 'rootSuffix'):
+    for switch in ('quiet', 'instanceIds', 'rootSuffix', 'logFile'):
         pattern = r'(?i)(?<!\w)/' + switch + (r'\b' if switch == 'quiet' else r'\s*:')
         if not re.search(pattern, help_text):
             raise Blocked('installer-isolated-profile-switch-unverified')
-    return ['/quiet', '/instanceIds:' + instance, '/rootSuffix:' + suffix, str(vsix)]
+    return ['/quiet', '/instanceIds:' + instance, '/rootSuffix:' + suffix, log_argument(log_name), str(vsix)]
 
 
 def clean_profile(path, parent, name, preexisting=False):
@@ -92,9 +97,9 @@ def verify_activity(path):
     raise Blocked('package-completed-load-activity-evidence-missing')
 
 
-def run(args, timeout=60):
+def run(args, timeout=60, env=None):
     try:
-        result = subprocess.run([str(a) for a in args], capture_output=True, timeout=timeout)
+        result = subprocess.run([str(a) for a in args], capture_output=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         raise Blocked('process-timeout-possible-modal-consent-or-license') from None
     if result.returncode != 0:
@@ -109,6 +114,7 @@ def execute(vsix, evidence, timeout):
     ide = None
     profiles = []
     temporary = None
+    receipt = None
     try:
         if not vsix.is_file():
             raise Blocked('exact-built-vsix-missing')
@@ -153,10 +159,35 @@ def execute(vsix, evidence, timeout):
         shutil.copyfile(vsix, staged)
         if sha(staged) != record['vsixSha256']:
             raise Blocked('staging-sha-mismatch')
-        arguments = install_arguments(help_text, host['instanceId'], suffix, staged)
+        receipt_name = 'DGSmokeInstaller-' + uuid.uuid4().hex + '.log'
+        arguments = install_arguments(help_text, host['instanceId'], suffix, staged, receipt_name)
         record['phases'].append('installer-capability-verified')
+        record['phase'] = 'installer-receipt-reservation'
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        # Query the launch context's Windows TEMP resolution, using the exact
+        # frozen environment passed to the installer. Never scan inherited TEMP.
+        installer_environment = dict(os.environ)
+        installer_temp = Path(run([powershell, '-NoProfile', '-NonInteractive', '-Command',
+                                   '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); [System.IO.Path]::GetTempPath()'], timeout=30,
+                                  env=installer_environment).strip())
+        record['installerReceiptName'] = receipt_name
+        record['installerReceiptCleanup'] = 'reservation-unverified-dispose-host'
+        receipt = Receipt(installer_temp, receipt_name)
         record['phase'] = 'install'
-        run([installer, *arguments], timeout=timeout)
+        install_failure = None
+        try:
+            run([installer, *arguments], timeout=timeout, env=installer_environment)
+        except Blocked as exc:
+            install_failure = exc
+        try:
+            record['installerReceipt'] = receipt.metadata()
+        except ReceiptBlocked:
+            if install_failure is not None:
+                record['installerFailure'] = str(install_failure)
+            raise
+        if install_failure is not None:
+            raise install_failure
+        record['phases'].append('owned-installer-receipt-metadata-read')
         if sha(staged) != record['vsixSha256']:
             raise Blocked('candidate-mutated')
         record['packageDllSha256'] = verify_payload(staged, profiles[0][0])
@@ -166,7 +197,6 @@ def execute(vsix, evidence, timeout):
         ide = subprocess.Popen([str(devenv), '/RootSuffix', suffix, '/Log', str(Path(temp) / 'activity.xml')],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         record['launchedPid'] = ide.pid
-        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
         probe = Path(__file__).with_name('vsix_ide_probe.ps1')
         result = json.loads(run([powershell, '-NoProfile', '-STA', '-File', probe,
                                  '-ProcessId', str(ide.pid), '-MajorVersion', version.split('.')[0]], timeout=timeout))
@@ -181,13 +211,20 @@ def execute(vsix, evidence, timeout):
         record['phases'].extend(['canonical-options-property-read', 'package-load-completed-in-activity-log'])
         record['status'] = 'PASS'
         record['phase'] = 'complete'
-    except Blocked as exc:
+    except (Blocked, ReceiptBlocked) as exc:
         record['reason'] = str(exc)
     except Exception as exc:
         # Exception text can expose account names, file paths or other private data.
         record['status'] = 'FAIL'
         record['reason'] = 'unexpected-' + type(exc).__name__
     finally:
+        if receipt is not None:
+            try:
+                receipt.cleanup()
+                record['installerReceiptCleanup'] = 'exact-owned-file-removed'
+            except Exception:
+                record['status'] = 'BLOCKED'
+                record['installerReceiptCleanup'] = 'ownership-or-lock-unverified-dispose-host'
         if ide is not None and ide.poll() is None:
             # Popen retains the exact process handle on Windows, preventing PID-reuse kills.
             try:
