@@ -54,8 +54,9 @@ Repair confirmed failures only. Push CI has 11 successes; schedule has 10 succes
      python3 scripts/check-license-consistency.py
      actionlint .github/workflows/*.yml
      ```
-   - Execute solution build and coverage-validated test modules without weakening any assertion:
+   - Execute solution build and coverage-validated test modules without weakening any assertion. Clear prior generated reports before each baseline run so the manifest sees only the current five reports:
      ```bash
+     rm -rf TestResults/dotnet-unit TestResults/validated-unit
      dotnet restore DataGuard.CrossPlatform.slnf --locked-mode
      dotnet build DataGuard.CrossPlatform.slnf --configuration Release --no-restore
      dotnet test DataGuard.CrossPlatform.slnf --configuration Release --no-build --filter "Category!=LiveDb" --collect:"XPlat Code Coverage" --results-directory TestResults/dotnet-unit --logger trx
@@ -86,6 +87,7 @@ Repair confirmed failures only. Push CI has 11 successes; schedule has 10 succes
 - [ ] Verification check verified: full test files pass without sibling regressions.
 - [ ] NuGet genuine OIDC login and actual publishing proven on authorized release; otherwise explicitly blocked.
 - [x] Scorecard alert #19 resolved with new analysis evidence: dismissed via GitHub API by owner on 2026-10-13 (state: dismissed, reason: won't fix) as accepted risk for single maintainer; open code scanning alerts count is 0.
+- [ ] Visual Studio publisher refuses checksum mismatch and failed/missing provenance before VsixPublisher; full existing policy test module and isolated PowerShell smoke pass without publishing.
 
 ## Risk Assessment
 - **Risk:** Modifying workflow YAML without validating policy scripts triggers policy gate failures in CI.
