@@ -29,8 +29,8 @@
       <IncludeInBuildOutput>false</IncludeInBuildOutput>
     </PackageReference>
     <PackageReference Include="FluentAssertions" Version="7.2.2" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.21" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.21" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.22" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.22" />
     <PackageReference Include="Testcontainers.Oracle" Version="4.16.0" />
     <PackageReference Include="Testcontainers.MsSql" Version="4.16.0" />
   </ItemGroup>
