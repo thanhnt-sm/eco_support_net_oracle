@@ -54,7 +54,7 @@ RUN dotnet publish src/DataGuard.Cli/DataGuard.Cli.csproj \
     -p:Version=$VERSION
 
 # ---------- Runtime stage ----------
-FROM mcr.microsoft.com/dotnet/runtime:9.0@sha256:ee9e6309cef467e134056f9115b31fe3a43ef2959e5b1f42bce0cc97f1b3db3f AS final
+FROM mcr.microsoft.com/dotnet/runtime:11.0@sha256:3fe5f5495141c97986a49d3a4e76061f6225c3f93f94e8a7e522781376193863 AS final
 WORKDIR /app
 
 # Non-root user baked into .NET 9 runtime images (UID 1654).
