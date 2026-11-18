@@ -10,6 +10,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.23" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.23" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0" />
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="11.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="11.0.0" />
+    <PackageReference Include="System.Text.Json" Version="11.0.0" />
     <ProjectReference Include="..\DataGuard.Core\DataGuard.Core.csproj" />
     <PackageReference Include="MySqlConnector" Version="2.6.2" />
   </ItemGroup>
